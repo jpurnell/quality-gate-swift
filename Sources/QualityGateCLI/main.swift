@@ -6,6 +6,7 @@ import BuildChecker
 import TestRunner
 import DocLinter
 import DocCoverageChecker
+import DiskCleaner
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -29,7 +30,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage)")
+    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage, disk-clean)")
     var check: [String] = []
 
     @Flag(name: .long, help: "Continue running checks even if one fails")
@@ -61,12 +62,14 @@ struct QualityGateCLI: AsyncParsableCommand {
         }
 
         // Build the list of checkers to run
+        // Note: DiskCleaner is not included in defaults as it's destructive
         let allCheckers: [any QualityChecker] = [
             BuildChecker(),
             TestRunner(),
             SafetyAuditor(),
             DocLinter(),
-            DocCoverageChecker()
+            DocCoverageChecker(),
+            DiskCleaner()
         ]
 
         let checkersToRun = allCheckers.filter { checker in
