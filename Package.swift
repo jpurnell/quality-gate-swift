@@ -35,6 +35,10 @@ let package = Package(
             name: "DocCoverageChecker",
             targets: ["DocCoverageChecker"]
         ),
+        .library(
+            name: "DiskCleaner",
+            targets: ["DiskCleaner"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -119,6 +123,15 @@ let package = Package(
             dependencies: ["DocCoverageChecker"]
         ),
 
+        .target(
+            name: "DiskCleaner",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "DiskCleanerTests",
+            dependencies: ["DiskCleaner"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -129,6 +142,7 @@ let package = Package(
                 "TestRunner",
                 "DocLinter",
                 "DocCoverageChecker",
+                "DiskCleaner",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             exclude: ["README.md"]
