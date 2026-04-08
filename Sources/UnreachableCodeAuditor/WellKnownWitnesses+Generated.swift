@@ -2391,7 +2391,6 @@ extension WellKnownWitnesses {
         "sharedUnownedExecutor",
 
         // MARK: - Swift.Hashable
-        "hash(into:)",
         "hashValue",
 
         // MARK: - Swift.Identifiable
