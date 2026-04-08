@@ -40,7 +40,9 @@ extract() {
 
 OLD_PAIRS="$(mktemp)"
 NEW_PAIRS="$(mktemp)"
-trap 'rm -f "$OLD_PAIRS" "$NEW_PAIRS"' EXIT
+NEW_ONLY_FILE="$(mktemp)"
+GONE_FILE="$(mktemp)"
+trap 'rm -f "$OLD_PAIRS" "$NEW_PAIRS" "$NEW_ONLY_FILE" "$GONE_FILE"' EXIT
 
 extract "$OLD" > "$OLD_PAIRS"
 extract "$NEW" > "$NEW_PAIRS"
@@ -58,12 +60,19 @@ ADDED_GROUPS="$(printf '%s\n' "$ADDED_PAIRS" | awk -F'|' 'NF { print $1 }' | sor
 REMOVED_GROUPS="$(printf '%s\n' "$REMOVED_PAIRS" | awk -F'|' 'NF { print $1 }' | sort -u)"
 
 # A "new" group is one that exists in NEW but not in OLD at all.
-NEW_ONLY_GROUPS="$(comm -13 \
+# Persist to temp files because BSD awk on macOS rejects newlines in
+# `-v var=...` values, so the awk filters below read these via getline.
+comm -13 \
     <(awk -F'|' 'NF { print $1 }' "$OLD_PAIRS" | sort -u) \
-    <(awk -F'|' 'NF { print $1 }' "$NEW_PAIRS" | sort -u))"
-GONE_GROUPS="$(comm -23 \
+    <(awk -F'|' 'NF { print $1 }' "$NEW_PAIRS" | sort -u) \
+    > "$NEW_ONLY_FILE"
+comm -23 \
     <(awk -F'|' 'NF { print $1 }' "$OLD_PAIRS" | sort -u) \
-    <(awk -F'|' 'NF { print $1 }' "$NEW_PAIRS" | sort -u))"
+    <(awk -F'|' 'NF { print $1 }' "$NEW_PAIRS" | sort -u) \
+    > "$GONE_FILE"
+
+NEW_ONLY_GROUPS="$(cat "$NEW_ONLY_FILE")"
+GONE_GROUPS="$(cat "$GONE_FILE")"
 
 ADDED_COUNT="$(printf '%s\n' "$ADDED_PAIRS" | grep -c . || true)"
 REMOVED_COUNT="$(printf '%s\n' "$REMOVED_PAIRS" | grep -c . || true)"
@@ -114,12 +123,12 @@ fi
 
 # Pairs added to a protocol that already existed in the old file.
 EXTENDED_PAIRS="$(printf '%s\n' "$ADDED_PAIRS" \
-    | awk -F'|' -v new_only="$NEW_ONLY_GROUPS" '
+    | awk -F'|' -v skipfile="$NEW_ONLY_FILE" '
         BEGIN {
-            n = split(new_only, arr, "\n")
-            for (i = 1; i <= n; i++) seen[arr[i]] = 1
+            while ((getline line < skipfile) > 0) skip[line] = 1
+            close(skipfile)
         }
-        NF && !seen[$1]
+        NF && !skip[$1]
     ')"
 
 if [ -n "$EXTENDED_PAIRS" ]; then
@@ -140,12 +149,12 @@ fi
 
 # Pairs removed from a protocol that still exists.
 TRIMMED_PAIRS="$(printf '%s\n' "$REMOVED_PAIRS" \
-    | awk -F'|' -v gone="$GONE_GROUPS" '
+    | awk -F'|' -v skipfile="$GONE_FILE" '
         BEGIN {
-            n = split(gone, arr, "\n")
-            for (i = 1; i <= n; i++) seen[arr[i]] = 1
+            while ((getline line < skipfile) > 0) skip[line] = 1
+            close(skipfile)
         }
-        NF && !seen[$1]
+        NF && !skip[$1]
     ')"
 
 if [ -n "$TRIMMED_PAIRS" ]; then
