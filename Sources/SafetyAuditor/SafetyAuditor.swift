@@ -14,6 +14,8 @@ import SwiftParser
 /// - `unowned`
 /// - `assertionFailure()`
 /// - `while true`
+/// - C-style format strings (`String(format:)`, `NSString(format:)`,
+///   `NSString.localizedStringWithFormat`)
 ///
 /// ## Usage
 ///
@@ -264,6 +266,24 @@ private final class SafetyVisitor: SyntaxVisitor {
     // MARK: - Dangerous Function Calls
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        // C-style format string detection (handles both DeclReference and MemberAccess callees)
+        if isCStyleFormatStringCall(node) {
+            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let line = location.line
+
+            if !isExempted(line: line) {
+                diagnostics.append(Diagnostic(
+                    severity: .error,
+                    message: "C-style format string call detected. String(format:) bridges to the C printf ABI: %s expects a C string pointer (not Swift String) and will crash at runtime with SIGSEGV. Type errors are caught only at runtime.",
+                    file: fileName,
+                    line: line,
+                    column: location.column,
+                    ruleId: "c-style-format-string",
+                    suggestedFix: "Use string interpolation \"\\(value)\", or value.formatted(), or value.formatted(.number.precision(.fractionLength(N))) for decimal places, or String.padding(toLength:withPad:startingAt:) for column alignment. See development-guidelines/00_CORE_RULES/01_CODING_RULES.md §3.7."
+                ))
+            }
+        }
+
         let functionName: String
 
         if let identifierExpr = node.calledExpression.as(DeclReferenceExprSyntax.self) {
@@ -373,6 +393,30 @@ private final class SafetyVisitor: SyntaxVisitor {
         }
 
         return .visitChildren
+    }
+
+    // MARK: - C-Style Format String Helpers
+
+    private func isCStyleFormatStringCall(_ node: FunctionCallExprSyntax) -> Bool {
+        if let ref = node.calledExpression.as(DeclReferenceExprSyntax.self),
+           (ref.baseName.text == "String" || ref.baseName.text == "NSString"),
+           hasFormatArgument(node) {
+            return true
+        }
+
+        if let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+           member.declName.baseName.text == "localizedStringWithFormat",
+           let base = member.base?.as(DeclReferenceExprSyntax.self),
+           base.baseName.text == "NSString" {
+            return true
+        }
+
+        return false
+    }
+
+    private func hasFormatArgument(_ node: FunctionCallExprSyntax) -> Bool {
+        guard let first = node.arguments.first else { return false }
+        return first.label?.text == "format"
     }
 
     // MARK: - Exemption Checking

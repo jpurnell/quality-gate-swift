@@ -117,6 +117,7 @@ The safety auditor detects these patterns in production code:
 | `fatalError()` | Intentional crash |
 | `precondition()` | Can crash in release |
 | `assertionFailure()` | Can crash in release |
+| `String(format:)` / `NSString(format:)` / `NSString.localizedStringWithFormat` | Bridges to C printf ABI; `%s` + Swift String crashes at runtime (SIGSEGV) |
 
 ### Exemptions
 
