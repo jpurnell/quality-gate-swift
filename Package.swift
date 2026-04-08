@@ -51,6 +51,10 @@ let package = Package(
             name: "ConcurrencyAuditor",
             targets: ["ConcurrencyAuditor"]
         ),
+        .library(
+            name: "PointerEscapeAuditor",
+            targets: ["PointerEscapeAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -184,6 +188,19 @@ let package = Package(
         .testTarget(
             name: "ConcurrencyAuditorTests",
             dependencies: ["ConcurrencyAuditor"]
+        ),
+
+        .target(
+            name: "PointerEscapeAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "PointerEscapeAuditorTests",
+            dependencies: ["PointerEscapeAuditor"]
         ),
 
         // MARK: - CLI
