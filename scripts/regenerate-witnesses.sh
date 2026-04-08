@@ -78,12 +78,22 @@ TUPLES_FILE="$WORK_DIR/tuples.txt"
 
 for module in "${MODULES[@]}"; do
     find "$WORK_DIR/$module" -name '*.symbols.json' 2>/dev/null | while IFS= read -r json; do
-        jq -r --arg module "$module" '
+        # IMPORTANT: label each tuple by the JSON's own `.module.name`, not
+        # by the bash loop variable. Apple's symbol graph reports the
+        # *namespace* home of a symbol — e.g. `Actor` is declared in
+        # `_Concurrency.swiftmodule` but its `.module.name` is `"Swift"`
+        # because that's where users reference it (`Swift.Actor`). Using
+        # the loop variable would produce double-labels (`_Concurrency.Actor`
+        # AND `Swift.Actor`) and the local-vs-runner toolchain difference
+        # in which side-effect files get emitted would cause spurious
+        # cron-PR diffs every week.
+        jq -r '
+            .module.name as $module
             # Build a USR -> display-name lookup for every symbol in this file.
-            ( .symbols
-              | map({ key: .identifier.precise, value: .names.title })
-              | from_entries
-            ) as $names
+            | ( .symbols
+                | map({ key: .identifier.precise, value: .names.title })
+                | from_entries
+              ) as $names
             # For each requirement-of relationship, emit a tuple. Filter out
             # entries whose source or target is missing from $names (those
             # come from a different module symbol graph and that module
