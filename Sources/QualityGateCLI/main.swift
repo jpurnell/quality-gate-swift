@@ -7,6 +7,7 @@ import TestRunner
 import DocLinter
 import DocCoverageChecker
 import DiskCleaner
+import UnreachableCodeAuditor
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -39,9 +40,12 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Verbose output")
     var verbose: Bool = false
 
+    @Flag(name: .long, help: "Drive `xcodebuild build` automatically when the unreachable checker can't find a fresh DerivedData index store for an Xcode project / workspace.")
+    var autoBuildXcode: Bool = false
+
     func run() async throws {
         // Load configuration
-        let configuration: Configuration
+        var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
         } catch {
@@ -49,6 +53,22 @@ struct QualityGateCLI: AsyncParsableCommand {
             if verbose {
                 print("No configuration file found, using defaults")
             }
+        }
+        // CLI flag overrides config (v5).
+        if autoBuildXcode && !configuration.unreachableAutoBuildXcode {
+            configuration = Configuration(
+                parallelWorkers: configuration.parallelWorkers,
+                excludePatterns: configuration.excludePatterns,
+                safetyExemptions: configuration.safetyExemptions,
+                enabledCheckers: configuration.enabledCheckers,
+                buildConfiguration: configuration.buildConfiguration,
+                testFilter: configuration.testFilter,
+                docTarget: configuration.docTarget,
+                docCoverageThreshold: configuration.docCoverageThreshold,
+                unreachableAutoBuildXcode: true,
+                xcodeScheme: configuration.xcodeScheme,
+                xcodeDestination: configuration.xcodeDestination
+            )
         }
 
         // Determine effective checkers based on --check flag or configuration
@@ -58,7 +78,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else if !configuration.enabledCheckers.isEmpty {
             effectiveCheckers = configuration.enabledCheckers
         } else {
-            effectiveCheckers = ["build", "test", "safety", "doc-lint", "doc-coverage"]
+            effectiveCheckers = ["build", "test", "safety", "doc-lint", "doc-coverage", "unreachable"]
         }
 
         // Build the list of checkers to run
@@ -69,6 +89,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             SafetyAuditor(),
             DocLinter(),
             DocCoverageChecker(),
+            UnreachableCodeAuditor(),
             DiskCleaner()
         ]
 

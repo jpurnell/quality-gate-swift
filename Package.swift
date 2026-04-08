@@ -39,6 +39,10 @@ let package = Package(
             name: "DiskCleaner",
             targets: ["DiskCleaner"]
         ),
+        .library(
+            name: "UnreachableCodeAuditor",
+            targets: ["UnreachableCodeAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -55,6 +59,7 @@ let package = Package(
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+        .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
     ],
     targets: [
         // MARK: - Core Module
@@ -132,6 +137,21 @@ let package = Package(
             dependencies: ["DiskCleaner"]
         ),
 
+        .target(
+            name: "UnreachableCodeAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "IndexStoreDB", package: "indexstore-db"),
+            ]
+        ),
+        .testTarget(
+            name: "UnreachableCodeAuditorTests",
+            dependencies: ["UnreachableCodeAuditor"],
+            exclude: ["Fixtures"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -143,6 +163,7 @@ let package = Package(
                 "DocLinter",
                 "DocCoverageChecker",
                 "DiskCleaner",
+                "UnreachableCodeAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             exclude: ["README.md"]
