@@ -9,11 +9,11 @@
 // — easy to skim, easy to merge.
 //
 // Source modules:
-//   Swift Foundation SwiftUI UIKit AppKit Combine SwiftData Observation CoreData CoreGraphics OSLog Charts
+//   Swift _Concurrency _StringProcessing Foundation SwiftUI UIKit AppKit Combine SwiftData Observation CoreData CoreGraphics OSLog Charts
 //
 // Last regenerated: 2026-04-07
 // Toolchain:        Apple Swift version 6.3 (swiftlang-6.3.0.123.5 clang-2100.0.123.102)
-// Coverage:         1860 requirement names across 378 protocols
+// Coverage:         1860 requirement names across 388 protocols
 
 import Foundation
 
@@ -27,6 +27,54 @@ extension WellKnownWitnesses {
     /// that re-states `CustomStringConvertible`'s requirement); the
     /// underlying `Set<String>` deduplicates them at runtime.
     static let generated: Set<String> = [
+        // MARK: - _Concurrency.Actor
+        "unownedExecutor",
+
+        // MARK: - _Concurrency.AsyncIteratorProtocol
+        "Element",
+        "Failure",
+        "next()",
+        "next(isolation:)",
+
+        // MARK: - _Concurrency.AsyncSequence
+        "AsyncIterator",
+        "Element",
+        "Failure",
+        "makeAsyncIterator()",
+
+        // MARK: - _Concurrency.Clock
+        "Duration",
+        "Instant",
+        "minimumResolution",
+        "now",
+        "sleep(until:tolerance:)",
+
+        // MARK: - _Concurrency.Executor
+        "enqueue(_:)",
+
+        // MARK: - _Concurrency.GlobalActor
+        "ActorType",
+        "shared",
+        "sharedUnownedExecutor",
+
+        // MARK: - _Concurrency.SerialExecutor
+        "asUnownedSerialExecutor()",
+        "checkIsolated()",
+        "enqueue(_:)",
+        "isIsolatingCurrentContext()",
+        "isSameExclusiveExecutionContext(other:)",
+
+        // MARK: - _Concurrency.TaskExecutor
+        "asUnownedTaskExecutor()",
+        "enqueue(_:)",
+
+        // MARK: - _StringProcessing.CustomConsumingRegexComponent
+        "consuming(_:startingAt:in:)",
+
+        // MARK: - _StringProcessing.RegexComponent
+        "regex",
+        "RegexOutput",
+
         // MARK: - AppKit.NSAccessibilityButton
         "accessibilityLabel()",
         "accessibilityPerformPress()",

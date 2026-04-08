@@ -16,7 +16,19 @@ cd "$(dirname "$0")/.."
 # Modules to extract. Add new ones here when Apple ships a new framework
 # whose protocols you want covered.
 MODULES=(
-    Swift           # stdlib — Encodable, Hashable, Equatable, CustomStringConvertible, …
+    # Swift stdlib top-level. Encodable, Hashable, Equatable,
+    # CustomStringConvertible, ExpressibleBy*Literal, Identifiable, …
+    Swift
+    # Concurrency primitives. Actor, AsyncSequence, AsyncIteratorProtocol,
+    # Clock, Executor, GlobalActor, SerialExecutor, TaskExecutor — these
+    # used to live under `Swift` directly but now have their canonical
+    # definitions inside `_Concurrency` and are re-exported. Without this
+    # entry the regen produces a PR that "removes" all of them, which
+    # would trigger false positives on every modern async-aware codebase.
+    _Concurrency
+    # Regex / string processing. RegexComponent, CustomConsumingRegexComponent,
+    # RegexBuilder, etc. Same re-export story as _Concurrency.
+    _StringProcessing
     Foundation
     SwiftUI
     UIKit
