@@ -43,6 +43,10 @@ let package = Package(
             name: "UnreachableCodeAuditor",
             targets: ["UnreachableCodeAuditor"]
         ),
+        .library(
+            name: "RecursionAuditor",
+            targets: ["RecursionAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -150,6 +154,19 @@ let package = Package(
             name: "UnreachableCodeAuditorTests",
             dependencies: ["UnreachableCodeAuditor"],
             exclude: ["Fixtures"]
+        ),
+
+        .target(
+            name: "RecursionAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "RecursionAuditorTests",
+            dependencies: ["RecursionAuditor"]
         ),
 
         // MARK: - CLI
