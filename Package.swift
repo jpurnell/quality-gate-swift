@@ -47,6 +47,10 @@ let package = Package(
             name: "RecursionAuditor",
             targets: ["RecursionAuditor"]
         ),
+        .library(
+            name: "ConcurrencyAuditor",
+            targets: ["ConcurrencyAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -167,6 +171,19 @@ let package = Package(
         .testTarget(
             name: "RecursionAuditorTests",
             dependencies: ["RecursionAuditor"]
+        ),
+
+        .target(
+            name: "ConcurrencyAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "ConcurrencyAuditorTests",
+            dependencies: ["ConcurrencyAuditor"]
         ),
 
         // MARK: - CLI
