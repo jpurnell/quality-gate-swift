@@ -1,0 +1,5 @@
+excludePatterns:
+  # Test fixtures contain intentionally dead code that exists to drive
+  # the auditor's own reachability tests; auditing them as part of the
+  # outer package would always fail the gate.
+  - "**/Tests/UnreachableCodeAuditorTests/Fixtures/**"

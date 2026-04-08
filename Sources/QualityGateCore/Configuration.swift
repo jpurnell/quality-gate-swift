@@ -49,17 +49,20 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// If set, coverage below threshold triggers failure, otherwise passes.
     public let docCoverageThreshold: Int?
 
+    /// v5: Opt in to driving `xcodebuild build` automatically when the
+    /// `unreachable` checker can't find a fresh DerivedData index store
+    /// for an Xcode project. Default: false (slow + side-effect-y).
+    public let unreachableAutoBuildXcode: Bool
+
+    /// v5: Override the auto-detected scheme for `xcodebuild`. nil ⇒
+    /// pick the first scheme reported by `xcodebuild -list -json`.
+    public let xcodeScheme: String?
+
+    /// v5: Override the auto-build destination. Default
+    /// `"generic/platform=macOS"`.
+    public let xcodeDestination: String?
+
     /// Creates a new configuration with the specified values.
-    ///
-    /// - Parameters:
-    ///   - parallelWorkers: Number of parallel test workers, or nil for auto.
-    ///   - excludePatterns: Patterns for files to exclude.
-    ///   - safetyExemptions: Comment patterns that suppress safety warnings.
-    ///   - enabledCheckers: Which checkers to enable (empty = all).
-    ///   - buildConfiguration: Build configuration (debug/release), or nil for default.
-    ///   - testFilter: Filter pattern for running specific tests.
-    ///   - docTarget: Specific target for documentation linting, or nil for all.
-    ///   - docCoverageThreshold: Minimum doc coverage percentage, or nil for strict mode.
     public init(
         parallelWorkers: Int? = nil,
         excludePatterns: [String] = [],
@@ -68,7 +71,10 @@ public struct Configuration: Sendable, Codable, Equatable {
         buildConfiguration: String? = nil,
         testFilter: String? = nil,
         docTarget: String? = nil,
-        docCoverageThreshold: Int? = nil
+        docCoverageThreshold: Int? = nil,
+        unreachableAutoBuildXcode: Bool = false,
+        xcodeScheme: String? = nil,
+        xcodeDestination: String? = nil
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
@@ -78,6 +84,9 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.testFilter = testFilter
         self.docTarget = docTarget
         self.docCoverageThreshold = docCoverageThreshold
+        self.unreachableAutoBuildXcode = unreachableAutoBuildXcode
+        self.xcodeScheme = xcodeScheme
+        self.xcodeDestination = xcodeDestination
     }
 
     /// The effective number of workers, either from config or computed.
@@ -148,11 +157,12 @@ extension Configuration {
         case testFilter
         case docTarget
         case docCoverageThreshold
+        case unreachableAutoBuildXcode
+        case xcodeScheme
+        case xcodeDestination
     }
 
     /// Creates a configuration by decoding from the given decoder.
-    ///
-    /// - Parameter decoder: The decoder to read data from.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -164,5 +174,8 @@ extension Configuration {
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
         docTarget = try container.decodeIfPresent(String.self, forKey: .docTarget)
         docCoverageThreshold = try container.decodeIfPresent(Int.self, forKey: .docCoverageThreshold)
+        unreachableAutoBuildXcode = try container.decodeIfPresent(Bool.self, forKey: .unreachableAutoBuildXcode) ?? false
+        xcodeScheme = try container.decodeIfPresent(String.self, forKey: .xcodeScheme)
+        xcodeDestination = try container.decodeIfPresent(String.self, forKey: .xcodeDestination)
     }
 }

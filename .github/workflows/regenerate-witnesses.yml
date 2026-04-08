@@ -1,0 +1,62 @@
+name: Regenerate witness allow-list
+
+# v6 #4: weekly cron that regenerates the auto-generated portion of
+# WellKnownWitnesses from the current Swift toolchain's symbol graph.
+# Opens a PR if the diff is non-empty so the allow-list stays current
+# without anyone having to remember to run the script after WWDC / Xcode
+# updates.
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"   # Mondays at 14:00 UTC
+  workflow_dispatch:        # also lets you run it on demand from the Actions tab
+
+# peter-evans/create-pull-request needs to push a branch and open a PR.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  regenerate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcrun swift --version
+
+      - name: Install jq
+        run: brew install jq || true
+
+      - name: Snapshot current allow-list
+        run: cp Sources/UnreachableCodeAuditor/WellKnownWitnesses+Generated.swift /tmp/witnesses.before.swift
+
+      - name: Regenerate
+        run: ./scripts/regenerate-witnesses.sh
+
+      - name: Build & test
+        run: |
+          swift build
+          swift test --filter UnreachableCodeAuditor
+
+      - name: Compute qualitative diff summary
+        id: summary
+        run: |
+          ./scripts/witness-diff-summary.sh \
+            /tmp/witnesses.before.swift \
+            Sources/UnreachableCodeAuditor/WellKnownWitnesses+Generated.swift \
+            > /tmp/pr-body.md
+          {
+            echo 'body<<EOF'
+            cat /tmp/pr-body.md
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open PR if changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: regenerate well-known witness allow-list"
+          title: "chore: regenerate well-known witness allow-list"
+          body: ${{ steps.summary.outputs.body }}
+          branch: chore/regenerate-witnesses
+          delete-branch: true
