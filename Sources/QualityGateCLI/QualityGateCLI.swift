@@ -100,7 +100,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             UnreachableCodeAuditor(),
             RecursionAuditor(),
             ConcurrencyAuditor(
-                firstPartyModules: [],   // populated by Package.swift parser in step 3
+                firstPartyModules: PackageManifestParser.firstPartyTargets(at: FileManager.default.currentDirectoryPath),
                 allowPreconcurrencyImports: Set(configuration.concurrency.allowPreconcurrencyImports),
                 justificationKeyword: configuration.concurrency.justificationKeyword
             ),
