@@ -215,6 +215,9 @@ let package = Package(
                 "DocCoverageChecker",
                 "DiskCleaner",
                 "UnreachableCodeAuditor",
+                "RecursionAuditor",
+                "ConcurrencyAuditor",
+                "PointerEscapeAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             exclude: ["README.md"]
