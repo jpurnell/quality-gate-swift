@@ -372,12 +372,32 @@ func collectSelfInitCalls(in node: Syntax) -> [[String]] {
     return walker.calls
 }
 
-/// True if the body contains any `guard` statement (heuristic for "has base case").
+/// True if the body contains a recognizable base case. Heuristic:
+/// - Any `guard` statement (assumed to early-exit in its else branch), OR
+/// - Any bare `return` (no expression), OR
+/// - Any `return` whose expression is NOT a function call (literal, identifier,
+///   member access, etc. — i.e. a non-recursing return path).
+///
+/// This catches both classic guard-based base cases and the visitor / recursive-
+/// descent pattern where each branch ends in `return` after delegating to a
+/// helper, which is a legitimate non-infinite recursion shape.
 func hasGuardEarlyExit(in node: Syntax) -> Bool {
     final class Walker: SyntaxVisitor {
         var found = false
         override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
             found = true
+            return .skipChildren
+        }
+        override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+            // Bare `return` → base case.
+            guard let expression = node.expression else {
+                found = true
+                return .skipChildren
+            }
+            // `return <non-call>` → base case (literal, identifier, etc.).
+            if !expression.is(FunctionCallExprSyntax.self) {
+                found = true
+            }
             return .skipChildren
         }
     }
