@@ -219,6 +219,8 @@ let package = Package(
                 "ConcurrencyAuditor",
                 "PointerEscapeAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
             ],
             exclude: ["README.md"]
         ),
