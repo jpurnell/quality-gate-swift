@@ -85,7 +85,18 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     }
 
     private func auditSourceCode(_ source: String, fileName: String) -> [Diagnostic] {
-        // RED stub: real implementation arrives in GREEN.
-        return []
+        let tree = Parser.parse(source: source)
+        let converter = SourceLocationConverter(fileName: fileName, tree: tree)
+        let sourceLines = source.components(separatedBy: "\n")
+        let visitor = ConcurrencyVisitor(
+            fileName: fileName,
+            converter: converter,
+            sourceLines: sourceLines,
+            firstPartyModules: firstPartyModules,
+            allowPreconcurrencyImports: allowPreconcurrencyImports,
+            justificationKeyword: justificationKeyword
+        )
+        visitor.walk(tree)
+        return visitor.diagnostics
     }
 }
