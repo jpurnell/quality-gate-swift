@@ -70,7 +70,9 @@ struct QualityGateCLI: AsyncParsableCommand {
                 docCoverageThreshold: configuration.docCoverageThreshold,
                 unreachableAutoBuildXcode: true,
                 xcodeScheme: configuration.xcodeScheme,
-                xcodeDestination: configuration.xcodeDestination
+                xcodeDestination: configuration.xcodeDestination,
+                concurrency: configuration.concurrency,
+                pointerEscape: configuration.pointerEscape
             )
         }
 
@@ -97,8 +99,14 @@ struct QualityGateCLI: AsyncParsableCommand {
             DocCoverageChecker(),
             UnreachableCodeAuditor(),
             RecursionAuditor(),
-            ConcurrencyAuditor(),
-            PointerEscapeAuditor(),
+            ConcurrencyAuditor(
+                firstPartyModules: [],   // populated by Package.swift parser in step 3
+                allowPreconcurrencyImports: Set(configuration.concurrency.allowPreconcurrencyImports),
+                justificationKeyword: configuration.concurrency.justificationKeyword
+            ),
+            PointerEscapeAuditor(
+                allowedEscapeFunctions: Set(configuration.pointerEscape.allowedEscapeFunctions)
+            ),
             DiskCleaner()
         ]
 
