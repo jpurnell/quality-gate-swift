@@ -68,7 +68,15 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
     }
 
     private func auditSourceCode(_ source: String, fileName: String) -> [Diagnostic] {
-        // RED stub: real implementation arrives in GREEN.
-        return []
+        let tree = Parser.parse(source: source)
+        let converter = SourceLocationConverter(fileName: fileName, tree: tree)
+        let visitor = PointerEscapeVisitor(
+            fileName: fileName,
+            converter: converter,
+            allowedEscapeFunctions: allowedEscapeFunctions,
+            sourceText: source
+        )
+        visitor.walk(tree)
+        return visitor.diagnostics
     }
 }
