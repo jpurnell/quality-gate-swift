@@ -12,6 +12,7 @@ import RecursionAuditor
 import ConcurrencyAuditor
 import PointerEscapeAuditor
 import MemoryBuilder
+import AccessibilityAuditor
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -35,7 +36,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage, unreachable, recursion, concurrency, pointer-escape, disk-clean)")
+    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage, unreachable, recursion, concurrency, pointer-escape, accessibility, disk-clean)")
     var check: [String] = []
 
     @Flag(name: .long, help: "Continue running checks even if one fails")
@@ -86,7 +87,8 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else {
             effectiveCheckers = [
                 "build", "test", "safety", "doc-lint", "doc-coverage",
-                "unreachable", "recursion", "concurrency", "pointer-escape"
+                "unreachable", "recursion", "concurrency", "pointer-escape",
+                "accessibility"
             ]
         }
 
@@ -111,6 +113,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             MemoryBuilder(
                 guidelinesPath: configuration.memoryBuilder.guidelinesPath
             ),
+            AccessibilityAuditor(),
             DiskCleaner()
         ]
 
