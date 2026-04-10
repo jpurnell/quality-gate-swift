@@ -59,6 +59,10 @@ let package = Package(
             name: "MemoryBuilder",
             targets: ["MemoryBuilder"]
         ),
+        .library(
+            name: "AccessibilityAuditor",
+            targets: ["AccessibilityAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -219,6 +223,20 @@ let package = Package(
             dependencies: ["MemoryBuilder"]
         ),
 
+        .target(
+            name: "AccessibilityAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            exclude: ["ACCESSIBILITY_MATRIX.md"]
+        ),
+        .testTarget(
+            name: "AccessibilityAuditorTests",
+            dependencies: ["AccessibilityAuditor"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -235,6 +253,7 @@ let package = Package(
                 "ConcurrencyAuditor",
                 "PointerEscapeAuditor",
                 "MemoryBuilder",
+                "AccessibilityAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
