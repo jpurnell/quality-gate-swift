@@ -31,6 +31,18 @@ public struct PointerEscapeAuditorConfig: Sendable, Codable, Equatable {
     public static let `default` = PointerEscapeAuditorConfig()
 }
 
+/// Per-checker configuration for MemoryBuilder.
+public struct MemoryBuilderConfig: Sendable, Codable, Equatable {
+    /// Relative path to the development-guidelines directory.
+    public let guidelinesPath: String
+
+    public init(guidelinesPath: String = "development-guidelines") {
+        self.guidelinesPath = guidelinesPath
+    }
+
+    public static let `default` = MemoryBuilderConfig()
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -109,6 +121,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for PointerEscapeAuditor.
     public let pointerEscape: PointerEscapeAuditorConfig
 
+    /// Per-checker configuration for MemoryBuilder.
+    public let memoryBuilder: MemoryBuilderConfig
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -123,7 +138,8 @@ public struct Configuration: Sendable, Codable, Equatable {
         xcodeScheme: String? = nil,
         xcodeDestination: String? = nil,
         concurrency: ConcurrencyAuditorConfig = .default,
-        pointerEscape: PointerEscapeAuditorConfig = .default
+        pointerEscape: PointerEscapeAuditorConfig = .default,
+        memoryBuilder: MemoryBuilderConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
@@ -138,6 +154,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.xcodeDestination = xcodeDestination
         self.concurrency = concurrency
         self.pointerEscape = pointerEscape
+        self.memoryBuilder = memoryBuilder
     }
 
     /// The effective number of workers, either from config or computed.
@@ -213,6 +230,7 @@ extension Configuration {
         case xcodeDestination
         case concurrency
         case pointerEscape
+        case memoryBuilder
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -232,5 +250,6 @@ extension Configuration {
         xcodeDestination = try container.decodeIfPresent(String.self, forKey: .xcodeDestination)
         concurrency = try container.decodeIfPresent(ConcurrencyAuditorConfig.self, forKey: .concurrency) ?? .default
         pointerEscape = try container.decodeIfPresent(PointerEscapeAuditorConfig.self, forKey: .pointerEscape) ?? .default
+        memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
     }
 }
