@@ -55,6 +55,10 @@ let package = Package(
             name: "PointerEscapeAuditor",
             targets: ["PointerEscapeAuditor"]
         ),
+        .library(
+            name: "MemoryBuilder",
+            targets: ["MemoryBuilder"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -201,6 +205,18 @@ let package = Package(
         .testTarget(
             name: "PointerEscapeAuditorTests",
             dependencies: ["PointerEscapeAuditor"]
+        ),
+
+        .target(
+            name: "MemoryBuilder",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "Yams", package: "Yams"),
+            ]
+        ),
+        .testTarget(
+            name: "MemoryBuilderTests",
+            dependencies: ["MemoryBuilder"]
         ),
 
         // MARK: - CLI
