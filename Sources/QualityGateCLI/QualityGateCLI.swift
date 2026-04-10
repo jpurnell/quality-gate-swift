@@ -11,6 +11,7 @@ import UnreachableCodeAuditor
 import RecursionAuditor
 import ConcurrencyAuditor
 import PointerEscapeAuditor
+import MemoryBuilder
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -106,6 +107,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             ),
             PointerEscapeAuditor(
                 allowedEscapeFunctions: Set(configuration.pointerEscape.allowedEscapeFunctions)
+            ),
+            MemoryBuilder(
+                guidelinesPath: configuration.memoryBuilder.guidelinesPath
             ),
             DiskCleaner()
         ]
