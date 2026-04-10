@@ -1,0 +1,71 @@
+name: CI — Build, Test, and Memory Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show toolchain
+        run: xcrun swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+  memory-validation:
+    runs-on: macos-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build quality-gate
+        run: swift build -c release
+
+      - name: Run memory-builder
+        run: .build/release/quality-gate --check memory-builder --format json > memory-result.json
+
+      - name: Validate memory output
+        run: |
+          # Verify memory-builder ran and produced results
+          STATUS=$(cat memory-result.json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['status'])")
+          echo "Memory builder status: $STATUS"
+          if [ "$STATUS" = "failed" ]; then
+            echo "::error::Memory builder failed"
+            cat memory-result.json | python3 -m json.tool
+            exit 1
+          fi
+
+      - name: Headless Claude validation
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Only run if Claude Code is available and API key is set
+          if ! command -v claude &> /dev/null || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "Skipping headless validation — claude CLI or API key not available"
+            exit 0
+          fi
+
+          claude -p "Run quality-gate --check memory-builder and verify the generated memory files are well-formed: each has valid frontmatter with name/description/type/generated-by fields, bodies are non-empty, and MEMORY.md index entries point to real files. Report any issues found. Do NOT fix anything." \
+            --allowedTools "Bash(quality-gate:*),Bash(.build/*),Read,Glob,Grep" \
+            --output-format text
