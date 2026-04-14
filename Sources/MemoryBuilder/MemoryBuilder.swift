@@ -94,6 +94,14 @@ public struct MemoryBuilder: QualityChecker, Sendable {
             let existingIndex = (try? String(contentsOfFile: indexPath, encoding: .utf8)) ?? ""
             let newIndex = MemoryWriter.mergeIndex(existing: existingIndex, entries: allEntries)
             try newIndex.write(toFile: indexPath, atomically: true, encoding: .utf8)
+            // Post-extraction validation
+            let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
+            let validationDiags = MemoryFileValidator.validate(
+                memoryDir: memoryDir,
+                projectRoot: projectRoot,
+                packagePath: packagePath
+            )
+            diagnostics.append(contentsOf: validationDiags)
         } else {
             diagnostics.append(Diagnostic(
                 severity: .warning,
