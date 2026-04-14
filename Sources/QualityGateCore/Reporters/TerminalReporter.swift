@@ -77,9 +77,9 @@ public struct TerminalReporter: Reporter, Sendable {
     private func formatDuration(_ duration: Duration) -> String {
         let seconds = Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
         if seconds < 1 {
-            return String(format: "%.0fms", seconds * 1000)
+            return "\(Int(seconds * 1000))ms"
         } else {
-            return String(format: "%.2fs", seconds)
+            return "\(seconds.formatted(.number.precision(.fractionLength(2))))s"
         }
     }
 

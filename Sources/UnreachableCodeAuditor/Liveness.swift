@@ -85,7 +85,7 @@ struct LivenessIndex: Sendable {
         var best: DeclRange?
         for r in rs where r.startLine <= line && r.endLine >= line {
             if best == nil
-                || (r.endLine - r.startLine) < (best!.endLine - best!.startLine) {
+                || (r.endLine - r.startLine) < ((best?.endLine ?? 0) - (best?.startLine ?? 0)) {
                 best = r
             }
         }

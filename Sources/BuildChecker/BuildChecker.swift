@@ -154,7 +154,7 @@ public struct BuildChecker: QualityChecker, Sendable {
     // MARK: - Private Implementation
 
     private func runSwiftBuild(arguments: [String]) async throws -> (output: String, exitCode: Int32) {
-        let process = Process()
+        let process = Process() // SAFETY: runs swift build to check compilation
         process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
         process.arguments = ["build"] + arguments
 

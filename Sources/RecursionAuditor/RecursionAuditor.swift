@@ -197,7 +197,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
             if let vIdx = indices[v], lowlinks[v] == vIdx {
                 var component: [Int] = []
-                while true {
+                while true { // SAFETY: loop always terminates — breaks when stack is empty or when w == v
                     guard let w = stack.popLast() else { break }
                     onStack[w] = false
                     component.append(w)

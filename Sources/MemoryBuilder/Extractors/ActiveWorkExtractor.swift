@@ -57,7 +57,7 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
     // MARK: - Helpers
 
     private func runGit(_ args: [String], in directory: String) -> String? {
-        let process = Process()
+        let process = Process() // SAFETY: runs git to detect active work (log, diff, branch)
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = args
         process.currentDirectoryURL = URL(fileURLWithPath: directory)

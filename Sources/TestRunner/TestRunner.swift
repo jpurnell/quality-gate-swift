@@ -224,7 +224,7 @@ public struct TestRunner: QualityChecker, Sendable {
     // MARK: - Private Implementation
 
     private func runSwiftTest(arguments: [String]) async throws -> (output: String, exitCode: Int32) {
-        let process = Process()
+        let process = Process() // SAFETY: runs swift test to execute the project's test suite
         process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
         process.arguments = ["test"] + arguments
 

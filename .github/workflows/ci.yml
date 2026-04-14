@@ -47,7 +47,7 @@ jobs:
       - name: Validate memory output
         run: |
           # Verify memory-builder ran and produced results
-          STATUS=$(cat memory-result.json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['status'])")
+          STATUS=$(cat memory-result.json | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['status'])")
           echo "Memory builder status: $STATUS"
           if [ "$STATUS" = "failed" ]; then
             echo "::error::Memory builder failed"

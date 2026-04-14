@@ -55,7 +55,7 @@ public struct EnvironmentExtractor: MemoryExtractor, Sendable {
     // MARK: - Helpers
 
     private func runCommand(_ executable: String, args: [String]) -> String? {
-        let process = Process()
+        let process = Process() // SAFETY: runs CLI tools (swift, git, xcodebuild) to detect environment info
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
         let pipe = Pipe()
