@@ -31,6 +31,52 @@ public struct PointerEscapeAuditorConfig: Sendable, Codable, Equatable {
     public static let `default` = PointerEscapeAuditorConfig()
 }
 
+/// Per-checker configuration for SecurityVisitor (within SafetyAuditor).
+///
+/// Controls which security rules are enabled and how they detect patterns.
+///
+/// ## YAML Example
+/// ```yaml
+/// security:
+///   enabledRules: []
+///   secretPatterns: ["password", "secret", "apiKey", "token"]
+///   allowedHTTPHosts: ["localhost", "127.0.0.1"]
+///   sqlFunctionNames: ["execute", "prepare", "query"]
+/// ```
+public struct SecurityAuditorConfig: Sendable, Codable, Equatable {
+    /// Which security rules to enable. Empty means all rules are enabled.
+    public let enabledRules: [String]
+
+    /// Regex patterns for variable names that indicate secrets.
+    public let secretPatterns: [String]
+
+    /// Hosts allowed to use http:// (e.g. localhost test servers).
+    public let allowedHTTPHosts: [String]
+
+    /// SQL-executing function names that trigger the sql-injection rule.
+    public let sqlFunctionNames: [String]
+
+    public init(
+        enabledRules: [String] = [],
+        secretPatterns: [String] = [
+            "password", "secret", "apiKey", "api_key", "apikey",
+            "token", "credential", "privateKey", "private_key", "privatekey"
+        ],
+        allowedHTTPHosts: [String] = ["localhost", "127.0.0.1", "0.0.0.0"],
+        sqlFunctionNames: [String] = [
+            "execute", "prepare", "query", "rawQuery",
+            "sqlite3_exec", "sqlite3_prepare"
+        ]
+    ) {
+        self.enabledRules = enabledRules
+        self.secretPatterns = secretPatterns
+        self.allowedHTTPHosts = allowedHTTPHosts
+        self.sqlFunctionNames = sqlFunctionNames
+    }
+
+    public static let `default` = SecurityAuditorConfig()
+}
+
 /// Per-checker configuration for MemoryBuilder.
 public struct MemoryBuilderConfig: Sendable, Codable, Equatable {
     /// Relative path to the development-guidelines directory.
@@ -121,6 +167,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for PointerEscapeAuditor.
     public let pointerEscape: PointerEscapeAuditorConfig
 
+    /// Per-checker configuration for SecurityVisitor (within SafetyAuditor).
+    public let security: SecurityAuditorConfig
+
     /// Per-checker configuration for MemoryBuilder.
     public let memoryBuilder: MemoryBuilderConfig
 
@@ -139,6 +188,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         xcodeDestination: String? = nil,
         concurrency: ConcurrencyAuditorConfig = .default,
         pointerEscape: PointerEscapeAuditorConfig = .default,
+        security: SecurityAuditorConfig = .default,
         memoryBuilder: MemoryBuilderConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
@@ -154,6 +204,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.xcodeDestination = xcodeDestination
         self.concurrency = concurrency
         self.pointerEscape = pointerEscape
+        self.security = security
         self.memoryBuilder = memoryBuilder
     }
 
@@ -230,6 +281,7 @@ extension Configuration {
         case xcodeDestination
         case concurrency
         case pointerEscape
+        case security
         case memoryBuilder
     }
 
@@ -250,6 +302,7 @@ extension Configuration {
         xcodeDestination = try container.decodeIfPresent(String.self, forKey: .xcodeDestination)
         concurrency = try container.decodeIfPresent(ConcurrencyAuditorConfig.self, forKey: .concurrency) ?? .default
         pointerEscape = try container.decodeIfPresent(PointerEscapeAuditorConfig.self, forKey: .pointerEscape) ?? .default
+        security = try container.decodeIfPresent(SecurityAuditorConfig.self, forKey: .security) ?? .default
         memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
     }
 }
