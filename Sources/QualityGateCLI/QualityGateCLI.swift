@@ -49,6 +49,15 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Drive `xcodebuild build` automatically when the unreachable checker can't find a fresh DerivedData index store for an Xcode project / workspace.")
     var autoBuildXcode: Bool = false
 
+    @Flag(name: .long, help: "Apply auto-fixes for checkers that support FixableChecker protocol")
+    var fix: Bool = false
+
+    @Flag(name: .long, help: "Show what --fix would change without applying (requires --fix)")
+    var dryRun: Bool = false
+
+    @Flag(name: .long, help: "Generate initial status documents from actual project state (use with --check status)")
+    var bootstrap: Bool = false
+
     func run() async throws {
         // Load configuration
         var configuration: Configuration
@@ -75,7 +84,10 @@ struct QualityGateCLI: AsyncParsableCommand {
                 xcodeScheme: configuration.xcodeScheme,
                 xcodeDestination: configuration.xcodeDestination,
                 concurrency: configuration.concurrency,
-                pointerEscape: configuration.pointerEscape
+                pointerEscape: configuration.pointerEscape,
+                security: configuration.security,
+                status: configuration.status,
+                memoryBuilder: configuration.memoryBuilder
             )
         }
 
@@ -181,12 +193,89 @@ struct QualityGateCLI: AsyncParsableCommand {
             }
         }
 
+        // Handle --bootstrap: generate initial status documents
+        if bootstrap {
+            let currentDir = FileManager.default.currentDirectoryPath
+            let guidelinesDir = (currentDir as NSString).appendingPathComponent(
+                configuration.status.guidelinesPath
+            )
+            let masterPlanDir = (guidelinesDir as NSString).appendingPathComponent("00_CORE_RULES")
+            let masterPlanPath = (masterPlanDir as NSString).appendingPathComponent("00_MASTER_PLAN.md")
+
+            let content = StatusBootstrapper.generate(
+                projectRoot: currentDir,
+                configuration: configuration
+            )
+
+            if dryRun {
+                print("\n[status] Would generate Master Plan at: \(masterPlanPath)\n")
+                print(content)
+                print("No files modified (dry-run mode).")
+            } else {
+                try FileManager.default.createDirectory(
+                    atPath: masterPlanDir,
+                    withIntermediateDirectories: true
+                )
+                try content.write(toFile: masterPlanPath, atomically: true, encoding: .utf8)
+                print("\n[status] Generated Master Plan at: \(masterPlanPath)")
+                print("  Review and add project-specific prose where marked <!-- TODO -->")
+            }
+            return
+        }
+
+        // Handle --fix: apply auto-fixes for FixableChecker conformers
+        if fix {
+            for result in allResults where result.status == .failed {
+                let checker = checkersToRun.first { $0.id == result.checkerId }
+                guard let fixable = checker as? (any FixableChecker) else {
+                    continue
+                }
+
+                if dryRun {
+                    print("\n[dry-run] \(fixable.name) would apply fixes:")
+                    print("  \(fixable.fixDescription)")
+                    for diag in result.diagnostics {
+                        if let fix = diag.suggestedFix, let file = diag.file {
+                            let lineInfo = diag.line.map { ":\($0)" } ?? ""
+                            print("    \(file)\(lineInfo): \(fix)")
+                        }
+                    }
+                } else {
+                    print("\n[\(fixable.id)] Applying fixes...")
+                    let fixResult = try await fixable.fix(
+                        diagnostics: result.diagnostics,
+                        configuration: configuration
+                    )
+
+                    for mod in fixResult.modifications {
+                        let backup = mod.backupPath.map { " (backup: \($0))" } ?? ""
+                        print("  ✓ \(mod.filePath) — \(mod.description)\(backup)")
+                    }
+
+                    if !fixResult.unfixed.isEmpty {
+                        print("  ℹ  \(fixResult.unfixed.count) diagnostic(s) require manual intervention")
+                    }
+                }
+            }
+        }
+
         // Output results
         var outputStream = StandardOutputStream()
         try reporter.report(allResults, to: &outputStream)
 
+        // Suggest --fix when status fails and --fix wasn't used
+        if hasFailure && !fix {
+            let hasFixable = allResults.contains { result in
+                result.status == .failed
+                    && checkersToRun.contains { $0.id == result.checkerId && $0 is any FixableChecker }
+            }
+            if hasFixable {
+                print("\n💡 Run with --fix --dry-run to preview auto-fixes.")
+            }
+        }
+
         // Exit with appropriate code
-        if hasFailure {
+        if hasFailure && !fix {
             throw ExitCode(1)
         }
     }

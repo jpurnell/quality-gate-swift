@@ -663,3 +663,141 @@ struct StatusRemediatorTests {
         #expect(backup.contains("- [ ] Module"))
     }
 }
+
+// MARK: - StatusBootstrapper Tests
+
+@Suite("StatusBootstrapper Tests")
+struct StatusBootstrapperTests {
+
+    @Test("Generates Master Plan from project with modules")
+    func generatesFromProject() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let sourcesDir = tmpDir.appendingPathComponent("Sources")
+        let moduleDir = sourcesDir.appendingPathComponent("MyModule")
+        let testsDir = tmpDir.appendingPathComponent("Tests")
+        let testModuleDir = testsDir.appendingPathComponent("MyModuleTests")
+
+        try FileManager.default.createDirectory(at: moduleDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: testModuleDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create Package.swift
+        let packageContent = """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(
+            name: "TestProject",
+            targets: [
+                .target(name: "MyModule"),
+                .testTarget(name: "MyModuleTests"),
+            ]
+        )
+        """
+        try packageContent.write(
+            to: tmpDir.appendingPathComponent("Package.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Create source files (>50 lines to pass stub threshold)
+        let sourceContent = (0..<60).map { "let line\($0) = \($0)" }.joined(separator: "\n")
+        try sourceContent.write(
+            to: moduleDir.appendingPathComponent("Source.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Create test file
+        let testContent = """
+        import Testing
+        @Test("Test one") func testOne() { }
+        @Test("Test two") func testTwo() { }
+        """
+        try testContent.write(
+            to: testModuleDir.appendingPathComponent("Tests.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        let content = StatusBootstrapper.generate(
+            projectRoot: tmpDir.path,
+            configuration: Configuration()
+        )
+
+        #expect(content.contains("# TestProject Master Plan"))
+        #expect(content.contains("- [x] MyModule"))
+        #expect(content.contains("Last Updated"))
+        #expect(content.contains("<!-- TODO"))
+    }
+
+    @Test("Generates minimal plan for empty project")
+    func generatesForEmptyProject() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let packageContent = """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(name: "EmptyProject", targets: [])
+        """
+        try packageContent.write(
+            to: tmpDir.appendingPathComponent("Package.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        let content = StatusBootstrapper.generate(
+            projectRoot: tmpDir.path,
+            configuration: Configuration()
+        )
+
+        #expect(content.contains("# EmptyProject Master Plan"))
+        #expect(content.contains("Total: 0 estimated tests"))
+    }
+
+    @Test("Excludes test targets and plugins from module list")
+    func excludesTestsAndPlugins() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let sourcesDir = tmpDir.appendingPathComponent("Sources")
+        try FileManager.default.createDirectory(
+            at: sourcesDir.appendingPathComponent("MyModule"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sourcesDir.appendingPathComponent("MyPlugin"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let packageContent = """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(
+            name: "Test",
+            targets: [
+                .target(name: "MyModule"),
+                .testTarget(name: "MyModuleTests"),
+            ]
+        )
+        """
+        try packageContent.write(
+            to: tmpDir.appendingPathComponent("Package.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        // Add enough source to pass threshold
+        let source = (0..<60).map { "let x\($0) = \($0)" }.joined(separator: "\n")
+        try source.write(
+            to: sourcesDir.appendingPathComponent("MyModule/Source.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        let content = StatusBootstrapper.generate(
+            projectRoot: tmpDir.path,
+            configuration: Configuration()
+        )
+
+        #expect(content.contains("MyModule"))
+        #expect(!content.contains("MyModuleTests"))
+    }
+}
