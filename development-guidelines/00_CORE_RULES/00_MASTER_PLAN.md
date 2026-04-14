@@ -47,11 +47,12 @@ quality-gate-swift/
 │   ├── PointerEscapeAuditor/     # Unsafe pointer lifetime tracking
 │   ├── UnreachableCodeAuditor/   # Dead code via SwiftSyntax + IndexStore
 │   ├── AccessibilityAuditor/     # SwiftUI accessibility checks
-│   ├── MemoryBuilder/            # Project memory file generation
+│   ├── StatusAuditor/            # Doc drift detection + remediation
+│   ├── MemoryBuilder/            # Project memory generation + validation
 │   ├── DiskCleaner/              # Build artifact identification
-│   └── QualityGateCLI/           # Umbrella CLI
+│   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
 ├── Tests/
-│   └── [Test targets for each module — 465 tests, 56 suites]
+│   └── [Test targets for each module — 515 tests, 64 suites]
 └── Package.swift
 ```
 
@@ -101,18 +102,19 @@ graph TD
 - [x] PointerEscapeAuditor — Unsafe pointer lifetime tracking
 - [x] UnreachableCodeAuditor — Dead code via SwiftSyntax + IndexStore
 - [x] AccessibilityAuditor — SwiftUI accessibility checks
-- [x] MemoryBuilder — Project memory file generation
+- [x] MemoryBuilder — Project memory file generation + post-extraction validation
+- [x] StatusAuditor — Doc drift detection + FixableChecker remediation (44 tests)
 - [x] DiskCleaner — Build artifact identification
-- [x] CLI — Umbrella CLI with all checkers registered
+- [x] CLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
 - [x] SPM CommandPlugin
 
-**Total: 465 tests across 56 suites**
+**Total: 515 tests across 64 suites**
 
 ### Known Issues
 - None currently
 
 ### Current Priorities
-1. Complete DocC catalogs for AccessibilityAuditor, DiskCleaner, MemoryBuilder, QualityGateCLI
+1. Complete DocC catalogs for AccessibilityAuditor, DiskCleaner, MemoryBuilder, StatusAuditor, QualityGateCLI
 2. Security rule maintenance — WWDC annual review cycle
 3. Community engagement — swift-security-rules Semgrep YAML repo
 
@@ -175,10 +177,13 @@ graph TD
 - [x] YAML configuration support
 - [x] CI workflow (build, test, memory validation)
 - [x] Security rule staleness workflow (bi-monthly cron)
+- [x] StatusAuditor — doc drift detection with 8 diagnostic rules
+- [x] FixableChecker protocol — --fix/--dry-run/--bootstrap CLI flags
+- [x] MemoryBuilder validation pass — broken index links, malformed/empty files
 
 ### Phase 4: Community & Polish (CURRENT)
 - [ ] DocC catalogs for remaining modules
-- [ ] CONTRIBUTING.md and community guidelines
+- [x] CONTRIBUTING.md and community guidelines
 - [ ] GitHub Action for easy CI integration
 - [ ] VS Code extension integration
 - [ ] Xcode integration via Build Phases
