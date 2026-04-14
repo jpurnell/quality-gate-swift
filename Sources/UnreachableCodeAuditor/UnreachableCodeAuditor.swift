@@ -222,7 +222,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let dylib = usr.appendingPathComponent("lib/libIndexStore.dylib")
-        guard FileManager.default.fileExists(atPath: dylib.path) else {
+        guard FileManager.default.fileExists(atPath: dylib.path) else { // SAFETY: CLI tool checks local toolchain library
             throw ToolchainError.libIndexStoreNotFound
         }
         return dylib

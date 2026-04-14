@@ -48,7 +48,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
 
         var allDiagnostics: [Diagnostic] = []
 
-        if fileManager.fileExists(atPath: sourcesPath) {
+        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let diagnostics = try await auditDirectory(
                 at: sourcesPath,
                 configuration: configuration

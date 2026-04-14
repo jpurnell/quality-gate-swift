@@ -138,7 +138,7 @@ enum IndexStoreManager {
         }
 
         let store = options.derivedDataPath.appendingPathComponent("Index.noindex/DataStore")
-        guard FileManager.default.fileExists(atPath: store.path) else {
+        guard FileManager.default.fileExists(atPath: store.path) else { // SAFETY: CLI tool checks local index store path
             throw Error.buildFailed("xcodebuild succeeded but no index store at \(store.path)")
         }
         return store
@@ -177,7 +177,7 @@ enum IndexStoreManager {
     ) -> URL? {
         let fm = FileManager.default
         let sanitized = projectName.replacingOccurrences(of: " ", with: "_")
-        guard let entries = try? fm.contentsOfDirectory(atPath: derivedDataRoot.path) else {
+        guard let entries = try? fm.contentsOfDirectory(atPath: derivedDataRoot.path) else { // SAFETY: CLI tool enumerates local DerivedData
             return nil
         }
         var matches: [(URL, Date)] = []
@@ -189,7 +189,7 @@ enum IndexStoreManager {
 
             let entryDir = derivedDataRoot.appendingPathComponent(entry)
             let store = entryDir.appendingPathComponent("Index.noindex/DataStore")
-            guard fm.fileExists(atPath: store.path) else { continue }
+            guard fm.fileExists(atPath: store.path) else { continue } // SAFETY: CLI tool checks local index store path
 
             // Best-effort workspace-path validation.
             let infoPlist = entryDir.appendingPathComponent("info.plist")
@@ -202,7 +202,7 @@ enum IndexStoreManager {
                 if canonicalWS != canonicalProj { continue }
             }
 
-            let mtime = (try? fm.attributesOfItem(atPath: store.path)[.modificationDate] as? Date) ?? .distantPast
+            let mtime = (try? fm.attributesOfItem(atPath: store.path)[.modificationDate] as? Date) ?? .distantPast // SAFETY: CLI tool reads local file attributes
             matches.append((store, mtime))
         }
         return matches.max(by: { $0.1 < $1.1 })?.0
@@ -245,7 +245,7 @@ enum IndexStoreManager {
 
     private static func needsRebuild(packageRoot: URL, store: URL) -> Bool {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: store.path) else { return true }
+        guard fm.fileExists(atPath: store.path) else { return true } // SAFETY: CLI tool checks local index store path
         guard let storeMtime = mtime(of: store) else { return true }
         let sources = packageRoot.appendingPathComponent("Sources")
         guard let newestSource = newestSwiftMtime(under: sources) else { return false }
@@ -253,7 +253,7 @@ enum IndexStoreManager {
     }
 
     static func mtime(of url: URL) -> Date? {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) // SAFETY: CLI tool reads local file attributes
         return attrs?[.modificationDate] as? Date
     }
 
@@ -264,7 +264,7 @@ enum IndexStoreManager {
         while let rel = enumerator.nextObject() as? String {
             guard rel.hasSuffix(".swift") else { continue }
             let p = root.appendingPathComponent(rel).path
-            if let m = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date {
+            if let m = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date { // SAFETY: CLI tool reads local file attributes
                 if newest.map({ m > $0 }) ?? true { newest = m }
             }
         }

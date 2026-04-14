@@ -21,7 +21,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var sources: [(fileName: String, source: String)] = []
-        if fileManager.fileExists(atPath: sourcesPath),
+        if fileManager.fileExists(atPath: sourcesPath), // SAFETY: CLI tool reads local project sources
            let enumerator = fileManager.enumerator(atPath: sourcesPath) {
             while let relativePath = enumerator.nextObject() as? String {
                 guard relativePath.hasSuffix(".swift") else { continue }

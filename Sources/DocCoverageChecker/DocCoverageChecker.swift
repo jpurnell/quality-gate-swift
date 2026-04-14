@@ -37,7 +37,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         var documentedAPIs = 0
         var allDiagnostics: [Diagnostic] = []
 
-        if fileManager.fileExists(atPath: sourcesPath) {
+        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let (diagnostics, total, documented) = try await checkDirectoryWithStats(
                 at: sourcesPath,
                 configuration: configuration
