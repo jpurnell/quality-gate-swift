@@ -291,21 +291,51 @@ final class SecurityVisitor: SyntaxVisitor {
 
     // MARK: SQL Injection (CWE-89)
 
+    /// C-level SQLite API names that are unambiguous — always flag regardless of receiver.
+    private static let alwaysFlagSQLNames: Set<String> = [
+        "sqlite3_exec", "sqlite3_prepare", "sqlite3_prepare_v2",
+        "sqlite3_prepare_v3", "sqlite3_prepare16", "rawQuery"
+    ]
+
+    /// Receiver name substrings that indicate a database context.
+    /// Generic function names (execute, prepare, query) are only flagged when
+    /// called on a receiver whose lowercased name contains one of these.
+    private static let dbReceiverPatterns: [String] = [
+        "db", "database", "sql", "sqlite", "connection", "conn",
+        "statement", "stmt", "cursor", "pool", "grdb", "fluent",
+        "mysql", "postgres", "pg", "mongo", "redis", "query"
+    ]
+
     private func checkSQLInjection(_ node: FunctionCallExprSyntax) {
         guard isRuleEnabled("security.sql-injection") else { return }
 
-        // Get the function name being called
+        // Get the function name and optional receiver
         let funcName: String
+        let receiverName: String?
         if let member = node.calledExpression.as(MemberAccessExprSyntax.self) {
             funcName = member.declName.baseName.text
+            receiverName = member.base?.description
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
         } else if let ref = node.calledExpression.as(DeclReferenceExprSyntax.self) {
             funcName = ref.baseName.text
+            receiverName = nil
         } else {
             return
         }
 
         // Only check known SQL-executing functions
         guard configuration.sqlFunctionNames.contains(funcName) else { return }
+
+        // For unambiguous C-API names, always flag regardless of receiver
+        let isUnambiguousSQL = Self.alwaysFlagSQLNames.contains(funcName)
+
+        if !isUnambiguousSQL {
+            // Generic names (execute, prepare, query) need DB-related receiver context
+            guard let receiver = receiverName else { return }
+            let looksLikeDB = Self.dbReceiverPatterns.contains { receiver.contains($0) }
+            guard looksLikeDB else { return }
+        }
 
         // Check if any argument contains string interpolation
         for arg in node.arguments {
