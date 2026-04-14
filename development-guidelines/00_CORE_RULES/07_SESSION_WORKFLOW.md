@@ -138,7 +138,13 @@ Before ending any session, complete the handover protocol to ensure the next ses
 
 - [ ] **State Updated:**
   - [ ] `04_IMPLEMENTATION_CHECKLIST.md` — tasks moved to Completed/Blocked
-  - [ ] `00_MASTER_PLAN.md` — updated if architecture changed
+  - [ ] `00_MASTER_PLAN.md` — updated if any of these changed:
+    - [ ] Module completion status (checkbox `[ ]` → `[x]` or vice versa)
+    - [ ] Test counts (must reflect actual `swift test` output)
+    - [ ] Module descriptions (remove "Stub only" when implemented)
+    - [ ] Roadmap phase labels (mark COMPLETE when all items checked)
+    - [ ] "Last Updated" date (must be today if any change was made)
+  - [ ] Master Plan and Implementation Checklist are consistent (no conflicting status)
 
 - [ ] **Session Summary Created:**
   - [ ] New file in `05_SUMMARIES/` using template
