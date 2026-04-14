@@ -41,21 +41,39 @@ public enum ProjectStateCollector {
 
         var states: [String: ActualModuleState] = [:]
 
-        // Collect all module names from Sources/ directories AND Package.swift targets
+        // Collect all module names from Sources/, Plugins/, and Package.swift targets
         var moduleNames = Set(packageTargets)
 
-        if let sourceDirs = try? fileManager.contentsOfDirectory(atPath: sourcesPath) {
-            for dir in sourceDirs {
-                let dirPath = (sourcesPath as NSString).appendingPathComponent(dir)
-                var isDir: ObjCBool = false
-                if fileManager.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
-                    moduleNames.insert(dir)
+        // Check both Sources/ and Plugins/ directories (SPM plugins live under Plugins/)
+        let searchPaths = [sourcesPath, (sourcesPath as NSString)
+            .deletingLastPathComponent
+            .appending("/Plugins")]
+
+        for searchPath in searchPaths {
+            if let dirs = try? fileManager.contentsOfDirectory(atPath: searchPath) {
+                for dir in dirs {
+                    let dirPath = (searchPath as NSString).appendingPathComponent(dir)
+                    var isDir: ObjCBool = false
+                    if fileManager.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
+                        moduleNames.insert(dir)
+                    }
                 }
             }
         }
 
+        let pluginsPath = (sourcesPath as NSString)
+            .deletingLastPathComponent
+            .appending("/Plugins")
+
         for moduleName in moduleNames {
-            let modulePath = (sourcesPath as NSString).appendingPathComponent(moduleName)
+            // Check Sources/ first, fall back to Plugins/
+            var modulePath = (sourcesPath as NSString).appendingPathComponent(moduleName)
+            if !fileManager.fileExists(atPath: modulePath) {
+                let pluginPath = (pluginsPath as NSString).appendingPathComponent(moduleName)
+                if fileManager.fileExists(atPath: pluginPath) {
+                    modulePath = pluginPath
+                }
+            }
             let testDirName = "\(moduleName)Tests"
             let testPath = (testsPath as NSString).appendingPathComponent(testDirName)
 
