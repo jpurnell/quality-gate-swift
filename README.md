@@ -16,9 +16,10 @@ Automated quality gate checks for Swift projects. Enforce zero warnings, zero te
 | **Pointer Escape Auditor** | `pointer-escape` | Detects unsafe pointer escapes from `withUnsafe*` blocks |
 | **Unreachable Code Auditor** | `unreachable` | Finds dead code via SwiftSyntax + IndexStore analysis |
 | **Accessibility Auditor** | `accessibility` | Checks SwiftUI views for accessibility compliance |
+| **Status Auditor** | `status` | Detects drift between Master Plan/docs and actual code state; supports `--fix` to auto-remediate |
 | **Disk Cleaner** | `disk-cleaner` | Identifies build artifacts and caches for cleanup |
 
-All checkers implement the `QualityChecker` protocol, produce `Diagnostic` results, and support terminal, JSON, and SARIF output.
+All checkers implement the `QualityChecker` protocol, produce `Diagnostic` results, and support terminal, JSON, and SARIF output. Checkers implementing `FixableChecker` also support `--fix` for auto-remediation.
 
 ## Installation
 
@@ -78,6 +79,9 @@ swift package plugin quality-gate --check safety
 | `--config <path>` | Path to config file (default: `.quality-gate.yml`) |
 | `--continue-on-failure` | Run all checks even if one fails |
 | `--verbose` | Show detailed progress |
+| `--fix` | Apply auto-fixes for checkers that support `FixableChecker` |
+| `--dry-run` | Preview what `--fix` would change without writing (requires `--fix`) |
+| `--bootstrap` | Generate initial Master Plan from actual project state (use with `--check status`) |
 
 ## Configuration
 
@@ -195,6 +199,38 @@ let value = optionalValue!
 let testApiKey = "sk-test-only"
 ```
 
+## Status Auditor
+
+The status auditor detects drift between your project documentation and actual code state:
+
+| Rule ID | What It Detects |
+|---------|-----------------|
+| `status.module-marked-incomplete` | Module has real code but checkbox says `[ ]` |
+| `status.module-marked-complete-missing` | Checkbox says `[x]` but module doesn't exist |
+| `status.stub-description-mismatch` | Description says "Stub only" but module is implemented |
+| `status.test-count-drift` | Documented test count differs from actual |
+| `status.roadmap-phase-stale` | Phase marked "CURRENT" but all items complete |
+| `status.last-updated-stale` | "Last Updated" date exceeds staleness threshold |
+| `status.phantom-module` | Package.swift target not documented in Master Plan |
+
+### Auto-Fix
+
+StatusAuditor supports `--fix` to automatically patch provably-wrong content while preserving human-authored prose:
+
+```bash
+# See what's drifted
+quality-gate --check status
+
+# Preview fixes
+quality-gate --check status --fix --dry-run
+
+# Apply fixes (creates timestamped backups)
+quality-gate --check status --fix
+
+# Generate Master Plan from scratch for new projects
+quality-gate --check status --bootstrap
+```
+
 ## Output Formats
 
 ### Terminal (default)
@@ -280,10 +316,11 @@ quality-gate-swift/
 │   ├── PointerEscapeAuditor/     # Unsafe pointer tracking
 │   ├── UnreachableCodeAuditor/   # Dead code via SwiftSyntax + IndexStore
 │   ├── AccessibilityAuditor/     # SwiftUI accessibility checks
-│   ├── MemoryBuilder/            # Project memory generation
+│   ├── StatusAuditor/            # Doc drift detection + auto-fix
+│   ├── MemoryBuilder/            # Project memory generation + validation
 │   ├── DiskCleaner/              # Build artifact cleanup
-│   └── QualityGateCLI/           # Umbrella CLI
-└── Tests/                        # 465 tests across 56 suites
+│   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
+└── Tests/                        # 515 tests across 64 suites
 ```
 
 All SwiftSyntax-based checkers (Safety, DocCoverage, Recursion, Concurrency, PointerEscape, Unreachable, Accessibility) use AST walking for precise, low-false-positive detection.
