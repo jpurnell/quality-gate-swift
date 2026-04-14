@@ -235,6 +235,76 @@ struct SecurityVisitorTests {
         #expect(!result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
     }
 
+    @Test("Does NOT flag Process.execute with interpolation (not SQL)")
+    func doesNotFlagProcessExecute() async throws {
+        let code = #"""
+        Process.execute(command: "git clone \(url)")
+        """#
+
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
+    @Test("Does NOT flag non-DB receiver execute with interpolation")
+    func doesNotFlagNonDBExecute() async throws {
+        let code = #"""
+        someTask.execute(action: "run \(taskName)")
+        """#
+
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
+    @Test("Still flags DB receiver execute with interpolation")
+    func stillFlagsDBExecute() async throws {
+        let code = #"""
+        database.execute("SELECT * FROM users WHERE id = \(userId)")
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
+    @Test("Still flags connection.query with interpolation")
+    func stillFlagsConnectionQuery() async throws {
+        let code = #"""
+        connection.query("SELECT * FROM \(table)")
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
+    @Test("Still flags sqlite3_exec (C API, always flagged)")
+    func stillFlagsSqlite3Exec() async throws {
+        let code = #"""
+        sqlite3_exec(db, "DROP TABLE \(tableName)", nil, nil, nil)
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
+    @Test("Does NOT flag shell.prepare with interpolation (not SQL)")
+    func doesNotFlagShellPrepare() async throws {
+        let code = #"""
+        shell.prepare(command: "ls \(directory)")
+        """#
+
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
+    @Test("Still flags statement.prepare with interpolation")
+    func stillFlagsStatementPrepare() async throws {
+        let code = #"""
+        statement.prepare("INSERT INTO \(table) VALUES (?)")
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
+    }
+
     // MARK: - Insecure Keychain (CWE-311)
 
     @Test("Detects kSecAttrAccessibleAlways")
