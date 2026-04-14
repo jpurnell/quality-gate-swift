@@ -2,7 +2,7 @@ import Foundation
 import Yams
 
 /// Per-checker configuration for ConcurrencyAuditor.
-public struct ConcurrencyAuditorConfig: Sendable, Codable, Equatable {
+public struct ConcurrencyAuditorConfig: Sendable, Equatable {
     /// Comment keyword that suppresses unchecked-Sendable / nonisolated-unsafe rules.
     public let justificationKeyword: String
     /// Module names that are allowed to keep `@preconcurrency import` even if first-party.
@@ -19,8 +19,21 @@ public struct ConcurrencyAuditorConfig: Sendable, Codable, Equatable {
     public static let `default` = ConcurrencyAuditorConfig()
 }
 
+extension ConcurrencyAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case justificationKeyword, allowPreconcurrencyImports
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ConcurrencyAuditorConfig.default
+        justificationKeyword = try container.decodeIfPresent(String.self, forKey: .justificationKeyword) ?? defaults.justificationKeyword
+        allowPreconcurrencyImports = try container.decodeIfPresent([String].self, forKey: .allowPreconcurrencyImports) ?? defaults.allowPreconcurrencyImports
+    }
+}
+
 /// Per-checker configuration for PointerEscapeAuditor.
-public struct PointerEscapeAuditorConfig: Sendable, Codable, Equatable {
+public struct PointerEscapeAuditorConfig: Sendable, Equatable {
     /// Function names allowed to receive a borrowed pointer (escape suppression).
     public let allowedEscapeFunctions: [String]
 
@@ -29,6 +42,17 @@ public struct PointerEscapeAuditorConfig: Sendable, Codable, Equatable {
     }
 
     public static let `default` = PointerEscapeAuditorConfig()
+}
+
+extension PointerEscapeAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case allowedEscapeFunctions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        allowedEscapeFunctions = try container.decodeIfPresent([String].self, forKey: .allowedEscapeFunctions) ?? PointerEscapeAuditorConfig.default.allowedEscapeFunctions
+    }
 }
 
 /// Per-checker configuration for SecurityVisitor (within SafetyAuditor).
@@ -43,7 +67,7 @@ public struct PointerEscapeAuditorConfig: Sendable, Codable, Equatable {
 ///   allowedHTTPHosts: ["localhost", "127.0.0.1"]
 ///   sqlFunctionNames: ["execute", "prepare", "query"]
 /// ```
-public struct SecurityAuditorConfig: Sendable, Codable, Equatable {
+public struct SecurityAuditorConfig: Sendable, Equatable {
     /// Which security rules to enable. Empty means all rules are enabled.
     public let enabledRules: [String]
 
@@ -77,6 +101,21 @@ public struct SecurityAuditorConfig: Sendable, Codable, Equatable {
     public static let `default` = SecurityAuditorConfig()
 }
 
+extension SecurityAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = SecurityAuditorConfig.default
+        enabledRules = try container.decodeIfPresent([String].self, forKey: .enabledRules) ?? defaults.enabledRules
+        secretPatterns = try container.decodeIfPresent([String].self, forKey: .secretPatterns) ?? defaults.secretPatterns
+        allowedHTTPHosts = try container.decodeIfPresent([String].self, forKey: .allowedHTTPHosts) ?? defaults.allowedHTTPHosts
+        sqlFunctionNames = try container.decodeIfPresent([String].self, forKey: .sqlFunctionNames) ?? defaults.sqlFunctionNames
+    }
+}
+
 /// Per-checker configuration for StatusAuditor.
 ///
 /// Controls paths to status documents and validation thresholds.
@@ -90,7 +129,7 @@ public struct SecurityAuditorConfig: Sendable, Codable, Equatable {
 ///   testCountDriftPercent: 10
 ///   lastUpdatedStaleDays: 90
 /// ```
-public struct StatusAuditorConfig: Sendable, Codable, Equatable {
+public struct StatusAuditorConfig: Sendable, Equatable {
     /// Path to development-guidelines directory relative to project root.
     public let guidelinesPath: String
 
@@ -123,8 +162,24 @@ public struct StatusAuditorConfig: Sendable, Codable, Equatable {
     public static let `default` = StatusAuditorConfig()
 }
 
+extension StatusAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case guidelinesPath, masterPlanPath, stubThresholdLines, testCountDriftPercent, lastUpdatedStaleDays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = StatusAuditorConfig.default
+        guidelinesPath = try container.decodeIfPresent(String.self, forKey: .guidelinesPath) ?? defaults.guidelinesPath
+        masterPlanPath = try container.decodeIfPresent(String.self, forKey: .masterPlanPath) ?? defaults.masterPlanPath
+        stubThresholdLines = try container.decodeIfPresent(Int.self, forKey: .stubThresholdLines) ?? defaults.stubThresholdLines
+        testCountDriftPercent = try container.decodeIfPresent(Int.self, forKey: .testCountDriftPercent) ?? defaults.testCountDriftPercent
+        lastUpdatedStaleDays = try container.decodeIfPresent(Int.self, forKey: .lastUpdatedStaleDays) ?? defaults.lastUpdatedStaleDays
+    }
+}
+
 /// Per-checker configuration for MemoryBuilder.
-public struct MemoryBuilderConfig: Sendable, Codable, Equatable {
+public struct MemoryBuilderConfig: Sendable, Equatable {
     /// Relative path to the development-guidelines directory.
     public let guidelinesPath: String
 
@@ -133,6 +188,17 @@ public struct MemoryBuilderConfig: Sendable, Codable, Equatable {
     }
 
     public static let `default` = MemoryBuilderConfig()
+}
+
+extension MemoryBuilderConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case guidelinesPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guidelinesPath = try container.decodeIfPresent(String.self, forKey: .guidelinesPath) ?? MemoryBuilderConfig.default.guidelinesPath
+    }
 }
 
 /// Project-specific configuration for quality checks.

@@ -66,7 +66,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         } catch {
             configuration = Configuration()
             if verbose {
-                print("No configuration file found, using defaults")
+                print("Warning: failed to load \(config): \(error). Using defaults.")
             }
         }
         // CLI flag overrides config (v5).
