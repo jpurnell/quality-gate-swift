@@ -77,6 +77,52 @@ public struct SecurityAuditorConfig: Sendable, Codable, Equatable {
     public static let `default` = SecurityAuditorConfig()
 }
 
+/// Per-checker configuration for StatusAuditor.
+///
+/// Controls paths to status documents and validation thresholds.
+///
+/// ## YAML Example
+/// ```yaml
+/// status:
+///   guidelinesPath: development-guidelines
+///   masterPlanPath: 00_CORE_RULES/00_MASTER_PLAN.md
+///   stubThresholdLines: 50
+///   testCountDriftPercent: 10
+///   lastUpdatedStaleDays: 90
+/// ```
+public struct StatusAuditorConfig: Sendable, Codable, Equatable {
+    /// Path to development-guidelines directory relative to project root.
+    public let guidelinesPath: String
+
+    /// Path to Master Plan relative to the guidelines directory.
+    public let masterPlanPath: String
+
+    /// Minimum source lines to consider a module "implemented" (not a stub).
+    public let stubThresholdLines: Int
+
+    /// Maximum allowed percentage difference between documented and actual test counts.
+    public let testCountDriftPercent: Int
+
+    /// Maximum days since "Last Updated" before flagging staleness.
+    public let lastUpdatedStaleDays: Int
+
+    public init(
+        guidelinesPath: String = "development-guidelines",
+        masterPlanPath: String = "00_CORE_RULES/00_MASTER_PLAN.md",
+        stubThresholdLines: Int = 50,
+        testCountDriftPercent: Int = 10,
+        lastUpdatedStaleDays: Int = 90
+    ) {
+        self.guidelinesPath = guidelinesPath
+        self.masterPlanPath = masterPlanPath
+        self.stubThresholdLines = stubThresholdLines
+        self.testCountDriftPercent = testCountDriftPercent
+        self.lastUpdatedStaleDays = lastUpdatedStaleDays
+    }
+
+    public static let `default` = StatusAuditorConfig()
+}
+
 /// Per-checker configuration for MemoryBuilder.
 public struct MemoryBuilderConfig: Sendable, Codable, Equatable {
     /// Relative path to the development-guidelines directory.
@@ -170,6 +216,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for SecurityVisitor (within SafetyAuditor).
     public let security: SecurityAuditorConfig
 
+    /// Per-checker configuration for StatusAuditor.
+    public let status: StatusAuditorConfig
+
     /// Per-checker configuration for MemoryBuilder.
     public let memoryBuilder: MemoryBuilderConfig
 
@@ -189,6 +238,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         concurrency: ConcurrencyAuditorConfig = .default,
         pointerEscape: PointerEscapeAuditorConfig = .default,
         security: SecurityAuditorConfig = .default,
+        status: StatusAuditorConfig = .default,
         memoryBuilder: MemoryBuilderConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
@@ -205,6 +255,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.concurrency = concurrency
         self.pointerEscape = pointerEscape
         self.security = security
+        self.status = status
         self.memoryBuilder = memoryBuilder
     }
 
@@ -282,6 +333,7 @@ extension Configuration {
         case concurrency
         case pointerEscape
         case security
+        case status
         case memoryBuilder
     }
 
@@ -303,6 +355,7 @@ extension Configuration {
         concurrency = try container.decodeIfPresent(ConcurrencyAuditorConfig.self, forKey: .concurrency) ?? .default
         pointerEscape = try container.decodeIfPresent(PointerEscapeAuditorConfig.self, forKey: .pointerEscape) ?? .default
         security = try container.decodeIfPresent(SecurityAuditorConfig.self, forKey: .security) ?? .default
+        status = try container.decodeIfPresent(StatusAuditorConfig.self, forKey: .status) ?? .default
         memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
     }
 }

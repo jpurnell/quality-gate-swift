@@ -63,6 +63,10 @@ let package = Package(
             name: "AccessibilityAuditor",
             targets: ["AccessibilityAuditor"]
         ),
+        .library(
+            name: "StatusAuditor",
+            targets: ["StatusAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -237,6 +241,15 @@ let package = Package(
             dependencies: ["AccessibilityAuditor"]
         ),
 
+        .target(
+            name: "StatusAuditor",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "StatusAuditorTests",
+            dependencies: ["StatusAuditor"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -254,6 +267,7 @@ let package = Package(
                 "PointerEscapeAuditor",
                 "MemoryBuilder",
                 "AccessibilityAuditor",
+                "StatusAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

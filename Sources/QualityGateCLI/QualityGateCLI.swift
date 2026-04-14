@@ -13,6 +13,7 @@ import ConcurrencyAuditor
 import PointerEscapeAuditor
 import MemoryBuilder
 import AccessibilityAuditor
+import StatusAuditor
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -114,6 +115,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 guidelinesPath: configuration.memoryBuilder.guidelinesPath
             ),
             AccessibilityAuditor(),
+            StatusAuditor(),
             DiskCleaner()
         ]
 
