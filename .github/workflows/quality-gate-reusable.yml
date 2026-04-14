@@ -1,0 +1,83 @@
+name: Quality Gate (Reusable)
+
+# Reusable workflow for any project using development-guidelines.
+# Always builds from latest main — improvements propagate automatically.
+#
+# Usage in consuming project:
+#
+#   jobs:
+#     quality-gate:
+#       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+#       with:
+#         checks: "status"
+#
+# Or run all default checks:
+#
+#   jobs:
+#     quality-gate:
+#       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      checks:
+        description: "Space-separated checker IDs to run (empty = all defaults)"
+        type: string
+        required: false
+        default: ""
+      continue-on-failure:
+        description: "Continue running checks even if one fails"
+        type: boolean
+        required: false
+        default: false
+      config:
+        description: "Path to .quality-gate.yml (relative to project root)"
+        type: string
+        required: false
+        default: ".quality-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build quality-gate from latest main
+        run: |
+          git clone --depth 1 https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
+          cd /tmp/quality-gate-swift
+          swift build -c release 2>&1 | tail -3
+          cp .build/release/quality-gate /usr/local/bin/
+          echo "quality-gate built from $(git rev-parse --short HEAD)"
+
+      - name: Run quality gate
+        run: |
+          ARGS=""
+
+          # Add specific checks if provided
+          if [ -n "${{ inputs.checks }}" ]; then
+            for check in ${{ inputs.checks }}; do
+              ARGS="$ARGS --check $check"
+            done
+          fi
+
+          # Add config path
+          if [ -f "${{ inputs.config }}" ]; then
+            ARGS="$ARGS --config ${{ inputs.config }}"
+          fi
+
+          # Add continue-on-failure
+          if [ "${{ inputs.continue-on-failure }}" = "true" ]; then
+            ARGS="$ARGS --continue-on-failure"
+          fi
+
+          echo "Running: quality-gate $ARGS"
+          quality-gate $ARGS
