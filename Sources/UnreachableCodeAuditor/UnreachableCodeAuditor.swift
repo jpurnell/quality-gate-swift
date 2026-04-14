@@ -205,7 +205,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     static func locateLibIndexStore() throws -> URL {
         // `xcrun --find swift` → /…/usr/bin/swift
         // libIndexStore lives at        /…/usr/lib/libIndexStore.dylib
-        let proc = Process()
+        let proc = Process() // SAFETY: runs xcrun --find swift to locate the toolchain
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         proc.arguments = ["--find", "swift"]
         let pipe = Pipe()
@@ -232,7 +232,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// describe --type json`. SwiftPM target names are also their module
     /// names, so this is a direct lookup for `IndexStorePass`.
     static func describeTargetTypes(packageRoot: URL) throws -> [String: String] {
-        let proc = Process()
+        let proc = Process() // SAFETY: runs swift package describe to map target types
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"]
         let out = Pipe()

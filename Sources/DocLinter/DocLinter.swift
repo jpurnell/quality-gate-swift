@@ -34,7 +34,7 @@ public struct DocLinter: QualityChecker, Sendable {
         arguments.append(contentsOf: docArguments(for: configuration))
 
         // Run swift package generate-documentation
-        let process = Process()
+        let process = Process() // SAFETY: runs swift package generate-documentation to lint DocC coverage
         process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)

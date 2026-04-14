@@ -178,7 +178,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
     }
 
     private func runGitGC() -> (success: Bool, error: String?) {
-        let process = Process()
+        let process = Process() // SAFETY: runs git gc to reclaim disk space
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["gc", "--aggressive", "--prune=now"]
 

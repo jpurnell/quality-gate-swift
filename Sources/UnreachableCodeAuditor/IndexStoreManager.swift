@@ -115,7 +115,7 @@ enum IndexStoreManager {
         let scheme = try options.scheme ?? listFirstScheme(flag: flag, file: file)
 
         // Build the project, isolating into our own derived-data path.
-        let proc = Process()
+        let proc = Process() // SAFETY: runs xcodebuild to produce an index store for dead-code analysis
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = [
             "xcodebuild", "build",
@@ -145,7 +145,7 @@ enum IndexStoreManager {
     }
 
     private static func listFirstScheme(flag: String, file: URL) throws -> String {
-        let proc = Process()
+        let proc = Process() // SAFETY: runs xcodebuild -list to discover available schemes
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = ["xcodebuild", "-list", "-json", flag, file.path]
         let pipe = Pipe()
@@ -265,14 +265,14 @@ enum IndexStoreManager {
             guard rel.hasSuffix(".swift") else { continue }
             let p = root.appendingPathComponent(rel).path
             if let m = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date {
-                if newest == nil || m > newest! { newest = m }
+                if newest.map({ m > $0 }) ?? true { newest = m }
             }
         }
         return newest
     }
 
     private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
-        let proc = Process()
+        let proc = Process() // SAFETY: runs swift build with index-store flags for dead-code analysis
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = [
             "swift", "build",
