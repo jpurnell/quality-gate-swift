@@ -36,25 +36,22 @@ Provide a production-quality Swift CLI tool that automates Zero Warnings/Errors 
 ```
 quality-gate-swift/
 ├── Sources/
-│   ├── QualityGateCore/          # Shared protocol and models
-│   │   ├── Diagnostic.swift
-│   │   ├── CheckResult.swift
-│   │   ├── Configuration.swift
-│   │   ├── QualityChecker.swift
-│   │   ├── QualityGateError.swift
-│   │   └── Reporters/
-│   │       ├── Reporter.swift
-│   │       ├── TerminalReporter.swift
-│   │       ├── JSONReporter.swift
-│   │       └── SARIFReporter.swift
-│   ├── SafetyAuditor/            # Forbidden pattern scanner
+│   ├── QualityGateCore/          # Shared protocol, models, reporters
+│   ├── SafetyAuditor/            # Code safety + OWASP security scanning
 │   ├── BuildChecker/             # swift build wrapper
 │   ├── TestRunner/               # swift test wrapper
 │   ├── DocLinter/                # Documentation linter
-│   ├── DocCoverageChecker/       # Undocumented API detector
+│   ├── DocCoverageChecker/       # Undocumented API detector (SwiftSyntax)
+│   ├── RecursionAuditor/         # Call-graph cycle detection
+│   ├── ConcurrencyAuditor/       # Swift 6 concurrency compliance
+│   ├── PointerEscapeAuditor/     # Unsafe pointer lifetime tracking
+│   ├── UnreachableCodeAuditor/   # Dead code via SwiftSyntax + IndexStore
+│   ├── AccessibilityAuditor/     # SwiftUI accessibility checks
+│   ├── MemoryBuilder/            # Project memory file generation
+│   ├── DiskCleaner/              # Build artifact identification
 │   └── QualityGateCLI/           # Umbrella CLI
 ├── Tests/
-│   └── [Test targets for each module]
+│   └── [Test targets for each module — 465 tests, 56 suites]
 └── Package.swift
 ```
 
@@ -93,22 +90,31 @@ graph TD
 ### What's Working
 - [x] QualityGateCore — Protocol, models, reporters (54 tests)
 - [x] All three reporters — Terminal, JSON, SARIF
-- [x] Configuration — YAML parsing, defaults
-- [ ] SafetyAuditor — Stub only
-- [ ] BuildChecker — Stub only
-- [ ] TestRunner — Stub only
-- [ ] DocLinter — Stub only
-- [ ] DocCoverageChecker — Stub only
-- [ ] CLI — Stub only
+- [x] Configuration — YAML parsing, defaults, per-checker config
+- [x] SafetyAuditor — Code safety (9 rules) + OWASP security (10 rules), 83 tests
+- [x] BuildChecker — swift build wrapper with output parsing
+- [x] TestRunner — swift test wrapper with Swift Testing + XCTest parsing
+- [x] DocLinter — DocC documentation validation
+- [x] DocCoverageChecker — SwiftSyntax-based undocumented API detection
+- [x] RecursionAuditor — Call-graph cycle detection, mutual recursion
+- [x] ConcurrencyAuditor — Swift 6 strict concurrency compliance
+- [x] PointerEscapeAuditor — Unsafe pointer lifetime tracking
+- [x] UnreachableCodeAuditor — Dead code via SwiftSyntax + IndexStore
+- [x] AccessibilityAuditor — SwiftUI accessibility checks
+- [x] MemoryBuilder — Project memory file generation
+- [x] DiskCleaner — Build artifact identification
+- [x] CLI — Umbrella CLI with all checkers registered
+- [x] SPM CommandPlugin
+
+**Total: 465 tests across 56 suites**
 
 ### Known Issues
 - None currently
 
 ### Current Priorities
-1. Complete DocC documentation for QualityGateCore
-2. Implement SafetyAuditor (most self-contained)
-3. Implement BuildChecker and TestRunner
-4. Port docc-lint and swift-doc-gaps capabilities
+1. Complete DocC catalogs for AccessibilityAuditor, DiskCleaner, MemoryBuilder, QualityGateCLI
+2. Security rule maintenance — WWDC annual review cycle
+3. Community engagement — swift-security-rules Semgrep YAML repo
 
 ---
 
@@ -145,28 +151,38 @@ graph TD
 
 ## Roadmap
 
-### Phase 1: Foundation (CURRENT)
+### Phase 1: Foundation (COMPLETE)
 - [x] QualityGateCore module with tests
-- [ ] DocC documentation for Core
-- [ ] SafetyAuditor implementation
+- [x] DocC documentation for Core
+- [x] SafetyAuditor implementation
 
-### Phase 2: Checker Modules
-- [ ] BuildChecker implementation
-- [ ] TestRunner implementation
-- [ ] DocLinter implementation (port docc-lint)
-- [ ] DocCoverageChecker implementation (port swift-doc-gaps)
+### Phase 2: Checker Modules (COMPLETE)
+- [x] BuildChecker implementation
+- [x] TestRunner implementation
+- [x] DocLinter implementation (port docc-lint)
+- [x] DocCoverageChecker implementation (port swift-doc-gaps)
+- [x] RecursionAuditor — call-graph analysis, mutual recursion
+- [x] ConcurrencyAuditor — Swift 6 strict concurrency
+- [x] PointerEscapeAuditor — unsafe pointer lifetime
+- [x] UnreachableCodeAuditor — dead code via IndexStore
+- [x] AccessibilityAuditor — SwiftUI accessibility
+- [x] SecurityVisitor — 10 OWASP Mobile Top 10 rules (within SafetyAuditor)
 
-### Phase 3: CLI & Integration
-- [ ] Umbrella CLI implementation
-- [ ] SPM CommandPlugin
+### Phase 3: CLI & Integration (COMPLETE)
+- [x] Umbrella CLI implementation
+- [x] SPM CommandPlugin
 - [ ] SPM BuildToolPlugin
-- [ ] YAML configuration support
+- [x] YAML configuration support
+- [x] CI workflow (build, test, memory validation)
+- [x] Security rule staleness workflow (bi-monthly cron)
 
-### Future Considerations
-- GitHub Action for easy CI integration
-- VS Code extension integration
-- Xcode integration via Build Phases
+### Phase 4: Community & Polish (CURRENT)
+- [ ] DocC catalogs for remaining modules
+- [ ] CONTRIBUTING.md and community guidelines
+- [ ] GitHub Action for easy CI integration
+- [ ] VS Code extension integration
+- [ ] Xcode integration via Build Phases
 
 ---
 
-**Last Updated:** 2026-03-13
+**Last Updated:** 2026-04-14
