@@ -89,9 +89,7 @@ graph TD
 ## Current Status
 
 ### What's Working
-- [x] QualityGateCore — Protocol, models, reporters (54 tests)
-- [x] All three reporters — Terminal, JSON, SARIF
-- [x] Configuration — YAML parsing, defaults, per-checker config
+- [x] QualityGateCore — Protocol, models, reporters, configuration (63 tests)
 - [x] SafetyAuditor — Code safety (9 rules) + OWASP security (10 rules), 83 tests
 - [x] BuildChecker — swift build wrapper with output parsing
 - [x] TestRunner — swift test wrapper with Swift Testing + XCTest parsing
@@ -103,12 +101,12 @@ graph TD
 - [x] UnreachableCodeAuditor — Dead code via SwiftSyntax + IndexStore
 - [x] AccessibilityAuditor — SwiftUI accessibility checks
 - [x] MemoryBuilder — Project memory file generation + post-extraction validation
-- [x] StatusAuditor — Doc drift detection + FixableChecker remediation (44 tests)
+- [x] StatusAuditor — Doc drift detection + FixableChecker remediation (49 tests)
 - [x] DiskCleaner — Build artifact identification
-- [x] CLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
-- [x] SPM CommandPlugin
+- [x] QualityGateCLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
+- [x] QualityGatePlugin — SPM CommandPlugin
 
-**Total: 515 tests across 64 suites**
+**Total: 521 tests across 64 suites**
 
 ### Known Issues
 - None currently

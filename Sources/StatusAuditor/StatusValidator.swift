@@ -27,8 +27,10 @@ public enum StatusValidator {
         // Rule 1 & 2: Module completion vs reality
         for doc in documented {
             guard let state = actual[doc.name] else {
-                // Module documented but not found in Sources/ or Package.swift
-                if doc.isComplete {
+                // Only flag as missing if the entry looks like an SPM module name.
+                // Feature descriptions ("Job analysis via LLM", "Docker + Redis")
+                // aren't expected to have Sources/ directories.
+                if doc.isComplete && looksLikeModuleName(doc.name) {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "'\(doc.name)' marked [x] (complete) but module directory not found in Sources/.",
@@ -140,5 +142,38 @@ public enum StatusValidator {
         }
 
         return diagnostics
+    }
+
+    // MARK: - Helpers
+
+    /// Determines whether a "What's Working" entry name looks like an SPM module
+    /// (e.g. "SafetyAuditor", "QualityGateCore") vs a feature description
+    /// (e.g. "Job description analysis via LLM", "Docker + Redis").
+    ///
+    /// Module names are typically PascalCase identifiers without spaces or
+    /// heavy punctuation. Feature descriptions contain spaces, sentence fragments,
+    /// or special characters.
+    static func looksLikeModuleName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+
+        // Feature descriptions almost always contain spaces
+        // Allow single-space names like "All reporters" to be treated as features
+        if trimmed.contains(" ") { return false }
+
+        // Reject entries with punctuation common in descriptions but not module names
+        let descriptionChars = CharacterSet(charactersIn: "()[]{}!?;:,+/")
+        if trimmed.unicodeScalars.contains(where: { descriptionChars.contains($0) }) {
+            return false
+        }
+
+        // Module names start with an uppercase letter (PascalCase) or are all lowercase
+        guard let first = trimmed.first, first.isLetter else { return false }
+
+        // Must be a plausible Swift identifier (letters, digits, underscores, hyphens)
+        let identifierChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let allValid = trimmed.unicodeScalars.allSatisfy { identifierChars.contains($0) }
+
+        return allValid
     }
 }

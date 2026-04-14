@@ -513,6 +513,77 @@ struct StatusValidatorTests {
         let warnings = diags.filter { $0.severity == .warning || $0.severity == .error }
         #expect(warnings.isEmpty)
     }
+
+    // MARK: - Module Name Heuristic Tests
+
+    @Test("looksLikeModuleName: PascalCase identifiers are modules")
+    func pascalCaseIsModule() {
+        #expect(StatusValidator.looksLikeModuleName("SafetyAuditor"))
+        #expect(StatusValidator.looksLikeModuleName("QualityGateCore"))
+        #expect(StatusValidator.looksLikeModuleName("BuildChecker"))
+        #expect(StatusValidator.looksLikeModuleName("IgniteCLI"))
+    }
+
+    @Test("looksLikeModuleName: lowercase identifiers are modules")
+    func lowercaseIsModule() {
+        #expect(StatusValidator.looksLikeModuleName("vapor"))
+        #expect(StatusValidator.looksLikeModuleName("swift-syntax"))
+    }
+
+    @Test("looksLikeModuleName: feature descriptions are NOT modules")
+    func featureDescriptionsAreNotModules() {
+        #expect(!StatusValidator.looksLikeModuleName("Job description analysis via LLM"))
+        #expect(!StatusValidator.looksLikeModuleName("Docker + docker-compose"))
+        #expect(!StatusValidator.looksLikeModuleName("All three reporters"))
+        #expect(!StatusValidator.looksLikeModuleName("CLI accessible as `jdapply` command"))
+        #expect(!StatusValidator.looksLikeModuleName("Stripe integration (Checkout for one-time, subscriptions)"))
+        #expect(!StatusValidator.looksLikeModuleName("SPM CommandPlugin"))
+        #expect(!StatusValidator.looksLikeModuleName("[Feature 1]"))
+    }
+
+    @Test("Does not flag feature descriptions as missing modules")
+    func doesNotFlagFeatureDescriptions() {
+        let documented = [
+            DocumentedModuleStatus(
+                name: "Job description analysis via LLM", isComplete: true,
+                description: "Complete", claimedTestCount: nil, line: 5
+            ),
+            DocumentedModuleStatus(
+                name: "Docker + Redis setup", isComplete: true,
+                description: "Complete", claimedTestCount: nil, line: 6
+            ),
+            DocumentedModuleStatus(
+                name: "[Feature 1]", isComplete: true,
+                description: "Complete", claimedTestCount: nil, line: 7
+            ),
+        ]
+
+        let diags = StatusValidator.validate(
+            documented: documented, actual: [:],
+            phases: [], lastUpdated: nil,
+            masterPlanPath: "MP.md", configuration: config
+        )
+
+        #expect(!diags.contains { $0.ruleId == "status.module-marked-complete-missing" })
+    }
+
+    @Test("Still flags PascalCase module names as missing")
+    func stillFlagsModuleNames() {
+        let documented = [
+            DocumentedModuleStatus(
+                name: "GhostModule", isComplete: true,
+                description: "Complete", claimedTestCount: nil, line: 5
+            ),
+        ]
+
+        let diags = StatusValidator.validate(
+            documented: documented, actual: [:],
+            phases: [], lastUpdated: nil,
+            masterPlanPath: "MP.md", configuration: config
+        )
+
+        #expect(diags.contains { $0.ruleId == "status.module-marked-complete-missing" })
+    }
 }
 
 // MARK: - StatusAuditor Identity Tests
