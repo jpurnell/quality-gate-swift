@@ -1,0 +1,29 @@
+name: Quality Gate (Self)
+
+# quality-gate-swift dogfoods itself — every improvement is validated
+# against its own codebase before it can propagate to consuming projects.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build quality-gate
+        run: swift build -c release
+
+      - name: Run quality gate against self
+        run: .build/release/quality-gate --check safety --check status --check recursion --check concurrency --check pointer-escape --continue-on-failure
