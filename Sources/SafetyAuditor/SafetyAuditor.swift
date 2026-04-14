@@ -159,13 +159,26 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) -> [Diagnostic] {
         let sourceFile = Parser.parse(source: source)
-        let visitor = SafetyVisitor(
+
+        // Run code-safety checks
+        let safetyVisitor = SafetyVisitor(
             fileName: fileName,
             source: source,
             exemptionPatterns: configuration.safetyExemptions
         )
-        visitor.walk(sourceFile)
-        return visitor.diagnostics
+        safetyVisitor.walk(sourceFile)
+
+        // Run security checks
+        let securityExemptions = configuration.safetyExemptions + ["// SECURITY:"]
+        let securityVisitor = SecurityVisitor(
+            fileName: fileName,
+            source: source,
+            exemptionPatterns: securityExemptions,
+            configuration: configuration.security
+        )
+        securityVisitor.walk(sourceFile)
+
+        return safetyVisitor.diagnostics + securityVisitor.diagnostics
     }
 }
 

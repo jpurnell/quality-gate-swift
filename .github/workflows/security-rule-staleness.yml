@@ -1,0 +1,136 @@
+name: Security Rule Staleness Check
+
+on:
+  schedule:
+    # 1st and 15th of each month at 09:00 UTC
+    - cron: '0 9 1,15 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-staleness:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build quality-gate
+        run: swift build -c release
+
+      - name: Check security rule staleness
+        id: staleness
+        run: |
+          # Run the safety checker in JSON mode and extract security rule metadata.
+          # SecurityRuleManifest.staleRules() is exposed via the CLI:
+          #   quality-gate --check safety --security-staleness --format json
+          #
+          # If the --security-staleness flag isn't implemented yet, fall back to
+          # reading the manifest source directly.
+
+          MANIFEST="Sources/SafetyAuditor/SecurityRuleManifest.swift"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "SecurityRuleManifest.swift not found — SecurityVisitor not yet implemented."
+            echo "stale=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract lastReviewedDate values and check against today
+          TODAY=$(date -u +%Y-%m-%d)
+          TODAY_EPOCH=$(date -u -j -f "%Y-%m-%d" "$TODAY" "+%s" 2>/dev/null || date -u -d "$TODAY" "+%s")
+          STALE_RULES=""
+          STALE_COUNT=0
+
+          # Parse rule entries: look for ruleId and lastReviewedDate pairs
+          while IFS= read -r line; do
+            RULE_ID=$(echo "$line" | grep -oE 'ruleId: "([^"]+)"' | sed 's/ruleId: "//;s/"//')
+            REVIEW_DATE=$(echo "$line" | grep -oE 'lastReviewedDate: "([^"]+)"' | sed 's/lastReviewedDate: "//;s/"//')
+            STALE_DAYS=$(echo "$line" | grep -oE 'staleAfterDays: ([0-9]+)' | sed 's/staleAfterDays: //')
+
+            if [ -n "$RULE_ID" ] && [ -n "$REVIEW_DATE" ]; then
+              STALE_DAYS=${STALE_DAYS:-365}
+              REVIEW_EPOCH=$(date -u -j -f "%Y-%m-%d" "$REVIEW_DATE" "+%s" 2>/dev/null || date -u -d "$REVIEW_DATE" "+%s")
+              THRESHOLD=$(( REVIEW_EPOCH + STALE_DAYS * 86400 ))
+
+              if [ "$TODAY_EPOCH" -gt "$THRESHOLD" ]; then
+                DAYS_OVER=$(( (TODAY_EPOCH - THRESHOLD) / 86400 ))
+                STALE_RULES="${STALE_RULES}- **${RULE_ID}** — last reviewed ${REVIEW_DATE}, ${DAYS_OVER} days overdue\n"
+                STALE_COUNT=$((STALE_COUNT + 1))
+              fi
+            fi
+          done < <(grep -E "(ruleId|lastReviewedDate|staleAfterDays)" "$MANIFEST" | paste - - - 2>/dev/null || grep -E "SecurityRule\(" "$MANIFEST")
+
+          if [ "$STALE_COUNT" -gt 0 ]; then
+            echo "stale=found" >> "$GITHUB_OUTPUT"
+            echo "count=$STALE_COUNT" >> "$GITHUB_OUTPUT"
+            # Write multiline output
+            {
+              echo "details<<EOF"
+              echo -e "$STALE_RULES"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=none" >> "$GITHUB_OUTPUT"
+            echo "All security rules are within their review window."
+          fi
+
+      - name: Open staleness issue
+        if: steps.staleness.outputs.stale == 'found'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT="${{ steps.staleness.outputs.count }}"
+          DETAILS="${{ steps.staleness.outputs.details }}"
+
+          # Check for an existing open staleness issue to avoid duplicates
+          EXISTING=$(gh issue list --label "security-staleness" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "Updating existing staleness issue #${EXISTING}"
+            gh issue comment "$EXISTING" --body "$(cat <<EOF
+          ## Staleness check update — $(date -u +%Y-%m-%d)
+
+          ${COUNT} security rule(s) are overdue for review:
+
+          ${DETAILS}
+
+          **Action required:** Review each stale rule against current Apple SDK APIs and OWASP Mobile Top 10 (2024). Update \`lastReviewedDate\` in \`SecurityRuleManifest.swift\` after review.
+          EOF
+          )"
+          else
+            echo "Creating new staleness issue"
+            gh issue create \
+              --title "Security rules overdue for review (${COUNT} stale)" \
+              --label "security-staleness" \
+              --body "$(cat <<EOF
+          ## Security Rule Staleness Alert
+
+          ${COUNT} security rule(s) in \`SecurityRuleManifest.swift\` have exceeded their review window:
+
+          ${DETAILS}
+
+          ### Review checklist
+
+          For each stale rule:
+          - [ ] Check if the targeted API has been deprecated or replaced in the latest Apple SDK
+          - [ ] Check if new API variants exist that the rule should also cover
+          - [ ] Verify the CWE mapping is still accurate
+          - [ ] Cross-reference against OWASP Mobile Top 10 (2024) coverage matrix in \`SECURITY_VISITOR_design.md\`
+          - [ ] Update \`lastReviewedDate\` to today's date after review
+          - [ ] Add any new rules identified during review
+
+          ### Review sources
+
+          - Apple API diffs: Xcode release notes for the current year
+          - OWASP Mobile Top 10: https://owasp.org/www-project-mobile-top-10/
+          - CWE Top 25: https://cwe.mitre.org/top25/
+
+          ---
+          *This issue was automatically created by the security-rule-staleness workflow.*
+          EOF
+          )"
+          fi
