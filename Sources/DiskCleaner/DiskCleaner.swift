@@ -61,7 +61,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
 
         // Run git gc if this is a git repository
         let gitPath = (currentDir as NSString).appendingPathComponent(".git")
-        if fileManager.fileExists(atPath: gitPath) {
+        if fileManager.fileExists(atPath: gitPath) { // SAFETY: checks .git in CLI working directory
             let gitSizeBefore = directorySize(at: gitPath)
 
             let gcResult = runGitGC()
@@ -114,19 +114,19 @@ public struct DiskCleaner: QualityChecker, Sendable {
 
     private func cleanDirectory(at path: String, name: String) -> Int64? {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: path) else { return nil }
+        guard fileManager.fileExists(atPath: path) else { return nil } // SAFETY: path derived from CLI working directory
 
         let size = directorySize(at: path)
 
         // Try removing contents first (works better with Dropbox sync)
-        if let contents = try? fileManager.contentsOfDirectory(atPath: path) {
+        if let contents = try? fileManager.contentsOfDirectory(atPath: path) { // SAFETY: enumerates build artifacts in project directory
             for item in contents {
                 let itemPath = (path as NSString).appendingPathComponent(item)
-                try? fileManager.removeItem(atPath: itemPath)
+                try? fileManager.removeItem(atPath: itemPath) // SAFETY: removes build artifacts under project .build/
             }
         }
         // Then try removing the directory itself
-        try? fileManager.removeItem(atPath: path)
+        try? fileManager.removeItem(atPath: path) // SAFETY: removes build artifact directory in project
         return size
     }
 
@@ -145,7 +145,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
         while let url = enumerator.nextObject() as? URL {
             if url.lastPathComponent == name {
                 var isDirectory: ObjCBool = false
-                if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), // SAFETY: scans project tree for .docc-build dirs
                    isDirectory.boolValue {
                     results.append(url.path)
                     enumerator.skipDescendants()

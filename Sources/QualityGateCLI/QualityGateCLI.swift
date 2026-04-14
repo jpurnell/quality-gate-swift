@@ -212,7 +212,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 print(content)
                 print("No files modified (dry-run mode).")
             } else {
-                try FileManager.default.createDirectory(
+                try FileManager.default.createDirectory( // SAFETY: CLI tool creates local project directory
                     atPath: masterPlanDir,
                     withIntermediateDirectories: true
                 )

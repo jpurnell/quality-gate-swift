@@ -78,7 +78,7 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
 
     private func findCurrentChecklists(in directory: String) -> [String] {
         let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+        guard let items = try? fm.contentsOfDirectory(atPath: directory) else { return [] } // SAFETY: lists checklist files in project guidelines dir
         return items
             .filter { $0.hasPrefix("CURRENT_") && $0.hasSuffix(".md") }
             .sorted()

@@ -15,7 +15,7 @@ public struct ADRExtractor: MemoryExtractor, Sendable {
         let adrPath = [projectRoot, guidelinesPath, "00_CORE_RULES", "06_ARCHITECTURE_DECISIONS.md"]
             .joined(separator: "/")
 
-        guard FileManager.default.fileExists(atPath: adrPath) else { return [] }
+        guard FileManager.default.fileExists(atPath: adrPath) else { return [] } // SAFETY: reads ADR file from project guidelines dir
         let content = try String(contentsOfFile: adrPath, encoding: .utf8)
 
         let adrs = parseADRs(from: content)

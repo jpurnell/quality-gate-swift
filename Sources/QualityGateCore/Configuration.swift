@@ -365,7 +365,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     public static func load(from path: String) throws -> Configuration {
         let fileManager = FileManager.default
 
-        guard fileManager.fileExists(atPath: path) else {
+        guard fileManager.fileExists(atPath: path) else { // SAFETY: CLI tool reads local config file
             // Return default configuration if file doesn't exist
             return Configuration()
         }

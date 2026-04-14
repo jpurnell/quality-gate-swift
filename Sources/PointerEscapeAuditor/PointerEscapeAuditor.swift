@@ -27,7 +27,7 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
-        if fileManager.fileExists(atPath: sourcesPath) {
+        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             allDiagnostics.append(contentsOf: try await auditDirectory(at: sourcesPath))
         }
 

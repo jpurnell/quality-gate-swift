@@ -73,7 +73,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
 
         // Parse Master Plan if it exists
-        guard fileManager.fileExists(atPath: masterPlanPath) else {
+        guard fileManager.fileExists(atPath: masterPlanPath) else { // SAFETY: CLI tool reads local master plan file
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,
@@ -164,7 +164,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
             configuration.status.masterPlanPath
         )
 
-        guard fileManager.fileExists(atPath: masterPlanPath) else {
+        guard fileManager.fileExists(atPath: masterPlanPath) else { // SAFETY: CLI tool reads local master plan file
             return FixResult(modifications: [], unfixed: diagnostics)
         }
 

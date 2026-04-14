@@ -50,11 +50,11 @@ public enum ProjectStateCollector {
             .appending("/Plugins")]
 
         for searchPath in searchPaths {
-            if let dirs = try? fileManager.contentsOfDirectory(atPath: searchPath) {
+            if let dirs = try? fileManager.contentsOfDirectory(atPath: searchPath) { // SAFETY: CLI tool enumerates local project modules
                 for dir in dirs {
                     let dirPath = (searchPath as NSString).appendingPathComponent(dir)
                     var isDir: ObjCBool = false
-                    if fileManager.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
+                    if fileManager.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue { // SAFETY: CLI tool checks local directory type
                         moduleNames.insert(dir)
                     }
                 }
@@ -68,9 +68,9 @@ public enum ProjectStateCollector {
         for moduleName in moduleNames {
             // Check Sources/ first, fall back to Plugins/
             var modulePath = (sourcesPath as NSString).appendingPathComponent(moduleName)
-            if !fileManager.fileExists(atPath: modulePath) {
+            if !fileManager.fileExists(atPath: modulePath) { // SAFETY: CLI tool checks local module path
                 let pluginPath = (pluginsPath as NSString).appendingPathComponent(moduleName)
-                if fileManager.fileExists(atPath: pluginPath) {
+                if fileManager.fileExists(atPath: pluginPath) { // SAFETY: CLI tool checks local plugin path
                     modulePath = pluginPath
                 }
             }

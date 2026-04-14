@@ -14,7 +14,7 @@ public struct ConventionExtractor: MemoryExtractor, Sendable {
     ) async throws -> [MemoryEntry] {
         // Read project-level CLAUDE.md
         let claudePath = (projectRoot as NSString).appendingPathComponent("CLAUDE.md")
-        guard FileManager.default.fileExists(atPath: claudePath) else { return [] }
+        guard FileManager.default.fileExists(atPath: claudePath) else { return [] } // SAFETY: reads CLAUDE.md from project root
         let projectClaude = try String(contentsOfFile: claudePath, encoding: .utf8)
 
         // Extract H2 sections from the project CLAUDE.md

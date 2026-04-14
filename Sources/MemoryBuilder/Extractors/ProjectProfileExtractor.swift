@@ -12,7 +12,7 @@ public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
         globalClaudeMD: String?
     ) async throws -> [MemoryEntry] {
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
-        guard FileManager.default.fileExists(atPath: packagePath) else { return [] }
+        guard FileManager.default.fileExists(atPath: packagePath) else { return [] } // SAFETY: reads Package.swift from project root
 
         let source = try String(contentsOfFile: packagePath, encoding: .utf8)
 

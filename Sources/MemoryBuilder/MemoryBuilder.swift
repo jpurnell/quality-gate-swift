@@ -60,15 +60,15 @@ public struct MemoryBuilder: QualityChecker, Sendable {
         // Write memory files
         if let memoryDir {
             let fm = FileManager.default
-            if !fm.fileExists(atPath: memoryDir) {
-                try fm.createDirectory(atPath: memoryDir, withIntermediateDirectories: true)
+            if !fm.fileExists(atPath: memoryDir) { // SAFETY: checks .claude/memory dir derived from project root
+                try fm.createDirectory(atPath: memoryDir, withIntermediateDirectories: true) // SAFETY: creates .claude/memory output dir
             }
 
             for entry in allEntries {
                 let filePath = (memoryDir as NSString).appendingPathComponent(entry.filename)
 
                 // Only overwrite if the file is generated or doesn't exist
-                if fm.fileExists(atPath: filePath) {
+                if fm.fileExists(atPath: filePath) { // SAFETY: checks generated memory file in .claude/memory
                     let existing = try String(contentsOfFile: filePath, encoding: .utf8)
                     guard MemoryWriter.isGenerated(existing) else {
                         diagnostics.append(Diagnostic(

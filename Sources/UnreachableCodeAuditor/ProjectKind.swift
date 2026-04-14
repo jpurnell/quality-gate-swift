@@ -23,10 +23,10 @@ enum ProjectKind: Sendable {
     /// intended entry point.
     static func detect(at root: URL) -> ProjectKind {
         let fm = FileManager.default
-        if fm.fileExists(atPath: root.appendingPathComponent("Package.swift").path) {
+        if fm.fileExists(atPath: root.appendingPathComponent("Package.swift").path) { // SAFETY: CLI tool detects local project type
             return .swiftPM(packageRoot: root)
         }
-        guard let entries = try? fm.contentsOfDirectory(atPath: root.path) else {
+        guard let entries = try? fm.contentsOfDirectory(atPath: root.path) else { // SAFETY: CLI tool enumerates local project root
             return .plain(root: root)
         }
         for entry in entries.sorted() where entry.hasSuffix(".xcworkspace") {

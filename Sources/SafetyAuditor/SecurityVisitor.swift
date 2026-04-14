@@ -115,10 +115,10 @@ final class SecurityVisitor: SyntaxVisitor {
         }
 
         let text = segment.content.text
-        guard text.hasPrefix("http://") else { return .visitChildren }
+        guard text.hasPrefix("http://") else { return .visitChildren } // SAFETY: Pattern-match string, not an actual HTTP request
 
         // Extract host from URL
-        let afterScheme = text.dropFirst("http://".count)
+        let afterScheme = text.dropFirst("http://".count) // SAFETY: Pattern-match string, not an actual HTTP request
         let host = String(afterScheme.prefix(while: { $0 != "/" && $0 != ":" && $0 != "?" }))
 
         // Allow configured safe hosts

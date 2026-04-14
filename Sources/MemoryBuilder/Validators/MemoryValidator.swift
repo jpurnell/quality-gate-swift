@@ -33,7 +33,7 @@ public enum MemoryFileValidator {
         }
 
         // Validate generated memory files for staleness
-        if let files = try? fm.contentsOfDirectory(atPath: memoryDir) {
+        if let files = try? fm.contentsOfDirectory(atPath: memoryDir) { // SAFETY: lists generated memory files for validation
             for file in files where file.hasSuffix(".md") && file != "MEMORY.md" {
                 let filePath = (memoryDir as NSString).appendingPathComponent(file)
                 guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else {
@@ -78,7 +78,7 @@ public enum MemoryFileValidator {
                 let linkedFile = String(line[fileRange])
                 let linkedPath = (memoryDir as NSString).appendingPathComponent(linkedFile)
 
-                if !fm.fileExists(atPath: linkedPath) {
+                if !fm.fileExists(atPath: linkedPath) { // SAFETY: validates index links in .claude/memory
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "MEMORY.md links to '\(linkedFile)' but file does not exist.",
