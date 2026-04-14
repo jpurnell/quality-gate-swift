@@ -1,14 +1,24 @@
 # quality-gate-swift
 
-Automated quality gate checks for Swift projects. Enforce zero warnings, zero test failures, and comprehensive documentation coverage.
+Automated quality gate checks for Swift projects. Enforce zero warnings, zero test failures, comprehensive documentation, and security best practices — with SARIF output for GitHub Code Scanning.
 
-## Features
+## Checkers
 
-- **Build Checker** — Run `swift build`, catch all compiler errors and warnings
-- **Test Runner** — Run `swift test`, parse Swift Testing and XCTest results
-- **Safety Auditor** — Detect forbidden patterns (`!`, `as!`, `try!`, `fatalError`, etc.)
-- **Doc Linter** — Validate DocC documentation for errors
-- **Doc Coverage** — Find undocumented public APIs
+| Checker | ID | Description |
+|---------|-----|-------------|
+| **Build Checker** | `build` | Runs `swift build`, catches all compiler errors and warnings |
+| **Test Runner** | `test` | Runs `swift test`, parses Swift Testing and XCTest results |
+| **Safety Auditor** | `safety` | Detects forbidden crash-prone patterns and OWASP security vulnerabilities |
+| **Doc Linter** | `doc-lint` | Validates DocC documentation for errors |
+| **Doc Coverage** | `doc-coverage` | Finds undocumented public APIs (SwiftSyntax-based) |
+| **Recursion Auditor** | `recursion` | Catches infinite recursion: self-forwarding inits, computed property cycles, mutual recursion via call-graph analysis |
+| **Concurrency Auditor** | `concurrency` | Enforces Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation issues |
+| **Pointer Escape Auditor** | `pointer-escape` | Detects unsafe pointer escapes from `withUnsafe*` blocks |
+| **Unreachable Code Auditor** | `unreachable` | Finds dead code via SwiftSyntax + IndexStore analysis |
+| **Accessibility Auditor** | `accessibility` | Checks SwiftUI views for accessibility compliance |
+| **Disk Cleaner** | `disk-cleaner` | Identifies build artifacts and caches for cleanup |
+
+All checkers implement the `QualityChecker` protocol, produce `Diagnostic` results, and support terminal, JSON, and SARIF output.
 
 ## Installation
 
@@ -63,7 +73,7 @@ swift package plugin quality-gate --check safety
 
 | Flag | Description |
 |------|-------------|
-| `--check <name>` | Run specific checker(s): `build`, `test`, `safety`, `doc-lint`, `doc-coverage` |
+| `--check <name>` | Run specific checker(s) by ID (see table above) |
 | `--format <fmt>` | Output format: `terminal` (default), `json`, `sarif` |
 | `--config <path>` | Path to config file (default: `.quality-gate.yml`) |
 | `--continue-on-failure` | Run all checks even if one fails |
@@ -82,7 +92,7 @@ excludePatterns:
   - "**/Generated/**"
   - "**/Vendor/**"
 
-# Patterns that suppress safety warnings
+# Patterns that suppress safety/security warnings
 safetyExemptions:
   - "// SAFETY:"
 
@@ -91,6 +101,9 @@ enabledCheckers:
   - build
   - test
   - safety
+  - recursion
+  - concurrency
+  - pointer-escape
 
 # Build configuration
 buildConfiguration: debug  # or release
@@ -103,29 +116,83 @@ docTarget: MyModule
 
 # Minimum doc coverage % (nil = strict mode, any gap fails)
 docCoverageThreshold: 80
+
+# Per-checker configuration
+concurrency:
+  justificationKeyword: "Justification:"
+  allowPreconcurrencyImports:
+    - Alamofire
+
+pointerEscape:
+  allowedEscapeFunctions:
+    - vDSP_fft_zip
+    - vDSP_fft_zop
+
+security:
+  enabledRules: []  # empty = all 10 rules enabled
+  secretPatterns:
+    - password
+    - secret
+    - apiKey
+    - token
+    - credential
+    - privateKey
+  allowedHTTPHosts:
+    - localhost
+    - 127.0.0.1
+  sqlFunctionNames:
+    - execute
+    - prepare
+    - query
 ```
 
-## Safety Auditor Rules
+## Safety Auditor
 
-The safety auditor detects these patterns in production code:
+The safety auditor runs two visitor passes on every Swift file:
 
-| Pattern | Why It's Forbidden |
-|---------|-------------------|
-| `!` (force unwrap) | Can crash at runtime |
-| `as!` (force cast) | Can crash at runtime |
-| `try!` (force try) | Can crash at runtime |
-| `fatalError()` | Intentional crash |
-| `precondition()` | Can crash in release |
-| `assertionFailure()` | Can crash in release |
-| `String(format:)` / `NSString(format:)` / `NSString.localizedStringWithFormat` | Bridges to C printf ABI; `%s` + Swift String crashes at runtime (SIGSEGV) |
+### Code Safety Rules
+
+| Pattern | Rule ID | Why It's Forbidden |
+|---------|---------|-------------------|
+| `!` (force unwrap) | `force-unwrap` | Crashes at runtime if nil |
+| `as!` (force cast) | `force-cast` | Crashes at runtime if cast fails |
+| `try!` (force try) | `force-try` | Crashes at runtime if error thrown |
+| `fatalError()` | `fatal-error` | Intentional crash |
+| `precondition()` | `precondition` | Crashes in release builds |
+| `assertionFailure()` | `assertion-failure` | Crashes in debug builds |
+| `unowned` | `unowned` | Crashes if accessed after deallocation |
+| `while true` | `infinite-loop` | May run indefinitely |
+| `String(format:)` | `c-style-format-string` | `%s` + Swift String = SIGSEGV |
+
+### Security Rules (OWASP Mobile Top 10)
+
+| Rule ID | CWE | OWASP 2024 | What It Detects |
+|---------|-----|------------|-----------------|
+| `security.hardcoded-secret` | CWE-798 | M1 | Secret-named variable with string literal value |
+| `security.command-injection` | CWE-78 | M4 | Process/NSTask with dynamic arguments |
+| `security.weak-crypto` | CWE-327 | M10 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+| `security.insecure-transport` | CWE-319 | M5 | http:// URLs (excluding localhost) |
+| `security.eval-js` | CWE-95 | M4 | evaluateJavaScript with non-literal argument |
+| `security.sql-injection` | CWE-89 | M4 | String interpolation in SQL function call |
+| `security.insecure-keychain` | CWE-311 | M9 | Deprecated keychain accessibility constants |
+| `security.tls-disabled` | CWE-295 | M5 | Certificate validation disabled/weakened |
+| `security.path-traversal` | CWE-22 | M4 | FileManager with dynamic unsanitized path |
+| `security.ssrf` | CWE-918 | M5 | URL constructed from dynamic input |
+
+Security rules use SwiftSyntax for full AST context — they won't false-positive on `fatalError` messages, `print` statements, or doc comments (a common issue with tree-sitter scanners).
+
+Semgrep-compatible YAML versions of these rules are available at [swift-security-rules](https://github.com/jpurnell/swift-security-rules).
 
 ### Exemptions
 
-Add a safety comment to suppress warnings:
+Add a safety or security comment to suppress warnings:
 
 ```swift
-// SAFETY: This is guaranteed non-nil by the framework
+// SAFETY: Guaranteed non-nil by the framework
 let value = optionalValue!
+
+// SECURITY: Test fixture — not a real credential
+let testApiKey = "sk-test-only"
 ```
 
 ## Output Formats
@@ -140,6 +207,9 @@ let value = optionalValue!
 ✓ [build] PASSED (10.94s)
 ✓ [test] PASSED (45.23s)
 ✓ [safety] PASSED (1.24s)
+✓ [recursion] PASSED (0.89s)
+✓ [concurrency] PASSED (1.12s)
+✓ [pointer-escape] PASSED (0.76s)
 ✓ [doc-coverage] PASSED (248ms)
   ℹ️  note: Documentation coverage: 100% (93/93 public APIs documented)
 
@@ -154,8 +224,8 @@ let value = optionalValue!
 {
   "summary": {
     "status": "passed",
-    "totalChecks": 4,
-    "passed": 4,
+    "totalChecks": 7,
+    "passed": 7,
     "failed": 0
   },
   "results": [...]
@@ -183,12 +253,40 @@ SARIF 2.1.0 format for GitHub Code Scanning integration.
     sarif_file: results.sarif
 ```
 
+### Security Rule Staleness
+
+A built-in workflow checks security rule review dates bi-monthly and opens a GitHub issue when any rule exceeds its 365-day review window. See `.github/workflows/security-rule-staleness.yml`.
+
 ### Pre-commit Hook
 
 ```bash
 #!/bin/bash
 quality-gate --check build --check safety
 ```
+
+## Architecture
+
+```
+quality-gate-swift/
+├── Sources/
+│   ├── QualityGateCore/          # Shared protocol, models, reporters
+│   ├── SafetyAuditor/            # Code safety + OWASP security scanning
+│   ├── BuildChecker/             # swift build wrapper
+│   ├── TestRunner/               # swift test wrapper
+│   ├── DocLinter/                # DocC documentation linter
+│   ├── DocCoverageChecker/       # Undocumented API detector
+│   ├── RecursionAuditor/         # Call-graph cycle detection
+│   ├── ConcurrencyAuditor/       # Swift 6 concurrency compliance
+│   ├── PointerEscapeAuditor/     # Unsafe pointer tracking
+│   ├── UnreachableCodeAuditor/   # Dead code via SwiftSyntax + IndexStore
+│   ├── AccessibilityAuditor/     # SwiftUI accessibility checks
+│   ├── MemoryBuilder/            # Project memory generation
+│   ├── DiskCleaner/              # Build artifact cleanup
+│   └── QualityGateCLI/           # Umbrella CLI
+└── Tests/                        # 465 tests across 56 suites
+```
+
+All SwiftSyntax-based checkers (Safety, DocCoverage, Recursion, Concurrency, PointerEscape, Unreachable, Accessibility) use AST walking for precise, low-false-positive detection.
 
 ## Requirements
 
