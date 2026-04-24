@@ -1,4 +1,4 @@
-name: CI — Build, Test, and Memory Validation
+name: CI — Build, Test, Version Check, and Memory Validation
 
 on:
   push:
@@ -27,6 +27,11 @@ jobs:
 
       - name: Test
         run: swift test
+
+      - name: Check swift-tools-version
+        run: |
+          swift build -c release
+          .build/release/quality-gate --check swift-version --continue-on-failure
 
   memory-validation:
     runs-on: macos-latest
