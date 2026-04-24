@@ -243,6 +243,62 @@ extension MemoryBuilderConfig: Codable {
     }
 }
 
+/// Per-checker configuration for LoggingAuditor.
+///
+/// Controls whether logging hygiene checks run (apps only, not libraries)
+/// and how silent `try?` expressions are evaluated.
+///
+/// ## YAML Example
+/// ```yaml
+/// logging:
+///   projectType: application
+///   silentTryKeyword: "silent:"
+///   allowedSilentTryFunctions: ["Task.sleep", "JSONEncoder", "JSONDecoder"]
+///   customLoggerNames: ["NarbisLog", "WatchLog"]
+/// ```
+public struct LoggingAuditorConfig: Sendable, Equatable {
+    /// Project type: "application" enables all rules, "library" skips the auditor entirely.
+    public let projectType: String
+
+    /// Comment keyword that suppresses silent-try warnings.
+    public let silentTryKeyword: String
+
+    /// Function names where `try?` is considered safe (fire-and-forget patterns).
+    public let allowedSilentTryFunctions: [String]
+
+    /// Additional logger type names beyond os.Logger (e.g. project-specific wrappers).
+    public let customLoggerNames: [String]
+
+    public init(
+        projectType: String = "application",
+        silentTryKeyword: String = "silent:",
+        allowedSilentTryFunctions: [String] = ["Task.sleep", "JSONEncoder", "JSONDecoder"],
+        customLoggerNames: [String] = []
+    ) {
+        self.projectType = projectType
+        self.silentTryKeyword = silentTryKeyword
+        self.allowedSilentTryFunctions = allowedSilentTryFunctions
+        self.customLoggerNames = customLoggerNames
+    }
+
+    public static let `default` = LoggingAuditorConfig()
+}
+
+extension LoggingAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case projectType, silentTryKeyword, allowedSilentTryFunctions, customLoggerNames
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = LoggingAuditorConfig.default
+        projectType = try container.decodeIfPresent(String.self, forKey: .projectType) ?? defaults.projectType
+        silentTryKeyword = try container.decodeIfPresent(String.self, forKey: .silentTryKeyword) ?? defaults.silentTryKeyword
+        allowedSilentTryFunctions = try container.decodeIfPresent([String].self, forKey: .allowedSilentTryFunctions) ?? defaults.allowedSilentTryFunctions
+        customLoggerNames = try container.decodeIfPresent([String].self, forKey: .customLoggerNames) ?? defaults.customLoggerNames
+    }
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -333,6 +389,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for MemoryBuilder.
     public let memoryBuilder: MemoryBuilderConfig
 
+    /// Per-checker configuration for LoggingAuditor.
+    public let logging: LoggingAuditorConfig
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -351,7 +410,8 @@ public struct Configuration: Sendable, Codable, Equatable {
         security: SecurityAuditorConfig = .default,
         status: StatusAuditorConfig = .default,
         swiftVersion: SwiftVersionConfig = .default,
-        memoryBuilder: MemoryBuilderConfig = .default
+        memoryBuilder: MemoryBuilderConfig = .default,
+        logging: LoggingAuditorConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
@@ -370,6 +430,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.status = status
         self.swiftVersion = swiftVersion
         self.memoryBuilder = memoryBuilder
+        self.logging = logging
     }
 
     /// The effective number of workers, either from config or computed.
@@ -449,6 +510,7 @@ extension Configuration {
         case status
         case swiftVersion
         case memoryBuilder
+        case logging
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -472,5 +534,6 @@ extension Configuration {
         status = try container.decodeIfPresent(StatusAuditorConfig.self, forKey: .status) ?? .default
         swiftVersion = try container.decodeIfPresent(SwiftVersionConfig.self, forKey: .swiftVersion) ?? .default
         memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
+        logging = try container.decodeIfPresent(LoggingAuditorConfig.self, forKey: .logging) ?? .default
     }
 }

@@ -15,6 +15,7 @@ import MemoryBuilder
 import AccessibilityAuditor
 import StatusAuditor
 import SwiftVersionChecker
+import LoggingAuditor
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -89,7 +90,8 @@ struct QualityGateCLI: AsyncParsableCommand {
                 security: configuration.security,
                 status: configuration.status,
                 swiftVersion: configuration.swiftVersion,
-                memoryBuilder: configuration.memoryBuilder
+                memoryBuilder: configuration.memoryBuilder,
+                logging: configuration.logging
             )
         }
 
@@ -103,7 +105,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             effectiveCheckers = [
                 "build", "test", "safety", "doc-lint", "doc-coverage",
                 "unreachable", "recursion", "concurrency", "pointer-escape",
-                "accessibility", "swift-version"
+                "accessibility", "swift-version", "logging"
             ]
         }
 
@@ -131,6 +133,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             AccessibilityAuditor(),
             StatusAuditor(),
             SwiftVersionChecker(),
+            LoggingAuditor(config: configuration.logging),
             DiskCleaner()
         ]
 
