@@ -178,6 +178,48 @@ extension StatusAuditorConfig: Codable {
     }
 }
 
+/// Per-checker configuration for SwiftVersionChecker.
+///
+/// Controls the minimum required `swift-tools-version` and whether
+/// the local compiler version is also reported.
+///
+/// ## YAML Example
+/// ```yaml
+/// swiftVersion:
+///   minimum: "6.2"
+///   checkCompiler: true
+/// ```
+public struct SwiftVersionConfig: Sendable, Equatable {
+    /// Minimum required swift-tools-version (e.g. "6.2").
+    public let minimum: String
+
+    /// Whether to also check and report the local compiler version.
+    public let checkCompiler: Bool
+
+    public init(
+        minimum: String = "6.2",
+        checkCompiler: Bool = true
+    ) {
+        self.minimum = minimum
+        self.checkCompiler = checkCompiler
+    }
+
+    public static let `default` = SwiftVersionConfig()
+}
+
+extension SwiftVersionConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case minimum, checkCompiler
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = SwiftVersionConfig.default
+        minimum = try container.decodeIfPresent(String.self, forKey: .minimum) ?? defaults.minimum
+        checkCompiler = try container.decodeIfPresent(Bool.self, forKey: .checkCompiler) ?? defaults.checkCompiler
+    }
+}
+
 /// Per-checker configuration for MemoryBuilder.
 public struct MemoryBuilderConfig: Sendable, Equatable {
     /// Relative path to the development-guidelines directory.
@@ -285,6 +327,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for StatusAuditor.
     public let status: StatusAuditorConfig
 
+    /// Per-checker configuration for SwiftVersionChecker.
+    public let swiftVersion: SwiftVersionConfig
+
     /// Per-checker configuration for MemoryBuilder.
     public let memoryBuilder: MemoryBuilderConfig
 
@@ -305,6 +350,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         pointerEscape: PointerEscapeAuditorConfig = .default,
         security: SecurityAuditorConfig = .default,
         status: StatusAuditorConfig = .default,
+        swiftVersion: SwiftVersionConfig = .default,
         memoryBuilder: MemoryBuilderConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
@@ -322,6 +368,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.pointerEscape = pointerEscape
         self.security = security
         self.status = status
+        self.swiftVersion = swiftVersion
         self.memoryBuilder = memoryBuilder
     }
 
@@ -400,6 +447,7 @@ extension Configuration {
         case pointerEscape
         case security
         case status
+        case swiftVersion
         case memoryBuilder
     }
 
@@ -422,6 +470,7 @@ extension Configuration {
         pointerEscape = try container.decodeIfPresent(PointerEscapeAuditorConfig.self, forKey: .pointerEscape) ?? .default
         security = try container.decodeIfPresent(SecurityAuditorConfig.self, forKey: .security) ?? .default
         status = try container.decodeIfPresent(StatusAuditorConfig.self, forKey: .status) ?? .default
+        swiftVersion = try container.decodeIfPresent(SwiftVersionConfig.self, forKey: .swiftVersion) ?? .default
         memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
     }
 }
