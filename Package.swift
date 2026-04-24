@@ -71,6 +71,10 @@ let package = Package(
             name: "SwiftVersionChecker",
             targets: ["SwiftVersionChecker"]
         ),
+        .library(
+            name: "LoggingAuditor",
+            targets: ["LoggingAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -263,6 +267,19 @@ let package = Package(
             dependencies: ["SwiftVersionChecker"]
         ),
 
+        .target(
+            name: "LoggingAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "LoggingAuditorTests",
+            dependencies: ["LoggingAuditor"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -282,6 +299,7 @@ let package = Package(
                 "AccessibilityAuditor",
                 "StatusAuditor",
                 "SwiftVersionChecker",
+                "LoggingAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
