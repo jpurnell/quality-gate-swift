@@ -14,6 +14,7 @@ import PointerEscapeAuditor
 import MemoryBuilder
 import AccessibilityAuditor
 import StatusAuditor
+import SwiftVersionChecker
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -37,7 +38,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage, unreachable, recursion, concurrency, pointer-escape, accessibility, disk-clean)")
+    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage, unreachable, recursion, concurrency, pointer-escape, accessibility, swift-version, disk-clean)")
     var check: [String] = []
 
     @Flag(name: .long, help: "Continue running checks even if one fails")
@@ -87,6 +88,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 pointerEscape: configuration.pointerEscape,
                 security: configuration.security,
                 status: configuration.status,
+                swiftVersion: configuration.swiftVersion,
                 memoryBuilder: configuration.memoryBuilder
             )
         }
@@ -101,7 +103,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             effectiveCheckers = [
                 "build", "test", "safety", "doc-lint", "doc-coverage",
                 "unreachable", "recursion", "concurrency", "pointer-escape",
-                "accessibility"
+                "accessibility", "swift-version"
             ]
         }
 
@@ -128,6 +130,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             ),
             AccessibilityAuditor(),
             StatusAuditor(),
+            SwiftVersionChecker(),
             DiskCleaner()
         ]
 
