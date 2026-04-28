@@ -16,6 +16,7 @@ final class LoggingVisitor: SyntaxVisitor {
     let allowedSilentTryFunctions: Set<String>
     let loggerNames: Set<String>
     private(set) var diagnostics: [Diagnostic] = []
+    private(set) var overrides: [DiagnosticOverride] = []
 
     private var hasOSImport = false
     private var hasPrintOrNSLog = false
@@ -67,7 +68,9 @@ final class LoggingVisitor: SyntaxVisitor {
             if name == "print" || name == "debugPrint" {
                 hasPrintOrNSLog = true
                 let line = startLine(of: Syntax(node))
-                if !isExempted(line: line, keyword: "logging:") {
+                if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.print-statement") {
+                    overrides.append(override)
+                } else {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "print() should not be used in production code; use os.Logger instead",
@@ -111,7 +114,8 @@ final class LoggingVisitor: SyntaxVisitor {
         }
 
         // Check for suppression comment
-        if isExempted(line: line, keyword: silentTryKeyword) {
+        if let override = overrideIfExempted(line: line, keyword: silentTryKeyword, ruleId: "logging.silent-try") {
+            overrides.append(override)
             return .visitChildren
         }
 
@@ -155,20 +159,31 @@ final class LoggingVisitor: SyntaxVisitor {
     }
 
     /// Checks if the given line (1-based) or the previous line contains an exemption comment.
-    private func isExempted(line: Int, keyword: String) -> Bool {
+    /// Returns a DiagnosticOverride if exempted, nil otherwise.
+    private func overrideIfExempted(line: Int, keyword: String, ruleId: String) -> DiagnosticOverride? {
         let index0 = line - 1
         // Check same line
         if index0 >= 0, index0 < sourceLines.count,
            sourceLines[index0].contains("// \(keyword)") {
-            return true
+            return DiagnosticOverride(
+                ruleId: ruleId,
+                justification: sourceLines[index0].trimmingCharacters(in: .whitespaces),
+                filePath: fileName,
+                lineNumber: line
+            )
         }
         // Check previous line
         let prev = index0 - 1
         if prev >= 0, prev < sourceLines.count,
            sourceLines[prev].contains("// \(keyword)") {
-            return true
+            return DiagnosticOverride(
+                ruleId: ruleId,
+                justification: sourceLines[prev].trimmingCharacters(in: .whitespaces),
+                filePath: fileName,
+                lineNumber: line
+            )
         }
-        return false
+        return nil
     }
 
     /// Checks if any line within +/- 2 lines contains a logging call.

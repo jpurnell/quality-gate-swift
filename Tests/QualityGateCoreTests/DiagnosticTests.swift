@@ -85,7 +85,7 @@ struct DiagnosticTests {
         #expect(json != nil)
         #expect(json?.contains("\"severity\":\"error\"") == true)
         #expect(json?.contains("\"message\":\"Test error\"") == true)
-        #expect(json?.contains("\"line\":10") == true)
+        #expect(json?.contains("\"lineNumber\":10") == true)
     }
 
     @Test("Diagnostic decodes from JSON correctly")

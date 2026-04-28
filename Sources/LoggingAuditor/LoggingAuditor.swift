@@ -41,8 +41,11 @@ public struct LoggingAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
         if fileManager.fileExists(atPath: sourcesPath) {
-            allDiagnostics.append(contentsOf: try await auditDirectory(at: sourcesPath, configuration: configuration))
+            let result = try await auditDirectory(at: sourcesPath, configuration: configuration)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - startTime
@@ -63,6 +66,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: allOverrides,
             duration: duration
         )
     }
@@ -84,11 +88,11 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             )
         }
 
-        let diagnostics = auditSourceCode(source, fileName: fileName)
+        let result = auditSourceCode(source, fileName: fileName)
         let duration = ContinuousClock.now - startTime
 
-        let hasError = diagnostics.contains { $0.severity == .error }
-        let hasWarning = diagnostics.contains { $0.severity == .warning }
+        let hasError = result.diagnostics.contains { $0.severity == .error }
+        let hasWarning = result.diagnostics.contains { $0.severity == .warning }
         let status: CheckResult.Status
         if hasError {
             status = .failed
@@ -101,7 +105,8 @@ public struct LoggingAuditor: QualityChecker, Sendable {
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: diagnostics,
+            diagnostics: result.diagnostics,
+            overrides: result.overrides,
             duration: duration
         )
     }
@@ -111,10 +116,11 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     private func auditDirectory(
         at path: String,
         configuration: Configuration
-    ) async throws -> [Diagnostic] {
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return [] }
+        var overrides: [DiagnosticOverride] = []
+        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
 
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
@@ -132,15 +138,17 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                diagnostics.append(contentsOf: auditSourceCode(source, fileName: fullPath))
+                let result = auditSourceCode(source, fileName: fullPath)
+                diagnostics.append(contentsOf: result.diagnostics)
+                overrides.append(contentsOf: result.overrides)
             } catch {
                 continue
             }
         }
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
-    private func auditSourceCode(_ source: String, fileName: String) -> [Diagnostic] {
+    private func auditSourceCode(_ source: String, fileName: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let sourceLines = source.components(separatedBy: "\n")
@@ -153,6 +161,6 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             customLoggerNames: config.customLoggerNames
         )
         visitor.walk(tree)
-        return visitor.diagnostics
+        return (visitor.diagnostics, visitor.overrides)
     }
 }

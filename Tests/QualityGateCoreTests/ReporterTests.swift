@@ -113,8 +113,8 @@ struct ReporterTests {
 
         #expect(output.contains("\"severity\""))
         #expect(output.contains("\"message\""))
-        #expect(output.contains("\"file\""))
-        #expect(output.contains("\"line\""))
+        #expect(output.contains("\"filePath\""))
+        #expect(output.contains("\"lineNumber\""))
         #expect(output.contains("\"ruleId\""))
         #expect(output.contains("Force unwrap detected"))
     }

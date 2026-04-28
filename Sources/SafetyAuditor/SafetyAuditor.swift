@@ -43,13 +43,15 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
 
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let diagnostics = try await auditDirectory(
+            let result = try await auditDirectory(
                 at: sourcesPath,
                 configuration: configuration
             )
-            allDiagnostics.append(contentsOf: diagnostics)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - startTime
@@ -59,6 +61,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: allOverrides,
             duration: duration
         )
     }
@@ -77,19 +80,20 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let diagnostics = auditSourceCode(
+        let result = auditSourceCode(
             source,
             fileName: fileName,
             configuration: configuration
         )
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = diagnostics.isEmpty ? .passed : .failed
+        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
 
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: diagnostics,
+            diagnostics: result.diagnostics,
+            overrides: result.overrides,
             duration: duration
         )
     }
@@ -99,12 +103,13 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     private func auditDirectory(
         at path: String,
         configuration: Configuration
-    ) async throws -> [Diagnostic] {
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
 
         guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return []
+            return ([], [])
         }
 
         while let relativePath = enumerator.nextObject() as? String {
@@ -119,19 +124,20 @@ public struct SafetyAuditor: QualityChecker, Sendable {
 
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let fileDiagnostics = auditSourceCode(
+                let result = auditSourceCode(
                     source,
                     fileName: fullPath,
                     configuration: configuration
                 )
-                diagnostics.append(contentsOf: fileDiagnostics)
+                diagnostics.append(contentsOf: result.diagnostics)
+                overrides.append(contentsOf: result.overrides)
             } catch {
                 // Skip files that can't be read
                 continue
             }
         }
 
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
     private func shouldExclude(path: String, patterns: [String]) -> Bool {
@@ -157,7 +163,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         _ source: String,
         fileName: String,
         configuration: Configuration
-    ) -> [Diagnostic] {
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let sourceFile = Parser.parse(source: source)
 
         // Run code-safety checks
@@ -178,7 +184,10 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         )
         securityVisitor.walk(sourceFile)
 
-        return safetyVisitor.diagnostics + securityVisitor.diagnostics
+        return (
+            diagnostics: safetyVisitor.diagnostics + securityVisitor.diagnostics,
+            overrides: safetyVisitor.overrides + securityVisitor.overrides
+        )
     }
 }
 
@@ -190,6 +199,7 @@ private final class SafetyVisitor: SyntaxVisitor {
     let exemptionPatterns: [String]
     let sourceLines: [String]
     var diagnostics: [Diagnostic] = []
+    var overrides: [DiagnosticOverride] = []
 
     init(fileName: String, source: String, exemptionPatterns: [String]) {
         self.fileName = fileName
@@ -205,7 +215,8 @@ private final class SafetyVisitor: SyntaxVisitor {
         let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
         let line = location.line
 
-        guard !isExempted(line: line) else {
+        if let override = overrideIfExempted(line: line, ruleId: "force-unwrap") {
+            overrides.append(override)
             return .visitChildren
         }
 
@@ -232,7 +243,8 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            guard !isExempted(line: line) else {
+            if let override = overrideIfExempted(line: line, ruleId: "force-cast") {
+                overrides.append(override)
                 return .visitChildren
             }
 
@@ -258,7 +270,8 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            guard !isExempted(line: line) else {
+            if let override = overrideIfExempted(line: line, ruleId: "force-try") {
+                overrides.append(override)
                 return .visitChildren
             }
 
@@ -284,7 +297,9 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            if !isExempted(line: line) {
+            if let override = overrideIfExempted(line: line, ruleId: "c-style-format-string") {
+                overrides.append(override)
+            } else {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "C-style format string call detected. String(format:) bridges to the C printf ABI: %s expects a C string pointer (not Swift String) and will crash at runtime with SIGSEGV. Type errors are caught only at runtime.",
@@ -308,47 +323,44 @@ private final class SafetyVisitor: SyntaxVisitor {
         let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
         let line = location.line
 
-        guard !isExempted(line: line) else {
-            return .visitChildren
-        }
+        let ruleId: String
+        let message: String
+        let suggestedFix: String
 
         switch functionName {
         case "fatalError":
-            diagnostics.append(Diagnostic(
-                severity: .error,
-                message: "fatalError() will crash the application unconditionally.",
-                file: fileName,
-                line: line,
-                column: location.column,
-                ruleId: "fatal-error",
-                suggestedFix: "Throw an error instead of crashing"
-            ))
+            ruleId = "fatal-error"
+            message = "fatalError() will crash the application unconditionally."
+            suggestedFix = "Throw an error instead of crashing"
 
         case "precondition":
-            diagnostics.append(Diagnostic(
-                severity: .error,
-                message: "precondition() will crash in release builds if the condition is false.",
-                file: fileName,
-                line: line,
-                column: location.column,
-                ruleId: "precondition",
-                suggestedFix: "Use guard with proper error handling"
-            ))
+            ruleId = "precondition"
+            message = "precondition() will crash in release builds if the condition is false."
+            suggestedFix = "Use guard with proper error handling"
 
         case "assertionFailure":
-            diagnostics.append(Diagnostic(
-                severity: .error,
-                message: "assertionFailure() indicates a bug and crashes in debug builds.",
-                file: fileName,
-                line: line,
-                column: location.column,
-                ruleId: "assertion-failure",
-                suggestedFix: "Log the error and handle gracefully, or throw an error"
-            ))
+            ruleId = "assertion-failure"
+            message = "assertionFailure() indicates a bug and crashes in debug builds."
+            suggestedFix = "Log the error and handle gracefully, or throw an error"
 
         default:
-            break
+            return .visitChildren
         }
+
+        if let override = overrideIfExempted(line: line, ruleId: ruleId) {
+            overrides.append(override)
+            return .visitChildren
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .error,
+            message: message,
+            file: fileName,
+            line: line,
+            column: location.column,
+            ruleId: ruleId,
+            suggestedFix: suggestedFix
+        ))
 
         return .visitChildren
     }
@@ -361,7 +373,8 @@ private final class SafetyVisitor: SyntaxVisitor {
                 let location = modifier.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
                 let line = location.line
 
-                guard !isExempted(line: line) else {
+                if let override = overrideIfExempted(line: line, ruleId: "unowned") {
+                    overrides.append(override)
                     return .visitChildren
                 }
 
@@ -390,7 +403,8 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            guard !isExempted(line: line) else {
+            if let override = overrideIfExempted(line: line, ruleId: "while-true") {
+                overrides.append(override)
                 return .visitChildren
             }
 
@@ -434,20 +448,22 @@ private final class SafetyVisitor: SyntaxVisitor {
 
     // MARK: - Exemption Checking
 
-    private func isExempted(line: Int) -> Bool {
-        // Check same line and previous line for exemption comments
-        let linesToCheck = [line - 1, line] // 1-indexed lines
+    private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
+        let linesToCheck = [line - 1, line]
             .filter { $0 >= 1 && $0 <= sourceLines.count }
-
         for lineNum in linesToCheck {
-            let lineContent = sourceLines[lineNum - 1] // Convert to 0-indexed
+            let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns {
                 if lineContent.contains(pattern) {
-                    return true
+                    return DiagnosticOverride(
+                        ruleId: ruleId,
+                        justification: lineContent.trimmingCharacters(in: .whitespaces),
+                        filePath: fileName,
+                        lineNumber: line
+                    )
                 }
             }
         }
-
-        return false
+        return nil
     }
 }

@@ -27,13 +27,16 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            allDiagnostics.append(contentsOf: try await auditDirectory(at: sourcesPath))
+            let result = try await auditDirectory(at: sourcesPath)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
-        return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, duration: duration)
+        return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, overrides: allOverrides, duration: duration)
     }
 
     public func auditSource(
@@ -42,32 +45,35 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let diagnostics = auditSourceCode(source, fileName: fileName)
+        let result = auditSourceCode(source, fileName: fileName)
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = diagnostics.isEmpty ? .passed : .failed
-        return CheckResult(checkerId: id, status: status, diagnostics: diagnostics, duration: duration)
+        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
+        return CheckResult(checkerId: id, status: status, diagnostics: result.diagnostics, overrides: result.overrides, duration: duration)
     }
 
     // MARK: - Private
 
-    private func auditDirectory(at path: String) async throws -> [Diagnostic] {
+    private func auditDirectory(at path: String) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return [] }
+        var overrides: [DiagnosticOverride] = []
+        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                diagnostics.append(contentsOf: auditSourceCode(source, fileName: fullPath))
+                let result = auditSourceCode(source, fileName: fullPath)
+                diagnostics.append(contentsOf: result.diagnostics)
+                overrides.append(contentsOf: result.overrides)
             } catch {
                 continue
             }
         }
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
-    private func auditSourceCode(_ source: String, fileName: String) -> [Diagnostic] {
+    private func auditSourceCode(_ source: String, fileName: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let visitor = PointerEscapeVisitor(
@@ -77,6 +83,6 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
             sourceText: source
         )
         visitor.walk(tree)
-        return visitor.diagnostics
+        return (visitor.diagnostics, visitor.overrides)
     }
 }

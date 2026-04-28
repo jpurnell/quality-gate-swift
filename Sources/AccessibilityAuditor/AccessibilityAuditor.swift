@@ -47,13 +47,15 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
 
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let diagnostics = try await auditDirectory(
+            let result = try await auditDirectory(
                 at: sourcesPath,
                 configuration: configuration
             )
-            allDiagnostics.append(contentsOf: diagnostics)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - startTime
@@ -64,6 +66,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: allOverrides,
             duration: duration
         )
     }
@@ -82,16 +85,17 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let diagnostics = auditSourceCode(source, fileName: fileName, configuration: configuration)
+        let result = auditSourceCode(source, fileName: fileName, configuration: configuration)
 
         let duration = ContinuousClock.now - startTime
-        let hasErrors = diagnostics.contains { $0.severity == .error }
-        let status: CheckResult.Status = hasErrors ? .failed : (diagnostics.isEmpty ? .passed : .warning)
+        let hasErrors = result.diagnostics.contains { $0.severity == .error }
+        let status: CheckResult.Status = hasErrors ? .failed : (result.diagnostics.isEmpty ? .passed : .warning)
 
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: diagnostics,
+            diagnostics: result.diagnostics,
+            overrides: result.overrides,
             duration: duration
         )
     }
@@ -101,12 +105,13 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     private func auditDirectory(
         at path: String,
         configuration: Configuration
-    ) async throws -> [Diagnostic] {
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
 
         guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return []
+            return ([], [])
         }
 
         while let relativePath = enumerator.nextObject() as? String {
@@ -119,14 +124,15 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
 
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let fileDiagnostics = auditSourceCode(source, fileName: fullPath, configuration: configuration)
-                diagnostics.append(contentsOf: fileDiagnostics)
+                let result = auditSourceCode(source, fileName: fullPath, configuration: configuration)
+                diagnostics.append(contentsOf: result.diagnostics)
+                overrides.append(contentsOf: result.overrides)
             } catch {
                 continue
             }
         }
 
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
     private func shouldExclude(path: String, patterns: [String]) -> Bool {
@@ -151,7 +157,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         _ source: String,
         fileName: String,
         configuration: Configuration
-    ) -> [Diagnostic] {
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let sourceFile = Parser.parse(source: source)
         let visitor = AccessibilityVisitor(
             fileName: fileName,
@@ -159,7 +165,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
             exemptionPatterns: configuration.safetyExemptions
         )
         visitor.walk(sourceFile)
-        return visitor.diagnostics
+        return (visitor.diagnostics, visitor.overrides)
     }
 }
 
@@ -171,6 +177,7 @@ final class AccessibilityVisitor: SyntaxVisitor {
     let exemptionPatterns: [String]
     let sourceLines: [String]
     var diagnostics: [Diagnostic] = []
+    var overrides: [DiagnosticOverride] = []
 
     init(fileName: String, source: String, exemptionPatterns: [String]) {
         self.fileName = fileName
@@ -205,7 +212,10 @@ final class AccessibilityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        guard !isExempted(line: location.line) else { return }
+        if let override = overrideIfExempted(line: location.line, ruleId: "fixed-font-size") {
+            overrides.append(override)
+            return
+        }
 
         diagnostics.append(Diagnostic(
             severity: .warning,
@@ -229,7 +239,10 @@ final class AccessibilityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        guard !isExempted(line: location.line) else { return }
+        if let override = overrideIfExempted(line: location.line, ruleId: "missing-reduce-motion") {
+            overrides.append(override)
+            return
+        }
 
         // Check surrounding lines for a reduceMotion guard
         if hasNearbyReduceMotionCheck(around: location.line) { return }
@@ -259,7 +272,10 @@ final class AccessibilityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        guard !isExempted(line: location.line) else { return }
+        if let override = overrideIfExempted(line: location.line, ruleId: "missing-reduce-motion") {
+            overrides.append(override)
+            return
+        }
 
         if hasNearbyReduceMotionCheck(around: location.line) { return }
 
@@ -298,7 +314,10 @@ final class AccessibilityVisitor: SyntaxVisitor {
         let location = call.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: call.root)
         )
-        guard !isExempted(line: location.line) else { return }
+        if let override = overrideIfExempted(line: location.line, ruleId: "missing-accessibility-label") {
+            overrides.append(override)
+            return
+        }
 
         // Only flag once per Image call (check we're the first argument)
         guard node == call.arguments.first else { return }
@@ -342,17 +361,22 @@ final class AccessibilityVisitor: SyntaxVisitor {
         return false
     }
 
-    private func isExempted(line: Int) -> Bool {
+    private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
         let linesToCheck = [line - 1, line]
             .filter { $0 >= 1 && $0 <= sourceLines.count }
         for lineNum in linesToCheck {
             let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns {
                 if lineContent.contains(pattern) {
-                    return true
+                    return DiagnosticOverride(
+                        ruleId: ruleId,
+                        justification: lineContent.trimmingCharacters(in: .whitespaces),
+                        filePath: fileName,
+                        lineNumber: line
+                    )
                 }
             }
         }
-        return false
+        return nil
     }
 }
