@@ -43,6 +43,7 @@ final class PointerEscapeVisitor: SyntaxVisitor {
     let sourceText: String
 
     private(set) var diagnostics: [Diagnostic] = []
+    private(set) var overrides: [DiagnosticOverride] = []
 
     init(
         fileName: String,
@@ -305,6 +306,13 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         //    allowlisted function, the user has opted in to letting that
         //    function receive the borrowed pointer.
         if let call = expression.as(FunctionCallExprSyntax.self), isAllowlistedCall(call) {
+            let functionName = allowlistedFunctionName(call) ?? "unknown"
+            overrides.append(DiagnosticOverride(
+                ruleId: "pointer-escape",
+                justification: "Allowed by configuration: \(functionName)",
+                filePath: fileName,
+                lineNumber: line(of: call)
+            ))
             return
         }
         // 1. Closure literal capturing a tracked pointer → stored-closure escape.
@@ -408,6 +416,13 @@ final class PointerEscapeVisitor: SyntaxVisitor {
 
         // Allowlisted function — fully suppress checks.
         if isAllowlistedCall(call) {
+            let functionName = allowlistedFunctionName(call) ?? "unknown"
+            overrides.append(DiagnosticOverride(
+                ruleId: "pointer-escape",
+                justification: "Allowed by configuration: \(functionName)",
+                filePath: fileName,
+                lineNumber: line(of: call)
+            ))
             return
         }
 
@@ -479,6 +494,18 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             return allowedEscapeFunctions.contains(member.declName.baseName.text)
         }
         return false
+    }
+
+    private func allowlistedFunctionName(_ call: FunctionCallExprSyntax) -> String? {
+        if let ident = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           allowedEscapeFunctions.contains(ident.baseName.text) {
+            return ident.baseName.text
+        }
+        if let member = call.calledExpression.as(MemberAccessExprSyntax.self),
+           allowedEscapeFunctions.contains(member.declName.baseName.text) {
+            return member.declName.baseName.text
+        }
+        return nil
     }
 
     private func isEscapingClosureCallSite(_ call: FunctionCallExprSyntax) -> Bool {

@@ -1,4 +1,5 @@
 import Foundation
+@_exported import QualityGateTypes
 
 /// Protocol that all quality checkers must implement.
 ///

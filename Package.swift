@@ -75,6 +75,10 @@ let package = Package(
             name: "LoggingAuditor",
             targets: ["LoggingAuditor"]
         ),
+        .library(
+            name: "TestQualityAuditor",
+            targets: ["TestQualityAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -92,6 +96,7 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
+        .package(path: "../quality-gate-types"),
     ],
     targets: [
         // MARK: - Core Module
@@ -99,6 +104,7 @@ let package = Package(
             name: "QualityGateCore",
             dependencies: [
                 .product(name: "Yams", package: "Yams"),
+                .product(name: "QualityGateTypes", package: "quality-gate-types"),
             ]
         ),
         .testTarget(
@@ -280,6 +286,19 @@ let package = Package(
             dependencies: ["LoggingAuditor"]
         ),
 
+        .target(
+            name: "TestQualityAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "TestQualityAuditorTests",
+            dependencies: ["TestQualityAuditor"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -300,6 +319,7 @@ let package = Package(
                 "StatusAuditor",
                 "SwiftVersionChecker",
                 "LoggingAuditor",
+                "TestQualityAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

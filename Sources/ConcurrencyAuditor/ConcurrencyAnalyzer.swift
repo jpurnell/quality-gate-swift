@@ -30,6 +30,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     let justificationKeyword: String
 
     private(set) var diagnostics: [Diagnostic] = []
+    private(set) var overrides: [DiagnosticOverride] = []
 
     /// Stack of isolation contexts, one per nested decl.
     private var isolationStack: [IsolationContext] = [.none]
@@ -172,7 +173,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         // Rule: nonisolated(unsafe)
         if hasNonisolatedUnsafeModifier(node.modifiers) {
             let line = startLine(of: Syntax(node))
-            if !isJustified(line: line) {
+            if let override = overrideIfJustified(line: line, ruleId: "concurrency.nonisolated-unsafe-no-justification") {
+                overrides.append(override)
+            } else {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "nonisolated(unsafe) requires a justification comment explaining why this is safe",
@@ -252,7 +255,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         for inherited in clause.inheritedTypes {
             let text = inherited.type.trimmedDescription
             if text.contains("@unchecked") && text.contains("Sendable") {
-                if !isJustified(line: declStartLine) {
+                if let override = overrideIfJustified(line: declStartLine, ruleId: "concurrency.unchecked-sendable-no-justification") {
+                    overrides.append(override)
+                } else {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "@unchecked Sendable requires a justification comment explaining why this is safe",
@@ -465,15 +470,20 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         node.startLocation(converter: converter).line
     }
 
-    private func isJustified(line: Int) -> Bool {
-        // Same-line trailing comment
+    private func overrideIfJustified(line: Int, ruleId: String) -> DiagnosticOverride? {
         let zeroIndexed = line - 1
+        // Same-line trailing comment
         if zeroIndexed >= 0 && zeroIndexed < sourceLines.count {
             let lineText = sourceLines[zeroIndexed]
             if let commentRange = lineText.range(of: "//") {
-                let commentText = lineText[commentRange.upperBound...]
+                let commentText = String(lineText[commentRange.upperBound...])
                 if commentText.contains(justificationKeyword) {
-                    return true
+                    return DiagnosticOverride(
+                        ruleId: ruleId,
+                        justification: commentText.trimmingCharacters(in: .whitespaces),
+                        filePath: fileName,
+                        lineNumber: line
+                    )
                 }
             }
         }
@@ -482,10 +492,15 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         if aboveIndex >= 0 && aboveIndex < sourceLines.count {
             let prev = sourceLines[aboveIndex].trimmingCharacters(in: .whitespaces)
             if prev.hasPrefix("//") && prev.contains(justificationKeyword) {
-                return true
+                return DiagnosticOverride(
+                    ruleId: ruleId,
+                    justification: prev,
+                    filePath: fileName,
+                    lineNumber: line
+                )
             }
         }
-        return false
+        return nil
     }
 }
 
