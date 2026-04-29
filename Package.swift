@@ -79,6 +79,10 @@ let package = Package(
             name: "TestQualityAuditor",
             targets: ["TestQualityAuditor"]
         ),
+        .library(
+            name: "ContextAuditor",
+            targets: ["ContextAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -299,6 +303,19 @@ let package = Package(
             dependencies: ["TestQualityAuditor"]
         ),
 
+        .target(
+            name: "ContextAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "ContextAuditorTests",
+            dependencies: ["ContextAuditor"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -320,6 +337,7 @@ let package = Package(
                 "SwiftVersionChecker",
                 "LoggingAuditor",
                 "TestQualityAuditor",
+                "ContextAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
