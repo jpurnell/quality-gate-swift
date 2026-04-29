@@ -45,6 +45,10 @@ Argument labels are part of function identity. `func f(_ x: Int)` calling `f(x: 
 
 ## Topics
 
+### Guides
+
+- <doc:RecursionAuditorGuide>
+
 ### Essentials
 
 - ``RecursionAuditor/check(configuration:)``
