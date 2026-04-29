@@ -16,5 +16,6 @@
   - FloatingPointSafetyAuditor: FP equality comparisons, unguarded division
   - StochasticDeterminismAuditor: unseeded randomness in production code
   - MemoryLifecycleGuard: un-cancelled Tasks, strong delegate references
+- Add MCPReadinessAuditor (opt-in): schema-implementation cross-reference for MCP tools
 - Exclude unreachable checker from pre-push hook for faster local pushes
 - DocC catalogs for all checker modules
