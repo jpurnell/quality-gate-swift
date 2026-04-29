@@ -158,9 +158,9 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "function '\(decl.signature.displayName)' participates in a mutual recursion cycle with no base case",
-                    file: decl.location.file,
-                    line: decl.location.line,
-                    column: decl.location.column,
+                    filePath: decl.location.file,
+                    lineNumber: decl.location.line,
+                    columnNumber: decl.location.column,
                     ruleId: "recursion.mutual-cycle",
                     suggestedFix: "Add a guard-driven base case to one of the cycle participants."
                 ))

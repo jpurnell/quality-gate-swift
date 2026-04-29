@@ -82,8 +82,8 @@ public enum MemoryFileValidator {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "MEMORY.md links to '\(linkedFile)' but file does not exist.",
-                        file: indexPath,
-                        line: index + 1,
+                        filePath: indexPath,
+                        lineNumber: index + 1,
                         ruleId: "memory.broken-index-link",
                         suggestedFix: "Remove the broken link or regenerate memory files"
                     ))
@@ -114,7 +114,7 @@ public enum MemoryFileValidator {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "Generated memory file '\(fileName)' is missing YAML frontmatter.",
-                file: filePath,
+                filePath: filePath,
                 ruleId: "memory.malformed-generated",
                 suggestedFix: "Regenerate with --check memory-builder"
             ))
@@ -129,7 +129,7 @@ public enum MemoryFileValidator {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Generated memory file '\(fileName)' has empty body.",
-                    file: filePath,
+                    filePath: filePath,
                     ruleId: "memory.empty-generated",
                     suggestedFix: "Regenerate with --check memory-builder"
                 ))

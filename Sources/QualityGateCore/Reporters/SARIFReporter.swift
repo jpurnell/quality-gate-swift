@@ -112,14 +112,14 @@ private struct SARIFDocument: Codable {
         }
 
         private static func makeLocations(from diagnostic: Diagnostic) -> [Location]? {
-            guard let file = diagnostic.file else {
+            guard let file = diagnostic.filePath else {
                 return nil
             }
 
             let physicalLocation = PhysicalLocation(
                 artifactLocation: ArtifactLocation(uri: file),
-                region: diagnostic.line.map { line in
-                    Region(startLine: line, startColumn: diagnostic.column)
+                region: diagnostic.lineNumber.map { line in
+                    Region(startLine: line, startColumn: diagnostic.columnNumber)
                 }
             )
 

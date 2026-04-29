@@ -34,8 +34,8 @@ public enum StatusValidator {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "'\(doc.name)' marked [x] (complete) but module directory not found in Sources/.",
-                        file: masterPlanPath,
-                        line: doc.line,
+                        filePath: masterPlanPath,
+                        lineNumber: doc.line,
                         ruleId: "status.module-marked-complete-missing",
                         suggestedFix: "Remove the entry or uncheck it: - [ ] \(doc.name)"
                     ))
@@ -48,8 +48,8 @@ public enum StatusValidator {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "'\(doc.name)' marked [ ] (incomplete) but has \(state.sourceLineCount) lines of source code.",
-                    file: masterPlanPath,
-                    line: doc.line,
+                    filePath: masterPlanPath,
+                    lineNumber: doc.line,
                     ruleId: "status.module-marked-incomplete",
                     suggestedFix: "Mark as complete: - [x] \(doc.name)"
                 ))
@@ -62,8 +62,8 @@ public enum StatusValidator {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "'\(doc.name)' described as \"\(doc.description)\" but has \(state.sourceLineCount) lines of source code.",
-                    file: masterPlanPath,
-                    line: doc.line,
+                    filePath: masterPlanPath,
+                    lineNumber: doc.line,
                     ruleId: "status.stub-description-mismatch",
                     suggestedFix: "Update description to reflect actual implementation"
                 ))
@@ -77,8 +77,8 @@ public enum StatusValidator {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "'\(doc.name)' claims \(claimed) tests but estimated actual count is \(state.estimatedTestCount) (\(Int(driftPercent))% drift).",
-                        file: masterPlanPath,
-                        line: doc.line,
+                        filePath: masterPlanPath,
+                        lineNumber: doc.line,
                         ruleId: "status.test-count-drift",
                         suggestedFix: "Update test count to (\(state.estimatedTestCount) tests)"
                     ))
@@ -99,7 +99,7 @@ public enum StatusValidator {
                 diagnostics.append(Diagnostic(
                     severity: .note,
                     message: "'\(name)' exists in Package.swift with \(state.sourceLineCount) lines but is not documented in Master Plan.",
-                    file: masterPlanPath,
+                    filePath: masterPlanPath,
                     ruleId: "status.phantom-module",
                     suggestedFix: "Add entry: - [x] \(name)"
                 ))
@@ -112,8 +112,8 @@ public enum StatusValidator {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Phase '\(phase.name)' marked (CURRENT) but all \(phase.items.count) items are complete.",
-                    file: masterPlanPath,
-                    line: phase.line,
+                    filePath: masterPlanPath,
+                    lineNumber: phase.line,
                     ruleId: "status.roadmap-phase-stale",
                     suggestedFix: "Update label to (COMPLETE)"
                 ))
@@ -132,8 +132,8 @@ public enum StatusValidator {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "Master Plan last updated \(lastUpdated.date) (\(daysSince) days ago, threshold: \(configuration.lastUpdatedStaleDays) days).",
-                        file: masterPlanPath,
-                        line: lastUpdated.line,
+                        filePath: masterPlanPath,
+                        lineNumber: lastUpdated.line,
                         ruleId: "status.last-updated-stale",
                         suggestedFix: "Update to today's date"
                     ))

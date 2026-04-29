@@ -245,9 +245,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Test function '\(testName)' has no #expect or #require assertions.",
-                    file: fileName,
-                    line: line,
-                    column: nil,
+                    filePath: fileName,
+                    lineNumber: line,
+                    columnNumber: nil,
                     ruleId: "missing-assertion",
                     suggestedFix: "Add #expect or #require assertions to validate behavior"
                 ))
@@ -275,9 +275,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Force try (try!) in test code. Use do/catch with #expect(throws:) or propagate with 'throws'.",
-                file: fileName,
-                line: line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
                 ruleId: "force-try-in-test",
                 suggestedFix: "Replace try! with #expect(throws: ErrorType.self) { try expression } or mark test as throws"
             ))
@@ -319,9 +319,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "Unseeded .random usage in test code. Tests must be deterministic.",
-                file: fileName,
-                line: line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
                 ruleId: "unseeded-random",
                 suggestedFix: "Inject a SeededGenerator or validate distributional invariants only"
             ))
@@ -345,9 +345,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "SystemRandomNumberGenerator in test code produces non-deterministic results.",
-                file: fileName,
-                line: line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
                 ruleId: "unseeded-random",
                 suggestedFix: "Use a SeededGenerator with a fixed seed for reproducible tests"
             ))
@@ -511,9 +511,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "Exact equality (==) on floating-point literal. Use tolerance: abs(a - b) < epsilon.",
-            file: fileName,
-            line: line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
             ruleId: "exact-double-equality",
             suggestedFix: "Replace #expect(a == 0.3989) with #expect(abs(a - 0.3989) < 1e-6)"
         ))
@@ -533,9 +533,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Weak assertion: != 0 or != nil does not validate correctness. Assert quantitative bounds.",
-            file: fileName,
-            line: line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
             ruleId: "weak-assertion",
             suggestedFix: "Replace != 0 with a specific expected value or range check"
         ))

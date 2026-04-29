@@ -245,8 +245,8 @@ struct QualityGateCLI: AsyncParsableCommand {
                     print("\n[dry-run] \(fixable.name) would apply fixes:")
                     print("  \(fixable.fixDescription)")
                     for diag in result.diagnostics {
-                        if let fix = diag.suggestedFix, let file = diag.file {
-                            let lineInfo = diag.line.map { ":\($0)" } ?? ""
+                        if let fix = diag.suggestedFix, let file = diag.filePath {
+                            let lineInfo = diag.lineNumber.map { ":\($0)" } ?? ""
                             print("    \(file)\(lineInfo): \(fix)")
                         }
                     }

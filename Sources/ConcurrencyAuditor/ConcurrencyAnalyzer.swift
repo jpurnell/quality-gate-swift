@@ -179,9 +179,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "nonisolated(unsafe) requires a justification comment explaining why this is safe",
-                    file: fileName,
-                    line: line,
-                    column: 1,
+                    filePath: fileName,
+                    lineNumber: line,
+                    columnNumber: 1,
                     ruleId: "concurrency.nonisolated-unsafe-no-justification",
                     suggestedFix: "Add a // \(justificationKeyword) ... comment on the line directly above."
                 ))
@@ -201,9 +201,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "Task closure captures isolated state without an explicit isolation hop; use 'await self.method()' instead",
-                        file: fileName,
-                        line: line,
-                        column: 1,
+                        filePath: fileName,
+                        lineNumber: line,
+                        columnNumber: 1,
                         ruleId: "concurrency.task-captures-self-no-isolation",
                         suggestedFix: "Replace direct property access with an awaited isolated method call."
                     ))
@@ -216,9 +216,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "DispatchQueue used inside actor-isolated context; prefer await MainActor.run or stay on-actor",
-                file: fileName,
-                line: line,
-                column: 1,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: 1,
                 ruleId: "concurrency.dispatch-queue-in-actor",
                 suggestedFix: "Use await MainActor.run { ... } or refactor to remain on the actor."
             ))
@@ -238,9 +238,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "@preconcurrency import of first-party module '\(firstComponent)' should be removed; fix the underlying concurrency issues instead",
-                file: fileName,
-                line: line,
-                column: 1,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: 1,
                 ruleId: "concurrency.preconcurrency-first-party-import",
                 suggestedFix: "Remove the @preconcurrency attribute and resolve the strict-concurrency warnings in '\(firstComponent)'."
             ))
@@ -261,9 +261,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "@unchecked Sendable requires a justification comment explaining why this is safe",
-                        file: fileName,
-                        line: declStartLine,
-                        column: 1,
+                        filePath: fileName,
+                        lineNumber: declStartLine,
+                        columnNumber: 1,
                         ruleId: "concurrency.unchecked-sendable-no-justification",
                         suggestedFix: "Add a // \(justificationKeyword) ... comment on the line directly above."
                     ))
@@ -298,9 +298,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "Sendable class has mutable stored property '\(name)'; declare it 'let' or use @unchecked Sendable with a justification",
-                        file: fileName,
-                        line: line,
-                        column: 1,
+                        filePath: fileName,
+                        lineNumber: line,
+                        columnNumber: 1,
                         ruleId: "concurrency.sendable-class-mutable-state",
                         suggestedFix: "Make '\(name)' immutable, or move synchronization out of band."
                     ))
@@ -311,9 +311,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                         diagnostics.append(Diagnostic(
                             severity: .error,
                             message: "Sendable class has stored closure property '\(name)' that is not @Sendable",
-                            file: fileName,
-                            line: line,
-                            column: 1,
+                            filePath: fileName,
+                            lineNumber: line,
+                            columnNumber: 1,
                             ruleId: "concurrency.sendable-class-non-sendable-property",
                             suggestedFix: "Mark the closure type as @Sendable, or store a Sendable wrapper instead."
                         ))
@@ -374,9 +374,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "@MainActor class deinit touches isolated stored state; deinit is non-isolated in Swift 6 and will trap at runtime",
-                file: fileName,
-                line: declStartLine,
-                column: 1,
+                filePath: fileName,
+                lineNumber: declStartLine,
+                columnNumber: 1,
                 ruleId: "concurrency.main-actor-deinit-touches-state",
                 suggestedFix: "Move cleanup that touches isolated state into an explicit isolated method called before deallocation."
             ))

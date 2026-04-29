@@ -74,8 +74,8 @@ final class LoggingVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "print() should not be used in production code; use os.Logger instead",
-                        file: fileName,
-                        line: line,
+                        filePath: fileName,
+                        lineNumber: line,
                         ruleId: "logging.print-statement",
                         suggestedFix: "Replace print() with os.Logger"
                     ))
@@ -127,8 +127,8 @@ final class LoggingVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "try? silently discards errors without logging",
-            file: fileName,
-            line: line,
+            filePath: fileName,
+            lineNumber: line,
             ruleId: "logging.silent-try",
             suggestedFix: "Wrap in do/catch with error logging, or add // \(silentTryKeyword) <reason>"
         ))
@@ -143,8 +143,8 @@ final class LoggingVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "File contains print()/NSLog() but does not import os; migrate to os.Logger",
-                file: fileName,
-                line: 1,
+                filePath: fileName,
+                lineNumber: 1,
                 ruleId: "logging.no-os-logger-import",
                 suggestedFix: "Add 'import os' and replace print()/NSLog() with os.Logger calls"
             ))

@@ -245,9 +245,9 @@ struct IndexStorePass {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Symbol '\(rec.symbol.name)' is unreachable from any entry point.",
-                file: rec.defFile,
-                line: rec.defLine,
-                column: rec.defColumn,
+                filePath: rec.defFile,
+                lineNumber: rec.defLine,
+                columnNumber: rec.defColumn,
                 ruleId: "unreachable.cross_module.unreachable_from_entry",
                 suggestedFix: "Remove '\(rec.symbol.name)', or mark its declaration with `// LIVE:` if it is invoked dynamically."
             ))
@@ -255,8 +255,8 @@ struct IndexStorePass {
 
         // Stable order — useful for golden output and human review.
         diagnostics.sort { lhs, rhs in
-            if (lhs.file ?? "") != (rhs.file ?? "") { return (lhs.file ?? "") < (rhs.file ?? "") }
-            return (lhs.line ?? 0) < (rhs.line ?? 0)
+            if (lhs.filePath ?? "") != (rhs.filePath ?? "") { return (lhs.filePath ?? "") < (rhs.filePath ?? "") }
+            return (lhs.lineNumber ?? 0) < (rhs.lineNumber ?? 0)
         }
 
         return diagnostics

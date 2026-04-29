@@ -356,9 +356,9 @@ private final class DocCoverageVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Public \(apiType) '\(name)' is missing documentation",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "missing-doc",
             suggestedFix: "Add /// documentation comment above the declaration"
         ))

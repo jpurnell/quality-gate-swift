@@ -159,7 +159,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
                     Diagnostic(
                         severity: .error,
                         message: "Cannot upgrade to \(targetVersion): build failed. Manual intervention required.",
-                        file: packagePath,
+                        filePath: packagePath,
                         ruleId: "swift-version-upgrade-blocked"
                     )
                 ]
@@ -269,8 +269,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "swift-tools-version \(toolsVersion) is below minimum \(minimumVersion).",
-                file: "Package.swift",
-                line: 1,
+                filePath: "Package.swift",
+                lineNumber: 1,
                 ruleId: "swift-version-minimum",
                 suggestedFix: "Update swift-tools-version to \(minimumVersion)"
             ))
@@ -441,8 +441,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: String(output[messageRange]),
-                file: String(output[fileRange]),
-                line: Int(output[lineRange]),
+                filePath: String(output[fileRange]),
+                lineNumber: Int(output[lineRange]),
                 ruleId: "swift-compiler"
             ))
         }
