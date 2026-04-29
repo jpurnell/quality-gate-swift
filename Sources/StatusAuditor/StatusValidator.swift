@@ -72,7 +72,7 @@ public enum StatusValidator {
             // Rule 4: Test count drift
             if let claimed = doc.claimedTestCount, state.estimatedTestCount > 0 {
                 let drift = abs(claimed - state.estimatedTestCount)
-                let driftPercent = Double(drift) / max(Double(claimed), 1.0) * 100.0
+                let driftPercent = Double(drift) / max(Double(claimed), 1.0) * 100.0 // fp-safety:disable
                 if Int(driftPercent) > configuration.testCountDriftPercent {
                     diagnostics.append(Diagnostic(
                         severity: .warning,

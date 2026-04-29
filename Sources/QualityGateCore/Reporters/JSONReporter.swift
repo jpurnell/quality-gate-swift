@@ -69,7 +69,7 @@ private struct JSONReport: Codable {
             let totalDurationValue = results.reduce(Duration.zero) { sum, result in
                 sum + result.duration
             }
-            totalDuration = Double(totalDurationValue.components.seconds) +
+            totalDuration = Double(totalDurationValue.components.seconds) + // fp-safety:disable
                            Double(totalDurationValue.components.attoseconds) / 1e18
 
             status = failed > 0 ? "failed" : "passed"

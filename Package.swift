@@ -103,6 +103,10 @@ let package = Package(
             name: "MemoryLifecycleGuard",
             targets: ["MemoryLifecycleGuard"]
         ),
+        .library(
+            name: "MCPReadinessAuditor",
+            targets: ["MCPReadinessAuditor"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -365,6 +369,19 @@ let package = Package(
         .testTarget(
             name: "FloatingPointSafetyAuditorTests",
             dependencies: ["FloatingPointSafetyAuditor"]
+        ),
+
+        .target(
+            name: "MCPReadinessAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "MCPReadinessAuditorTests",
+            dependencies: ["MCPReadinessAuditor"]
         ),
 
         .target(

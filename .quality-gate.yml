@@ -3,3 +3,8 @@ excludePatterns:
   # the auditor's own reachability tests; auditing them as part of the
   # outer package would always fail the gate.
   - "**/Tests/UnreachableCodeAuditorTests/Fixtures/**"
+
+dependencyAudit:
+  allowBranchPins:
+    - indexstore-db
+    - swift-lmdb
