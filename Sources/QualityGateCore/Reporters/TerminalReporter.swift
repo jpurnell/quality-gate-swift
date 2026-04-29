@@ -75,7 +75,7 @@ public struct TerminalReporter: Reporter, Sendable {
     }
 
     private func formatDuration(_ duration: Duration) -> String {
-        let seconds = Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+        let seconds = Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18 // fp-safety:disable
         if seconds < 1 {
             return "\(Int(seconds * 1000))ms"
         } else {
