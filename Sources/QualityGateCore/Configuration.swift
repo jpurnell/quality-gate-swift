@@ -531,6 +531,53 @@ extension MemoryLifecycleConfig: Codable {
     }
 }
 
+/// Per-checker configuration for MCPReadinessAuditor.
+public struct MCPReadinessConfig: Sendable, Equatable {
+    /// Whether the MCP readiness checker is enabled.
+    public let enabled: Bool
+
+    /// Minimum character length for tool and property descriptions.
+    public let minDescriptionLength: Int
+
+    /// Additional source directories to scan for MCP tools.
+    public let additionalPaths: [String]
+
+    /// Source directories to exclude from scanning.
+    public let excludePaths: [String]
+
+    /// Creates an MCP readiness configuration with the given options.
+    public init(
+        enabled: Bool = false,
+        minDescriptionLength: Int = 10,
+        additionalPaths: [String] = [],
+        excludePaths: [String] = []
+    ) {
+        self.enabled = enabled
+        self.minDescriptionLength = minDescriptionLength
+        self.additionalPaths = additionalPaths
+        self.excludePaths = excludePaths
+    }
+
+    /// Default MCP readiness configuration.
+    public static let `default` = MCPReadinessConfig()
+}
+
+extension MCPReadinessConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case enabled, minDescriptionLength, additionalPaths, excludePaths
+    }
+
+    /// Creates an MCP readiness configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = MCPReadinessConfig.default
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+        minDescriptionLength = try container.decodeIfPresent(Int.self, forKey: .minDescriptionLength) ?? defaults.minDescriptionLength
+        additionalPaths = try container.decodeIfPresent([String].self, forKey: .additionalPaths) ?? defaults.additionalPaths
+        excludePaths = try container.decodeIfPresent([String].self, forKey: .excludePaths) ?? defaults.excludePaths
+    }
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -639,6 +686,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for MemoryLifecycleGuard.
     public let memoryLifecycle: MemoryLifecycleConfig
 
+    /// Per-checker configuration for MCPReadinessAuditor.
+    public let mcpReadiness: MCPReadinessConfig
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -663,7 +713,8 @@ public struct Configuration: Sendable, Codable, Equatable {
         releaseReadiness: ReleaseReadinessAuditorConfig = .default,
         fpSafety: FloatingPointSafetyAuditorConfig = .default,
         stochasticDeterminism: StochasticDeterminismConfig = .default,
-        memoryLifecycle: MemoryLifecycleConfig = .default
+        memoryLifecycle: MemoryLifecycleConfig = .default,
+        mcpReadiness: MCPReadinessConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
@@ -688,6 +739,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.fpSafety = fpSafety
         self.stochasticDeterminism = stochasticDeterminism
         self.memoryLifecycle = memoryLifecycle
+        self.mcpReadiness = mcpReadiness
     }
 
     /// The effective number of workers, either from config or computed.
@@ -773,6 +825,7 @@ extension Configuration {
         case fpSafety
         case stochasticDeterminism
         case memoryLifecycle
+        case mcpReadiness
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -802,5 +855,6 @@ extension Configuration {
         fpSafety = try container.decodeIfPresent(FloatingPointSafetyAuditorConfig.self, forKey: .fpSafety) ?? .default
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
+        mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
     }
 }

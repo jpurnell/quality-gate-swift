@@ -437,6 +437,7 @@ let package = Package(
                 "FloatingPointSafetyAuditor",
                 "StochasticDeterminismAuditor",
                 "MemoryLifecycleGuard",
+                "MCPReadinessAuditor",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
