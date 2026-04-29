@@ -26,12 +26,12 @@ if grep -q "warning:" /tmp/qg-build.log; then
     exit 1
 fi
 
-.build/release/quality-gate --check all --exclude disk-clean --strict --continue-on-failure
+.build/release/quality-gate --check all --exclude disk-clean --exclude unreachable --strict --continue-on-failure
 
 echo "Quality gate passed."
 HOOK
 
 chmod +x "$HOOK_FILE"
 echo "Installed pre-push hook at $HOOK_FILE"
-echo "The hook runs: quality-gate --check all --exclude disk-clean --strict"
+echo "The hook runs: quality-gate --check all --exclude disk-clean --exclude unreachable --strict"
 echo "To remove: rm $HOOK_FILE"

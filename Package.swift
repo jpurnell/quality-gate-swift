@@ -83,6 +83,26 @@ let package = Package(
             name: "ContextAuditor",
             targets: ["ContextAuditor"]
         ),
+        .library(
+            name: "DependencyAuditor",
+            targets: ["DependencyAuditor"]
+        ),
+        .library(
+            name: "ReleaseReadinessAuditor",
+            targets: ["ReleaseReadinessAuditor"]
+        ),
+        .library(
+            name: "FloatingPointSafetyAuditor",
+            targets: ["FloatingPointSafetyAuditor"]
+        ),
+        .library(
+            name: "StochasticDeterminismAuditor",
+            targets: ["StochasticDeterminismAuditor"]
+        ),
+        .library(
+            name: "MemoryLifecycleGuard",
+            targets: ["MemoryLifecycleGuard"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -316,6 +336,63 @@ let package = Package(
             dependencies: ["ContextAuditor"]
         ),
 
+        .target(
+            name: "DependencyAuditor",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "DependencyAuditorTests",
+            dependencies: ["DependencyAuditor"]
+        ),
+
+        .target(
+            name: "ReleaseReadinessAuditor",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "ReleaseReadinessAuditorTests",
+            dependencies: ["ReleaseReadinessAuditor"]
+        ),
+
+        .target(
+            name: "FloatingPointSafetyAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "FloatingPointSafetyAuditorTests",
+            dependencies: ["FloatingPointSafetyAuditor"]
+        ),
+
+        .target(
+            name: "StochasticDeterminismAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "StochasticDeterminismAuditorTests",
+            dependencies: ["StochasticDeterminismAuditor"]
+        ),
+
+        .target(
+            name: "MemoryLifecycleGuard",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "MemoryLifecycleGuardTests",
+            dependencies: ["MemoryLifecycleGuard"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
@@ -338,6 +415,11 @@ let package = Package(
                 "LoggingAuditor",
                 "TestQualityAuditor",
                 "ContextAuditor",
+                "DependencyAuditor",
+                "ReleaseReadinessAuditor",
+                "FloatingPointSafetyAuditor",
+                "StochasticDeterminismAuditor",
+                "MemoryLifecycleGuard",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
