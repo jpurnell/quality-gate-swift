@@ -320,6 +320,217 @@ extension LoggingAuditorConfig: Codable {
     }
 }
 
+/// Per-checker configuration for DependencyAuditor.
+public struct DependencyAuditorConfig: Sendable, Equatable {
+    /// Maximum major versions behind latest before flagging.
+    public let maxMajorVersionsBehind: Int
+
+    /// Branch pins that are explicitly allowed.
+    public let allowBranchPins: [String]
+
+    /// Skip network calls to check latest tags.
+    public let offlineMode: Bool
+
+    /// Creates a dependency auditor configuration with the given options.
+    public init(
+        maxMajorVersionsBehind: Int = 2,
+        allowBranchPins: [String] = [],
+        offlineMode: Bool = false
+    ) {
+        self.maxMajorVersionsBehind = maxMajorVersionsBehind
+        self.allowBranchPins = allowBranchPins
+        self.offlineMode = offlineMode
+    }
+
+    /// Default dependency auditor configuration.
+    public static let `default` = DependencyAuditorConfig()
+}
+
+extension DependencyAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case maxMajorVersionsBehind, allowBranchPins, offlineMode
+    }
+
+    /// Creates a dependency auditor configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = DependencyAuditorConfig.default
+        maxMajorVersionsBehind = try container.decodeIfPresent(Int.self, forKey: .maxMajorVersionsBehind) ?? defaults.maxMajorVersionsBehind
+        allowBranchPins = try container.decodeIfPresent([String].self, forKey: .allowBranchPins) ?? defaults.allowBranchPins
+        offlineMode = try container.decodeIfPresent(Bool.self, forKey: .offlineMode) ?? defaults.offlineMode
+    }
+}
+
+/// Per-checker configuration for ReleaseReadinessAuditor.
+public struct ReleaseReadinessAuditorConfig: Sendable, Equatable {
+    /// Path to CHANGELOG file relative to project root.
+    public let changelogPath: String
+
+    /// Path to README file relative to project root.
+    public let readmePath: String
+
+    /// Whether TODO/FIXME in source files require issue references.
+    public let requireIssueReference: Bool
+
+    /// Additional marker patterns to flag beyond TODO/FIXME/HACK/XXX.
+    public let additionalMarkers: [String]
+
+    /// Creates a release readiness auditor configuration with the given options.
+    public init(
+        changelogPath: String = "CHANGELOG.md",
+        readmePath: String = "README.md",
+        requireIssueReference: Bool = false,
+        additionalMarkers: [String] = []
+    ) {
+        self.changelogPath = changelogPath
+        self.readmePath = readmePath
+        self.requireIssueReference = requireIssueReference
+        self.additionalMarkers = additionalMarkers
+    }
+
+    /// Default release readiness auditor configuration.
+    public static let `default` = ReleaseReadinessAuditorConfig()
+}
+
+extension ReleaseReadinessAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case changelogPath, readmePath, requireIssueReference, additionalMarkers
+    }
+
+    /// Creates a release readiness auditor configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ReleaseReadinessAuditorConfig.default
+        changelogPath = try container.decodeIfPresent(String.self, forKey: .changelogPath) ?? defaults.changelogPath
+        readmePath = try container.decodeIfPresent(String.self, forKey: .readmePath) ?? defaults.readmePath
+        requireIssueReference = try container.decodeIfPresent(Bool.self, forKey: .requireIssueReference) ?? defaults.requireIssueReference
+        additionalMarkers = try container.decodeIfPresent([String].self, forKey: .additionalMarkers) ?? defaults.additionalMarkers
+    }
+}
+
+/// Per-checker configuration for FloatingPointSafetyAuditor.
+public struct FloatingPointSafetyAuditorConfig: Sendable, Equatable {
+    /// Files to exclude from FP safety checks.
+    public let allowedFiles: [String]
+
+    /// Whether to check for unguarded division.
+    public let checkDivisionGuards: Bool
+
+    /// Creates a floating-point safety auditor configuration with the given options.
+    public init(
+        allowedFiles: [String] = [],
+        checkDivisionGuards: Bool = true
+    ) {
+        self.allowedFiles = allowedFiles
+        self.checkDivisionGuards = checkDivisionGuards
+    }
+
+    /// Default floating-point safety auditor configuration.
+    public static let `default` = FloatingPointSafetyAuditorConfig()
+}
+
+extension FloatingPointSafetyAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case allowedFiles, checkDivisionGuards
+    }
+
+    /// Creates a floating-point safety auditor configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = FloatingPointSafetyAuditorConfig.default
+        allowedFiles = try container.decodeIfPresent([String].self, forKey: .allowedFiles) ?? defaults.allowedFiles
+        checkDivisionGuards = try container.decodeIfPresent(Bool.self, forKey: .checkDivisionGuards) ?? defaults.checkDivisionGuards
+    }
+}
+
+/// Per-checker configuration for StochasticDeterminismAuditor.
+public struct StochasticDeterminismConfig: Sendable, Equatable {
+    /// Function names exempt from seed requirement.
+    public let exemptFunctions: [String]
+
+    /// Files exempt from stochastic checks.
+    public let exemptFiles: [String]
+
+    /// Whether to flag collection `.shuffled()` without `using:` parameter.
+    public let flagCollectionShuffle: Bool
+
+    /// Whether to flag global C-style random state (`drand48`, `arc4random`).
+    public let flagGlobalState: Bool
+
+    /// Creates a stochastic determinism configuration with the given options.
+    public init(
+        exemptFunctions: [String] = [],
+        exemptFiles: [String] = [],
+        flagCollectionShuffle: Bool = true,
+        flagGlobalState: Bool = true
+    ) {
+        self.exemptFunctions = exemptFunctions
+        self.exemptFiles = exemptFiles
+        self.flagCollectionShuffle = flagCollectionShuffle
+        self.flagGlobalState = flagGlobalState
+    }
+
+    /// Default stochastic determinism configuration.
+    public static let `default` = StochasticDeterminismConfig()
+}
+
+extension StochasticDeterminismConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case exemptFunctions, exemptFiles, flagCollectionShuffle, flagGlobalState
+    }
+
+    /// Creates a stochastic determinism configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = StochasticDeterminismConfig.default
+        exemptFunctions = try container.decodeIfPresent([String].self, forKey: .exemptFunctions) ?? defaults.exemptFunctions
+        exemptFiles = try container.decodeIfPresent([String].self, forKey: .exemptFiles) ?? defaults.exemptFiles
+        flagCollectionShuffle = try container.decodeIfPresent(Bool.self, forKey: .flagCollectionShuffle) ?? defaults.flagCollectionShuffle
+        flagGlobalState = try container.decodeIfPresent(Bool.self, forKey: .flagGlobalState) ?? defaults.flagGlobalState
+    }
+}
+
+/// Per-checker configuration for MemoryLifecycleGuard.
+public struct MemoryLifecycleConfig: Sendable, Equatable {
+    /// Property name patterns that indicate delegate/parent references.
+    public let delegatePatterns: [String]
+
+    /// Whether to require Task cancellation in deinit.
+    public let requireTaskCancellation: Bool
+
+    /// Files exempt from lifecycle checks.
+    public let exemptFiles: [String]
+
+    /// Creates a memory lifecycle configuration with the given options.
+    public init(
+        delegatePatterns: [String] = ["delegate", "parent", "owner", "dataSource"],
+        requireTaskCancellation: Bool = true,
+        exemptFiles: [String] = []
+    ) {
+        self.delegatePatterns = delegatePatterns
+        self.requireTaskCancellation = requireTaskCancellation
+        self.exemptFiles = exemptFiles
+    }
+
+    /// Default memory lifecycle configuration.
+    public static let `default` = MemoryLifecycleConfig()
+}
+
+extension MemoryLifecycleConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case delegatePatterns, requireTaskCancellation, exemptFiles
+    }
+
+    /// Creates a memory lifecycle configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = MemoryLifecycleConfig.default
+        delegatePatterns = try container.decodeIfPresent([String].self, forKey: .delegatePatterns) ?? defaults.delegatePatterns
+        requireTaskCancellation = try container.decodeIfPresent(Bool.self, forKey: .requireTaskCancellation) ?? defaults.requireTaskCancellation
+        exemptFiles = try container.decodeIfPresent([String].self, forKey: .exemptFiles) ?? defaults.exemptFiles
+    }
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -413,6 +624,21 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for LoggingAuditor.
     public let logging: LoggingAuditorConfig
 
+    /// Per-checker configuration for DependencyAuditor.
+    public let dependencyAudit: DependencyAuditorConfig
+
+    /// Per-checker configuration for ReleaseReadinessAuditor.
+    public let releaseReadiness: ReleaseReadinessAuditorConfig
+
+    /// Per-checker configuration for FloatingPointSafetyAuditor.
+    public let fpSafety: FloatingPointSafetyAuditorConfig
+
+    /// Per-checker configuration for StochasticDeterminismAuditor.
+    public let stochasticDeterminism: StochasticDeterminismConfig
+
+    /// Per-checker configuration for MemoryLifecycleGuard.
+    public let memoryLifecycle: MemoryLifecycleConfig
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -432,7 +658,12 @@ public struct Configuration: Sendable, Codable, Equatable {
         status: StatusAuditorConfig = .default,
         swiftVersion: SwiftVersionConfig = .default,
         memoryBuilder: MemoryBuilderConfig = .default,
-        logging: LoggingAuditorConfig = .default
+        logging: LoggingAuditorConfig = .default,
+        dependencyAudit: DependencyAuditorConfig = .default,
+        releaseReadiness: ReleaseReadinessAuditorConfig = .default,
+        fpSafety: FloatingPointSafetyAuditorConfig = .default,
+        stochasticDeterminism: StochasticDeterminismConfig = .default,
+        memoryLifecycle: MemoryLifecycleConfig = .default
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
@@ -452,6 +683,11 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.swiftVersion = swiftVersion
         self.memoryBuilder = memoryBuilder
         self.logging = logging
+        self.dependencyAudit = dependencyAudit
+        self.releaseReadiness = releaseReadiness
+        self.fpSafety = fpSafety
+        self.stochasticDeterminism = stochasticDeterminism
+        self.memoryLifecycle = memoryLifecycle
     }
 
     /// The effective number of workers, either from config or computed.
@@ -532,6 +768,11 @@ extension Configuration {
         case swiftVersion
         case memoryBuilder
         case logging
+        case dependencyAudit
+        case releaseReadiness
+        case fpSafety
+        case stochasticDeterminism
+        case memoryLifecycle
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -556,5 +797,10 @@ extension Configuration {
         swiftVersion = try container.decodeIfPresent(SwiftVersionConfig.self, forKey: .swiftVersion) ?? .default
         memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
         logging = try container.decodeIfPresent(LoggingAuditorConfig.self, forKey: .logging) ?? .default
+        dependencyAudit = try container.decodeIfPresent(DependencyAuditorConfig.self, forKey: .dependencyAudit) ?? .default
+        releaseReadiness = try container.decodeIfPresent(ReleaseReadinessAuditorConfig.self, forKey: .releaseReadiness) ?? .default
+        fpSafety = try container.decodeIfPresent(FloatingPointSafetyAuditorConfig.self, forKey: .fpSafety) ?? .default
+        stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
+        memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
     }
 }

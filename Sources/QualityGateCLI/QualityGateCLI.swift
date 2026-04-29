@@ -18,6 +18,11 @@ import SwiftVersionChecker
 import LoggingAuditor
 import TestQualityAuditor
 import ContextAuditor
+import DependencyAuditor
+import ReleaseReadinessAuditor
+import FloatingPointSafetyAuditor
+import StochasticDeterminismAuditor
+import MemoryLifecycleGuard
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -99,7 +104,12 @@ struct QualityGateCLI: AsyncParsableCommand {
                 status: configuration.status,
                 swiftVersion: configuration.swiftVersion,
                 memoryBuilder: configuration.memoryBuilder,
-                logging: configuration.logging
+                logging: configuration.logging,
+                dependencyAudit: configuration.dependencyAudit,
+                releaseReadiness: configuration.releaseReadiness,
+                fpSafety: configuration.fpSafety,
+                stochasticDeterminism: configuration.stochasticDeterminism,
+                memoryLifecycle: configuration.memoryLifecycle
             )
         }
 
@@ -129,6 +139,11 @@ struct QualityGateCLI: AsyncParsableCommand {
             LoggingAuditor(config: configuration.logging),
             TestQualityAuditor(),
             ContextAuditor(),
+            DependencyAuditor(),
+            ReleaseReadinessAuditor(),
+            FloatingPointSafetyAuditor(),
+            StochasticDeterminismAuditor(),
+            MemoryLifecycleGuard(),
             DiskCleaner()
         ]
 
