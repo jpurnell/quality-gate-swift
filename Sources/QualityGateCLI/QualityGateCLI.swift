@@ -17,6 +17,7 @@ import StatusAuditor
 import SwiftVersionChecker
 import LoggingAuditor
 import TestQualityAuditor
+import ContextAuditor
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -136,6 +137,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             SwiftVersionChecker(),
             LoggingAuditor(config: configuration.logging),
             TestQualityAuditor(),
+            ContextAuditor(),
             DiskCleaner()
         ]
 
