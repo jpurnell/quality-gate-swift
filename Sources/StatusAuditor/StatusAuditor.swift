@@ -101,7 +101,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
                     Diagnostic(
                         severity: .warning,
                         message: "Could not read Master Plan: \(error.localizedDescription)",
-                        file: masterPlanPath,
+                        filePath: masterPlanPath,
                         ruleId: "status.read-error"
                     )
                 ],

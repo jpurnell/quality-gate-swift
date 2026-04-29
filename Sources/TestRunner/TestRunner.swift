@@ -91,9 +91,9 @@ public struct TestRunner: QualityChecker, Sendable {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: message,
-                    file: file,
-                    line: line,
-                    column: column,
+                    filePath: file,
+                    lineNumber: line,
+                    columnNumber: column,
                     ruleId: "test-failure"
                 ))
             }
@@ -123,8 +123,8 @@ public struct TestRunner: QualityChecker, Sendable {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: message,
-                    file: file,
-                    line: line,
+                    filePath: file,
+                    lineNumber: line,
                     ruleId: "test-failure"
                 ))
             }

@@ -96,11 +96,11 @@ public struct TerminalReporter: Reporter, Sendable {
 
         output.write("\(severityPrefix) \(diagnostic.message)\n")
 
-        if let file = diagnostic.file {
+        if let file = diagnostic.filePath {
             var location = "     → \(file)"
-            if let line = diagnostic.line {
+            if let line = diagnostic.lineNumber {
                 location += ":\(line)"
-                if let column = diagnostic.column {
+                if let column = diagnostic.columnNumber {
                     location += ":\(column)"
                 }
             }

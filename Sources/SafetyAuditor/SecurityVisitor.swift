@@ -82,9 +82,9 @@ final class SecurityVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "Hardcoded secret or credential detected in '\(pattern.identifier.text)'. [CWE-798]",
-                file: fileName,
-                line: location.line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: location.line,
+                columnNumber: location.column,
                 ruleId: "security.hardcoded-secret",
                 suggestedFix: "Load secrets from environment variables, keychain, or a secure configuration provider"
             ))
@@ -141,9 +141,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Insecure HTTP URL detected — use HTTPS instead. [CWE-319]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.insecure-transport",
             suggestedFix: "Replace http:// with https://"
         ))
@@ -198,9 +198,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "Process/NSTask instantiation detected — validate and sanitize dynamic arguments. [CWE-78]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.command-injection",
             suggestedFix: "Use a hardcoded executable path and validate all arguments"
         ))
@@ -257,9 +257,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Use of weak cryptographic hash '\(algorithm)'. [CWE-327]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.weak-crypto",
             suggestedFix: "Use SHA256 or stronger from CryptoKit: SHA256.hash(data:)"
         ))
@@ -297,9 +297,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "evaluateJavaScript called with dynamic input — enables code injection. [CWE-95]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.eval-js",
             suggestedFix: "Use WKUserContentController.addUserScript or callAsyncJavaScript with parameterized arguments"
         ))
@@ -371,9 +371,9 @@ final class SecurityVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "SQL query with string interpolation — use parameterized queries. [CWE-89]",
-                file: fileName,
-                line: location.line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: location.line,
+                columnNumber: location.column,
                 ruleId: "security.sql-injection",
                 suggestedFix: "Use parameterized queries with ? placeholders instead of string interpolation"
             ))
@@ -414,9 +414,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "URL constructed from dynamic input — potential SSRF. [CWE-918]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.ssrf",
             suggestedFix: "Validate the URL against an allowlist of expected hosts before making requests"
         ))
@@ -464,9 +464,9 @@ final class SecurityVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "FileManager operation with dynamic path — validate and sanitize to prevent path traversal. [CWE-22]",
-                file: fileName,
-                line: location.line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: location.line,
+                columnNumber: location.column,
                 ruleId: "security.path-traversal",
                 suggestedFix: "Use URL.standardized to resolve path traversal sequences and validate against an allowed directory"
             ))
@@ -498,9 +498,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Insecure Keychain accessibility level '\(name)' — allows access when device is locked. [CWE-311]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.insecure-keychain",
             suggestedFix: "Use kSecAttrAccessibleWhenUnlocked or kSecAttrAccessibleAfterFirstUnlock"
         ))
@@ -526,9 +526,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "TLS certificate validation disabled via '\(name)'. [CWE-295]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.tls-disabled",
             suggestedFix: "Do not disable certificate evaluation — use proper certificate pinning instead"
         ))
@@ -566,9 +566,9 @@ final class SecurityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "TLS certificate validation weakened — '\(name)' set to true. [CWE-295]",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "security.tls-disabled",
             suggestedFix: "Do not weaken TLS validation — use proper certificate pinning instead"
         ))

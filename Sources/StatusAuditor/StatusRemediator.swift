@@ -36,7 +36,7 @@ public enum StatusRemediator {
             switch ruleId {
             case "status.module-marked-incomplete":
                 // Flip [ ] to [x]
-                if let line = diag.line, line >= 1, line <= lines.count {
+                if let line = diag.lineNumber, line >= 1, line <= lines.count {
                     let original = lines[line - 1]
                     let patched = original
                         .replacingOccurrences(of: "- [ ]", with: "- [x]")
@@ -50,7 +50,7 @@ public enum StatusRemediator {
 
             case "status.stub-description-mismatch":
                 // Remove "Stub only" or "Not started" from description
-                if let line = diag.line, line >= 1, line <= lines.count {
+                if let line = diag.lineNumber, line >= 1, line <= lines.count {
                     let original = lines[line - 1]
                     var patched = original
                     for stub in ["Stub only", "stub only", "Not started", "not started", "Not implemented", "not implemented"] {
@@ -66,7 +66,7 @@ public enum StatusRemediator {
 
             case "status.test-count-drift":
                 // Update test count in parentheses
-                if let line = diag.line, line >= 1, line <= lines.count,
+                if let line = diag.lineNumber, line >= 1, line <= lines.count,
                    let suggestedFix = diag.suggestedFix {
                     let original = lines[line - 1]
                     // Extract new count from suggestedFix: "Update test count to (N tests)"
@@ -95,7 +95,7 @@ public enum StatusRemediator {
 
             case "status.roadmap-phase-stale":
                 // Replace (CURRENT) with (COMPLETE)
-                if let line = diag.line, line >= 1, line <= lines.count {
+                if let line = diag.lineNumber, line >= 1, line <= lines.count {
                     let original = lines[line - 1]
                     let patched = original
                         .replacingOccurrences(of: "(CURRENT)", with: "(COMPLETE)")
@@ -109,7 +109,7 @@ public enum StatusRemediator {
 
             case "status.last-updated-stale":
                 // Update date to today
-                if let line = diag.line, line >= 1, line <= lines.count {
+                if let line = diag.lineNumber, line >= 1, line <= lines.count {
                     let original = lines[line - 1]
                     let formatter = ISO8601DateFormatter()
                     formatter.formatOptions = [.withFullDate]

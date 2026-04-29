@@ -220,9 +220,9 @@ final class AccessibilityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Fixed font size detected. Users who need larger text (low vision) or larger tap targets (motor) won't benefit from Dynamic Type.",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "fixed-font-size",
             suggestedFix: "Use a semantic text style instead: .font(.body), .font(.headline), .font(.caption), etc. These scale automatically with the user's Dynamic Type setting."
         ))
@@ -250,9 +250,9 @@ final class AccessibilityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "withAnimation used without an accessibilityReduceMotion check. Users with motion sensitivity (low vision, vestibular disorders) or motor difficulties may need reduced or no animation.",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "missing-reduce-motion",
             suggestedFix: "Guard with: @Environment(\\.accessibilityReduceMotion) var reduceMotion — then use withAnimation(reduceMotion ? nil : .default) { ... } or skip the animation entirely."
         ))
@@ -282,9 +282,9 @@ final class AccessibilityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: ".animation() modifier used without an accessibilityReduceMotion check. Users with motion sensitivity may need reduced or no animation.",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "missing-reduce-motion",
             suggestedFix: "Guard with: @Environment(\\.accessibilityReduceMotion) var reduceMotion — then conditionally apply: .animation(reduceMotion ? nil : .default, value: ...)"
         ))
@@ -325,9 +325,9 @@ final class AccessibilityVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Image without .accessibilityLabel() or .accessibilityHidden(true). VoiceOver users (blind) will hear the raw image name or nothing. Screen reader is the primary UI for blind users.",
-            file: fileName,
-            line: location.line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
             ruleId: "missing-accessibility-label",
             suggestedFix: "Add .accessibilityLabel(\"description\") for meaningful images, or .accessibilityHidden(true) for purely decorative images."
         ))

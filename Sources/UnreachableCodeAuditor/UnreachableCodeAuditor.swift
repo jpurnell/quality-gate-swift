@@ -298,9 +298,9 @@ private final class UnreachableVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "Unreachable code after terminator statement.",
-                    file: fileName,
-                    line: loc.line,
-                    column: loc.column,
+                    filePath: fileName,
+                    lineNumber: loc.line,
+                    columnNumber: loc.column,
                     ruleId: "unreachable.after_terminator",
                     suggestedFix: "Remove the unreachable statements or restructure the control flow."
                 ))
@@ -355,9 +355,9 @@ private final class UnreachableVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Unreachable branch: condition is constant `false`.",
-                file: fileName,
-                line: loc.line,
-                column: loc.column,
+                filePath: fileName,
+                lineNumber: loc.line,
+                columnNumber: loc.column,
                 ruleId: "unreachable.dead_branch",
                 suggestedFix: "Remove the dead branch."
             ))
@@ -366,9 +366,9 @@ private final class UnreachableVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Unreachable branch: `else` after constant `true` condition.",
-                file: fileName,
-                line: loc.line,
-                column: loc.column,
+                filePath: fileName,
+                lineNumber: loc.line,
+                columnNumber: loc.column,
                 ruleId: "unreachable.dead_branch",
                 suggestedFix: "Remove the dead else branch."
             ))
@@ -407,9 +407,9 @@ private final class UnreachableVisitor: SyntaxVisitor {
             out.append(Diagnostic(
                 severity: .warning,
                 message: "Private symbol '\(name)' is never referenced in this file.",
-                file: fileName,
-                line: loc.0,
-                column: loc.1,
+                filePath: fileName,
+                lineNumber: loc.0,
+                columnNumber: loc.1,
                 ruleId: "unreachable.unused_private",
                 suggestedFix: "Remove '\(name)' or make it internal/public if it is intended for use elsewhere."
             ))

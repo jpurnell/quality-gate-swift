@@ -223,9 +223,9 @@ private final class SafetyVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "Force unwrap detected. This will crash if the value is nil.",
-            file: fileName,
-            line: line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
             ruleId: "force-unwrap",
             suggestedFix: "Use optional binding (if let/guard let) or nil coalescing (??)"
         ))
@@ -251,9 +251,9 @@ private final class SafetyVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Force cast detected. This will crash if the cast fails.",
-                file: fileName,
-                line: line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
                 ruleId: "force-cast",
                 suggestedFix: "Use conditional cast (as?) with optional binding"
             ))
@@ -278,9 +278,9 @@ private final class SafetyVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Force try detected. This will crash if an error is thrown.",
-                file: fileName,
-                line: line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
                 ruleId: "force-try",
                 suggestedFix: "Use do-catch or try? for error handling"
             ))
@@ -303,9 +303,9 @@ private final class SafetyVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "C-style format string call detected. String(format:) bridges to the C printf ABI: %s expects a C string pointer (not Swift String) and will crash at runtime with SIGSEGV. Type errors are caught only at runtime.",
-                    file: fileName,
-                    line: line,
-                    column: location.column,
+                    filePath: fileName,
+                    lineNumber: line,
+                    columnNumber: location.column,
                     ruleId: "c-style-format-string",
                     suggestedFix: "Use string interpolation \"\\(value)\", or value.formatted(), or value.formatted(.number.precision(.fractionLength(N))) for decimal places, or String.padding(toLength:withPad:startingAt:) for column alignment. See development-guidelines/00_CORE_RULES/01_CODING_RULES.md §3.7."
                 ))
@@ -355,9 +355,9 @@ private final class SafetyVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: message,
-            file: fileName,
-            line: line,
-            column: location.column,
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
             ruleId: ruleId,
             suggestedFix: suggestedFix
         ))
@@ -381,9 +381,9 @@ private final class SafetyVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "unowned reference will crash if accessed after the object is deallocated.",
-                    file: fileName,
-                    line: line,
-                    column: location.column,
+                    filePath: fileName,
+                    lineNumber: line,
+                    columnNumber: location.column,
                     ruleId: "unowned",
                     suggestedFix: "Use weak reference with guard let, or justify the lifecycle guarantee with // SAFETY:"
                 ))
@@ -411,9 +411,9 @@ private final class SafetyVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "while true loop may run indefinitely without a break condition.",
-                file: fileName,
-                line: line,
-                column: location.column,
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
                 ruleId: "infinite-loop",
                 suggestedFix: "Add a break condition or use a different loop construct"
             ))

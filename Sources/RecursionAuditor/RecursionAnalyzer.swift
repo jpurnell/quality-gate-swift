@@ -143,9 +143,9 @@ final class RecursionVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "protocol extension default '\(displayName)' calls itself, causing infinite recursion for any conformer that does not override",
-                        file: location.file,
-                        line: location.line,
-                        column: location.column,
+                        filePath: location.file,
+                        lineNumber: location.line,
+                        columnNumber: location.column,
                         ruleId: "recursion.protocol-extension-default-self",
                         suggestedFix: "Delegate to a different protocol requirement instead of calling '\(displayName)'."
                     ))
@@ -153,9 +153,9 @@ final class RecursionVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "function '\(displayName)' calls itself with no guard-driven base case",
-                        file: location.file,
-                        line: location.line,
-                        column: location.column,
+                        filePath: location.file,
+                        lineNumber: location.line,
+                        columnNumber: location.column,
                         ruleId: "recursion.unconditional-self-call",
                         suggestedFix: "Add a guard clause that returns or throws before recursing."
                     ))
@@ -193,9 +193,9 @@ final class RecursionVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "convenience init forwards to itself with identical argument labels '\(displayName)'",
-                    file: location.file,
-                    line: location.line,
-                    column: location.column,
+                    filePath: location.file,
+                    lineNumber: location.line,
+                    columnNumber: location.column,
                     ruleId: "recursion.convenience-init-self",
                     suggestedFix: "Delegate to a different initializer with different argument labels."
                 ))
@@ -226,9 +226,9 @@ final class RecursionVisitor: SyntaxVisitor {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "computed property '\(name)' references itself in its getter",
-                        file: bindingLocation.file,
-                        line: bindingLocation.line,
-                        column: bindingLocation.column,
+                        filePath: bindingLocation.file,
+                        lineNumber: bindingLocation.line,
+                        columnNumber: bindingLocation.column,
                         ruleId: "recursion.computed-property-self",
                         suggestedFix: "Use a private backing storage property instead of '\(name)'."
                     ))
@@ -242,9 +242,9 @@ final class RecursionVisitor: SyntaxVisitor {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
                                 message: "computed property '\(name)' references itself in its getter",
-                                file: bindingLocation.file,
-                                line: bindingLocation.line,
-                                column: bindingLocation.column,
+                                filePath: bindingLocation.file,
+                                lineNumber: bindingLocation.line,
+                                columnNumber: bindingLocation.column,
                                 ruleId: "recursion.computed-property-self",
                                 suggestedFix: "Use a private backing storage property instead of '\(name)'."
                             ))
@@ -254,9 +254,9 @@ final class RecursionVisitor: SyntaxVisitor {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
                                 message: "computed property setter for '\(name)' assigns to itself",
-                                file: bindingLocation.file,
-                                line: bindingLocation.line,
-                                column: bindingLocation.column,
+                                filePath: bindingLocation.file,
+                                lineNumber: bindingLocation.line,
+                                columnNumber: bindingLocation.column,
                                 ruleId: "recursion.setter-self",
                                 suggestedFix: "Assign to a private backing storage property instead of '\(name)'."
                             ))
@@ -284,9 +284,9 @@ final class RecursionVisitor: SyntaxVisitor {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "subscript getter calls 'self[…]' recursively",
-                    file: location.file,
-                    line: location.line,
-                    column: location.column,
+                    filePath: location.file,
+                    lineNumber: location.line,
+                    columnNumber: location.column,
                     ruleId: "recursion.subscript-self",
                     suggestedFix: "Delegate to a backing storage collection instead of 'self'."
                 ))
@@ -300,9 +300,9 @@ final class RecursionVisitor: SyntaxVisitor {
                         diagnostics.append(Diagnostic(
                             severity: .error,
                             message: "subscript getter calls 'self[…]' recursively",
-                            file: location.file,
-                            line: location.line,
-                            column: location.column,
+                            filePath: location.file,
+                            lineNumber: location.line,
+                            columnNumber: location.column,
                             ruleId: "recursion.subscript-self",
                             suggestedFix: "Delegate to a backing storage collection instead of 'self'."
                         ))
@@ -312,9 +312,9 @@ final class RecursionVisitor: SyntaxVisitor {
                         diagnostics.append(Diagnostic(
                             severity: .error,
                             message: "subscript setter assigns to 'self[…]' recursively",
-                            file: location.file,
-                            line: location.line,
-                            column: location.column,
+                            filePath: location.file,
+                            lineNumber: location.line,
+                            columnNumber: location.column,
                             ruleId: "recursion.subscript-setter-self",
                             suggestedFix: "Assign to a backing storage collection instead of 'self'."
                         ))

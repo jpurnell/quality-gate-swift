@@ -119,9 +119,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: "Unmanaged.passRetained creates a +1 retain that is never balanced by a release()",
-                file: fileName,
-                line: passRetainedLine,
-                column: 1,
+                filePath: fileName,
+                lineNumber: passRetainedLine,
+                columnNumber: 1,
                 ruleId: "pointer-escape.unmanaged-retain-leak",
                 suggestedFix: "Add a matching .release() call (typically in deinit)."
             ))
@@ -528,9 +528,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "pointer escapes the with-block; the underlying memory is invalid after the closure returns",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.return-from-with-block",
             suggestedFix: "Return the dereferenced value (e.g. ptr.pointee) instead of the pointer itself."
         ))
@@ -539,9 +539,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "pointer escapes by assignment to a variable outside the with-block",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.assigned-to-outer-capture",
             suggestedFix: "Copy the pointee value instead of the pointer."
         ))
@@ -550,9 +550,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "pointer escapes by being stored in a property",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.stored-in-property",
             suggestedFix: "Store the pointee value or a Sendable copy instead."
         ))
@@ -561,9 +561,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "pointer escapes by being appended/inserted into a collection outside the with-block",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.appended-to-outer-collection",
             suggestedFix: "Append the pointee value, not the pointer."
         ))
@@ -572,9 +572,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "pointer escapes by being passed alongside an inout outer variable",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.passed-as-inout",
             suggestedFix: "Avoid passing the pointer to a function that may store it via inout."
         ))
@@ -583,9 +583,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .error,
             message: "closure literal captures a pointer that becomes invalid after the with-block",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.stored-closure-captures-pointer",
             suggestedFix: "Capture the pointee value (or copy it into a Sendable wrapper) before storing the closure."
         ))
@@ -594,9 +594,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "pointer captured by an escaping closure may be used after the with-block ends",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.captured-by-escaping-closure",
             suggestedFix: "Use the synchronous variant or copy the pointee value before capturing."
         ))
@@ -605,9 +605,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "pointer round-trips through OpaquePointer; the underlying memory is invalid after the with-block",
-            file: fileName,
-            line: line(of: node),
-            column: 1,
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
             ruleId: "pointer-escape.opaque-roundtrip",
             suggestedFix: "Keep both the typed and opaque forms inside the same with-block."
         ))

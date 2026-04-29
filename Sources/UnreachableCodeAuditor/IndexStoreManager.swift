@@ -112,7 +112,7 @@ enum IndexStoreManager {
             throw Error.buildFailed("runXcodebuild called for non-Xcode project")
         }
 
-        let scheme = try options.scheme ?? listFirstScheme(flag: flag, file: file)
+        let scheme = try options.scheme ?? listFirstScheme(flag: flag, filePath: file)
 
         // Build the project, isolating into our own derived-data path.
         let proc = Process() // SAFETY: runs xcodebuild to produce an index store for dead-code analysis
@@ -144,10 +144,10 @@ enum IndexStoreManager {
         return store
     }
 
-    private static func listFirstScheme(flag: String, file: URL) throws -> String {
+    private static func listFirstScheme(flag: String, filePath: URL) throws -> String {
         let proc = Process() // SAFETY: runs xcodebuild -list to discover available schemes
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["xcodebuild", "-list", "-json", flag, file.path]
+        proc.arguments = ["xcodebuild", "-list", "-json", flag, filePath.path]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = Pipe()  // discard

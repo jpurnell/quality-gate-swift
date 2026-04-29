@@ -101,9 +101,9 @@ public struct BuildChecker: QualityChecker, Sendable {
             diagnostics.append(Diagnostic(
                 severity: severity,
                 message: message,
-                file: file,
-                line: line,
-                column: column,
+                filePath: file,
+                lineNumber: line,
+                columnNumber: column,
                 ruleId: "swift-compiler"
             ))
         }

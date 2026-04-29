@@ -143,9 +143,9 @@ public struct DocLinter: QualityChecker, Sendable {
                 diagnostics.append(Diagnostic(
                     severity: severity,
                     message: message,
-                    file: filePath,
-                    line: lineNum,
-                    column: colNum,
+                    filePath: filePath,
+                    lineNumber: lineNum,
+                    columnNumber: colNum,
                     ruleId: "docc"
                 ))
                 continue
