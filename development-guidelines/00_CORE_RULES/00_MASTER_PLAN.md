@@ -26,7 +26,7 @@ Provide a production-quality Swift CLI tool that automates Zero Warnings/Errors 
 ## Architecture
 
 ### Technology Stack
-- **Language:** Swift 6.0 (strict concurrency enforced)
+- **Language:** Swift 6.2 (strict concurrency enforced)
 - **Frameworks:** swift-argument-parser, Yams, SwiftSyntax
 - **Build System:** Swift Package Manager
 - **Testing:** Swift Testing framework
@@ -47,12 +47,16 @@ quality-gate-swift/
 │   ├── PointerEscapeAuditor/     # Unsafe pointer lifetime tracking
 │   ├── UnreachableCodeAuditor/   # Dead code via SwiftSyntax + IndexStore
 │   ├── AccessibilityAuditor/     # SwiftUI accessibility checks
+│   ├── LoggingAuditor/           # print() ban, silent-try audit, os.Logger check
+│   ├── TestQualityAuditor/       # Assertion quality, determinism, float equality
+│   ├── ContextAuditor/           # Ethical context: consent, analytics, surveillance
+│   ├── SwiftVersionChecker/      # swift-tools-version compliance
 │   ├── StatusAuditor/            # Doc drift detection + remediation
 │   ├── MemoryBuilder/            # Project memory generation + validation
 │   ├── DiskCleaner/              # Build artifact identification
 │   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
 ├── Tests/
-│   └── [Test targets for each module — 515 tests, 64 suites]
+│   └── [Test targets for each module — 614 tests, 72 suites]
 └── Package.swift
 ```
 
@@ -102,11 +106,15 @@ graph TD
 - [x] AccessibilityAuditor — SwiftUI accessibility checks
 - [x] MemoryBuilder — Project memory file generation + post-extraction validation
 - [x] StatusAuditor — Doc drift detection + FixableChecker remediation (49 tests)
+- [x] LoggingAuditor — print() ban, silent-try audit, os.Logger import check
+- [x] TestQualityAuditor — Assertion quality, determinism, float equality enforcement
+- [x] ContextAuditor — Ethical context: consent guards, analytics opt-out, surveillance disclosure (advisory)
+- [x] SwiftVersionChecker — swift-tools-version minimum compliance
 - [x] DiskCleaner — Build artifact identification
 - [x] QualityGateCLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
 - [x] QualityGatePlugin — SPM CommandPlugin
 
-**Total: 521 tests across 64 suites**
+**Total: 614 tests across 72 suites**
 
 ### Known Issues
 - None currently
@@ -167,6 +175,10 @@ graph TD
 - [x] UnreachableCodeAuditor — dead code via IndexStore
 - [x] AccessibilityAuditor — SwiftUI accessibility
 - [x] SecurityVisitor — 10 OWASP Mobile Top 10 rules (within SafetyAuditor)
+- [x] LoggingAuditor — print() ban, silent-try detection, os.Logger enforcement
+- [x] TestQualityAuditor — Assertion quality, determinism, float equality
+- [x] ContextAuditor — Ethical context checker (consent, analytics, surveillance, automated decisions)
+- [x] SwiftVersionChecker — swift-tools-version minimum compliance
 
 ### Phase 3: CLI & Integration (COMPLETE)
 - [x] Umbrella CLI implementation
@@ -188,4 +200,4 @@ graph TD
 
 ---
 
-**Last Updated:** 2026-04-14
+**Last Updated:** 2026-04-29
