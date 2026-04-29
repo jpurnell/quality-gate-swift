@@ -15,7 +15,9 @@ import SwiftParser
 /// - `concurrency.main-actor-deinit-touches-state`
 /// - `concurrency.preconcurrency-first-party-import`
 public struct ConcurrencyAuditor: QualityChecker, Sendable {
+    /// Unique identifier for this checker.
     public let id = "concurrency"
+    /// Human-readable display name for this checker.
     public let name = "Concurrency Auditor"
 
     /// First-party module names (parsed from Package.swift). Empty in single-file mode.
@@ -25,6 +27,10 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// Keyword that identifies a justification comment (e.g. "Justification:").
     private let justificationKeyword: String
 
+    /// Creates a concurrency auditor with optional configuration for module-aware rules.
+    /// - Parameter firstPartyModules: Module names from Package.swift used by the `@preconcurrency` import rule.
+    /// - Parameter allowPreconcurrencyImports: First-party modules exempt from the `@preconcurrency` import rule.
+    /// - Parameter justificationKeyword: Comment keyword that suppresses `@unchecked Sendable` and `nonisolated(unsafe)` diagnostics.
     public init(
         firstPartyModules: Set<String> = [],
         allowPreconcurrencyImports: Set<String> = [],
@@ -35,6 +41,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         self.justificationKeyword = justificationKeyword
     }
 
+    /// Audits all Swift files under the `Sources/` directory for concurrency violations.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default

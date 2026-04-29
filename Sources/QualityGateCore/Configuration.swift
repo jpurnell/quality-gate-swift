@@ -8,6 +8,7 @@ public struct ConcurrencyAuditorConfig: Sendable, Equatable {
     /// Module names that are allowed to keep `@preconcurrency import` even if first-party.
     public let allowPreconcurrencyImports: [String]
 
+    /// Creates a concurrency auditor configuration with the given options.
     public init(
         justificationKeyword: String = "Justification:",
         allowPreconcurrencyImports: [String] = []
@@ -16,6 +17,7 @@ public struct ConcurrencyAuditorConfig: Sendable, Equatable {
         self.allowPreconcurrencyImports = allowPreconcurrencyImports
     }
 
+    /// Default concurrency auditor configuration.
     public static let `default` = ConcurrencyAuditorConfig()
 }
 
@@ -24,6 +26,7 @@ extension ConcurrencyAuditorConfig: Codable {
         case justificationKeyword, allowPreconcurrencyImports
     }
 
+    /// Creates a concurrency auditor configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = ConcurrencyAuditorConfig.default
@@ -37,10 +40,12 @@ public struct PointerEscapeAuditorConfig: Sendable, Equatable {
     /// Function names allowed to receive a borrowed pointer (escape suppression).
     public let allowedEscapeFunctions: [String]
 
+    /// Creates a pointer-escape auditor configuration with the given options.
     public init(allowedEscapeFunctions: [String] = []) {
         self.allowedEscapeFunctions = allowedEscapeFunctions
     }
 
+    /// Default pointer-escape auditor configuration.
     public static let `default` = PointerEscapeAuditorConfig()
 }
 
@@ -49,6 +54,7 @@ extension PointerEscapeAuditorConfig: Codable {
         case allowedEscapeFunctions
     }
 
+    /// Creates a pointer-escape auditor configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         allowedEscapeFunctions = try container.decodeIfPresent([String].self, forKey: .allowedEscapeFunctions) ?? PointerEscapeAuditorConfig.default.allowedEscapeFunctions
@@ -80,6 +86,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// SQL-executing function names that trigger the sql-injection rule.
     public let sqlFunctionNames: [String]
 
+    /// Creates a security auditor configuration with the given options.
     public init(
         enabledRules: [String] = [],
         secretPatterns: [String] = [
@@ -98,6 +105,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
         self.sqlFunctionNames = sqlFunctionNames
     }
 
+    /// Default security auditor configuration.
     public static let `default` = SecurityAuditorConfig()
 }
 
@@ -106,6 +114,7 @@ extension SecurityAuditorConfig: Codable {
         case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames
     }
 
+    /// Creates a security auditor configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = SecurityAuditorConfig.default
@@ -145,6 +154,7 @@ public struct StatusAuditorConfig: Sendable, Equatable {
     /// Maximum days since "Last Updated" before flagging staleness.
     public let lastUpdatedStaleDays: Int
 
+    /// Creates a status auditor configuration with the given options.
     public init(
         guidelinesPath: String = "development-guidelines",
         masterPlanPath: String = "00_CORE_RULES/00_MASTER_PLAN.md",
@@ -159,6 +169,7 @@ public struct StatusAuditorConfig: Sendable, Equatable {
         self.lastUpdatedStaleDays = lastUpdatedStaleDays
     }
 
+    /// Default status auditor configuration.
     public static let `default` = StatusAuditorConfig()
 }
 
@@ -167,6 +178,7 @@ extension StatusAuditorConfig: Codable {
         case guidelinesPath, masterPlanPath, stubThresholdLines, testCountDriftPercent, lastUpdatedStaleDays
     }
 
+    /// Creates a status auditor configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = StatusAuditorConfig.default
@@ -196,6 +208,7 @@ public struct SwiftVersionConfig: Sendable, Equatable {
     /// Whether to also check and report the local compiler version.
     public let checkCompiler: Bool
 
+    /// Creates a Swift version configuration with the given options.
     public init(
         minimum: String = "6.2",
         checkCompiler: Bool = true
@@ -204,6 +217,7 @@ public struct SwiftVersionConfig: Sendable, Equatable {
         self.checkCompiler = checkCompiler
     }
 
+    /// Default Swift version configuration.
     public static let `default` = SwiftVersionConfig()
 }
 
@@ -212,6 +226,7 @@ extension SwiftVersionConfig: Codable {
         case minimum, checkCompiler
     }
 
+    /// Creates a Swift version configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = SwiftVersionConfig.default
@@ -225,10 +240,12 @@ public struct MemoryBuilderConfig: Sendable, Equatable {
     /// Relative path to the development-guidelines directory.
     public let guidelinesPath: String
 
+    /// Creates a memory builder configuration with the given options.
     public init(guidelinesPath: String = "development-guidelines") {
         self.guidelinesPath = guidelinesPath
     }
 
+    /// Default memory builder configuration.
     public static let `default` = MemoryBuilderConfig()
 }
 
@@ -237,6 +254,7 @@ extension MemoryBuilderConfig: Codable {
         case guidelinesPath
     }
 
+    /// Creates a memory builder configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guidelinesPath = try container.decodeIfPresent(String.self, forKey: .guidelinesPath) ?? MemoryBuilderConfig.default.guidelinesPath
@@ -269,6 +287,7 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
     /// Additional logger type names beyond os.Logger (e.g. project-specific wrappers).
     public let customLoggerNames: [String]
 
+    /// Creates a logging auditor configuration with the given options.
     public init(
         projectType: String = "application",
         silentTryKeyword: String = "silent:",
@@ -281,6 +300,7 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
         self.customLoggerNames = customLoggerNames
     }
 
+    /// Default logging auditor configuration.
     public static let `default` = LoggingAuditorConfig()
 }
 
@@ -289,6 +309,7 @@ extension LoggingAuditorConfig: Codable {
         case projectType, silentTryKeyword, allowedSilentTryFunctions, customLoggerNames
     }
 
+    /// Creates a logging auditor configuration by decoding from the given decoder.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = LoggingAuditorConfig.default

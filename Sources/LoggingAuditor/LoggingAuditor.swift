@@ -14,15 +14,21 @@ import SwiftParser
 /// `"library"`, the auditor returns `.skipped` immediately — libraries
 /// intentionally strip logging, and consumers decide what to log.
 public struct LoggingAuditor: QualityChecker, Sendable {
+    /// Unique identifier used to tag diagnostics from this checker.
     public let id = "logging"
+    /// Human-readable display name for reports.
     public let name = "Logging Auditor"
 
     private let config: LoggingAuditorConfig
 
+    /// Creates a logging auditor.
+    /// - Parameter config: Auditor settings; defaults to `.default`.
     public init(config: LoggingAuditorConfig = .default) {
         self.config = config
     }
 
+    /// Runs all logging rules against Swift files under `Sources/`.
+    /// - Parameter configuration: Gate-wide configuration including exclude patterns.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
@@ -42,7 +48,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
-        if fileManager.fileExists(atPath: sourcesPath) {
+        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI reads Sources/ from cwd; no user-supplied path component
             let result = try await auditDirectory(at: sourcesPath, configuration: configuration)
             allDiagnostics.append(contentsOf: result.diagnostics)
             allOverrides.append(contentsOf: result.overrides)

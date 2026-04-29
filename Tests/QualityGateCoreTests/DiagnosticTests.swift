@@ -15,18 +15,18 @@ struct DiagnosticTests {
         let diagnostic = Diagnostic(
             severity: .error,
             message: "Force unwrap detected",
-            file: "/path/to/File.swift",
-            line: 42,
-            column: 15,
+            filePath: "/path/to/File.swift",
+            lineNumber: 42,
+            columnNumber: 15,
             ruleId: "force-unwrap",
             suggestedFix: "Use optional binding instead"
         )
 
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.message == "Force unwrap detected")
-        #expect(diagnostic.file == "/path/to/File.swift")
-        #expect(diagnostic.line == 42)
-        #expect(diagnostic.column == 15)
+        #expect(diagnostic.filePath == "/path/to/File.swift")
+        #expect(diagnostic.lineNumber == 42)
+        #expect(diagnostic.columnNumber == 15)
         #expect(diagnostic.ruleId == "force-unwrap")
         #expect(diagnostic.suggestedFix == "Use optional binding instead")
     }
@@ -40,9 +40,9 @@ struct DiagnosticTests {
 
         #expect(diagnostic.severity == .warning)
         #expect(diagnostic.message == "Consider refactoring")
-        #expect(diagnostic.file == nil)
-        #expect(diagnostic.line == nil)
-        #expect(diagnostic.column == nil)
+        #expect(diagnostic.filePath == nil)
+        #expect(diagnostic.lineNumber == nil)
+        #expect(diagnostic.columnNumber == nil)
         #expect(diagnostic.ruleId == nil)
         #expect(diagnostic.suggestedFix == nil)
     }
@@ -70,9 +70,9 @@ struct DiagnosticTests {
         let diagnostic = Diagnostic(
             severity: .error,
             message: "Test error",
-            file: "/test.swift",
-            line: 10,
-            column: 5,
+            filePath: "/test.swift",
+            lineNumber: 10,
+            columnNumber: 5,
             ruleId: "test-rule",
             suggestedFix: "Fix it"
         )
@@ -108,9 +108,9 @@ struct DiagnosticTests {
 
         #expect(diagnostic.severity == .warning)
         #expect(diagnostic.message == "Test warning")
-        #expect(diagnostic.file == "/path.swift")
-        #expect(diagnostic.line == 20)
-        #expect(diagnostic.column == 8)
+        #expect(diagnostic.filePath == "/path.swift")
+        #expect(diagnostic.lineNumber == 20)
+        #expect(diagnostic.columnNumber == 8)
         #expect(diagnostic.ruleId == "test-rule")
         #expect(diagnostic.suggestedFix == nil)
     }

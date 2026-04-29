@@ -154,7 +154,7 @@ struct CStyleFormatStringDetectionTests {
         """
         let result = try await auditCode(code)
         let d = result.diagnostics.first { $0.ruleId == "c-style-format-string" }
-        #expect(d?.line == 3)
+        #expect(d?.lineNumber == 3)
     }
 
     // MARK: - Regression fixture

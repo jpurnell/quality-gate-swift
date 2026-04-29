@@ -45,7 +45,7 @@ struct SelfAuditTests {
         if !allDiagnostics.isEmpty {
             for d in allDiagnostics {
                 Issue.record(
-                    "Self-audit found dead code: \(d.file ?? "?"):\(d.line ?? 0) [\(d.severity.rawValue)] \(d.ruleId ?? "?"): \(d.message)"
+                    "Self-audit found dead code: \(d.filePath ?? "?"):\(d.lineNumber ?? 0) [\(d.severity.rawValue)] \(d.ruleId ?? "?"): \(d.message)"
                 )
             }
         }

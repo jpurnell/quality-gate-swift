@@ -3,10 +3,13 @@ import Yams
 
 /// Extracts ADR summary from the architecture decisions log.
 public struct ADRExtractor: MemoryExtractor, Sendable {
+    /// Unique identifier for this extractor.
     public let id = "adrSummary"
 
+    /// Creates a new ADR extractor.
     public init() {}
 
+    /// Parses the architecture decisions log and returns a summary of active ADRs.
     public func extract(
         projectRoot: String,
         guidelinesPath: String,

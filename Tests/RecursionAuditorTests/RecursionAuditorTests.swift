@@ -179,7 +179,7 @@ struct RecursionAuditorTests {
         """
         let result = try await audit(code)
         let diag = result.diagnostics.first { $0.ruleId == "recursion.computed-property-self" }
-        #expect(diag?.line == 2)
+        #expect(diag?.lineNumber == 2)
     }
 
     // MARK: - Computed property robustness
@@ -508,7 +508,7 @@ struct RecursionAuditorTests {
         """
         let result = try await audit(code)
         let diag = result.diagnostics.first { $0.ruleId == "recursion.computed-property-self" }
-        #expect(diag?.column != nil)
+        #expect(diag?.columnNumber != nil)
     }
 
     // MARK: - Helper

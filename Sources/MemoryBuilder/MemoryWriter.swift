@@ -13,6 +13,13 @@ public struct MemoryEntry: Sendable, Equatable {
     /// The markdown body content (below frontmatter)
     public let body: String
 
+    /// Creates a new memory entry with the given metadata and body content.
+    /// - Parameters:
+    ///   - filename: Output filename (e.g., "project_profile.md").
+    ///   - name: Display name used in frontmatter and the MEMORY.md index.
+    ///   - description: One-line summary for the MEMORY.md index.
+    ///   - type: Memory category: user, feedback, project, or reference.
+    ///   - body: Markdown body content rendered below frontmatter.
     public init(filename: String, name: String, description: String, type: String, body: String) {
         self.filename = filename
         self.name = name

@@ -26,4 +26,19 @@ jobs:
         run: swift build -c release
 
       - name: Run quality gate against self
-        run: .build/release/quality-gate --check safety --check status --check recursion --check concurrency --check pointer-escape --check swift-version --continue-on-failure
+        run: >-
+          .build/release/quality-gate
+          --check safety
+          --check doc-coverage
+          --check status
+          --check recursion
+          --check concurrency
+          --check pointer-escape
+          --check logging
+          --check test-quality
+          --check context
+          --check accessibility
+          --check unreachable
+          --check doc-lint
+          --check swift-version
+          --continue-on-failure

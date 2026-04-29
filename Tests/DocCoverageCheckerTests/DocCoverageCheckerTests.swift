@@ -272,7 +272,7 @@ struct DocCoverageCheckerTests {
         """
 
         let result = try await checkSource(source)
-        #expect(result.diagnostics.first?.line == 3)
+        #expect(result.diagnostics.first?.lineNumber == 3)
     }
 
     @Test("Respects exclude patterns")

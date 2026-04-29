@@ -34,9 +34,9 @@ struct BuildCheckerTests {
         #expect(diagnostics.count == 1)
         let diagnostic = diagnostics.first!
         #expect(diagnostic.severity == .error)
-        #expect(diagnostic.file == "/path/to/File.swift")
-        #expect(diagnostic.line == 42)
-        #expect(diagnostic.column == 15)
+        #expect(diagnostic.filePath == "/path/to/File.swift")
+        #expect(diagnostic.lineNumber == 42)
+        #expect(diagnostic.columnNumber == 15)
         #expect(diagnostic.message.contains("cannot find 'foo' in scope"))
     }
 
@@ -53,9 +53,9 @@ struct BuildCheckerTests {
         #expect(diagnostics.count == 1)
         let diagnostic = diagnostics.first!
         #expect(diagnostic.severity == .warning)
-        #expect(diagnostic.file == "/path/to/File.swift")
-        #expect(diagnostic.line == 10)
-        #expect(diagnostic.column == 5)
+        #expect(diagnostic.filePath == "/path/to/File.swift")
+        #expect(diagnostic.lineNumber == 10)
+        #expect(diagnostic.columnNumber == 5)
         #expect(diagnostic.message.contains("variable 'x' was never used"))
     }
 
@@ -72,9 +72,9 @@ struct BuildCheckerTests {
         #expect(diagnostics.count == 1)
         let diagnostic = diagnostics.first!
         #expect(diagnostic.severity == .note)
-        #expect(diagnostic.file == "/path/to/File.swift")
-        #expect(diagnostic.line == 5)
-        #expect(diagnostic.column == 10)
+        #expect(diagnostic.filePath == "/path/to/File.swift")
+        #expect(diagnostic.lineNumber == 5)
+        #expect(diagnostic.columnNumber == 10)
     }
 
     @Test("Parses multiple diagnostics")
@@ -147,7 +147,7 @@ struct BuildCheckerTests {
         let diagnostics = BuildChecker.parseBuildOutput(output)
 
         #expect(diagnostics.count == 1)
-        #expect(diagnostics.first?.file == "/Users/name/My Project/Sources/File.swift")
+        #expect(diagnostics.first?.filePath == "/Users/name/My Project/Sources/File.swift")
     }
 
     @Test("Handles Windows-style paths in output")

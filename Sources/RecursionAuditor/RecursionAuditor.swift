@@ -9,11 +9,17 @@ import SwiftParser
 /// `development-guidelines/02_IMPLEMENTATION_PLANS/UPCOMING/RECURSION_AUDITOR_design.md`
 /// for the full rule list and rationale.
 public struct RecursionAuditor: QualityChecker, Sendable {
+    /// Unique identifier for this checker.
     public let id = "recursion"
+    /// Human-readable name shown in quality-gate output.
     public let name = "Recursion Auditor"
 
+    /// Creates a new recursion auditor.
     public init() {}
 
+    /// Scans all Swift files under `Sources/` for infinite-recursion patterns.
+    /// - Parameter configuration: The quality-gate configuration for this run.
+    /// - Returns: A check result containing any recursion diagnostics found.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default

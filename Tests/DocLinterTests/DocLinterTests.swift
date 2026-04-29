@@ -103,9 +103,9 @@ struct DocLinterTests {
         let diagnostics = DocLinter.parseDocCOutput(output)
 
         #expect(diagnostics.count == 1)
-        #expect(diagnostics.first?.file == "/path/to/Sources/Module/File.swift")
-        #expect(diagnostics.first?.line == 10)
-        #expect(diagnostics.first?.column == 5)
+        #expect(diagnostics.first?.filePath == "/path/to/Sources/Module/File.swift")
+        #expect(diagnostics.first?.lineNumber == 10)
+        #expect(diagnostics.first?.columnNumber == 5)
     }
 
     // MARK: - Result Generation Tests

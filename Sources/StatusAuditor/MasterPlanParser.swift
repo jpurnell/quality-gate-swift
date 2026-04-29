@@ -38,6 +38,7 @@ public struct DocumentedPhase: Sendable, Equatable {
         return items.allSatisfy(\.isComplete)
     }
 
+    /// Equatable conformance comparing name, label, line, and item count.
     public static func == (lhs: DocumentedPhase, rhs: DocumentedPhase) -> Bool {
         lhs.name == rhs.name
             && lhs.label == rhs.label

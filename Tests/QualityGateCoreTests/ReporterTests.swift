@@ -24,9 +24,9 @@ struct ReporterTests {
                 Diagnostic(
                     severity: .error,
                     message: "Force unwrap detected",
-                    file: "/path/to/File.swift",
-                    line: 42,
-                    column: 15,
+                    filePath: "/path/to/File.swift",
+                    lineNumber: 42,
+                    columnNumber: 15,
                     ruleId: "force-unwrap",
                     suggestedFix: "Use optional binding"
                 )

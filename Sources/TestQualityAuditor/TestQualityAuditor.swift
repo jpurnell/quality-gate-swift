@@ -39,7 +39,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
-        if fileManager.fileExists(atPath: testsPath) {
+        if fileManager.fileExists(atPath: testsPath) { // SAFETY: CLI reads Tests/ from cwd; no user-supplied path component
             let result = try await auditDirectory(
                 at: testsPath,
                 configuration: configuration
