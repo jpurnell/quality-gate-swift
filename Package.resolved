@@ -1,5 +1,5 @@
 {
-  "originHash" : "269e2ebdd10c3c81bf5414cf212955f46e66d1d15eae8a8f44bece30daedc8b9",
+  "originHash" : "7c33fc0f5373345de09763cf811dcdb5f05c0fb3252568447607fad5042f9993",
   "pins" : [
     {
       "identity" : "indexstore-db",
@@ -8,6 +8,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "b1354e1201314cb8cbbc00c9deb92a3ecd16a710"
+      }
+    },
+    {
+      "identity" : "quality-gate-types",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/quality-gate-types.git",
+      "state" : {
+        "revision" : "540239bd1b73953185ac28975c2754d746cfaf0e",
+        "version" : "1.0.0"
       }
     },
     {
