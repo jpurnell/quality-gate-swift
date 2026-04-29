@@ -254,7 +254,7 @@ struct SwiftVersionCheckerTests {
     @Test("Includes verification failure with build errors")
     func includesVerificationFailure() {
         let buildErrors = [
-            Diagnostic(severity: .error, message: "type 'Foo' has no member 'bar'", file: "Sources/Foo.swift", line: 10, ruleId: "swift-compiler")
+            Diagnostic(severity: .error, message: "type 'Foo' has no member 'bar'", filePath: "Sources/Foo.swift", lineNumber: 10, ruleId: "swift-compiler")
         ]
         let result = SwiftVersionChecker.createCheckResult(
             toolsVersion: "5.9",

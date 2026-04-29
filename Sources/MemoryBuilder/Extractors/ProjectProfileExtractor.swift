@@ -2,10 +2,13 @@ import Foundation
 
 /// Extracts project profile from Package.swift.
 public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
+    /// Unique identifier for this extractor.
     public let id = "projectProfile"
 
+    /// Creates a new project profile extractor.
     public init() {}
 
+    /// Parses Package.swift and returns a memory entry summarizing targets and dependencies.
     public func extract(
         projectRoot: String,
         guidelinesPath: String,

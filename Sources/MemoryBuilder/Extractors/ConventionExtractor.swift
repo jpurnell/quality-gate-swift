@@ -3,10 +3,13 @@ import Foundation
 /// Extracts coding conventions from project CLAUDE.md and rules files.
 /// Skips content already present in the global ~/.claude/CLAUDE.md.
 public struct ConventionExtractor: MemoryExtractor, Sendable {
+    /// Unique identifier for this extractor.
     public let id = "conventions"
 
+    /// Creates a new convention extractor.
     public init() {}
 
+    /// Reads the project CLAUDE.md, filters out sections duplicated in global CLAUDE.md, and returns the remainder.
     public func extract(
         projectRoot: String,
         guidelinesPath: String,

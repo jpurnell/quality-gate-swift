@@ -97,7 +97,7 @@ struct CrossModuleTests {
         #expect(!result.diagnostics.contains { d in
             d.ruleId == Self.ruleId &&
             (d.message.contains("greet") == true) &&
-            (d.file?.contains("Witness.swift") == true)
+            (d.filePath?.contains("Witness.swift") == true)
         })
     }
 

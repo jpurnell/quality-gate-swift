@@ -32,8 +32,8 @@ struct TestRunnerTests {
         #expect(diagnostics.count == 1)
         let diagnostic = diagnostics.first!
         #expect(diagnostic.severity == .error)
-        #expect(diagnostic.file?.contains("MyTests.swift") == true)
-        #expect(diagnostic.line == 42)
+        #expect(diagnostic.filePath?.contains("MyTests.swift") == true)
+        #expect(diagnostic.lineNumber == 42)
         #expect(diagnostic.message.contains("Expectation failed"))
     }
 
@@ -79,8 +79,8 @@ struct TestRunnerTests {
         #expect(diagnostics.count == 1)
         let diagnostic = diagnostics.first!
         #expect(diagnostic.severity == .error)
-        #expect(diagnostic.file == "/path/to/MyTests.swift")
-        #expect(diagnostic.line == 42)
+        #expect(diagnostic.filePath == "/path/to/MyTests.swift")
+        #expect(diagnostic.lineNumber == 42)
         #expect(diagnostic.message.contains("XCTAssertEqual failed"))
     }
 
@@ -140,7 +140,7 @@ struct TestRunnerTests {
         let diagnostics = TestRunner.parseTestOutput(output)
 
         #expect(diagnostics.count == 1)
-        #expect(diagnostics.first?.file == "/Users/name/My Project/Tests/MyTests.swift")
+        #expect(diagnostics.first?.filePath == "/Users/name/My Project/Tests/MyTests.swift")
     }
 
     // MARK: - Result Generation

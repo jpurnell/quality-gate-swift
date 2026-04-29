@@ -625,8 +625,8 @@ struct StatusRemediatorTests {
         let diag = Diagnostic(
             severity: .warning,
             message: "Marked incomplete",
-            file: path.path,
-            line: 1,
+            filePath: path.path,
+            lineNumber: 1,
             ruleId: "status.module-marked-incomplete"
         )
 
@@ -658,12 +658,12 @@ struct StatusRemediatorTests {
         let diag = Diagnostic(
             severity: .warning,
             message: "Phase stale",
-            file: path.path,
-            line: 1,
+            filePath: path.path,
+            lineNumber: 1,
             ruleId: "status.roadmap-phase-stale"
         )
 
-        let result = try StatusRemediator.apply(
+        _ = try StatusRemediator.apply(
             diagnostics: [diag],
             masterPlanPath: path.path,
             configuration: Configuration()
@@ -714,7 +714,7 @@ struct StatusRemediatorTests {
 
         let diag = Diagnostic(
             severity: .warning, message: "Incomplete",
-            file: path.path, line: 1,
+            filePath: path.path, lineNumber: 1,
             ruleId: "status.module-marked-incomplete"
         )
 

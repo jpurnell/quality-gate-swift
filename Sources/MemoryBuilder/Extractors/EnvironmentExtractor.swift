@@ -2,10 +2,13 @@ import Foundation
 
 /// Extracts environment info (Swift version, platform).
 public struct EnvironmentExtractor: MemoryExtractor, Sendable {
+    /// Unique identifier for this extractor.
     public let id = "environment"
 
+    /// Creates a new environment extractor.
     public init() {}
 
+    /// Detects local platform, Swift version, and hardware, returning a reference memory entry.
     public func extract(
         projectRoot: String,
         guidelinesPath: String,

@@ -2,10 +2,13 @@ import Foundation
 
 /// Extracts active work from implementation checklists and git log.
 public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
+    /// Unique identifier for this extractor.
     public let id = "activeWork"
 
+    /// Creates a new active work extractor.
     public init() {}
 
+    /// Gathers current branch, recent commits, and active checklists into a memory entry.
     public func extract(
         projectRoot: String,
         guidelinesPath: String,

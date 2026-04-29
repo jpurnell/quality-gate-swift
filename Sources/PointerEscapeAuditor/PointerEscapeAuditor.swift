@@ -9,17 +9,22 @@ import SwiftParser
 /// See `PointerEscapeAuditorGuide.md` for the full rule list and the
 /// canonical Accelerate FFT incident that motivated each rule.
 public struct PointerEscapeAuditor: QualityChecker, Sendable {
+    /// Unique identifier for this checker, used in diagnostics and configuration.
     public let id = "pointer-escape"
+    /// Human-readable display name for this checker.
     public let name = "Pointer Escape Auditor"
 
     /// Function names whose pointer-accepting parameters are documented as
     /// safe to outlive the with-block (e.g. specific vDSP entry points).
     private let allowedEscapeFunctions: Set<String>
 
+    /// Creates a pointer-escape auditor.
+    /// - Parameter allowedEscapeFunctions: Function names whose pointer parameters are safe to outlive the with-block.
     public init(allowedEscapeFunctions: Set<String> = []) {
         self.allowedEscapeFunctions = allowedEscapeFunctions
     }
 
+    /// Scans all Swift files under the project `Sources/` directory for pointer escapes.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
@@ -39,6 +44,10 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
         return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, overrides: allOverrides, duration: duration)
     }
 
+    /// Audits a single source string for pointer escapes.
+    /// - Parameter source: The Swift source code to analyze.
+    /// - Parameter fileName: The file path used in emitted diagnostics.
+    /// - Parameter configuration: The quality-gate configuration.
     public func auditSource(
         _ source: String,
         fileName: String,

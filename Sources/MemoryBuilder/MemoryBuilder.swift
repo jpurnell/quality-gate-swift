@@ -7,16 +7,23 @@ import QualityGateCore
 /// ADR summaries, and environment info from the codebase and writes them as
 /// tagged memory files that Claude Code loads at session start.
 public struct MemoryBuilder: QualityChecker, Sendable {
+    /// Unique checker identifier used in diagnostics and CLI filtering.
     public let id = "memory-builder"
+    /// Human-readable name shown in check results.
     public let name = "Memory Builder"
 
     /// Relative path to the development-guidelines directory.
     private let guidelinesPath: String
 
+    /// Creates a MemoryBuilder targeting the given guidelines directory.
+    /// - Parameter guidelinesPath: Relative path from project root to the development-guidelines directory.
     public init(guidelinesPath: String = "development-guidelines") {
         self.guidelinesPath = guidelinesPath
     }
 
+    /// Runs all extractors, writes memory files, and validates the result.
+    /// - Parameter configuration: The quality-gate configuration for this run.
+    /// - Returns: A check result with diagnostics for each written or skipped file.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let projectRoot = FileManager.default.currentDirectoryPath

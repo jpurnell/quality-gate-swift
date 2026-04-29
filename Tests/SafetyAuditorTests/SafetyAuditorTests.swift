@@ -276,7 +276,7 @@ struct SafetyAuditorTests {
         let result = try await auditCode(code)
 
         let diagnostic = result.diagnostics.first { $0.ruleId == "force-unwrap" }
-        #expect(diagnostic?.line == 3)
+        #expect(diagnostic?.lineNumber == 3)
     }
 
     @Test("Provides helpful messages")

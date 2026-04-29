@@ -60,7 +60,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
 
         // Parse tools-version from Package.swift
         let toolsVersion: String?
-        if FileManager.default.fileExists(atPath: packagePath) {
+        if FileManager.default.fileExists(atPath: packagePath) { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
             let content = try String(contentsOfFile: packagePath, encoding: .utf8)
             toolsVersion = Self.parseToolsVersion(from: content)
         } else {
@@ -113,7 +113,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         let projectRoot = FileManager.default.currentDirectoryPath
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
 
-        guard FileManager.default.fileExists(atPath: packagePath) else {
+        guard FileManager.default.fileExists(atPath: packagePath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
             return FixResult(modifications: [], unfixed: diagnostics)
         }
 

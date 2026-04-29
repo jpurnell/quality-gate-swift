@@ -203,10 +203,8 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             }
             return
         }
-        if let ifStmt = stmt.as(IfExprSyntax.self) {
-            // if statements are actually expressions in Swift; handled below
-            _ = ifStmt
-        }
+        // IfExprSyntax is an expression, not a statement — handled in
+        // walkExpression rather than here.
         if let guardStmt = stmt.as(GuardStmtSyntax.self) {
             walkBodyItems(guardStmt.body.statements, tracked: &tracked, locals: &locals)
             return

@@ -2,10 +2,13 @@ import Foundation
 
 /// Extracts module architecture from Package.swift dependency graph.
 public struct ArchitectureExtractor: MemoryExtractor, Sendable {
+    /// Unique identifier for this extractor.
     public let id = "architecture"
 
+    /// Creates a new architecture extractor.
     public init() {}
 
+    /// Parses Package.swift targets and their dependencies to build a module graph.
     public func extract(
         projectRoot: String,
         guidelinesPath: String,
