@@ -22,6 +22,7 @@ import DependencyAuditor
 import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
 import StochasticDeterminismAuditor
+import MCPReadinessAuditor
 import MemoryLifecycleGuard
 
 /// A text output stream that writes to stdout.
@@ -109,7 +110,8 @@ struct QualityGateCLI: AsyncParsableCommand {
                 releaseReadiness: configuration.releaseReadiness,
                 fpSafety: configuration.fpSafety,
                 stochasticDeterminism: configuration.stochasticDeterminism,
-                memoryLifecycle: configuration.memoryLifecycle
+                memoryLifecycle: configuration.memoryLifecycle,
+                mcpReadiness: configuration.mcpReadiness
             )
         }
 
@@ -144,6 +146,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             FloatingPointSafetyAuditor(),
             StochasticDeterminismAuditor(),
             MemoryLifecycleGuard(),
+            MCPReadinessAuditor(),
             DiskCleaner()
         ]
 
@@ -158,8 +161,8 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else if !configuration.enabledCheckers.isEmpty {
             effectiveCheckers = configuration.enabledCheckers
         } else {
-            // DiskCleaner excluded from defaults (destructive)
-            effectiveCheckers = allCheckers.map(\.id).filter { $0 != "disk-clean" }
+            let optOutCheckers: Set<String> = ["disk-clean", "mcp-readiness"]
+            effectiveCheckers = allCheckers.map(\.id).filter { !optOutCheckers.contains($0) }
         }
 
         let checkersToRun = allCheckers.filter { checker in
