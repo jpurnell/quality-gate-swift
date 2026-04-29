@@ -22,11 +22,11 @@ jobs:
       - name: Show toolchain
         run: xcrun swift --version
 
-      - name: Build
-        run: swift build
+      - name: Build (warnings-as-errors)
+        run: swift build -Xswiftc -warnings-as-errors
 
-      - name: Test
-        run: swift test
+      - name: Test (warnings-as-errors)
+        run: swift test -Xswiftc -warnings-as-errors
 
       - name: Check swift-tools-version
         run: |

@@ -41,11 +41,17 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (build, test, safety, doc-lint, doc-coverage, unreachable, recursion, concurrency, pointer-escape, accessibility, swift-version, test-quality, disk-clean)")
+    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (use 'all' for every checker)")
     var check: [String] = []
+
+    @Option(name: .long, parsing: .upToNextOption, help: "Checkers to skip when using --check all")
+    var exclude: [String] = []
 
     @Flag(name: .long, help: "Continue running checks even if one fails")
     var continueOnFailure: Bool = false
+
+    @Flag(name: .long, help: "Treat warnings as failures (exit code 1)")
+    var strict: Bool = false
 
     @Flag(name: .shortAndLong, help: "Verbose output")
     var verbose: Bool = false
@@ -97,22 +103,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             )
         }
 
-        // Determine effective checkers based on --check flag or configuration
-        let effectiveCheckers: [String]
-        if !check.isEmpty {
-            effectiveCheckers = check
-        } else if !configuration.enabledCheckers.isEmpty {
-            effectiveCheckers = configuration.enabledCheckers
-        } else {
-            effectiveCheckers = [
-                "build", "test", "safety", "doc-lint", "doc-coverage",
-                "unreachable", "recursion", "concurrency", "pointer-escape",
-                "accessibility", "swift-version", "logging", "test-quality"
-            ]
-        }
-
-        // Build the list of checkers to run
-        // Note: DiskCleaner is not included in defaults as it's destructive
+        // Build the full checker registry (order matters for output)
         let allCheckers: [any QualityChecker] = [
             BuildChecker(),
             TestRunner(),
@@ -140,6 +131,21 @@ struct QualityGateCLI: AsyncParsableCommand {
             ContextAuditor(),
             DiskCleaner()
         ]
+
+        // Determine effective checkers: --check all | --check X Y | config | defaults
+        let effectiveCheckers: [String]
+        if check.contains("all") {
+            let allIDs = allCheckers.map(\.id)
+            let excludeSet = Set(exclude)
+            effectiveCheckers = allIDs.filter { !excludeSet.contains($0) }
+        } else if !check.isEmpty {
+            effectiveCheckers = check
+        } else if !configuration.enabledCheckers.isEmpty {
+            effectiveCheckers = configuration.enabledCheckers
+        } else {
+            // DiskCleaner excluded from defaults (destructive)
+            effectiveCheckers = allCheckers.map(\.id).filter { $0 != "disk-clean" }
+        }
 
         let checkersToRun = allCheckers.filter { checker in
             effectiveCheckers.contains(checker.id)
@@ -175,7 +181,9 @@ struct QualityGateCLI: AsyncParsableCommand {
                 let result = try await checker.check(configuration: configuration)
                 allResults.append(result)
 
-                if result.status == .failed {
+                let isFailing = result.status == .failed
+                    || (strict && result.status == .warning)
+                if isFailing {
                     hasFailure = true
                     if !continueOnFailure {
                         break
