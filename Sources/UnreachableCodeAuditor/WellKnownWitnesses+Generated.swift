@@ -11,9 +11,9 @@
 // Source modules:
 //   Swift _Concurrency _StringProcessing Foundation SwiftUI UIKit AppKit Combine SwiftData Observation CoreData CoreGraphics OSLog Charts
 //
-// Last regenerated: 2026-04-07
-// Toolchain:        Apple Swift version 6.3 (swiftlang-6.3.0.123.5 clang-2100.0.123.102)
-// Coverage:         1860 requirement names across 378 protocols
+// Last regenerated: 2026-05-04
+// Toolchain:        Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)
+// Coverage:         1858 requirement names across 377 protocols
 
 import Foundation
 
@@ -27,6 +27,54 @@ extension WellKnownWitnesses {
     /// that re-states `CustomStringConvertible`'s requirement); the
     /// underlying `Set<String>` deduplicates them at runtime.
     static let generated: Set<String> = [
+        // MARK: - _Concurrency.Actor
+        "unownedExecutor",
+
+        // MARK: - _Concurrency.AsyncIteratorProtocol
+        "Element",
+        "Failure",
+        "next()",
+        "next(isolation:)",
+
+        // MARK: - _Concurrency.AsyncSequence
+        "AsyncIterator",
+        "Element",
+        "Failure",
+        "makeAsyncIterator()",
+
+        // MARK: - _Concurrency.Clock
+        "Duration",
+        "Instant",
+        "minimumResolution",
+        "now",
+        "sleep(until:tolerance:)",
+
+        // MARK: - _Concurrency.Executor
+        "enqueue(_:)",
+
+        // MARK: - _Concurrency.GlobalActor
+        "ActorType",
+        "shared",
+        "sharedUnownedExecutor",
+
+        // MARK: - _Concurrency.SerialExecutor
+        "asUnownedSerialExecutor()",
+        "checkIsolated()",
+        "enqueue(_:)",
+        "isIsolatingCurrentContext()",
+        "isSameExclusiveExecutionContext(other:)",
+
+        // MARK: - _Concurrency.TaskExecutor
+        "asUnownedTaskExecutor()",
+        "enqueue(_:)",
+
+        // MARK: - _StringProcessing.CustomConsumingRegexComponent
+        "consuming(_:startingAt:in:)",
+
+        // MARK: - _StringProcessing.RegexComponent
+        "regex",
+        "RegexOutput",
+
         // MARK: - AppKit.NSAccessibilityButton
         "accessibilityLabel()",
         "accessibilityPerformPress()",
@@ -1832,10 +1880,6 @@ extension WellKnownWitnesses {
         // MARK: - Foundation.NSMutableCopying
         "mutableCopy(with:)",
 
-        // MARK: - Foundation.NSPredicateValidating
-        "visit(_:)",
-        "visitExpressionKeyPath(_:scope:key:)",
-
         // MARK: - Foundation.NSSecureCoding
         "supportsSecureCoding",
 
@@ -2036,27 +2080,12 @@ extension WellKnownWitnesses {
         "formatString",
         "subsystem",
 
-        // MARK: - Swift.Actor
-        "unownedExecutor",
-
         // MARK: - Swift.AdditiveArithmetic
         "-(_:_:)",
         "-=(_:_:)",
         "+(_:_:)",
         "+=(_:_:)",
         "zero",
-
-        // MARK: - Swift.AsyncIteratorProtocol
-        "Element",
-        "Failure",
-        "next()",
-        "next(isolation:)",
-
-        // MARK: - Swift.AsyncSequence
-        "AsyncIterator",
-        "Element",
-        "Failure",
-        "makeAsyncIterator()",
 
         // MARK: - Swift.BidirectionalCollection
         "distance(from:to:)",
@@ -2125,13 +2154,6 @@ extension WellKnownWitnesses {
         "allCases",
         "AllCases",
 
-        // MARK: - Swift.Clock
-        "Duration",
-        "Instant",
-        "minimumResolution",
-        "now",
-        "sleep(until:tolerance:)",
-
         // MARK: - Swift.CodingKey
         "init(intValue:)",
         "init(stringValue:)",
@@ -2166,9 +2188,6 @@ extension WellKnownWitnesses {
         "<=(_:_:)",
         ">(_:_:)",
         ">=(_:_:)",
-
-        // MARK: - Swift.CustomConsumingRegexComponent
-        "consuming(_:startingAt:in:)",
 
         // MARK: - Swift.CustomDebugStringConvertible
         "debugDescription",
@@ -2210,9 +2229,6 @@ extension WellKnownWitnesses {
 
         // MARK: - Swift.Equatable
         "==(_:_:)",
-
-        // MARK: - Swift.Executor
-        "enqueue(_:)",
 
         // MARK: - Swift.ExpressibleByArrayLiteral
         "ArrayLiteralElement",
@@ -2337,11 +2353,6 @@ extension WellKnownWitnesses {
         "ulp",
         "ulpOfOne",
 
-        // MARK: - Swift.GlobalActor
-        "ActorType",
-        "shared",
-        "sharedUnownedExecutor",
-
         // MARK: - Swift.Hashable
         "hash(into:)",
         "hashValue",
@@ -2460,23 +2471,12 @@ extension WellKnownWitnesses {
         "rawValue",
         "RawValue",
 
-        // MARK: - Swift.RegexComponent
-        "regex",
-        "RegexOutput",
-
         // MARK: - Swift.Sequence
         "Element",
         "Iterator",
         "makeIterator()",
         "underestimatedCount",
         "withContiguousStorageIfAvailable(_:)",
-
-        // MARK: - Swift.SerialExecutor
-        "asUnownedSerialExecutor()",
-        "checkIsolated()",
-        "enqueue(_:)",
-        "isIsolatingCurrentContext()",
-        "isSameExclusiveExecutionContext(other:)",
 
         // MARK: - Swift.SetAlgebra
         "contains(_:)",
@@ -2558,10 +2558,6 @@ extension WellKnownWitnesses {
         "UTF8View",
         "withCString(_:)",
         "withCString(encodedAs:_:)",
-
-        // MARK: - Swift.TaskExecutor
-        "asUnownedTaskExecutor()",
-        "enqueue(_:)",
 
         // MARK: - Swift.TextOutputStream
         "write(_:)",
