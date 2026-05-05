@@ -8,6 +8,9 @@ import SwiftSyntax
 /// - `logging.print-statement`: `print()` calls in production code (error)
 /// - `logging.silent-try`: `try?` without adjacent logging or suppression comment (warning)
 /// - `logging.no-os-logger-import`: File has print/NSLog but no `import os` (warning)
+/// - `logging.missing-privacy`: Logger call with interpolation but no `privacy:` annotation (warning)
+/// - `logging.bare-logger-init`: `Logger()` with no subsystem/category (note)
+/// - `logging.catch-without-logging`: `catch` block with no logger call and no `throw` (warning)
 final class LoggingVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
@@ -91,6 +94,109 @@ final class LoggingVisitor: SyntaxVisitor {
                 hasPrintOrNSLog = true
             }
         }
+
+        checkMissingPrivacy(node)
+        checkBareLoggerInit(node)
+
+        return .visitChildren
+    }
+
+    // MARK: - Rule 4: missing-privacy
+
+    private let logMethodNames: Set<String> = [
+        "debug", "info", "notice", "warning", "error", "fault", "log",
+    ]
+
+    /// Checks logger method calls for interpolation segments missing `privacy:` annotations.
+    private func checkMissingPrivacy(_ node: FunctionCallExprSyntax) {
+        guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self) else { return }
+        let methodName = memberAccess.declName.baseName.text
+        guard logMethodNames.contains(methodName) else { return }
+
+        guard let firstArg = node.arguments.first else { return }
+        let argText = firstArg.expression.trimmedDescription
+
+        guard argText.contains("\\(") else { return }
+
+        let line = startLine(of: Syntax(node))
+        if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.missing-privacy") {
+            overrides.append(override)
+            return
+        }
+
+        let segments = argText.components(separatedBy: "\\(")
+        for segment in segments.dropFirst() {
+            if !segment.contains("privacy:") {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Logger call contains interpolation without privacy: annotation",
+                    filePath: fileName,
+                    lineNumber: line,
+                    ruleId: "logging.missing-privacy",
+                    suggestedFix: "Add privacy: .public or privacy: .private to each interpolated value"
+                ))
+                return
+            }
+        }
+    }
+
+    // MARK: - Rule 5: bare-logger-init
+
+    private func checkBareLoggerInit(_ node: FunctionCallExprSyntax) {
+        guard let declRef = node.calledExpression.as(DeclReferenceExprSyntax.self),
+              declRef.baseName.text == "Logger",
+              node.arguments.isEmpty else { return }
+
+        let line = startLine(of: Syntax(node))
+        if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.bare-logger-init") {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .note,
+            message: "Logger() has no subsystem or category — logs will be hard to filter",
+            filePath: fileName,
+            lineNumber: line,
+            ruleId: "logging.bare-logger-init",
+            suggestedFix: "Use Logger(subsystem: Bundle.main.bundleIdentifier ?? \"com.app\", category: \"TypeName\")"
+        ))
+    }
+
+    // MARK: - Rule 6: catch-without-logging
+
+    override func visit(_ node: CatchClauseSyntax) -> SyntaxVisitorContinueKind {
+        let bodyText = node.body.statements.trimmedDescription
+
+        if bodyText.contains("throw ") {
+            return .visitChildren
+        }
+
+        for name in loggerNames {
+            if bodyText.contains(name) {
+                return .visitChildren
+            }
+        }
+        for method in logMethodNames {
+            if bodyText.contains(".\(method)(") {
+                return .visitChildren
+            }
+        }
+
+        let line = startLine(of: Syntax(node))
+        if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.catch-without-logging") {
+            overrides.append(override)
+            return .visitChildren
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "catch block neither logs the error nor rethrows",
+            filePath: fileName,
+            lineNumber: line,
+            ruleId: "logging.catch-without-logging",
+            suggestedFix: "Add logger.error() or logger.warning() call, or rethrow the error"
+        ))
 
         return .visitChildren
     }

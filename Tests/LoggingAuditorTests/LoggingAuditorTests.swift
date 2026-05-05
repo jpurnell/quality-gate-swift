@@ -291,3 +291,283 @@ struct NoOSLoggerImportTests {
         #expect(diag?.severity == .warning)
     }
 }
+
+// MARK: - Rule 4: missing-privacy
+
+@Suite("LoggingAuditor: missing-privacy")
+struct MissingPrivacyTests {
+    private let ruleId = "logging.missing-privacy"
+
+    @Test("Flags logger call with interpolation but no privacy annotation")
+    func flagsMissingPrivacy() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("Count: \\(items.count)")
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag logger call with privacy annotation")
+    func ignoresAnnotated() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("Count: \\(items.count, privacy: .public)")
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag logger call with no interpolation")
+    func ignoresPlainString() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("Started processing")
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Flags when some interpolations annotated and some not")
+    func flagsPartialAnnotation() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("\\(a) and \\(b, privacy: .public)")
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag non-logger calls with interpolation")
+    func ignoresNonLoggerCalls() async throws {
+        let code = """
+        import os
+        let message = "Count: \\(items.count)"
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Flags all log levels")
+    func flagsAllLevels() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.debug("\\(x)")
+        logger.info("\\(x)")
+        logger.notice("\\(x)")
+        logger.warning("\\(x)")
+        logger.error("\\(x)")
+        logger.fault("\\(x)")
+        """
+        let result = try await TestHelpers.audit(code)
+        let count = result.diagnostics.filter { $0.ruleId == ruleId }.count
+        #expect(count == 6)
+    }
+
+    @Test("Does not flag with logging: exemption comment")
+    func respectsExemption() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("\\(items.count)") // logging: privacy not needed for internal tool
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Diagnostic has warning severity")
+    func warningSeverity() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("\\(x)")
+        """
+        let result = try await TestHelpers.audit(code)
+        let diag = result.diagnostics.first { $0.ruleId == ruleId }
+        #expect(diag?.severity == .warning)
+    }
+}
+
+// MARK: - Rule 5: bare-logger-init
+
+@Suite("LoggingAuditor: bare-logger-init")
+struct BareLoggerInitTests {
+    private let ruleId = "logging.bare-logger-init"
+
+    @Test("Flags Logger() with no arguments")
+    func flagsBareInit() async throws {
+        let code = """
+        import os
+        let logger = Logger()
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag Logger(subsystem:category:)")
+    func ignoresFullInit() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Network")
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag non-Logger types with empty init")
+    func ignoresOtherTypes() async throws {
+        let code = """
+        import os
+        let manager = Manager()
+        let config = Configuration()
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag with logging: exemption")
+    func respectsExemption() async throws {
+        let code = """
+        import os
+        let logger = Logger() // logging: test helper, subsystem not needed
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Diagnostic has info severity")
+    func infoSeverity() async throws {
+        let code = """
+        import os
+        let logger = Logger()
+        """
+        let result = try await TestHelpers.audit(code)
+        let diag = result.diagnostics.first { $0.ruleId == ruleId }
+        #expect(diag?.severity == .note)
+    }
+}
+
+// MARK: - Rule 6: catch-without-logging
+
+@Suite("LoggingAuditor: catch-without-logging")
+struct CatchWithoutLoggingTests {
+    private let ruleId = "logging.catch-without-logging"
+
+    @Test("Flags catch block with no logging and no throw")
+    func flagsSilentCatch() async throws {
+        let code = """
+        import os
+        func foo() {
+            do {
+                try riskyCall()
+            } catch {
+                return defaultValue
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag catch block that rethrows")
+    func ignoresRethrow() async throws {
+        let code = """
+        import os
+        func foo() throws {
+            do {
+                try riskyCall()
+            } catch {
+                throw error
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag catch block with logger.error call")
+    func ignoresWithLogging() async throws {
+        let code = """
+        import os
+        func foo() {
+            do {
+                try riskyCall()
+            } catch {
+                logger.error("failed: \\(error.localizedDescription, privacy: .public)")
+                return defaultValue
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag catch block with logger.warning call")
+    func ignoresWithWarningLog() async throws {
+        let code = """
+        import os
+        func foo() {
+            do {
+                try riskyCall()
+            } catch {
+                logger.warning("degraded: \\(error, privacy: .public)")
+                return fallback
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Flags empty catch block")
+    func flagsEmptyCatch() async throws {
+        let code = """
+        import os
+        func foo() {
+            do {
+                try riskyCall()
+            } catch { }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag with logging: exemption")
+    func respectsExemption() async throws {
+        let code = """
+        import os
+        func foo() {
+            do {
+                try riskyCall()
+            } catch { // logging: intentionally silent — best-effort cleanup
+                return
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Diagnostic has warning severity")
+    func warningSeverity() async throws {
+        let code = """
+        import os
+        func foo() {
+            do {
+                try riskyCall()
+            } catch {
+                return
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        let diag = result.diagnostics.first { $0.ruleId == ruleId }
+        #expect(diag?.severity == .warning)
+    }
+}
