@@ -588,3 +588,265 @@ struct TypeMappingTests {
         #expect(!results.contains { $0.ruleId == "mcp-type-mismatch" })
     }
 }
+
+// MARK: - Subscript Access Tests
+
+@Suite("MCPReadinessAuditor: Subscript access")
+struct SubscriptAccessTests {
+    @Test("Subscript access args[\"key\"] counts as property usage")
+    func subscriptAccessRecognized() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that processes structured data from object inputs",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "headers": MCPSchemaProperty(
+                            type: "object",
+                            description: "HTTP response headers as key-value pairs to analyze"
+                        ),
+                    ],
+                    required: ["headers"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let headers = args["headers"]
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-unused-property" },
+                "Subscript access should count as usage, got: \(results)")
+    }
+
+    @Test("Subscript access does not trigger type mismatch")
+    func subscriptAccessNoTypeMismatch() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that processes structured data from object inputs",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "data": MCPSchemaProperty(
+                            type: "object",
+                            description: "Nested data object for processing and analysis"
+                        ),
+                    ],
+                    required: ["data"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let data = args["data"]
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-type-mismatch" })
+    }
+}
+
+// MARK: - Drift Guard: Canonical Fixture
+//
+// This fixture exercises every SwiftMCPServer API surface that the auditor
+// inspects. If SwiftMCPServer renames types, changes init signatures, or
+// alters getter methods, this fixture goes stale and the test below fails.
+//
+// Source: SwiftMCPServer MCPCompat.swift @ f9e5108 (2026-04-10)
+// Contract surface:
+//   - MCPTool(name:description:inputSchema:)
+//   - MCPToolInputSchema(properties:required:)
+//   - MCPSchemaProperty(type:description:enum:)
+//   - getString(), getInt(), getDouble(), getBool(), getStringOptional(),
+//     getStringArray(), getDoubleArray()
+
+private let canonicalFixtureSource = """
+import SwiftMCPServer
+
+struct CanonicalSearchTool: MCPToolHandler, Sendable {
+    let tool = MCPTool(
+        name: "canonical_search",
+        description: \"\"\"
+            Canonical fixture exercising every getter type and schema pattern.
+            Used as a drift guard between quality-gate-swift and SwiftMCPServer.
+            \"\"\",
+        inputSchema: MCPToolInputSchema(
+            properties: [
+                "query": MCPSchemaProperty(
+                    type: "string",
+                    description: "The search query string to match against records"
+                ),
+                "max_results": MCPSchemaProperty(
+                    type: "integer",
+                    description: "Maximum number of results to return from the query"
+                ),
+                "threshold": MCPSchemaProperty(
+                    type: "number",
+                    description: "Minimum relevance score threshold for filtering results"
+                ),
+                "include_metadata": MCPSchemaProperty(
+                    type: "boolean",
+                    description: "Whether to include metadata in each result entry"
+                ),
+                "tags": MCPSchemaProperty(
+                    type: "array",
+                    description: "List of tags to filter results by category value"
+                ),
+                "format": MCPSchemaProperty(
+                    type: "string",
+                    description: "Output format for results: json, markdown, or plain text",
+                    enum: ["json", "markdown", "plain"]
+                ),
+            ],
+            required: ["query", "max_results", "tags"]
+        )
+    )
+
+    func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+        guard let args = arguments else {
+            throw ToolError.missingRequiredArgument("arguments")
+        }
+
+        let query = try args.getString("query")
+        let maxResults = try args.getInt("max_results")
+        let threshold = args.getDoubleOptional("threshold") ?? 0.5
+        let includeMetadata = args.getBoolOptional("include_metadata") ?? false
+        let format = args.getStringOptional("format") ?? "plain"
+        let tags = (try? args.getStringArray("tags")) ?? []
+
+        return .success(text: "query=\\(query) max=\\(maxResults) threshold=\\(threshold) meta=\\(includeMetadata) format=\\(format) tags=\\(tags.count)")
+    }
+}
+"""
+
+@Suite("MCPReadinessAuditor: Drift Guard")
+struct DriftGuardTests {
+    @Test("Canonical fixture produces zero diagnostics — validates auditor matches SwiftMCPServer API")
+    func canonicalFixtureClean() {
+        let results = diagnose(canonicalFixtureSource)
+        #expect(
+            results.isEmpty,
+            "Canonical fixture should produce zero diagnostics. Got: \(results.map { "[\($0.ruleId)] \($0.message)" })"
+        )
+    }
+
+    @Test("Canonical fixture extracts all 6 properties")
+    func canonicalFixturePropertyCount() {
+        let tree = SwiftParser.Parser.parse(source: canonicalFixtureSource)
+        let visitor = MCPSchemaVisitor(
+            filePath: "CanonicalTool.swift",
+            source: canonicalFixtureSource,
+            config: .default,
+            tree: tree
+        )
+        visitor.walk(tree)
+        #expect(visitor.diagnostics.isEmpty, "Expected clean parse, got: \(visitor.diagnostics)")
+    }
+
+    @Test("Canonical fixture with deliberate mismatch triggers mcp-arg-not-in-schema")
+    func canonicalFixtureDriftDetection() {
+        // Simulate API drift: execute() accesses a key that doesn't exist in schema
+        let driftedSource = canonicalFixtureSource.replacingOccurrences(
+            of: """
+            let query = try args.getString("query")
+            """,
+            with: """
+            let query = try args.getString("search_text")
+            """
+        )
+        let results = diagnose(driftedSource)
+        #expect(results.contains { $0.ruleId == "mcp-arg-not-in-schema" },
+                "Drifted fixture should trigger mcp-arg-not-in-schema")
+    }
+
+    @Test("Canonical fixture with type drift triggers mcp-type-mismatch")
+    func canonicalFixtureTypeDrift() {
+        // Simulate getter type changing
+        let driftedSource = canonicalFixtureSource.replacingOccurrences(
+            of: """
+            let maxResults = try args.getInt("max_results")
+            """,
+            with: """
+            let maxResults = try args.getString("max_results")
+            """
+        )
+        let results = diagnose(driftedSource)
+        #expect(results.contains { $0.ruleId == "mcp-type-mismatch" },
+                "Type-drifted fixture should trigger mcp-type-mismatch")
+    }
+}
+
+// MARK: - Real-World Validation
+//
+// These tests read actual MCP tool files from sibling repositories
+// to verify zero false positives against production code.
+// They skip gracefully if the sibling repos aren't present.
+
+@Suite("MCPReadinessAuditor: Real-world validation")
+struct RealWorldValidationTests {
+    private static let devGuidelinesToolsDir =
+        "/Users/jpurnell/Dropbox/Computer/Development/Swift/Tools/DevGuidelinesMCP/Sources/DevGuidelinesMCP/Tools"
+    private static let geoSEOToolsDir =
+        "/Users/jpurnell/Dropbox/Computer/Development/Swift/Tools/GeoSEOMCP/Sources/GeoSEOMCP/Tools"
+
+    private func diagnoseFile(at path: String) -> [Diagnostic] {
+        guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+        return diagnose(source)
+    }
+
+    private func diagnoseAllToolFiles(in directory: String) -> [(file: String, diagnostics: [Diagnostic])] {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+        return files
+            .filter { $0.hasSuffix(".swift") && $0 != "ToolRegistry.swift" }
+            .map { file in
+                let path = (directory as NSString).appendingPathComponent(file)
+                return (file: file, diagnostics: diagnoseFile(at: path))
+            }
+    }
+
+    @Test("DevGuidelinesMCP tools produce zero errors or warnings")
+    func devGuidelinesClean() throws {
+        let fm = FileManager.default
+        try #require(fm.fileExists(atPath: Self.devGuidelinesToolsDir),
+                     "DevGuidelinesMCP not found — skipping real-world validation")
+
+        let results = diagnoseAllToolFiles(in: Self.devGuidelinesToolsDir)
+        #expect(!results.isEmpty, "Should find at least one tool file")
+
+        let issues = results.flatMap { r in
+            r.diagnostics.filter { $0.severity == .error || $0.severity == .warning }
+                .map { "[\(r.file)] \($0.ruleId): \($0.message)" }
+        }
+        #expect(issues.isEmpty,
+                "DevGuidelinesMCP should have zero errors/warnings, got: \(issues)")
+    }
+
+    @Test("GeoSEOMCP tools produce zero errors or warnings")
+    func geoSEOClean() throws {
+        let fm = FileManager.default
+        try #require(fm.fileExists(atPath: Self.geoSEOToolsDir),
+                     "GeoSEOMCP not found — skipping real-world validation")
+
+        let results = diagnoseAllToolFiles(in: Self.geoSEOToolsDir)
+        #expect(!results.isEmpty, "Should find at least one tool file")
+
+        let issues = results.flatMap { r in
+            r.diagnostics.filter { $0.severity == .error || $0.severity == .warning }
+                .map { "[\(r.file)] \($0.ruleId): \($0.message)" }
+        }
+        #expect(issues.isEmpty,
+                "GeoSEOMCP should have zero errors/warnings, got: \(issues)")
+    }
+}

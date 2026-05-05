@@ -292,14 +292,16 @@ final class MCPSchemaVisitor: SyntaxVisitor {
         return accesses
     }
 
-    /// Recursively walks syntax nodes looking for getter calls like `args.getString("key")`.
+    /// Recursively walks syntax nodes looking for getter calls like `args.getString("key")`
+    /// and subscript accesses like `args["key"]`.
     private func collectArgAccesses(from node: SyntaxProtocol, into accesses: inout [MCPExtractedArgAccess]) {
-        if let call = Syntax(fromProtocol: node).as(FunctionCallExprSyntax.self),
+        let syntax = Syntax(fromProtocol: node)
+
+        if let call = syntax.as(FunctionCallExprSyntax.self),
            let memberAccess = call.calledExpression.as(MemberAccessExprSyntax.self) {
             let methodName = memberAccess.declName.baseName.text
 
             if getterTypeMap.keys.contains(methodName) {
-                // Extract the key string argument
                 if let firstArg = call.arguments.first,
                    let key = extractStringLiteral(from: firstArg.expression) {
                     let access = MCPExtractedArgAccess(
@@ -310,6 +312,21 @@ final class MCPSchemaVisitor: SyntaxVisitor {
                     )
                     accesses.append(access)
                 }
+            }
+        }
+
+        // Detect subscript access on the arguments variable: args["key"] or arguments?["key"]
+        if let subscriptCall = syntax.as(SubscriptCallExprSyntax.self),
+           isArgumentsBase(subscriptCall.calledExpression) {
+            if let firstArg = subscriptCall.arguments.first,
+               let key = extractStringLiteral(from: firstArg.expression) {
+                let access = MCPExtractedArgAccess(
+                    key: key,
+                    getterName: "subscript",
+                    isThrowing: false,
+                    line: lineNumber(of: Syntax(subscriptCall))
+                )
+                accesses.append(access)
             }
         }
 
@@ -427,6 +444,19 @@ final class MCPSchemaVisitor: SyntaxVisitor {
     }
 
     // MARK: - Helpers
+
+    private static let argumentsNames: Set<String> = ["args", "arguments"]
+
+    /// Checks whether an expression is likely the `arguments` parameter (e.g. `args`, `arguments`, `arguments?`).
+    private func isArgumentsBase(_ expr: ExprSyntax) -> Bool {
+        if let declRef = expr.as(DeclReferenceExprSyntax.self) {
+            return Self.argumentsNames.contains(declRef.baseName.text)
+        }
+        if let optionalChain = expr.as(OptionalChainingExprSyntax.self) {
+            return isArgumentsBase(optionalChain.expression)
+        }
+        return false
+    }
 
     /// Extracts the string value from a string literal expression.
     private func extractStringLiteral(from expr: ExprSyntax) -> String? {
