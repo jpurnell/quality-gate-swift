@@ -262,6 +262,43 @@ struct BuildCheckerTests {
         #expect(!args.contains("release"))
     }
 
+    @Test("Includes solver threshold flags when configured")
+    func includesThresholdFlags() {
+        let config = Configuration(
+            build: BuildCheckerConfig(solverExpressionTimeThreshold: 500)
+        )
+        let checker = BuildChecker()
+        let args = checker.buildArguments(for: config)
+
+        #expect(args.contains("-Xswiftc"))
+        #expect(args.contains("-Xfrontend"))
+        #expect(args.contains("-solver-expression-time-threshold=500"))
+    }
+
+    @Test("Omits solver threshold flags when not configured")
+    func omitsThresholdByDefault() {
+        let config = Configuration()
+        let checker = BuildChecker()
+        let args = checker.buildArguments(for: config)
+
+        #expect(!args.contains("-Xfrontend"))
+        #expect(!args.contains { $0.contains("solver-expression") })
+    }
+
+    @Test("Combines build configuration with solver threshold")
+    func combinesConfigAndThreshold() {
+        let config = Configuration(
+            buildConfiguration: "release",
+            build: BuildCheckerConfig(solverExpressionTimeThreshold: 250)
+        )
+        let checker = BuildChecker()
+        let args = checker.buildArguments(for: config)
+
+        #expect(args.contains("-c"))
+        #expect(args.contains("release"))
+        #expect(args.contains("-solver-expression-time-threshold=250"))
+    }
+
     // MARK: - Error Message Quality Tests
 
     @Test("Provides actionable error messages")

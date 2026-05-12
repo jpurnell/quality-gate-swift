@@ -4,6 +4,9 @@ excludePatterns:
   # outer package would always fail the gate.
   - "**/Tests/UnreachableCodeAuditorTests/Fixtures/**"
 
+build:
+  solverExpressionTimeThreshold: 500
+
 dependencyAudit:
   allowBranchPins:
     - indexstore-db

@@ -107,6 +107,10 @@ let package = Package(
             name: "MCPReadinessAuditor",
             targets: ["MCPReadinessAuditor"]
         ),
+        .library(
+            name: "QualityGateTestKit",
+            targets: ["QualityGateTestKit"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -408,6 +412,19 @@ let package = Package(
         .testTarget(
             name: "MemoryLifecycleGuardTests",
             dependencies: ["MemoryLifecycleGuard"]
+        ),
+
+        // MARK: - Test Kit
+        .target(
+            name: "QualityGateTestKit",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "QualityGateTestKitTests",
+            dependencies: [
+                "QualityGateTestKit",
+                "SafetyAuditor",
+            ]
         ),
 
         // MARK: - CLI
