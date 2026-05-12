@@ -66,11 +66,13 @@ struct DiagnosticAssertionTests {
 
     // MARK: - expectDiagnostic
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnostic passes when matching ruleId exists")
     func expectDiagnosticPassesOnMatch() {
         expectDiagnostic(in: failedResult, ruleId: "safety.force-unwrap")
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnostic with severity filter matches correctly")
     func expectDiagnosticWithSeverity() {
         expectDiagnostic(
@@ -80,6 +82,7 @@ struct DiagnosticAssertionTests {
         )
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnostic with line number filter matches correctly")
     func expectDiagnosticWithLineNumber() {
         expectDiagnostic(
@@ -89,6 +92,7 @@ struct DiagnosticAssertionTests {
         )
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnostic with messageContaining filter matches")
     func expectDiagnosticWithMessageSubstring() {
         expectDiagnostic(
@@ -98,6 +102,7 @@ struct DiagnosticAssertionTests {
         )
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnostic with all filters matches correctly")
     func expectDiagnosticWithAllFilters() {
         expectDiagnostic(
@@ -111,11 +116,13 @@ struct DiagnosticAssertionTests {
 
     // MARK: - expectNoDiagnostic
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectNoDiagnostic passes when ruleId absent")
     func expectNoDiagnosticPassesWhenAbsent() {
         expectNoDiagnostic(in: failedResult, ruleId: "concurrency.data-race")
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectNoDiagnostic passes on clean result")
     func expectNoDiagnosticPassesOnClean() {
         expectNoDiagnostic(in: cleanResult, ruleId: "safety.force-unwrap")
@@ -123,6 +130,7 @@ struct DiagnosticAssertionTests {
 
     // MARK: - expectClean
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectClean passes on empty diagnostics")
     func expectCleanPassesOnEmpty() {
         expectClean(cleanResult)
@@ -130,12 +138,14 @@ struct DiagnosticAssertionTests {
 
     // MARK: - expectStatus
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectStatus passes on matching status")
     func expectStatusPassesOnMatch() {
         expectStatus(failedResult, .failed)
         expectStatus(cleanResult, .passed)
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectStatus works with all status values")
     func expectStatusAllValues() {
         let warningResult = CheckResult(
@@ -157,12 +167,14 @@ struct DiagnosticAssertionTests {
 
     // MARK: - expectDiagnosticCount
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnosticCount passes with correct count")
     func expectDiagnosticCountCorrect() {
         expectDiagnosticCount(in: multiResult, ruleId: "safety.force-unwrap", count: 2)
         expectDiagnosticCount(in: multiResult, ruleId: "concurrency.unchecked-sendable", count: 1)
     }
 
+    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("expectDiagnosticCount passes with zero for absent rule")
     func expectDiagnosticCountZero() {
         expectDiagnosticCount(in: cleanResult, ruleId: "safety.force-unwrap", count: 0)

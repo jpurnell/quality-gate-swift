@@ -37,13 +37,14 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
 
         // 2. Check CHANGELOG
         let changelogFullPath = (projectRoot as NSString).appendingPathComponent(config.changelogPath)
+        // SECURITY: CLI tool reads local project file — path derived from validated project root
         if fileManager.fileExists(atPath: changelogFullPath) {
             do {
                 let content = try String(contentsOfFile: changelogFullPath, encoding: .utf8)
                 diagnostics.append(
                     contentsOf: Self.checkChangelog(content: content, version: version)
                 )
-            } catch {
+            } catch { // logging: error captured as Diagnostic
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Could not read CHANGELOG at \(config.changelogPath): \(error.localizedDescription)",
@@ -63,6 +64,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         // 3. Check README for markers
         let allMarkers = Self.defaultMarkers + config.additionalMarkers
         let readmeFullPath = (projectRoot as NSString).appendingPathComponent(config.readmePath)
+        // SECURITY: CLI tool reads local project file — path derived from validated project root
         if fileManager.fileExists(atPath: readmeFullPath) {
             do {
                 let content = try String(contentsOfFile: readmeFullPath, encoding: .utf8)
@@ -73,7 +75,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         filePath: readmeFullPath
                     )
                 )
-            } catch {
+            } catch { // logging: error captured as Diagnostic
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Could not read README at \(config.readmePath): \(error.localizedDescription)",
@@ -93,6 +95,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         // 4. Check source TODOs (only when requireIssueReference is true)
         if config.requireIssueReference {
             let sourcesPath = (projectRoot as NSString).appendingPathComponent("Sources")
+            // SECURITY: CLI tool reads local project Sources directory
             if fileManager.fileExists(atPath: sourcesPath) {
                 let sourceDiags = scanSourceDirectory(
                     at: sourcesPath,
@@ -270,6 +273,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// - Parameter directory: The directory to run git in.
     /// - Returns: The tag string (trimmed), or nil on failure.
     private func runGitDescribe(in directory: String) -> String? {
+        // SECURITY: subprocess with hardcoded /usr/bin/git executable path
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["describe", "--tags", "--abbrev=0"]
@@ -294,7 +298,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 return String(trimmed.dropFirst())
             }
             return trimmed.isEmpty ? nil : trimmed
-        } catch {
+        } catch { // logging: git describe failure is expected when no tags exist
             return nil
         }
     }
@@ -320,7 +324,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 if let match = content.firstMatch(of: versionPattern) {
                     return String(match.1)
                 }
-            } catch {
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }
@@ -367,7 +371,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         requireIssueReference: requireIssueReference
                     )
                 )
-            } catch {
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }

@@ -9,6 +9,7 @@ import Testing
 @Suite("ConcurrencyAuditor: edge-case robustness")
 struct RobustnessTests {
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on generic class with Sendable constraint")
     func genericConstraintDoesNotCrash() async throws {
         let code = """
@@ -20,6 +21,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on conditional compilation branches")
     func conditionalCompilationDoesNotCrash() async throws {
         let code = """
@@ -34,6 +36,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on syntactically malformed input")
     func malformedSourceDoesNotCrash() async throws {
         let code = """
@@ -43,6 +46,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on macro-expanded code")
     func macroDoesNotCrash() async throws {
         let code = """
@@ -54,6 +58,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on multiline declaration spanning many lines")
     func multilineDeclarationDoesNotCrash() async throws {
         let code = """

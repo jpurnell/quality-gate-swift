@@ -93,7 +93,7 @@ graph TD
 ## Current Status
 
 ### What's Working
-- [x] QualityGateCore — Protocol, models, reporters, configuration (63 tests)
+- [x] QualityGateCore — Protocol, models, reporters, configuration (79 tests)
 - [x] SafetyAuditor — Code safety (9 rules) + OWASP security (10 rules), 83 tests
 - [x] BuildChecker — swift build wrapper with output parsing
 - [x] TestRunner — swift test wrapper with Swift Testing + XCTest parsing
@@ -111,6 +111,13 @@ graph TD
 - [x] ContextAuditor — Ethical context: consent guards, analytics opt-out, surveillance disclosure (advisory)
 - [x] SwiftVersionChecker — swift-tools-version minimum compliance
 - [x] DiskCleaner — Build artifact identification
+- [x] FloatingPointSafetyAuditor — IEEE 754 compliance, exact equality checks, NaN handling
+- [x] StochasticDeterminismAuditor — Reproducible randomness via injectable RNG
+- [x] MCPReadinessAuditor — MCP server schema validation and best practices
+- [x] ReleaseReadinessAuditor — Changelog, TODO, and version tag compliance
+- [x] MemoryLifecycleGuard — Memory management lifecycle safety
+- [x] DependencyAuditor — SPM dependency health (branch pins, local overrides)
+- [x] QualityGateTestKit — Shared test helpers and fixtures
 - [x] QualityGateCLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
 - [x] QualityGatePlugin — SPM CommandPlugin
 

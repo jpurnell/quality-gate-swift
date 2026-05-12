@@ -56,6 +56,7 @@ public struct ArchitectureExtractor: MemoryExtractor, Sendable {
 
         // Match .target(name: "X", dependencies: [...]) and .executableTarget(...)
         let targetPattern = #"\.(target|executableTarget|testTarget)\s*\(\s*name:\s*"([^"]+)"([^)]*)\)"#
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: targetPattern, options: .dotMatchesLineSeparators) else {
             return []
         }
@@ -75,7 +76,7 @@ public struct ArchitectureExtractor: MemoryExtractor, Sendable {
                     let afterDeps = rest[depsRange.upperBound...]
                     // Find simple string deps like "CoreModule"
                     let depPattern = #""([^"]+)""#
-                    if let depRegex = try? NSRegularExpression(pattern: depPattern) {
+                    if let depRegex = try? NSRegularExpression(pattern: depPattern) { // silent: constant regex pattern
                         let nsRest = String(afterDeps) as NSString
                         let depMatches = depRegex.matches(
                             in: String(afterDeps),

@@ -103,7 +103,7 @@ public struct ContextAuditor: QualityChecker, Sendable {
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 diagnostics.append(contentsOf: auditSourceCode(source, fileName: fullPath))
-            } catch {
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }

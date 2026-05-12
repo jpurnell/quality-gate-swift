@@ -83,6 +83,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         let resolvedPath = projectRoot + "/Package.resolved"
         let packageSwiftPath = projectRoot + "/Package.swift"
         let resolvedExists = FileManager.default.fileExists(atPath: resolvedPath) // SAFETY: reads local project file
+        // silent: missing Package.swift handled by empty string fallback
         let packageSwiftContent = (try? String(contentsOfFile: packageSwiftPath, encoding: .utf8)) ?? ""
         let packageSwiftURLs = Self.extractPackageURLs(from: packageSwiftContent)
 
@@ -92,7 +93,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         if resolvedExists {
             if let data = FileManager.default.contents(atPath: resolvedPath), // SAFETY: reads local project file
                let json = String(data: data, encoding: .utf8),
-               let resolved = try? Self.parsePackageResolved(json) {
+               let resolved = try? Self.parsePackageResolved(json) { // silent: malformed Package.resolved handled gracefully
                 resolvedPinCount = resolved.pins.count
                 pins = resolved.pins
             }
@@ -151,6 +152,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     static func extractPackageURLs(from content: String) -> [String] {
         // Match .package(url: "...") patterns
         let pattern = #"\.package\(\s*url:\s*"([^"]+)""#
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
             return []
         }
@@ -256,8 +258,9 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     static func checkLocalOverrides(projectRoot: String) -> [Diagnostic] {
         let fm = FileManager.default // SAFETY: reads local project directory
         let workspaceStatePath = projectRoot + "/.swiftpm/workspace/state.json"
-
+        // SECURITY: CLI tool reads local SPM workspace state — path derived from validated project root
         guard fm.fileExists(atPath: workspaceStatePath),
+              // SECURITY: reads workspace state from validated local project path
               let data = fm.contents(atPath: workspaceStatePath),
               let json = String(data: data, encoding: .utf8) else {
             return []

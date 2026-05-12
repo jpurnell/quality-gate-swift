@@ -24,7 +24,7 @@ public enum MemoryFileValidator {
 
         // Validate MEMORY.md index links
         let indexPath = (memoryDir as NSString).appendingPathComponent("MEMORY.md")
-        if let indexContent = try? String(contentsOfFile: indexPath, encoding: .utf8) {
+        if let indexContent = try? String(contentsOfFile: indexPath, encoding: .utf8) { // silent: missing index file is valid state
             diagnostics.append(contentsOf: validateIndexLinks(
                 indexContent: indexContent,
                 memoryDir: memoryDir,
@@ -33,10 +33,11 @@ public enum MemoryFileValidator {
         }
 
         // Validate generated memory files for staleness
+        // silent: unreadable memory directory is non-fatal
         if let files = try? fm.contentsOfDirectory(atPath: memoryDir) { // SAFETY: lists generated memory files for validation
             for file in files where file.hasSuffix(".md") && file != "MEMORY.md" {
                 let filePath = (memoryDir as NSString).appendingPathComponent(file)
-                guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else {
+                guard let content = try? String(contentsOfFile: filePath, encoding: .utf8) else { // silent: unreadable memory file skipped gracefully
                     continue
                 }
 
@@ -69,7 +70,7 @@ public enum MemoryFileValidator {
         for (index, line) in lines.enumerated() {
             // Match markdown links: [Title](filename.md)
             let pattern = #"\[([^\]]+)\]\(([^)]+\.md)\)"#
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue } // silent: constant regex pattern
             let range = NSRange(line.startIndex..., in: line)
             let matches = regex.matches(in: line, range: range)
 

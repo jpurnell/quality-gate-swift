@@ -7,6 +7,7 @@ import Testing
 @Suite("PointerEscapeAuditor: edge-case robustness")
 struct RobustnessTests {
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on conditional compilation")
     func conditionalCompilationDoesNotCrash() async throws {
         let code = """
@@ -23,6 +24,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on macro-expanded code")
     func macroDoesNotCrash() async throws {
         let code = """
@@ -34,6 +36,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on malformed input")
     func malformedDoesNotCrash() async throws {
         let code = """
@@ -43,6 +46,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on switch return inside with-block")
     func switchReturnDoesNotCrash() async throws {
         let code = """
@@ -58,6 +62,7 @@ struct RobustnessTests {
         _ = try await TestHelpers.audit(code)
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on guard-let return")
     func guardReturnDoesNotCrash() async throws {
         let code = """

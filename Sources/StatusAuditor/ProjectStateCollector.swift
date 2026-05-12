@@ -50,6 +50,7 @@ public enum ProjectStateCollector {
             .appending("/Plugins")]
 
         for searchPath in searchPaths {
+            // silent: missing directory is expected for projects without Plugins/
             if let dirs = try? fileManager.contentsOfDirectory(atPath: searchPath) { // SAFETY: CLI tool enumerates local project modules
                 for dir in dirs {
                     let dirPath = (searchPath as NSString).appendingPathComponent(dir)
@@ -98,7 +99,7 @@ public enum ProjectStateCollector {
 
     /// Parse target names from Package.swift.
     static func parsePackageTargets(at path: String) -> Set<String> {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { // silent: missing Package.swift returns empty set
             return []
         }
 
@@ -110,7 +111,7 @@ public enum ProjectStateCollector {
         ]
 
         for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue } // silent: constant regex pattern
             let range = NSRange(content.startIndex..., in: content)
             let matches = regex.matches(in: content, range: range)
 
@@ -140,7 +141,7 @@ public enum ProjectStateCollector {
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
             fileCount += 1
 
-            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
+            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) { // silent: unreadable source file skipped
                 lineCount += content.components(separatedBy: .newlines).count
             }
         }
@@ -161,12 +162,13 @@ public enum ProjectStateCollector {
             guard relativePath.hasSuffix(".swift") else { continue }
 
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
-            guard let content = try? String(contentsOfFile: fullPath, encoding: .utf8) else {
+            guard let content = try? String(contentsOfFile: fullPath, encoding: .utf8) else { // silent: unreadable test file skipped
                 continue
             }
 
             // Count @Test attributes (Swift Testing)
             let testAttrPattern = #"@Test\b"#
+            // silent: constant regex pattern
             if let regex = try? NSRegularExpression(pattern: testAttrPattern) {
                 let range = NSRange(content.startIndex..., in: content)
                 count += regex.numberOfMatches(in: content, range: range)
@@ -174,7 +176,7 @@ public enum ProjectStateCollector {
 
             // Count func test* methods (XCTest)
             let funcTestPattern = #"func\s+test[A-Z]\w*\s*\("#
-            if let regex = try? NSRegularExpression(pattern: funcTestPattern) {
+            if let regex = try? NSRegularExpression(pattern: funcTestPattern) { // silent: constant regex pattern
                 let range = NSRange(content.startIndex..., in: content)
                 count += regex.numberOfMatches(in: content, range: range)
             }

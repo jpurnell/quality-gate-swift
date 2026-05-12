@@ -123,11 +123,12 @@ public enum StatusBootstrapper {
     // MARK: - Private Helpers
 
     private static func parsePackageName(at path: String) -> String {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { // silent: missing Package.swift defaults to "Project"
             return "Project"
         }
 
         let pattern = #"name:\s*"([^"]+)""#
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(
                 in: content,

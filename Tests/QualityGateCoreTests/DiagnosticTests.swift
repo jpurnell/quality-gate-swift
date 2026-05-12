@@ -80,12 +80,11 @@ struct DiagnosticTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(diagnostic)
-        let json = String(data: data, encoding: .utf8)
+        let json = try #require(String(data: data, encoding: .utf8))
 
-        #expect(json != nil)
-        #expect(json?.contains("\"severity\":\"error\"") == true)
-        #expect(json?.contains("\"message\":\"Test error\"") == true)
-        #expect(json?.contains("\"lineNumber\":10") == true)
+        #expect(json.contains("\"severity\":\"error\""))
+        #expect(json.contains("\"message\":\"Test error\""))
+        #expect(json.contains("\"lineNumber\":10"))
     }
 
     @Test("Diagnostic decodes from JSON correctly")

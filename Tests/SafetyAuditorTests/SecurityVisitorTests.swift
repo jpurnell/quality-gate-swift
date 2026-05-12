@@ -508,8 +508,7 @@ struct SecurityVisitorTests {
 
         let result = try await auditCode(code)
         let diag = result.diagnostics.first { $0.ruleId == "security.hardcoded-secret" }
-        #expect(diag?.suggestedFix != nil)
-        #expect(diag?.suggestedFix?.isEmpty == false)
+        #expect(diag?.suggestedFix?.contains("environment variable") == true || diag?.suggestedFix?.contains("secure") == true)
     }
 
     @Test("Security diagnostics include CWE in message")

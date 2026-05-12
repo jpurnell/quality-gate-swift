@@ -97,7 +97,7 @@ public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
     private func extractDependencies(from source: String) -> [String] {
         var deps: [String] = []
         let pattern = #"\.package\s*\(\s*url:\s*"([^"]+)""#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] } // silent: constant regex pattern
         let nsSource = source as NSString
         let matches = regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
         for match in matches {
@@ -114,7 +114,7 @@ public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
     /// Generic helper to extract name parameters from SPM target declarations.
     private func extractNamedEntries(from source: String, pattern: String) -> [String] {
         var results: [String] = []
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] } // silent: caller-provided regex pattern
         let nsSource = source as NSString
         let matches = regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
         for match in matches {

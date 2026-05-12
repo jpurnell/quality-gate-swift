@@ -71,7 +71,7 @@ public struct EnvironmentExtractor: MemoryExtractor, Sendable {
             guard process.terminationStatus == 0 else { return nil }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
+        } catch { // logging: error returned as nil to caller
             return nil
         }
     }

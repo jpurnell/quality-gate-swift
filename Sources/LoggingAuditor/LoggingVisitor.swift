@@ -246,14 +246,18 @@ final class LoggingVisitor: SyntaxVisitor {
 
     override func visitPost(_ node: SourceFileSyntax) {
         if hasPrintOrNSLog && !hasOSImport {
-            diagnostics.append(Diagnostic(
-                severity: .warning,
-                message: "File contains print()/NSLog() but does not import os; migrate to os.Logger",
-                filePath: fileName,
-                lineNumber: 1,
-                ruleId: "logging.no-os-logger-import",
-                suggestedFix: "Add 'import os' and replace print()/NSLog() with os.Logger calls"
-            ))
+            if let exempt = overrideIfExempted(line: 1, keyword: "logging:", ruleId: "logging.no-os-logger-import") {
+                overrides.append(exempt)
+            } else {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "File contains print()/NSLog() but does not import os; migrate to os.Logger",
+                    filePath: fileName,
+                    lineNumber: 1,
+                    ruleId: "logging.no-os-logger-import",
+                    suggestedFix: "Add 'import os' and replace print()/NSLog() with os.Logger calls"
+                ))
+            }
         }
     }
 

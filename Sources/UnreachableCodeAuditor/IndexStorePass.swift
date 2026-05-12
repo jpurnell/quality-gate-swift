@@ -40,7 +40,7 @@ struct IndexStorePass {
         let dbPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("quality-gate-indexdb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dbPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dbPath) }
+        defer { try? FileManager.default.removeItem(at: dbPath) } // silent: best-effort cleanup of temp index DB
 
         let db = try IndexStoreDB(
             storePath: inputs.indexStorePath.path,
@@ -58,7 +58,7 @@ struct IndexStorePass {
             under: inputs.rootURL,
             excludePatterns: inputs.excludePatterns)
         for file in swiftFiles {
-            guard let src = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            guard let src = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable source file skipped
             liveness.ingest(file: file, source: src)
         }
 

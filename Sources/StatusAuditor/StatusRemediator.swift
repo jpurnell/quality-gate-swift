@@ -19,7 +19,7 @@ public enum StatusRemediator {
         masterPlanPath: String,
         configuration: Configuration
     ) throws -> FixResult {
-        guard let content = try? String(contentsOfFile: masterPlanPath, encoding: .utf8) else {
+        guard let content = try? String(contentsOfFile: masterPlanPath, encoding: .utf8) else { // silent: missing Master Plan returns unfixed diagnostics
             return FixResult(modifications: [], unfixed: diagnostics)
         }
 
@@ -71,6 +71,7 @@ public enum StatusRemediator {
                     let original = lines[line - 1]
                     // Extract new count from suggestedFix: "Update test count to (N tests)"
                     let pattern = #"\((\d+)\s+tests?\)"#
+                    // silent: constant regex pattern
                     if let regex = try? NSRegularExpression(pattern: pattern),
                        let range = regex.firstMatch(
                         in: original,
@@ -115,6 +116,7 @@ public enum StatusRemediator {
                     formatter.formatOptions = [.withFullDate]
                     let today = formatter.string(from: Date.now)
                     let datePattern = #"\d{4}-\d{2}-\d{2}"#
+                    // silent: constant regex pattern
                     if let regex = try? NSRegularExpression(pattern: datePattern),
                        let match = regex.firstMatch(
                         in: original,

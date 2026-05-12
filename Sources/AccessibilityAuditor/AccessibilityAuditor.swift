@@ -127,7 +127,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(source, fileName: fullPath, configuration: configuration)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch {
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }

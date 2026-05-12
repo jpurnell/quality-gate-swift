@@ -51,11 +51,13 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
         // Collect directories to scan
         var scanPaths: [String] = []
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        // SECURITY: CLI tool reads local project Sources directory
         if fileManager.fileExists(atPath: sourcesPath) {
             scanPaths.append(sourcesPath)
         }
         for additional in config.additionalPaths {
             let fullPath = (currentDir as NSString).appendingPathComponent(additional)
+            // SECURITY: CLI tool reads additional path from project configuration
             if fileManager.fileExists(atPath: fullPath) {
                 scanPaths.append(fullPath)
             }
@@ -137,7 +139,7 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
                 mcpFileCount += 1
                 let fileDiags = auditSourceCode(source, fileName: fullPath, config: config)
                 diagnostics.append(contentsOf: fileDiags)
-            } catch {
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }

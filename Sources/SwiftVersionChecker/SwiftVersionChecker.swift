@@ -151,6 +151,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
             // Build failed — revert
             try content.write(toFile: packagePath, atomically: true, encoding: .utf8)
             // Clean up backup since we reverted
+            // silent: best-effort cleanup of backup file
             try? FileManager.default.removeItem(atPath: backupPath) // SAFETY: CLI removes its own backup
 
             return FixResult(
@@ -178,6 +179,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: The version string, or nil if not found.
     public static func parseToolsVersion(from content: String) -> String? {
         let pattern = #"//\s*swift-tools-version:\s*(\d+(?:\.\d+)*)"#
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
               let versionRange = Range(match.range(at: 1), in: content) else {
@@ -195,6 +197,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: The version string, or nil if not parseable.
     public static func parseCompilerVersion(from output: String) -> String? {
         let pattern = #"(?:Apple )?Swift version (\d+\.\d+(?:\.\d+)?)"#
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
               let versionRange = Range(match.range(at: 1), in: output) else {
@@ -324,6 +327,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: The rewritten content, or nil if no tools-version line found.
     public static func rewriteToolsVersion(in content: String, to version: String) -> String? {
         let pattern = #"//\s*swift-tools-version:\s*\d+(?:\.\d+)*"#
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return nil
         }
@@ -371,6 +375,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
 
         defer {
             // Always restore original
+            // silent: best-effort restore of original Package.swift
             try? original.write(toFile: packagePath, atomically: true, encoding: .utf8)
         }
 
@@ -423,6 +428,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         let pattern = #"^(.+?):(\d+):(\d+): error: (.+)$"#
 
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) else {
             return []
         }

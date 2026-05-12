@@ -193,7 +193,6 @@ struct SwiftVersionCheckerTests {
             verificationResult: nil
         )
         let diag = result.diagnostics.first { $0.severity == .error }
-        #expect(diag?.suggestedFix != nil)
         #expect(diag?.suggestedFix?.contains("6.2") == true)
     }
 

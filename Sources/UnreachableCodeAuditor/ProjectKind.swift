@@ -26,6 +26,7 @@ enum ProjectKind: Sendable {
         if fm.fileExists(atPath: root.appendingPathComponent("Package.swift").path) { // SAFETY: CLI tool detects local project type
             return .swiftPM(packageRoot: root)
         }
+        // silent: unreadable project root defaults to plain project
         guard let entries = try? fm.contentsOfDirectory(atPath: root.path) else { // SAFETY: CLI tool enumerates local project root
             return .plain(root: root)
         }

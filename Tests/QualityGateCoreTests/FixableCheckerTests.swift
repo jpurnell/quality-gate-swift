@@ -64,7 +64,7 @@ struct FixableCheckerTests {
         #expect(mod.filePath == "/project/docs/MASTER_PLAN.md")
         #expect(mod.description == "Updated 3 module checkboxes")
         #expect(mod.linesChanged == 3)
-        #expect(mod.backupPath != nil)
+        #expect(mod.backupPath == "/project/docs/MASTER_PLAN.md.2026-04-14.backup")
     }
 
     @Test("FileModification backupPath defaults to nil")
