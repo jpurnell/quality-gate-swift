@@ -737,7 +737,7 @@ struct DriftGuardTests {
         let results = diagnose(canonicalFixtureSource)
         #expect(
             results.isEmpty,
-            "Canonical fixture should produce zero diagnostics. Got: \(results.map { "[\($0.ruleId)] \($0.message)" })"
+            "Canonical fixture should produce zero diagnostics. Got: \(results.map { "[\($0.ruleId ?? "unknown")] \($0.message)" })"
         )
     }
 
@@ -827,7 +827,7 @@ struct RealWorldValidationTests {
 
         let issues = results.flatMap { r in
             r.diagnostics.filter { $0.severity == .error || $0.severity == .warning }
-                .map { "[\(r.file)] \($0.ruleId): \($0.message)" }
+                .map { "[\(r.file)] \($0.ruleId ?? "unknown"): \($0.message)" }
         }
         #expect(issues.isEmpty,
                 "DevGuidelinesMCP should have zero errors/warnings, got: \(issues)")
@@ -844,7 +844,7 @@ struct RealWorldValidationTests {
 
         let issues = results.flatMap { r in
             r.diagnostics.filter { $0.severity == .error || $0.severity == .warning }
-                .map { "[\(r.file)] \($0.ruleId): \($0.message)" }
+                .map { "[\(r.file)] \($0.ruleId ?? "unknown"): \($0.message)" }
         }
         #expect(issues.isEmpty,
                 "GeoSEOMCP should have zero errors/warnings, got: \(issues)")
