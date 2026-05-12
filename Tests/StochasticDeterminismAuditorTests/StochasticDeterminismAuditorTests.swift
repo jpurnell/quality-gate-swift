@@ -105,7 +105,7 @@ struct NoSeedTests {
         """
         let results = diagnose(code)
         let diag = results.first { $0.ruleId == ruleId }
-        #expect(diag?.suggestedFix != nil)
+        #expect(diag?.suggestedFix?.isEmpty == false)
     }
 
     // MARK: - Must pass
@@ -389,7 +389,6 @@ struct EdgeCaseTests {
         """
         let results = diagnose(code)
         let diag = results.first
-        #expect(diag?.lineNumber != nil)
         #expect(diag?.lineNumber == 2)
     }
 }

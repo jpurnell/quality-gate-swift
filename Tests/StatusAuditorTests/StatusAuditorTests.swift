@@ -638,7 +638,7 @@ struct StatusRemediatorTests {
 
         #expect(result.hasChanges)
         #expect(result.modifications.count == 1)
-        #expect(result.modifications[0].backupPath != nil)
+        #expect(result.modifications[0].backupPath?.isEmpty == false)
 
         let patched = try String(contentsOf: path, encoding: .utf8)
         #expect(patched.contains("- [x] SafetyAuditor"))

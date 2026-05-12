@@ -290,7 +290,7 @@ struct SafetyAuditorTests {
         let diagnostic = result.diagnostics.first { $0.ruleId == "force-unwrap" }
         #expect(diagnostic?.message.contains("force unwrap") == true ||
                 diagnostic?.message.contains("Force unwrap") == true)
-        #expect(diagnostic?.suggestedFix != nil)
+        #expect(diagnostic?.suggestedFix?.isEmpty == false)
     }
 
     // MARK: - Multiple Violations

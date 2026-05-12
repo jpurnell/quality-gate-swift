@@ -295,6 +295,7 @@ final class MCPSchemaVisitor: SyntaxVisitor {
     /// Recursively walks syntax nodes looking for getter calls like `args.getString("key")`
     /// and subscript accesses like `args["key"]`.
     private func collectArgAccesses(from node: SyntaxProtocol, into accesses: inout [MCPExtractedArgAccess]) {
+        guard node.children(viewMode: .sourceAccurate).count > 0 || node.is(FunctionCallExprSyntax.self) || node.is(SubscriptCallExprSyntax.self) else { return }
         let syntax = Syntax(fromProtocol: node)
 
         if let call = syntax.as(FunctionCallExprSyntax.self),

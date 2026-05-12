@@ -47,7 +47,7 @@ public struct DocLinter: QualityChecker, Sendable {
         do {
             try process.run()
             process.waitUntilExit()
-        } catch {
+        } catch { // logging: error captured as Diagnostic
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,
@@ -108,12 +108,12 @@ public struct DocLinter: QualityChecker, Sendable {
         // Pattern for file:line:column: severity: message
         // Example: /path/to/Sources/Module/File.swift:10:5: warning: No documentation for 'myFunc'
         let fileLocationPattern = #"^(.+?):(\d+):(\d+):\s*(warning|error|note):\s*(.+)$"#
-        let fileLocationRegex = try? NSRegularExpression(pattern: fileLocationPattern, options: [])
+        let fileLocationRegex = try? NSRegularExpression(pattern: fileLocationPattern, options: []) // silent: constant regex pattern
 
         // Pattern for simple severity: message
         // Example: warning: 'MyType' doesn't exist at '/MyModule/MyType'
         let simplePattern = #"^(warning|error|note):\s*(.+)$"#
-        let simpleRegex = try? NSRegularExpression(pattern: simplePattern, options: [])
+        let simpleRegex = try? NSRegularExpression(pattern: simplePattern, options: []) // silent: constant regex pattern
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)

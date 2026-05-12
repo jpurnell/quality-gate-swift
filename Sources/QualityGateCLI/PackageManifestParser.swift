@@ -28,6 +28,7 @@ enum PackageManifestParser {
     /// Reads `<projectRoot>/Package.swift` and returns first-party target names.
     static func firstPartyTargets(at projectRoot: String) -> Set<String> {
         let manifestPath = (projectRoot as NSString).appendingPathComponent("Package.swift")
+        // silent: missing Package.swift means no first-party targets
         guard let source = try? String(contentsOfFile: manifestPath, encoding: .utf8) else {
             return []
         }

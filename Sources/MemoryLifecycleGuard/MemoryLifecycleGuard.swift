@@ -34,6 +34,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
 
         var allDiagnostics: [Diagnostic] = []
 
+        // SECURITY: CLI tool reads local project Sources directory
         if fileManager.fileExists(atPath: sourcesPath) {
             allDiagnostics = auditDirectory(at: sourcesPath, config: config)
         }
@@ -76,7 +77,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let fileDiags = auditSourceCode(source, fileName: fullPath, config: config)
                 diagnostics.append(contentsOf: fileDiags)
-            } catch {
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }

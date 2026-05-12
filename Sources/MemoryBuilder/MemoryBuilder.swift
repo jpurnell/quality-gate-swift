@@ -30,7 +30,7 @@ public struct MemoryBuilder: QualityChecker, Sendable {
 
         // Load global CLAUDE.md for deduplication
         let globalClaudePath = NSHomeDirectory() + "/.claude/CLAUDE.md"
-        let globalClaudeMD = try? String(contentsOfFile: globalClaudePath, encoding: .utf8)
+        let globalClaudeMD = try? String(contentsOfFile: globalClaudePath, encoding: .utf8) // silent: global CLAUDE.md is optional
 
         // Auto-detect memory output path
         let memoryDir = detectMemoryDir(projectRoot: projectRoot)
@@ -55,7 +55,7 @@ public struct MemoryBuilder: QualityChecker, Sendable {
                     globalClaudeMD: globalClaudeMD
                 )
                 allEntries.append(contentsOf: entries)
-            } catch {
+            } catch { // logging: error captured as Diagnostic
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Extractor '\(extractor.id)' failed: \(error.localizedDescription)",
@@ -98,7 +98,7 @@ public struct MemoryBuilder: QualityChecker, Sendable {
 
             // Update MEMORY.md index
             let indexPath = (memoryDir as NSString).appendingPathComponent("MEMORY.md")
-            let existingIndex = (try? String(contentsOfFile: indexPath, encoding: .utf8)) ?? ""
+            let existingIndex = (try? String(contentsOfFile: indexPath, encoding: .utf8)) ?? "" // silent: missing index file means fresh start
             let newIndex = MemoryWriter.mergeIndex(existing: existingIndex, entries: allEntries)
             try newIndex.write(toFile: indexPath, atomically: true, encoding: .utf8)
             // Post-extraction validation

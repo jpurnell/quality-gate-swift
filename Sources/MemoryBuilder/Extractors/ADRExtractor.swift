@@ -64,7 +64,7 @@ public struct ADRExtractor: MemoryExtractor, Sendable {
             guard let endIndex = part.range(of: "```")?.lowerBound else { continue }
             let yamlBlock = String(part[..<endIndex])
 
-            guard let parsed = try? Yams.load(yaml: yamlBlock) as? [String: Any] else { continue }
+            guard let parsed = try? Yams.load(yaml: yamlBlock) as? [String: Any] else { continue } // silent: unparseable ADR block skipped gracefully
 
             guard let id = parsed["id"] as? String,
                   let status = parsed["status"] as? String,

@@ -72,7 +72,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             under: kind.rootURL,
             excludePatterns: configuration.excludePatterns)
         for file in swiftFiles {
-            guard let src = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            guard let src = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable source file skipped
             diagnostics.append(contentsOf: analyze(source: src, fileName: file))
         }
 
@@ -111,6 +111,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             let targetTypeByModule: [String: String]
             switch kind {
             case .swiftPM(let pkgRoot):
+                // silent: SPM describe failure falls back to empty type map
                 targetTypeByModule = (try? Self.describeTargetTypes(packageRoot: pkgRoot)) ?? [:]
             case .xcode, .xcworkspace, .plain:
                 targetTypeByModule = [:]   // synthesized via heuristic
@@ -123,9 +124,9 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 targetTypeByModule: targetTypeByModule
             )
             diagnostics.append(contentsOf: try IndexStorePass.run(inputs: inputs))
-        } catch SkipMarker.skipped {
+        } catch SkipMarker.skipped { // logging: skip note already added above
             // Already added a .note above.
-        } catch {
+        } catch { // logging: error captured as Diagnostic
             diagnostics.append(Diagnostic(
                 severity: .note,
                 message: "Cross-module pass skipped: \(error.localizedDescription)",

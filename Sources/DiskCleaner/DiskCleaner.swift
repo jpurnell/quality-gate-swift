@@ -119,13 +119,16 @@ public struct DiskCleaner: QualityChecker, Sendable {
         let size = directorySize(at: path)
 
         // Try removing contents first (works better with Dropbox sync)
+        // silent: best-effort cleanup of build artifacts
         if let contents = try? fileManager.contentsOfDirectory(atPath: path) { // SAFETY: enumerates build artifacts in project directory
             for item in contents {
                 let itemPath = (path as NSString).appendingPathComponent(item)
+                // silent: best-effort removal of build artifact
                 try? fileManager.removeItem(atPath: itemPath) // SAFETY: removes build artifacts under project .build/
             }
         }
         // Then try removing the directory itself
+        // silent: best-effort removal of build directory
         try? fileManager.removeItem(atPath: path) // SAFETY: removes build artifact directory in project
         return size
     }
@@ -169,7 +172,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
         }
 
         while let url = enumerator.nextObject() as? URL {
-            if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+            if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize { // silent: file size unavailable is non-fatal
                 size += Int64(fileSize)
             }
         }
@@ -197,7 +200,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
                 let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
                 return (false, errorString.trimmingCharacters(in: .whitespacesAndNewlines))
             }
-        } catch {
+        } catch { // logging: error returned to caller as result
             return (false, error.localizedDescription)
         }
     }

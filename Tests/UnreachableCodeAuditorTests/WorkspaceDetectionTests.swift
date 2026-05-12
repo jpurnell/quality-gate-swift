@@ -5,16 +5,16 @@ import Testing
 @Suite("Workspace detection")
 struct WorkspaceDetectionTests {
 
-    private func makeTempDir() -> URL {
+    private func makeTempDir() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("wstest-\(UUID().uuidString)", isDirectory: true)
-        try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     @Test("*.xcworkspace → xcworkspace")
     func detectsWorkspace() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let ws = dir.appendingPathComponent("Test.xcworkspace")
         try FileManager.default.createDirectory(at: ws, withIntermediateDirectories: true)
@@ -27,9 +27,10 @@ struct WorkspaceDetectionTests {
         }
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Workspace wins over project when both present")
     func workspaceWinsOverProject() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.createDirectory(
             at: dir.appendingPathComponent("Test.xcworkspace"),
@@ -43,9 +44,10 @@ struct WorkspaceDetectionTests {
         }
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("SwiftPM still wins over workspace")
     func swiftPMWinsOverWorkspace() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         try "".write(to: dir.appendingPathComponent("Package.swift"),
                      atomically: true, encoding: .utf8)

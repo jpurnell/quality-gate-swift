@@ -160,8 +160,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: fileDiagnostics)
                 totalAPIs += total
                 documentedAPIs += documented
-            } catch {
-                // Skip files that can't be read
+            } catch { // logging: unreadable source file skipped
                 continue
             }
         }

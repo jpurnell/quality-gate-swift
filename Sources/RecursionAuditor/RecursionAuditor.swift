@@ -32,7 +32,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             while let relativePath = enumerator.nextObject() as? String {
                 guard relativePath.hasSuffix(".swift") else { continue }
                 let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
-                if let source = try? String(contentsOfFile: fullPath, encoding: .utf8) {
+                if let source = try? String(contentsOfFile: fullPath, encoding: .utf8) { // silent: unreadable source file skipped
                     sources.append((fullPath, source))
                 }
             }

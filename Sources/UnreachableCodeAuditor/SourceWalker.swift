@@ -34,7 +34,7 @@ enum SourceWalker {
         var out: [String] = []
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false // silent: unresolvable resource defaults to non-directory
             if isDirectory {
                 if defaultSkipDirectories.contains(name)
                     || name.hasSuffix(".xcodeproj")

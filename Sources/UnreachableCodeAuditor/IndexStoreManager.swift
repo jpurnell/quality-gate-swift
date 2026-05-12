@@ -177,6 +177,7 @@ enum IndexStoreManager {
     ) -> URL? {
         let fm = FileManager.default
         let sanitized = projectName.replacingOccurrences(of: " ", with: "_")
+        // silent: missing DerivedData returns nil
         guard let entries = try? fm.contentsOfDirectory(atPath: derivedDataRoot.path) else { // SAFETY: CLI tool enumerates local DerivedData
             return nil
         }
@@ -193,7 +194,8 @@ enum IndexStoreManager {
 
             // Best-effort workspace-path validation.
             let infoPlist = entryDir.appendingPathComponent("info.plist")
-            if let data = try? Data(contentsOf: infoPlist),
+            // silent: info.plist is optional for workspace validation
+            if let data = try? Data(contentsOf: infoPlist), // silent: plist parsing is best-effort
                let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
                let dict = plist as? [String: Any],
                let ws = dict["WorkspacePath"] as? String {
@@ -202,6 +204,7 @@ enum IndexStoreManager {
                 if canonicalWS != canonicalProj { continue }
             }
 
+            // silent: missing file attributes default to distant past
             let mtime = (try? fm.attributesOfItem(atPath: store.path)[.modificationDate] as? Date) ?? .distantPast // SAFETY: CLI tool reads local file attributes
             matches.append((store, mtime))
         }
@@ -253,7 +256,8 @@ enum IndexStoreManager {
     }
 
     static func mtime(of url: URL) -> Date? {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) // SAFETY: CLI tool reads local file attributes
+        // SECURITY: CLI tool reads local file attributes for staleness check
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) // silent: missing file returns nil mtime
         return attrs?[.modificationDate] as? Date
     }
 
@@ -264,7 +268,8 @@ enum IndexStoreManager {
         while let rel = enumerator.nextObject() as? String {
             guard rel.hasSuffix(".swift") else { continue }
             let p = root.appendingPathComponent(rel).path
-            if let m = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date { // SAFETY: CLI tool reads local file attributes
+            // SECURITY: CLI tool reads local source file attributes for staleness check
+            if let m = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date { // silent: unreadable file attributes skipped
                 if newest.map({ m > $0 }) ?? true { newest = m }
             }
         }

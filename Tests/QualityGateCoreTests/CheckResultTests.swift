@@ -114,11 +114,10 @@ struct CheckResultTests {
 
         let encoder = JSONEncoder()
         let data = try encoder.encode(result)
-        let json = String(data: data, encoding: .utf8)
+        let json = try #require(String(data: data, encoding: .utf8))
 
-        #expect(json != nil)
-        #expect(json?.contains("\"checkerId\":\"safety\"") == true)
-        #expect(json?.contains("\"status\":\"passed\"") == true)
+        #expect(json.contains("\"checkerId\":\"safety\""))
+        #expect(json.contains("\"status\":\"passed\""))
     }
 
     @Test("CheckResult round-trips through JSON correctly")

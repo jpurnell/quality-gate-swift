@@ -69,7 +69,7 @@ public struct TestRunner: QualityChecker, Sendable {
         // Test "name" recorded an issue at File.swift:line:column: message
         let swiftTestingPattern = #"Test \"[^\"]+\" recorded an issue at ([^:]+):(\d+):(\d+): (.+)$"#
 
-        if let regex = try? NSRegularExpression(pattern: swiftTestingPattern, options: .anchorsMatchLines) {
+        if let regex = try? NSRegularExpression(pattern: swiftTestingPattern, options: .anchorsMatchLines) { // silent: constant regex pattern
             let range = NSRange(output.startIndex..., in: output)
             let matches = regex.matches(in: output, options: [], range: range)
 
@@ -103,7 +103,7 @@ public struct TestRunner: QualityChecker, Sendable {
         // /path/to/File.swift:line: error: -[TestClass testMethod] : message
         let xcTestPattern = #"^(.+?):(\d+): error: -\[[^\]]+\] : (.+)$"#
 
-        if let regex = try? NSRegularExpression(pattern: xcTestPattern, options: .anchorsMatchLines) {
+        if let regex = try? NSRegularExpression(pattern: xcTestPattern, options: .anchorsMatchLines) { // silent: constant regex pattern
             let range = NSRange(output.startIndex..., in: output)
             let matches = regex.matches(in: output, options: [], range: range)
 
@@ -146,7 +146,7 @@ public struct TestRunner: QualityChecker, Sendable {
         let failedNoCountPattern = #"Test run with (\d+) tests.*failed"#
 
         // Try failed with issue count first
-        if let regex = try? NSRegularExpression(pattern: failedPattern),
+        if let regex = try? NSRegularExpression(pattern: failedPattern), // silent: constant regex pattern
            let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
             if let totalRange = Range(match.range(at: 1), in: output),
                let failedRange = Range(match.range(at: 2), in: output),
@@ -157,7 +157,7 @@ public struct TestRunner: QualityChecker, Sendable {
         }
 
         // Try failed without issue count
-        if let regex = try? NSRegularExpression(pattern: failedNoCountPattern),
+        if let regex = try? NSRegularExpression(pattern: failedNoCountPattern), // silent: constant regex pattern
            let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
             if let totalRange = Range(match.range(at: 1), in: output),
                let total = Int(output[totalRange]) {
@@ -166,7 +166,7 @@ public struct TestRunner: QualityChecker, Sendable {
         }
 
         // Try passed
-        if let regex = try? NSRegularExpression(pattern: passedPattern),
+        if let regex = try? NSRegularExpression(pattern: passedPattern), // silent: constant regex pattern
            let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
             if let totalRange = Range(match.range(at: 1), in: output),
                let total = Int(output[totalRange]) {

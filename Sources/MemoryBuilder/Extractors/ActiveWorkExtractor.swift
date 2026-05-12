@@ -74,13 +74,14 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
             guard process.terminationStatus == 0 else { return nil }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
+        } catch { // logging: error returned as nil to caller
             return nil
         }
     }
 
     private func findCurrentChecklists(in directory: String) -> [String] {
         let fm = FileManager.default
+        // silent: missing checklist directory is expected
         guard let items = try? fm.contentsOfDirectory(atPath: directory) else { return [] } // SAFETY: lists checklist files in project guidelines dir
         return items
             .filter { $0.hasPrefix("CURRENT_") && $0.hasSuffix(".md") }

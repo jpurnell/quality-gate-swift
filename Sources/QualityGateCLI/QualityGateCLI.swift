@@ -1,3 +1,4 @@
+// logging: CLI tool uses print() for terminal output by design
 import ArgumentParser
 import Foundation
 import QualityGateCore
@@ -28,7 +29,7 @@ import MemoryLifecycleGuard
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
     mutating func write(_ string: String) {
-        print(string, terminator: "")
+        print(string, terminator: "") // logging: CLI stdout stream
     }
 }
 
@@ -79,10 +80,10 @@ struct QualityGateCLI: AsyncParsableCommand {
         var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
-        } catch {
+        } catch { // logging: error reported to user via print
             configuration = Configuration()
             if verbose {
-                print("Warning: failed to load \(config): \(error). Using defaults.")
+                print("Warning: failed to load \(config): \(error). Using defaults.") // logging: CLI user-facing output
             }
         }
         // CLI flag overrides config (v5).
@@ -175,7 +176,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         }
 
         if checkersToRun.isEmpty {
-            print("No checkers enabled. Nothing to do.")
+            print("No checkers enabled. Nothing to do.") // logging: CLI user-facing output
             return
         }
 
@@ -197,7 +198,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Run each checker
         for checker in checkersToRun {
             if verbose {
-                print("Running \(checker.name)...")
+                print("Running \(checker.name)...") // logging: CLI verbose progress output
             }
 
             do {
@@ -213,7 +214,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                         break
                     }
                 }
-            } catch {
+            } catch { // logging: error captured as Diagnostic
                 let errorResult = CheckResult(
                     checkerId: checker.id,
                     status: .failed,
@@ -250,17 +251,17 @@ struct QualityGateCLI: AsyncParsableCommand {
             )
 
             if dryRun {
-                print("\n[status] Would generate Master Plan at: \(masterPlanPath)\n")
-                print(content)
-                print("No files modified (dry-run mode).")
+                print("\n[status] Would generate Master Plan at: \(masterPlanPath)\n") // logging: CLI user-facing output
+                print(content) // logging: CLI user-facing output
+                print("No files modified (dry-run mode).") // logging: CLI user-facing output
             } else {
                 try FileManager.default.createDirectory( // SAFETY: CLI tool creates local project directory
                     atPath: masterPlanDir,
                     withIntermediateDirectories: true
                 )
                 try content.write(toFile: masterPlanPath, atomically: true, encoding: .utf8)
-                print("\n[status] Generated Master Plan at: \(masterPlanPath)")
-                print("  Review and add project-specific prose where marked <!-- TODO -->")
+                print("\n[status] Generated Master Plan at: \(masterPlanPath)") // logging: CLI user-facing output
+                print("  Review and add project-specific prose where marked <!-- TODO -->") // logging: CLI user-facing output
             }
             return
         }
@@ -274,16 +275,16 @@ struct QualityGateCLI: AsyncParsableCommand {
                 }
 
                 if dryRun {
-                    print("\n[dry-run] \(fixable.name) would apply fixes:")
-                    print("  \(fixable.fixDescription)")
+                    print("\n[dry-run] \(fixable.name) would apply fixes:") // logging: CLI user-facing output
+                    print("  \(fixable.fixDescription)") // logging: CLI user-facing output
                     for diag in result.diagnostics {
                         if let fix = diag.suggestedFix, let file = diag.filePath {
                             let lineInfo = diag.lineNumber.map { ":\($0)" } ?? ""
-                            print("    \(file)\(lineInfo): \(fix)")
+                            print("    \(file)\(lineInfo): \(fix)") // logging: CLI user-facing output
                         }
                     }
                 } else {
-                    print("\n[\(fixable.id)] Applying fixes...")
+                    print("\n[\(fixable.id)] Applying fixes...") // logging: CLI user-facing output
                     let fixResult = try await fixable.fix(
                         diagnostics: result.diagnostics,
                         configuration: configuration
@@ -291,11 +292,11 @@ struct QualityGateCLI: AsyncParsableCommand {
 
                     for mod in fixResult.modifications {
                         let backup = mod.backupPath.map { " (backup: \($0))" } ?? ""
-                        print("  ✓ \(mod.filePath) — \(mod.description)\(backup)")
+                        print("  ✓ \(mod.filePath) — \(mod.description)\(backup)") // logging: CLI user-facing output
                     }
 
                     if !fixResult.unfixed.isEmpty {
-                        print("  ℹ  \(fixResult.unfixed.count) diagnostic(s) require manual intervention")
+                        print("  ℹ  \(fixResult.unfixed.count) diagnostic(s) require manual intervention") // logging: CLI user-facing output
                     }
                 }
             }
@@ -312,7 +313,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                     && checkersToRun.contains { $0.id == result.checkerId && $0 is any FixableChecker }
             }
             if hasFixable {
-                print("\n💡 Run with --fix --dry-run to preview auto-fixes.")
+                print("\n💡 Run with --fix --dry-run to preview auto-fixes.") // logging: CLI user-facing output
             }
         }
 

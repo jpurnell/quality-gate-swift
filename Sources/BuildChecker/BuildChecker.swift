@@ -61,6 +61,7 @@ public struct BuildChecker: QualityChecker, Sendable {
         // The path can contain spaces, so we match until the line:column:severity pattern
         let pattern = #"^(.+?):(\d+):(\d+): (error|warning|note): (.+)$"#
 
+        // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) else {
             return []
         }

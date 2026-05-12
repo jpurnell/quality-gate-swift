@@ -5,16 +5,16 @@ import Testing
 @Suite("ProjectKind detection")
 struct ProjectKindTests {
 
-    private func makeTempDir() -> URL {
+    private func makeTempDir() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("pktest-\(UUID().uuidString)", isDirectory: true)
-        try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     @Test("Package.swift → swiftPM")
     func detectsSwiftPM() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         try "// swift-tools-version:6.0\n"
             .write(to: dir.appendingPathComponent("Package.swift"),
@@ -29,7 +29,7 @@ struct ProjectKindTests {
 
     @Test("*.xcodeproj → xcode")
     func detectsXcode() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let proj = dir.appendingPathComponent("Test.xcodeproj")
         try FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
@@ -42,9 +42,10 @@ struct ProjectKindTests {
         }
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Both → swiftPM wins")
     func bothPrefersSwiftPM() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         try "".write(to: dir.appendingPathComponent("Package.swift"),
                      atomically: true, encoding: .utf8)
@@ -57,9 +58,10 @@ struct ProjectKindTests {
         }
     }
 
+    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Empty directory → plain")
     func detectsPlain() throws {
-        let dir = makeTempDir()
+        let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let kind = ProjectKind.detect(at: dir)
         if case .plain = kind {} else {
