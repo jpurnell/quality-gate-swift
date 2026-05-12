@@ -48,6 +48,7 @@ jobs:
 
       - name: Run memory-builder
         run: .build/release/quality-gate --check memory-builder --format json > memory-result.json
+        timeout-minutes: 5
 
       - name: Validate memory output
         run: |
