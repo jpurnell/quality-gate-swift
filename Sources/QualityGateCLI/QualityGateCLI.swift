@@ -111,9 +111,14 @@ struct QualityGateCLI: AsyncParsableCommand {
                 fpSafety: configuration.fpSafety,
                 stochasticDeterminism: configuration.stochasticDeterminism,
                 memoryLifecycle: configuration.memoryLifecycle,
-                mcpReadiness: configuration.mcpReadiness
+                mcpReadiness: configuration.mcpReadiness,
+                build: configuration.build,
+                overrides: configuration.overrides
             )
         }
+
+        // Create override processor from configuration.
+        let overrideProcessor = OverrideProcessor(overrides: configuration.overrides)
 
         // Build the full checker registry (order matters for output)
         let allCheckers: [any QualityChecker] = [
@@ -196,7 +201,8 @@ struct QualityGateCLI: AsyncParsableCommand {
             }
 
             do {
-                let result = try await checker.check(configuration: configuration)
+                let rawResult = try await checker.check(configuration: configuration)
+                let result = overrideProcessor.apply(to: rawResult)
                 allResults.append(result)
 
                 let isFailing = result.status == .failed

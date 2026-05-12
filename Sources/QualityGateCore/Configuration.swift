@@ -578,6 +578,68 @@ extension MCPReadinessConfig: Codable {
     }
 }
 
+/// Per-checker configuration for BuildChecker.
+///
+/// Controls how the `swift build` invocation is tuned, including the
+/// per-expression type-check time limit that catches compound generic
+/// expressions which compile locally but time out on CI.
+///
+/// ## YAML Example
+/// ```yaml
+/// build:
+///   solverExpressionTimeThreshold: 500
+/// ```
+public struct BuildCheckerConfig: Sendable, Equatable {
+    /// Per-expression type-check millisecond limit passed to the compiler
+    /// via `-Xfrontend -solver-expression-time-threshold`.
+    /// nil means no limit (compiler default).
+    public let solverExpressionTimeThreshold: Int?
+
+    /// Creates a build checker configuration with the given options.
+    public init(solverExpressionTimeThreshold: Int? = nil) {
+        self.solverExpressionTimeThreshold = solverExpressionTimeThreshold
+    }
+
+    /// Default build checker configuration (no threshold).
+    public static let `default` = BuildCheckerConfig()
+}
+
+extension BuildCheckerConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case solverExpressionTimeThreshold
+    }
+
+    /// Creates a build checker configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        solverExpressionTimeThreshold = try container.decodeIfPresent(Int.self, forKey: .solverExpressionTimeThreshold)
+    }
+}
+
+/// Severity override level for a diagnostic rule.
+///
+/// Used in `.quality-gate.yml` to override the severity of specific rules
+/// after checkers produce their results. The `.off` case suppresses
+/// the diagnostic entirely.
+///
+/// ## YAML Example
+/// ```yaml
+/// overrides:
+///   safety.force-unwrap: warning
+///   doc-coverage.*: off
+///   context.missing-consent-guard: error
+/// ```
+public enum SeverityOverride: String, Sendable, Codable, Equatable {
+    /// Escalate to error severity.
+    case error
+    /// Downgrade to warning severity.
+    case warning
+    /// Downgrade to informational note severity.
+    case info
+    /// Suppress the diagnostic entirely.
+    case off
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -689,6 +751,15 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for MCPReadinessAuditor.
     public let mcpReadiness: MCPReadinessConfig
 
+    /// Per-checker configuration for BuildChecker.
+    public let build: BuildCheckerConfig
+
+    /// Per-rule severity overrides from configuration.
+    ///
+    /// Keys are rule IDs (e.g. `"safety.force-unwrap"`) or wildcard patterns
+    /// (e.g. `"safety.*"`). Applied after checkers return results, before reporting.
+    public let overrides: [String: SeverityOverride]
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -714,7 +785,9 @@ public struct Configuration: Sendable, Codable, Equatable {
         fpSafety: FloatingPointSafetyAuditorConfig = .default,
         stochasticDeterminism: StochasticDeterminismConfig = .default,
         memoryLifecycle: MemoryLifecycleConfig = .default,
-        mcpReadiness: MCPReadinessConfig = .default
+        mcpReadiness: MCPReadinessConfig = .default,
+        build: BuildCheckerConfig = .default,
+        overrides: [String: SeverityOverride] = [:]
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
@@ -740,6 +813,8 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.stochasticDeterminism = stochasticDeterminism
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
+        self.build = build
+        self.overrides = overrides
     }
 
     /// The effective number of workers, either from config or computed.
@@ -826,6 +901,8 @@ extension Configuration {
         case stochasticDeterminism
         case memoryLifecycle
         case mcpReadiness
+        case build
+        case overrides
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -856,5 +933,7 @@ extension Configuration {
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
+        build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
+        overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
     }
 }

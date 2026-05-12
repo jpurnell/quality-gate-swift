@@ -18,7 +18,9 @@ import QualityGateCore
 /// Configure via `.quality-gate.yml`:
 ///
 /// ```yaml
-/// build_configuration: release  # or debug (default)
+/// buildConfiguration: release  # or debug (default)
+/// build:
+///   solverExpressionTimeThreshold: 500  # ms per-expression type-check limit
 /// ```
 public struct BuildChecker: QualityChecker, Sendable {
     /// Unique identifier for this checker.
@@ -146,6 +148,13 @@ public struct BuildChecker: QualityChecker, Sendable {
         if let buildConfig = configuration.buildConfiguration {
             args.append("-c")
             args.append(buildConfig)
+        }
+
+        if let threshold = configuration.build.solverExpressionTimeThreshold {
+            args.append(contentsOf: [
+                "-Xswiftc", "-Xfrontend",
+                "-Xswiftc", "-solver-expression-time-threshold=\(threshold)"
+            ])
         }
 
         return args
