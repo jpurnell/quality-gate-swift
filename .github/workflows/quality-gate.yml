@@ -36,4 +36,5 @@ jobs:
           --exclude swift-version
           --exclude memory-builder
           --strict --continue-on-failure
+          --verbose
         timeout-minutes: 10
