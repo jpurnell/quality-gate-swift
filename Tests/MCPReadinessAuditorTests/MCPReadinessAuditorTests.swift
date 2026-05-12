@@ -795,10 +795,15 @@ struct DriftGuardTests {
 
 @Suite("MCPReadinessAuditor: Real-world validation")
 struct RealWorldValidationTests {
+    private static let toolsRoot: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return home + "/Dropbox/Computer/Development/Swift/Tools"
+    }()
+
     private static let devGuidelinesToolsDir =
-        "/Users/jpurnell/Dropbox/Computer/Development/Swift/Tools/DevGuidelinesMCP/Sources/DevGuidelinesMCP/Tools"
+        toolsRoot + "/DevGuidelinesMCP/Sources/DevGuidelinesMCP/Tools"
     private static let geoSEOToolsDir =
-        "/Users/jpurnell/Dropbox/Computer/Development/Swift/Tools/GeoSEOMCP/Sources/GeoSEOMCP/Tools"
+        toolsRoot + "/GeoSEOMCP/Sources/GeoSEOMCP/Tools"
 
     private func diagnoseFile(at path: String) -> [Diagnostic] {
         guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
@@ -816,12 +821,11 @@ struct RealWorldValidationTests {
             }
     }
 
-    @Test("DevGuidelinesMCP tools produce zero errors or warnings")
+    @Test(
+        "DevGuidelinesMCP tools produce zero errors or warnings",
+        .enabled(if: FileManager.default.fileExists(atPath: devGuidelinesToolsDir))
+    )
     func devGuidelinesClean() throws {
-        let fm = FileManager.default
-        try #require(fm.fileExists(atPath: Self.devGuidelinesToolsDir),
-                     "DevGuidelinesMCP not found — skipping real-world validation")
-
         let results = diagnoseAllToolFiles(in: Self.devGuidelinesToolsDir)
         #expect(!results.isEmpty, "Should find at least one tool file")
 
@@ -833,12 +837,11 @@ struct RealWorldValidationTests {
                 "DevGuidelinesMCP should have zero errors/warnings, got: \(issues)")
     }
 
-    @Test("GeoSEOMCP tools produce zero errors or warnings")
+    @Test(
+        "GeoSEOMCP tools produce zero errors or warnings",
+        .enabled(if: FileManager.default.fileExists(atPath: geoSEOToolsDir))
+    )
     func geoSEOClean() throws {
-        let fm = FileManager.default
-        try #require(fm.fileExists(atPath: Self.geoSEOToolsDir),
-                     "GeoSEOMCP not found — skipping real-world validation")
-
         let results = diagnoseAllToolFiles(in: Self.geoSEOToolsDir)
         #expect(!results.isEmpty, "Should find at least one tool file")
 

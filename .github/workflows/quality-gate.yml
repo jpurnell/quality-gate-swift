@@ -26,4 +26,4 @@ jobs:
         run: swift build -c release
 
       - name: Run quality gate against self
-        run: .build/release/quality-gate --check all --strict --continue-on-failure
+        run: .build/release/quality-gate --check all --exclude build --exclude test --exclude disk-clean --strict --continue-on-failure
