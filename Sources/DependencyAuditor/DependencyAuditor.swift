@@ -7,21 +7,18 @@ import QualityGateCore
 struct PackageResolved: Sendable, Codable {
     /// The array of pinned dependencies.
     let pins: [ResolvedPin]
-    // LIVE: Codable synthesized decode requires this property
     /// The format version of the resolved file.
-    let version: Int?
+    let version: Int? // LIVE: Codable synthesized decode
 }
 
 /// A single pinned dependency in `Package.resolved`.
 struct ResolvedPin: Sendable, Codable {
     /// The lowercased package identity (e.g. `"swift-syntax"`).
     let identity: String
-    // LIVE: Codable synthesized decode requires this property
     /// The kind of source control (e.g. `"remoteSourceControl"`).
-    let kind: String?
-    // LIVE: Codable synthesized decode requires this property
+    let kind: String? // LIVE: Codable synthesized decode
     /// The repository URL.
-    let location: String
+    let location: String // LIVE: Codable synthesized decode
     /// The resolved state — version, branch, or bare revision.
     let state: PinState
 }
@@ -30,12 +27,10 @@ struct ResolvedPin: Sendable, Codable {
 struct PinState: Sendable, Codable {
     /// If the pin tracks a branch, the branch name; otherwise `nil`.
     let branch: String?
-    // LIVE: Codable synthesized decode requires this property
     /// The pinned Git revision hash.
-    let revision: String?
-    // LIVE: Codable synthesized decode requires this property
+    let revision: String? // LIVE: Codable synthesized decode
     /// If the pin tracks a version tag, the semantic version string; otherwise `nil`.
-    let version: String?
+    let version: String? // LIVE: Codable synthesized decode
 }
 
 // MARK: - DependencyAuditor
