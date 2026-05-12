@@ -1,5 +1,14 @@
 # Changelog
 
+
+## 6.0
+
+  - Zero-warning quality gate: all 16 checkers pass clean
+  - Added 7 new auditor modules: FloatingPointSafety, StochasticDeterminism, MCPReadiness,
+  ReleaseReadiness, MemoryLifecycleGuard, DependencyAuditor, QualityGateTestKit
+  - LoggingVisitor now respects file-level `// logging:` exemptions
+  - 834 tests across 121 suites
+
 ## 1.0.0
 
 - Initial release with 17 quality-gate checkers
