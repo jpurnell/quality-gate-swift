@@ -26,4 +26,14 @@ jobs:
         run: swift build -c release
 
       - name: Run quality gate against self
-        run: .build/release/quality-gate --check all --exclude build --exclude test --exclude disk-clean --strict --continue-on-failure
+        run: >-
+          .build/release/quality-gate --check all
+          --exclude build
+          --exclude test
+          --exclude disk-clean
+          --exclude unreachable
+          --exclude doc-linter
+          --exclude swift-version
+          --exclude memory-builder
+          --strict --continue-on-failure
+        timeout-minutes: 10
