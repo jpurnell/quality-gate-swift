@@ -1,30 +1,18 @@
 # Changelog
 
-
-## 6.0
-
-  - Zero-warning quality gate: all 16 checkers pass clean
-  - Added 7 new auditor modules: FloatingPointSafety, StochasticDeterminism, MCPReadiness,
-  ReleaseReadiness, MemoryLifecycleGuard, DependencyAuditor, QualityGateTestKit
-  - LoggingVisitor now respects file-level `// logging:` exemptions
-  - 834 tests across 121 suites
-
 ## 1.0.0
 
-- Initial release with 17 quality-gate checkers
+- 23 checkers across correctness, safety, security, documentation, accessibility, and project health
+- 853 tests across 74 test files
+- Zero-warning self-audit: all checkers pass clean against the quality-gate-swift codebase
+- Comprehensive DocC catalogs for all 25 modules
 - CLI with `--check all`, `--exclude`, `--strict`, `--continue-on-failure` flags
 - JSON, SARIF, and terminal output formats
 - `--fix` and `--dry-run` for auto-fixable checkers
 - `--bootstrap` for generating initial status documents
-
-## 1.1.0
-
-- Add 5 new precision/institutional checkers:
-  - DependencyAuditor: Package.resolved sync, branch pins, local overrides
-  - ReleaseReadinessAuditor: CHANGELOG entries, README placeholders, bare TODOs
-  - FloatingPointSafetyAuditor: FP equality comparisons, unguarded division
-  - StochasticDeterminismAuditor: unseeded randomness in production code
-  - MemoryLifecycleGuard: un-cancelled Tasks, strong delegate references
-- Add MCPReadinessAuditor (opt-in): schema-implementation cross-reference for MCP tools
-- Exclude unreachable checker from pre-push hook for faster local pushes
-- DocC catalogs for all checker modules
+- Severity override system: downgrade or upgrade any rule via `.quality-gate.yml`
+- `--auto-build-xcode` for IndexStore generation in Xcode projects
+- `QualityGateTestKit` module for writing checker tests
+- Reusable GitHub Actions workflow for cross-repo adoption
+- Security rule staleness workflow with automated issue creation
+- Guide document covering vision, design philosophy, architecture, and integration patterns
