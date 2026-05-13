@@ -182,15 +182,18 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
 
         let lines = content.components(separatedBy: "\n")
         var diagnostics: [Diagnostic] = []
-        let lowercasedMarkers = markers.map { $0.lowercased() }
+        let markerPatterns: [(String, Regex<AnyRegexOutput>)] = markers.compactMap { marker in
+            let escaped = NSRegularExpression.escapedPattern(for: marker)
+            guard let pattern = try? Regex("(?i)\\b\(escaped)\\b") else { return nil }
+            return (marker.uppercased(), pattern)
+        }
 
         for (index, line) in lines.enumerated() {
-            let lowercasedLine = line.lowercased()
-            for marker in lowercasedMarkers {
-                if lowercasedLine.contains(marker) {
+            for (markerName, pattern) in markerPatterns {
+                if line.contains(pattern) {
                     diagnostics.append(Diagnostic(
                         severity: .warning,
-                        message: "README contains '\(marker.uppercased())' marker",
+                        message: "README contains '\(markerName)' marker",
                         filePath: filePath,
                         lineNumber: index + 1,
                         ruleId: "release-todo-readme"
@@ -314,7 +317,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             return nil
         }
 
-        let versionPattern = #/version\s*[:=]\s*"?(\d+\.\d+(?:\.\d+)?)"?/#
+        let versionPattern = #/version\s*[:=]\s*"(\d+\.\d+(?:\.\d+)?)"/#
 
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
@@ -326,7 +329,9 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                     if trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*") {
                         continue
                     }
-                    if let match = String(line).firstMatch(of: versionPattern) {
+                    let lineStr = String(line)
+                    if lineStr.contains(".version") { continue }
+                    if let match = lineStr.firstMatch(of: versionPattern) {
                         return String(match.1)
                     }
                 }

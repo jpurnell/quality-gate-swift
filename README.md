@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-23 checkers. 853 tests. Zero regex shortcuts — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
+23 checkers. 853 tests. Zero regex hacks — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
@@ -106,7 +106,7 @@ quality-gate --check status --bootstrap
 | `test` | TestRunner | `swift test` wrapper — parses Swift Testing and XCTest results |
 | `status` | StatusAuditor | Drift between project docs and actual code state; supports `--fix` |
 | `dependency-audit` | DependencyAuditor | Package.resolved sync, branch pins, local overrides |
-| `release-readiness` | ReleaseReadinessAuditor | CHANGELOG entries, README placeholders, bare to-do markers |
+| `release-readiness` | ReleaseReadinessAuditor | CHANGELOG entries, README placeholders, bare TODOs |
 | `swift-version` | SwiftVersionChecker | swift-tools-version validation and upgrade feasibility |
 | `memory-builder` | MemoryBuilder | Claude Code project memory generation and validation |
 
