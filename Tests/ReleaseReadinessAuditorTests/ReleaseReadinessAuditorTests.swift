@@ -223,6 +223,22 @@ struct ReadmeTests {
         #expect(diagnostics.count == 2)
     }
 
+    @Test("Does not flag markers embedded in larger words")
+    func noFalsePositivesForSubstrings() {
+        let content = """
+        # My Project
+
+        Zero regex shortcuts — every rule walks the AST.
+        CHANGELOG entries, README placeholders, bare to-do markers.
+        """
+        let diagnostics = ReleaseReadinessAuditor.checkReadme(
+            content: content,
+            markers: ["TODO", "FIXME", "HACK", "XXX", "PLACEHOLDER"],
+            filePath: "README.md"
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
     @Test("Checks additional custom markers")
     func additionalMarkers() {
         let content = """
