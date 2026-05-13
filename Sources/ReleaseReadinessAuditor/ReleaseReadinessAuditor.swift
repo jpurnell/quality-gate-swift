@@ -184,6 +184,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         let markerPatterns: [(String, Regex<AnyRegexOutput>)] = markers.compactMap { marker in
             let escaped = NSRegularExpression.escapedPattern(for: marker)
+            // silent: NSRegularExpression.escapedPattern guarantees valid regex input
             guard let pattern = try? Regex("(?i)\\b\(escaped)\\b") else { return nil }
             return (marker.uppercased(), pattern)
         }
