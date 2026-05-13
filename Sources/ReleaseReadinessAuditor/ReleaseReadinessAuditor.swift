@@ -321,8 +321,14 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
             do {
                 let content = try String(contentsOfFile: fullPath, encoding: .utf8)
-                if let match = content.firstMatch(of: versionPattern) {
-                    return String(match.1)
+                for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+                    let trimmed = line.drop(while: { $0.isWhitespace })
+                    if trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*") {
+                        continue
+                    }
+                    if let match = String(line).firstMatch(of: versionPattern) {
+                        return String(match.1)
+                    }
                 }
             } catch { // logging: unreadable source file skipped
                 continue
