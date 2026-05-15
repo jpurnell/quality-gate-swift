@@ -120,6 +120,34 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         guardedVariables = []
     }
 
+    override func visit(_ node: AccessorDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        guardedVariables = []
+        if let body = node.body {
+            collectGuardedVariables(from: Syntax(body))
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: AccessorDeclSyntax) {
+        guardedVariables = []
+    }
+
+    override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        if let accessorBlock = node.accessorBlock {
+            guardedVariables = []
+            collectGuardedVariables(from: Syntax(accessorBlock))
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: PatternBindingSyntax) {
+        if node.accessorBlock != nil {
+            guardedVariables = []
+        }
+    }
+
     // MARK: - Sequence Expression Analysis
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
@@ -236,6 +264,8 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
         guard divisorIsFP || lhsIsFP else { return }
 
+        if isNonZeroLiteral(divisor) { return }
+
         // Check if divisor is a known guarded variable
         if let varName = extractVariableName(divisor), guardedVariables.contains(varName) {
             return
@@ -256,6 +286,8 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         node: Syntax
     ) {
         guard looksLikeFloatingPoint(divisor) else { return }
+
+        if isNonZeroLiteral(divisor) { return }
 
         if let varName = extractVariableName(divisor), guardedVariables.contains(varName) {
             return
@@ -359,6 +391,17 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         }
     }
 
+    /// Returns true if the expression is a non-zero numeric literal (e.g. 10.0, 5.0, 2).
+    private func isNonZeroLiteral(_ expr: ExprSyntax) -> Bool {
+        if let floatLit = expr.as(FloatLiteralExprSyntax.self) {
+            return !isZeroExpression(expr) && !floatLit.literal.text.isEmpty
+        }
+        if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
+            return intLit.literal.text != "0"
+        }
+        return false
+    }
+
     /// Returns true if the expression represents a zero value (0, 0.0, .zero).
     private func isZeroExpression(_ expr: ExprSyntax) -> Bool {
         if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
@@ -376,9 +419,19 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     // MARK: - Utility
 
     /// Extracts a simple variable name from an expression, if it is a direct reference.
+    /// Also unwraps FP type constructors like `Double(x)` to extract `x`.
     private func extractVariableName(_ expr: ExprSyntax) -> String? {
         if let declRef = expr.as(DeclReferenceExprSyntax.self) {
             return declRef.baseName.text
+        }
+        if let funcCall = expr.as(FunctionCallExprSyntax.self),
+           let callee = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
+           fpTypeNames.contains(callee.baseName.text),
+           funcCall.arguments.count == 1,
+           let firstArg = funcCall.arguments.first,
+           firstArg.label == nil,
+           let innerRef = firstArg.expression.as(DeclReferenceExprSyntax.self) {
+            return innerRef.baseName.text
         }
         return nil
     }

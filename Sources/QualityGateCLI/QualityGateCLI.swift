@@ -24,7 +24,11 @@ import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
 import StochasticDeterminismAuditor
 import MCPReadinessAuditor
+import ProcessSafetyAuditor
 import MemoryLifecycleGuard
+import ConsistencyChecker
+import IJSSensor
+import IJSAggregator
 
 /// A text output stream that writes to stdout.
 struct StandardOutputStream: TextOutputStream {
@@ -39,7 +43,8 @@ struct QualityGateCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
-        version: "1.0.0"
+        version: "1.0.0",
+        subcommands: [TelemetryPush.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif)")
@@ -114,6 +119,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 memoryLifecycle: configuration.memoryLifecycle,
                 mcpReadiness: configuration.mcpReadiness,
                 build: configuration.build,
+                consistency: configuration.consistency,
                 overrides: configuration.overrides
             )
         }
@@ -153,6 +159,8 @@ struct QualityGateCLI: AsyncParsableCommand {
             StochasticDeterminismAuditor(),
             MemoryLifecycleGuard(),
             MCPReadinessAuditor(),
+            ProcessSafetyAuditor(),
+            ConsistencyChecker(),
             DiskCleaner()
         ]
 
@@ -167,7 +175,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else if !configuration.enabledCheckers.isEmpty {
             effectiveCheckers = configuration.enabledCheckers
         } else {
-            let optOutCheckers: Set<String> = ["disk-clean", "mcp-readiness"]
+            let optOutCheckers: Set<String> = ["disk-clean", "mcp-readiness", "consistency"]
             effectiveCheckers = allCheckers.map(\.id).filter { !optOutCheckers.contains($0) }
         }
 
@@ -305,6 +313,49 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Output results
         var outputStream = StandardOutputStream()
         try reporter.report(allResults, to: &outputStream)
+
+        // Emit telemetry to IJS corpus if configured
+        if let corpusPath = configuration.consistency.corpusPath {
+            let ijsConfig = configuration.consistency
+            let projectID = ijsConfig.projectID
+                ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+            let riskTier = RiskTier(rawValue: ijsConfig.defaultRiskTier) ?? .operational
+            let consistencyResult = allResults.first { $0.checkerId == "consistency" }
+            let consistencyScore = consistencyResult?.diagnostics
+                .first { $0.ruleId == "consistency-score" }
+                .flatMap { diag -> Double? in
+                    let parts = diag.message.split(separator: " ")
+                    guard let idx = parts.firstIndex(of: "score:"),
+                          idx + 1 < parts.count else { return nil }
+                    return Double(parts[idx + 1])
+                }
+
+            let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+            let metadata = CheckResultMetadata(
+                projectID: projectID,
+                timestamp: Date(),
+                environment: isCI ? .ci : .local,
+                decisionOwner: "local",
+                results: allResults,
+                overrides: [],
+                riskTier: riskTier,
+                ethicalFlags: [],
+                consistencyScore: consistencyScore
+            )
+
+            do {
+                let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
+                let writer = TelemetryWriter()
+                try await writer.write(metadata: metadata, calibrations: [], to: corpus)
+                if verbose {
+                    print("\n[ijs] Telemetry written to \(corpus.projectDirectory)") // logging: CLI verbose progress output
+                }
+            } catch {
+                if verbose {
+                    print("\n[ijs] Telemetry write failed: \(error.localizedDescription)") // logging: CLI verbose progress output
+                }
+            }
+        }
 
         // Suggest --fix when status fails and --fix wasn't used
         if hasFailure && !fix {

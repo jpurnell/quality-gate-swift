@@ -1,6 +1,118 @@
 import Foundation
 import Yams
 
+/// Configurable scorer weights for the consistency scoring algorithm.
+///
+/// Mirrors `ScorerWeights` from IJSSensor but lives in QualityGateCore
+/// so Configuration doesn't depend on IJS modules.
+///
+/// ## YAML Example
+/// ```yaml
+/// consistency:
+///   scorerWeights:
+///     clusterMatch: 0.15
+///     anomalyPattern: 0.10
+///     unaddressedPolicy: 0.05
+///     recurrenceBonus: 0.10
+/// ```
+public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
+    /// Weight for cluster match scoring.
+    public let clusterMatch: Double
+    /// Weight for anomaly pattern scoring.
+    public let anomalyPattern: Double
+    /// Weight for unaddressed policy scoring.
+    public let unaddressedPolicy: Double
+    /// Weight for recurrence bonus scoring.
+    public let recurrenceBonus: Double
+
+    /// Default scorer weight configuration.
+    public static let defaults = ScorerWeightsConfig(
+        clusterMatch: 0.15,
+        anomalyPattern: 0.10,
+        unaddressedPolicy: 0.05,
+        recurrenceBonus: 0.10
+    )
+
+    /// Creates a scorer weights configuration with the specified values.
+    public init(
+        clusterMatch: Double,
+        anomalyPattern: Double,
+        unaddressedPolicy: Double,
+        recurrenceBonus: Double
+    ) {
+        self.clusterMatch = clusterMatch
+        self.anomalyPattern = anomalyPattern
+        self.unaddressedPolicy = unaddressedPolicy
+        self.recurrenceBonus = recurrenceBonus
+    }
+}
+
+/// Per-checker configuration for ConsistencyChecker (IJS).
+///
+/// ## YAML Example
+/// ```yaml
+/// consistency:
+///   corpusPath: .ijs-corpus
+///   projectID: quality-gate-swift
+///   consistencyThreshold: 0.7
+///   defaultRiskTier: 2
+///   exemptions: ["Generated/**"]
+///   scorerWeights:
+///     clusterMatch: 0.15
+/// ```
+public struct ConsistencyCheckerConfig: Sendable, Equatable {
+    /// Path to the IJS corpus directory. nil means IJS is not configured.
+    public let corpusPath: String?
+    /// Project identifier for the corpus. nil derives from the working directory name.
+    public let projectID: String?
+    /// Consistency score below this threshold triggers a warning. Default: 0.7.
+    public let consistencyThreshold: Double
+    /// Default risk tier raw value (1–4) for telemetry metadata. Default: 2 (operational).
+    public let defaultRiskTier: Int
+    /// Custom scorer weights. nil uses ScorerWeights.defaults.
+    public let scorerWeights: ScorerWeightsConfig?
+    /// Module or path patterns exempt from consistency checks.
+    public let exemptions: [String]
+
+    /// Creates a consistency checker configuration with the specified values.
+    public init(
+        corpusPath: String? = nil,
+        projectID: String? = nil,
+        consistencyThreshold: Double = 0.7,
+        defaultRiskTier: Int = 2,
+        scorerWeights: ScorerWeightsConfig? = nil,
+        exemptions: [String] = []
+    ) {
+        self.corpusPath = corpusPath
+        self.projectID = projectID
+        self.consistencyThreshold = consistencyThreshold
+        self.defaultRiskTier = defaultRiskTier
+        self.scorerWeights = scorerWeights
+        self.exemptions = exemptions
+    }
+
+    /// Default consistency checker configuration.
+    public static let `default` = ConsistencyCheckerConfig()
+}
+
+extension ConsistencyCheckerConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions
+    }
+
+    /// Creates a configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ConsistencyCheckerConfig.default
+        corpusPath = try container.decodeIfPresent(String.self, forKey: .corpusPath) ?? defaults.corpusPath
+        projectID = try container.decodeIfPresent(String.self, forKey: .projectID) ?? defaults.projectID
+        consistencyThreshold = try container.decodeIfPresent(Double.self, forKey: .consistencyThreshold) ?? defaults.consistencyThreshold
+        defaultRiskTier = try container.decodeIfPresent(Int.self, forKey: .defaultRiskTier) ?? defaults.defaultRiskTier
+        scorerWeights = try container.decodeIfPresent(ScorerWeightsConfig.self, forKey: .scorerWeights) ?? defaults.scorerWeights
+        exemptions = try container.decodeIfPresent([String].self, forKey: .exemptions) ?? defaults.exemptions
+    }
+}
+
 /// Per-checker configuration for ConcurrencyAuditor.
 public struct ConcurrencyAuditorConfig: Sendable, Equatable {
     /// Comment keyword that suppresses unchecked-Sendable / nonisolated-unsafe rules.
@@ -754,6 +866,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for BuildChecker.
     public let build: BuildCheckerConfig
 
+    /// Per-checker configuration for ConsistencyChecker (IJS).
+    public let consistency: ConsistencyCheckerConfig
+
     /// Per-rule severity overrides from configuration.
     ///
     /// Keys are rule IDs (e.g. `"safety.force-unwrap"`) or wildcard patterns
@@ -787,6 +902,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
+        consistency: ConsistencyCheckerConfig = .default,
         overrides: [String: SeverityOverride] = [:]
     ) {
         self.parallelWorkers = parallelWorkers
@@ -814,6 +930,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
         self.build = build
+        self.consistency = consistency
         self.overrides = overrides
     }
 
@@ -902,6 +1019,7 @@ extension Configuration {
         case memoryLifecycle
         case mcpReadiness
         case build
+        case consistency
         case overrides
     }
 
@@ -934,6 +1052,7 @@ extension Configuration {
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
+        consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
     }
 }

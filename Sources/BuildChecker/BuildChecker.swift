@@ -164,27 +164,15 @@ public struct BuildChecker: QualityChecker, Sendable {
     // MARK: - Private Implementation
 
     private func runSwiftBuild(arguments: [String]) async throws -> (output: String, exitCode: Int32) {
-        let process = Process() // SAFETY: runs swift build to check compilation
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
-        process.arguments = ["build"] + arguments
-
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+        // SAFETY: runs swift build to check compilation
+        let result = try ProcessRunner.run(
+            "/usr/bin/swift",
+            arguments: ["build"] + arguments
+        )
 
         // Combine stdout and stderr since Swift outputs diagnostics to stderr
-        let combinedOutput = output + "\n" + errorOutput
+        let combinedOutput = result.stdout + "\n" + result.stderr
 
-        return (combinedOutput, process.terminationStatus)
+        return (combinedOutput, result.exitCode)
     }
 }
