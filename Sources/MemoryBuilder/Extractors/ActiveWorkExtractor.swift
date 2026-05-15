@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Extracts active work from implementation checklists and git log.
 public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
@@ -60,20 +61,15 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
     // MARK: - Helpers
 
     private func runGit(_ args: [String], in directory: String) -> String? {
-        let process = Process() // SAFETY: runs git to detect active work (log, diff, branch)
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = args
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
+        // SAFETY: runs git to detect active work (log, diff, branch)
         do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: args,
+                currentDirectory: directory
+            )
+            guard result.exitCode == 0 else { return nil }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch { // logging: error returned as nil to caller
             return nil
         }

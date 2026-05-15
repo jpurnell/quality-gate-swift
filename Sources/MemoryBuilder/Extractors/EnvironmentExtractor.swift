@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Extracts environment info (Swift version, platform).
 public struct EnvironmentExtractor: MemoryExtractor, Sendable {
@@ -58,19 +59,14 @@ public struct EnvironmentExtractor: MemoryExtractor, Sendable {
     // MARK: - Helpers
 
     private func runCommand(_ executable: String, args: [String]) -> String? {
-        let process = Process() // SAFETY: runs CLI tools (swift, git, xcodebuild) to detect environment info
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = args
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
+        // SAFETY: runs CLI tools (swift, git, xcodebuild) to detect environment info
         do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try ProcessRunner.run(
+                executable,
+                arguments: args
+            )
+            guard result.exitCode == 0 else { return nil }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch { // logging: error returned as nil to caller
             return nil
         }

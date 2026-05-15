@@ -8,11 +8,24 @@
 
 ## Quick Start
 
-1. **Copy this template** to your project (as `Instruction Set/` or similar)
-2. **Replace `[PROJECT_NAME]`** with your actual project name throughout
-3. **Customize `00_CORE_RULES/`** for your project's specific standards
-4. **Add project roadmaps** to `01_ROADMAPS/`
-5. **Track implementations** in `02_IMPLEMENTATION_PLANS/`
+1. **Copy this template** to your project (as `development-guidelines/` or similar)
+2. **Install git hooks (REQUIRED):** `./development-guidelines/scripts/install-hooks.sh`
+3. **Install quality-gate** (if not already installed) — see [quality-gate-swift](https://github.com/jpurnell/quality-gate-swift)
+4. **Copy CLAUDE.md template** (for Claude Code users): `cp development-guidelines/templates/CLAUDE.md ./CLAUDE.md`
+5. **Replace `[PROJECT_NAME]`** with your actual project name throughout
+6. **Customize `00_CORE_RULES/`** for your project's specific standards
+7. **Add project roadmaps** to `01_ROADMAPS/`
+8. **Track implementations** in `02_IMPLEMENTATION_PLANS/`
+
+### Updating
+
+To pull the latest framework files while preserving all project-specific documents:
+
+```bash
+./development-guidelines/scripts/update.sh
+```
+
+This updates core rules, scripts, and templates from GitHub. Your summaries, roadmaps, checklists, and plans are never touched.
 
 ---
 
@@ -32,6 +45,8 @@ Fundamental rules, guidelines, and standards that govern all development work.
 | `07_SESSION_WORKFLOW.md` | **Context recovery and session protocols** |
 | `08_FLOATING_POINT_FORMATTING.md` | Number formatting standards |
 | `09_TEST_DRIVEN_DEVELOPMENT.md` | TDD approach and testing contract |
+| `11_CI_QUALITY_GATE.md` | CI integration and reusable workflow |
+| `12_ENFORCEMENT.md` | **Mechanical enforcement architecture** |
 | `PERFORMANCE.md` | Performance guidelines |
 | `RELEASE_CHECKLIST.md` | Release verification checklist |
 | `TESTING.md` | Testing strategy |

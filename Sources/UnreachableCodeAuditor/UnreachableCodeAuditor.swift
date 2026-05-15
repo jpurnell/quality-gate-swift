@@ -206,17 +206,14 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     static func locateLibIndexStore() throws -> URL {
         // `xcrun --find swift` → /…/usr/bin/swift
         // libIndexStore lives at        /…/usr/lib/libIndexStore.dylib
-        let proc = Process() // SAFETY: runs xcrun --find swift to locate the toolchain
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        proc.arguments = ["--find", "swift"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        try proc.run()
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { throw ToolchainError.libIndexStoreNotFound }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let path = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // SAFETY: runs xcrun --find swift to locate the toolchain
+        let result = try ProcessRunner.run(
+            "/usr/bin/xcrun",
+            arguments: ["--find", "swift"]
+        )
+        guard result.exitCode == 0 else { throw ToolchainError.libIndexStoreNotFound }
+        let path = result.stdout
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { throw ToolchainError.libIndexStoreNotFound }
         // /…/usr/bin/swift -> /…/usr/lib/libIndexStore.dylib
         let usr = URL(fileURLWithPath: path)
@@ -233,19 +230,16 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// describe --type json`. SwiftPM target names are also their module
     /// names, so this is a direct lookup for `IndexStorePass`.
     static func describeTargetTypes(packageRoot: URL) throws -> [String: String] {
-        let proc = Process() // SAFETY: runs swift package describe to map target types
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"]
-        let out = Pipe()
-        let err = Pipe()
-        proc.standardOutput = out
-        proc.standardError = err
-        try proc.run()
-        proc.waitUntilExit()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        guard proc.terminationStatus == 0 else {
-            let e = err.fileHandleForReading.readDataToEndOfFile()
-            throw ToolchainError.describeFailed(String(data: e, encoding: .utf8) ?? "")
+        // SAFETY: runs swift package describe to map target types
+        let result = try ProcessRunner.run(
+            "/usr/bin/env",
+            arguments: ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"]
+        )
+        guard result.exitCode == 0 else {
+            throw ToolchainError.describeFailed(result.stderr)
+        }
+        guard let data = result.stdout.data(using: .utf8) else {
+            throw ToolchainError.describeFailed("non-UTF-8 output from swift package describe")
         }
         struct Described: Decodable {
             struct Target: Decodable { let name: String; let type: String }

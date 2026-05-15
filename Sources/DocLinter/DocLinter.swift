@@ -34,19 +34,14 @@ public struct DocLinter: QualityChecker, Sendable {
         arguments.append(contentsOf: docArguments(for: configuration))
 
         // Run swift package generate-documentation
-        let process = Process() // SAFETY: runs swift package generate-documentation to lint DocC coverage
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
+        // SAFETY: runs swift package generate-documentation to lint DocC coverage
+        let result: ProcessRunner.Output
         do {
-            try process.run()
-            process.waitUntilExit()
+            result = try ProcessRunner.run(
+                "/usr/bin/swift",
+                arguments: arguments,
+                currentDirectory: FileManager.default.currentDirectoryPath
+            )
         } catch { // logging: error captured as Diagnostic
             let duration = ContinuousClock.now - startTime
             return CheckResult(
@@ -63,14 +58,10 @@ public struct DocLinter: QualityChecker, Sendable {
             )
         }
 
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-        let combinedOutput = output + "\n" + errorOutput
+        let combinedOutput = result.stdout + "\n" + result.stderr
 
         let duration = ContinuousClock.now - startTime
-        let exitCode = process.terminationStatus
+        let exitCode = result.exitCode
 
         return Self.createResult(output: combinedOutput, exitCode: exitCode, duration: duration)
     }

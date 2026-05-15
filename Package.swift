@@ -108,8 +108,33 @@ let package = Package(
             targets: ["MCPReadinessAuditor"]
         ),
         .library(
+            name: "ProcessSafetyAuditor",
+            targets: ["ProcessSafetyAuditor"]
+        ),
+        .library(
             name: "QualityGateTestKit",
             targets: ["QualityGateTestKit"]
+        ),
+        // IJS modules
+        .library(
+            name: "IJSSensor",
+            targets: ["IJSSensor"]
+        ),
+        .library(
+            name: "IJSAggregator",
+            targets: ["IJSAggregator"]
+        ),
+        .library(
+            name: "IJSRefiner",
+            targets: ["IJSRefiner"]
+        ),
+        .library(
+            name: "IJSPolicyDiscovery",
+            targets: ["IJSPolicyDiscovery"]
+        ),
+        .library(
+            name: "ConsistencyChecker",
+            targets: ["ConsistencyChecker"]
         ),
         // CLI executable
         .executable(
@@ -129,6 +154,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.0.0"),
+		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
     ],
     targets: [
         // MARK: - Core Module
@@ -413,6 +439,88 @@ let package = Package(
             name: "MemoryLifecycleGuardTests",
             dependencies: ["MemoryLifecycleGuard"]
         ),
+        .target(
+            name: "ProcessSafetyAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "ProcessSafetyAuditorTests",
+            dependencies: ["ProcessSafetyAuditor"]
+        ),
+
+        // MARK: - IJS Modules
+        .target(
+            name: "IJSSensor",
+            dependencies: [
+                .product(name: "QualityGateTypes", package: "quality-gate-types"),
+            ]
+        ),
+        .testTarget(
+            name: "IJSSensorTests",
+            dependencies: ["IJSSensor"]
+        ),
+
+        .target(
+            name: "IJSAggregator",
+            dependencies: [
+                "IJSSensor",
+                .product(name: "Yams", package: "Yams"),
+            ]
+        ),
+        .testTarget(
+            name: "IJSAggregatorTests",
+            dependencies: ["IJSAggregator"]
+        ),
+
+        .target(
+            name: "IJSRefiner",
+            dependencies: [
+                "IJSSensor",
+                "IJSAggregator",
+                .product(name: "BusinessMath", package: "BusinessMath"),
+            ]
+        ),
+        .testTarget(
+            name: "IJSRefinerTests",
+            dependencies: ["IJSRefiner"]
+        ),
+
+        .target(
+            name: "IJSPolicyDiscovery",
+            dependencies: [
+                "IJSSensor",
+                "IJSAggregator",
+                "IJSRefiner",
+                .product(name: "QualityGateTypes", package: "quality-gate-types"),
+            ]
+        ),
+        .testTarget(
+            name: "IJSPolicyDiscoveryTests",
+            dependencies: ["IJSPolicyDiscovery"]
+        ),
+
+        .target(
+            name: "ConsistencyChecker",
+            dependencies: [
+                "QualityGateCore",
+                "IJSSensor",
+                "IJSAggregator",
+                "IJSPolicyDiscovery",
+            ]
+        ),
+        .testTarget(
+            name: "ConsistencyCheckerTests",
+            dependencies: [
+                "ConsistencyChecker",
+                "IJSSensor",
+                "IJSAggregator",
+                "IJSPolicyDiscovery",
+            ]
+        ),
 
         // MARK: - Test Kit
         .target(
@@ -455,6 +563,10 @@ let package = Package(
                 "StochasticDeterminismAuditor",
                 "MemoryLifecycleGuard",
                 "MCPReadinessAuditor",
+                "ProcessSafetyAuditor",
+                "ConsistencyChecker",
+                "IJSSensor",
+                "IJSAggregator",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

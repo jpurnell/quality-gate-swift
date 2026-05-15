@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift build:*)",
+      "Bash(swift test:*)",
+      "Bash(swift package:*)",
+      "Bash(quality-gate:*)",
+      "Bash(.build/debug/quality-gate:*)",
+      "Bash(.build/release/quality-gate:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; case \"$f\" in *.swift) swift build 2>&1 | tail -5 ;; esac; } 2>/dev/null || true",
+            "timeout": 60,
+            "statusMessage": "Building after Swift edit..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -45,6 +45,25 @@
 
 When starting a new session or recovering from a lost context window, the AI must read documents in this specific hierarchy:
 
+### Pre-Check: Update Guidelines and Verify Hooks
+
+Before any work, offer to update development-guidelines to the latest version:
+
+```bash
+# Optional — pull latest framework files while preserving project documents
+./development-guidelines/scripts/update.sh
+```
+
+This updates core rules, scripts, and templates from GitHub without touching project-specific files (summaries, roadmaps, checklists). If the user declines, verify hooks are at least in place:
+
+```bash
+ls .git/hooks/pre-commit .git/hooks/pre-push
+```
+
+If missing, install them: `./development-guidelines/scripts/install-hooks.sh`
+
+See [12_ENFORCEMENT.md](12_ENFORCEMENT.md) for the full enforcement architecture.
+
 ### Reading Order (MANDATORY)
 
 ```
@@ -64,8 +83,12 @@ Vision → Constraints → State → History
 Use this prompt to initialize a new AI session:
 
 ```markdown
-We are resuming work on **[PROJECT_NAME]**. Please initialize your context
-by reading the following documents in order:
+We are resuming work on **[PROJECT_NAME]**. Before starting:
+
+0. **Optional update**: Run `./development-guidelines/scripts/update.sh` to pull
+   the latest framework files. This preserves all project documents.
+
+Then initialize your context by reading the following documents in order:
 
 1. **00_MASTER_PLAN.md**: Project mission, target users, current priorities
 2. **01_CODING_RULES.md**: Forbidden patterns, division safety, Swift 6 concurrency
@@ -127,14 +150,18 @@ Before ending any session, complete the handover protocol to ensure the next ses
 
 ### Handover Checklist
 
+> **Note:** The git pre-commit hook runs quality-gate automatically on every commit.
+> If you can commit, the gate passed. If the hook blocks your commit, fix all issues first.
+> See [12_ENFORCEMENT.md](12_ENFORCEMENT.md) for details.
+
 ```markdown
 **Session End Checklist:**
 
 - [ ] **Quality Gate Passed:**
+  - [ ] Git pre-commit hook allowed your last commit (fast AST checks)
   - [ ] `swift build` — zero warnings
   - [ ] `swift test` — zero failures
-  - [ ] `swift build -Xswiftc -strict-concurrency=complete` — zero errors
-  - [ ] `docc-lint` — zero issues
+  - [ ] Run: `quality-gate --check all --exclude test --exclude doc-lint --strict --continue-on-failure`
 
 - [ ] **State Updated:**
   - [ ] `04_IMPLEMENTATION_CHECKLIST.md` — tasks moved to Completed/Blocked

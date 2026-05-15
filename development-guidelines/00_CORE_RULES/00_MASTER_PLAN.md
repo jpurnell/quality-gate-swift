@@ -54,6 +54,12 @@ quality-gate-swift/
 │   ├── StatusAuditor/            # Doc drift detection + remediation
 │   ├── MemoryBuilder/            # Project memory generation + validation
 │   ├── DiskCleaner/              # Build artifact identification
+│   ├── ProcessSafetyAuditor/     # Pipe-buffer deadlock detection
+│   ├── ConsistencyChecker/       # IJS institutional consistency scoring
+│   ├── IJSSensor/                # IJS telemetry capture (CheckResultMetadata)
+│   ├── IJSAggregator/            # IJS trend analysis and corpus queries
+│   ├── IJSRefiner/               # IJS pulse refinement and calibration
+│   ├── IJSPolicyDiscovery/       # IJS policy pattern discovery
 │   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
 ├── Tests/
 │   └── [Test targets for each module — 614 tests, 72 suites]
@@ -119,9 +125,15 @@ graph TD
 - [x] DependencyAuditor — SPM dependency health (branch pins, local overrides)
 - [x] QualityGateTestKit — Shared test helpers and fixtures
 - [x] QualityGateCLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
+- [x] ProcessSafetyAuditor — Pipe-buffer deadlock pattern detection
+- [x] ConsistencyChecker — IJS institutional consistency scoring
+- [x] IJSSensor — IJS telemetry capture (CheckResultMetadata, DailySnapshot)
+- [x] IJSAggregator — IJS trend analysis and corpus queries
+- [x] IJSRefiner — IJS pulse refinement and calibration
+- [x] IJSPolicyDiscovery — IJS policy pattern discovery
 - [x] QualityGatePlugin — SPM CommandPlugin
 
-**Total: 614 tests across 72 suites**
+**Total: 1,130 tests across 25 checker modules**
 
 ### Known Issues
 - None currently
@@ -207,4 +219,4 @@ graph TD
 
 ---
 
-**Last Updated:** 2026-04-29
+**Last Updated:** 2026-05-15

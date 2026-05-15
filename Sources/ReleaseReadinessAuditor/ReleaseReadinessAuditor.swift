@@ -278,25 +278,16 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// - Returns: The tag string (trimmed), or nil on failure.
     private func runGitDescribe(in directory: String) -> String? {
         // SECURITY: subprocess with hardcoded /usr/bin/git executable path
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["describe", "--tags", "--abbrev=0"]
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe() // Suppress stderr
-
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["describe", "--tags", "--abbrev=0"],
+                currentDirectory: directory
+            )
 
-            guard process.terminationStatus == 0 else { return nil }
+            guard result.exitCode == 0 else { return nil }
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
             // Strip leading 'v' if present (e.g., v1.2.0 -> 1.2.0)
             if trimmed.hasPrefix("v") || trimmed.hasPrefix("V") {
                 return String(trimmed.dropFirst())

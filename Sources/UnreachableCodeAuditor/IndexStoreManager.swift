@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Ensures the SwiftPM index store at `<root>/.build/index-store` is fresh.
 ///
@@ -115,26 +116,23 @@ enum IndexStoreManager {
         let scheme = try options.scheme ?? listFirstScheme(flag: flag, filePath: file)
 
         // Build the project, isolating into our own derived-data path.
-        let proc = Process() // SAFETY: runs xcodebuild to produce an index store for dead-code analysis
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = [
-            "xcodebuild", "build",
-            flag, file.path,
-            "-scheme", scheme,
-            "-configuration", options.configuration,
-            "-destination", options.destination,
-            "-derivedDataPath", options.derivedDataPath.path,
-            "COMPILER_INDEX_STORE_ENABLE=YES",
-        ]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = pipe
-        try proc.run()
-        proc.waitUntilExit()
-        if proc.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let tail = (String(data: data, encoding: .utf8) ?? "").suffix(2000)
-            throw Error.buildFailed("xcodebuild build exited \(proc.terminationStatus): \(tail)")
+        // SAFETY: runs xcodebuild to produce an index store for dead-code analysis
+        let result = try ProcessRunner.run(
+            "/usr/bin/env",
+            arguments: [
+                "xcodebuild", "build",
+                flag, file.path,
+                "-scheme", scheme,
+                "-configuration", options.configuration,
+                "-destination", options.destination,
+                "-derivedDataPath", options.derivedDataPath.path,
+                "COMPILER_INDEX_STORE_ENABLE=YES",
+            ],
+            mergeStderr: true
+        )
+        if result.exitCode != 0 {
+            let tail = result.stdout.suffix(2000)
+            throw Error.buildFailed("xcodebuild build exited \(result.exitCode): \(tail)")
         }
 
         let store = options.derivedDataPath.appendingPathComponent("Index.noindex/DataStore")
@@ -145,17 +143,16 @@ enum IndexStoreManager {
     }
 
     private static func listFirstScheme(flag: String, filePath: URL) throws -> String {
-        let proc = Process() // SAFETY: runs xcodebuild -list to discover available schemes
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["xcodebuild", "-list", "-json", flag, filePath.path]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = Pipe()  // discard
-        try proc.run()
-        proc.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if proc.terminationStatus != 0 {
-            throw Error.buildFailed("xcodebuild -list exited \(proc.terminationStatus)")
+        // SAFETY: runs xcodebuild -list to discover available schemes
+        let result = try ProcessRunner.run(
+            "/usr/bin/env",
+            arguments: ["xcodebuild", "-list", "-json", flag, filePath.path]
+        )
+        if result.exitCode != 0 {
+            throw Error.buildFailed("xcodebuild -list exited \(result.exitCode)")
+        }
+        guard let data = result.stdout.data(using: .utf8) else {
+            throw Error.buildFailed("xcodebuild -list produced non-UTF-8 output")
         }
         return try firstScheme(fromXcodebuildListJSON: data)
     }
@@ -277,23 +274,20 @@ enum IndexStoreManager {
     }
 
     private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
-        let proc = Process() // SAFETY: runs swift build with index-store flags for dead-code analysis
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = [
-            "swift", "build",
-            "--package-path", packageRoot.path,
-            "--build-path", buildPath.path,
-            "-Xswiftc", "-index-store-path",
-            "-Xswiftc", store.path,
-        ]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = pipe
-        try proc.run()
-        proc.waitUntilExit()
-        if proc.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            throw Error.buildFailed(String(data: data, encoding: .utf8) ?? "")
+        // SAFETY: runs swift build with index-store flags for dead-code analysis
+        let result = try ProcessRunner.run(
+            "/usr/bin/env",
+            arguments: [
+                "swift", "build",
+                "--package-path", packageRoot.path,
+                "--build-path", buildPath.path,
+                "-Xswiftc", "-index-store-path",
+                "-Xswiftc", store.path,
+            ],
+            mergeStderr: true
+        )
+        if result.exitCode != 0 {
+            throw Error.buildFailed(result.stdout)
         }
     }
 }

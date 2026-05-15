@@ -181,23 +181,17 @@ public struct DiskCleaner: QualityChecker, Sendable {
     }
 
     private func runGitGC() -> (success: Bool, error: String?) {
-        let process = Process() // SAFETY: runs git gc to reclaim disk space
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["gc", "--aggressive", "--prune=now"]
-
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        process.standardOutput = FileHandle.nullDevice
-
+        // SAFETY: runs git gc to reclaim disk space
         do {
-            try process.run()
-            process.waitUntilExit()
+            let result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["gc", "--aggressive", "--prune=now"]
+            )
 
-            if process.terminationStatus == 0 {
+            if result.exitCode == 0 {
                 return (true, nil)
             } else {
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                let errorString = result.stderr.isEmpty ? "Unknown error" : result.stderr
                 return (false, errorString.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         } catch { // logging: error returned to caller as result

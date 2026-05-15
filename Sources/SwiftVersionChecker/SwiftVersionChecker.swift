@@ -402,25 +402,13 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         executable: String,
         arguments: [String]
     ) async throws -> (output: String, exitCode: Int32) {
-        let process = Process() // SAFETY: CLI tool runs swift commands
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
+        // SAFETY: CLI tool runs swift commands
+        let result = try ProcessRunner.run(
+            executable,
+            arguments: arguments
+        )
 
-        let pipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let output = String(data: outputData, encoding: .utf8) ?? ""
-        let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-
-        return (output + "\n" + errorOutput, process.terminationStatus)
+        return (result.stdout + "\n" + result.stderr, result.exitCode)
     }
 
     /// Parse build error diagnostics from Swift compiler output.

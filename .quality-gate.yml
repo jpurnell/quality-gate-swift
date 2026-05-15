@@ -11,3 +11,9 @@ dependencyAudit:
   allowBranchPins:
     - indexstore-db
     - swift-lmdb
+
+consistency:
+  corpusPath: .ijs-corpus
+  projectID: quality-gate-swift
+  consistencyThreshold: 0.7
+  defaultRiskTier: 2

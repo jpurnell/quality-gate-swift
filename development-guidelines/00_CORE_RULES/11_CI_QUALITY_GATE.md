@@ -80,6 +80,21 @@ The build takes ~25 seconds. This is the cost of continuous improvement.
 
 ---
 
+## Local Enforcement
+
+CI is the final backstop, but most issues should be caught locally before push. The development-guidelines include a git pre-commit hook that runs fast AST-based quality checks on every commit:
+
+```bash
+# Install local hooks (pre-commit + pre-push)
+./development-guidelines/scripts/install-hooks.sh
+```
+
+The pre-commit hook runs the same checks as CI self-validation, excluding slow process-spawning checks (build, test, unreachable, doc-lint). This catches ~90% of issues in 5-10 seconds.
+
+See [12_ENFORCEMENT.md](12_ENFORCEMENT.md) for the full enforcement architecture.
+
+---
+
 ## For forked repos
 
 If your project is a fork of someone else's repo, the quality gate workflow lives in your fork's `.github/workflows/` and only runs on your branches. The development-guidelines directory should be in `.git/info/exclude` (not `.gitignore`) to prevent leaking upstream.
