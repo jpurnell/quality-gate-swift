@@ -40,6 +40,11 @@ public struct CorpusPath: Sendable, Equatable {
         "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_calibration_\(index).json"
     }
 
+    /// Complexity artifact path: `<dailyDir>/<HHmmss>_complexity.json`
+    public func complexityPath(for timestamp: Date) -> String {
+        "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_complexity.json"
+    }
+
     /// Snapshot directory for a scope: `<basePath>/snapshots/<scope>`
     public func snapshotDirectory(scope: String) -> String {
         "\(basePath)/snapshots/\(scope)"
