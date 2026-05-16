@@ -112,6 +112,10 @@ let package = Package(
             targets: ["ProcessSafetyAuditor"]
         ),
         .library(
+            name: "ComplexityAnalyzer",
+            targets: ["ComplexityAnalyzer"]
+        ),
+        .library(
             name: "QualityGateTestKit",
             targets: ["QualityGateTestKit"]
         ),
@@ -160,7 +164,7 @@ let package = Package(
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
-        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.0.0"),
+        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.0.1"),
     ],
     targets: [
         // MARK: - Core Module
@@ -458,6 +462,20 @@ let package = Package(
             dependencies: ["ProcessSafetyAuditor"]
         ),
 
+        .target(
+            name: "ComplexityAnalyzer",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftOperators", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "ComplexityAnalyzerTests",
+            dependencies: ["ComplexityAnalyzer"]
+        ),
+
         // MARK: - IJS Modules
         .target(
             name: "IJSSensor",
@@ -607,6 +625,7 @@ let package = Package(
                 "MemoryLifecycleGuard",
                 "MCPReadinessAuditor",
                 "ProcessSafetyAuditor",
+                "ComplexityAnalyzer",
                 "ConsistencyChecker",
                 "IJSSensor",
                 "IJSAggregator",

@@ -690,6 +690,64 @@ extension MCPReadinessConfig: Codable {
     }
 }
 
+/// Per-checker configuration for ComplexityAnalyzer (advisory).
+///
+/// ## YAML Example
+/// ```yaml
+/// complexity:
+///   cognitiveThreshold: 15
+///   reportTopN: 10
+///   moduleThresholds:
+///     Parser: 25
+///     Utilities: 10
+///   emitToCorpus: true
+/// ```
+public struct ComplexityAnalyzerConfig: Sendable, Equatable {
+    /// Default cognitive complexity threshold for flagging functions.
+    public let cognitiveThreshold: Int
+
+    /// Number of top-complexity functions to include in reports.
+    public let reportTopN: Int
+
+    /// Per-module threshold overrides (module name to threshold).
+    public let moduleThresholds: [String: Int]
+
+    /// Whether to emit complexity data to the IJS corpus.
+    public let emitToCorpus: Bool
+
+    /// Creates a complexity analyzer configuration with the given options.
+    public init(
+        cognitiveThreshold: Int = 15,
+        reportTopN: Int = 10,
+        moduleThresholds: [String: Int] = [:],
+        emitToCorpus: Bool = true
+    ) {
+        self.cognitiveThreshold = cognitiveThreshold
+        self.reportTopN = reportTopN
+        self.moduleThresholds = moduleThresholds
+        self.emitToCorpus = emitToCorpus
+    }
+
+    /// Default complexity analyzer configuration.
+    public static let `default` = ComplexityAnalyzerConfig()
+}
+
+extension ComplexityAnalyzerConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case cognitiveThreshold, reportTopN, moduleThresholds, emitToCorpus
+    }
+
+    /// Creates a complexity analyzer configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ComplexityAnalyzerConfig.default
+        cognitiveThreshold = try container.decodeIfPresent(Int.self, forKey: .cognitiveThreshold) ?? defaults.cognitiveThreshold
+        reportTopN = try container.decodeIfPresent(Int.self, forKey: .reportTopN) ?? defaults.reportTopN
+        moduleThresholds = try container.decodeIfPresent([String: Int].self, forKey: .moduleThresholds) ?? defaults.moduleThresholds
+        emitToCorpus = try container.decodeIfPresent(Bool.self, forKey: .emitToCorpus) ?? defaults.emitToCorpus
+    }
+}
+
 /// Per-checker configuration for BuildChecker.
 ///
 /// Controls how the `swift build` invocation is tuned, including the
@@ -803,7 +861,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     public let testFilter: String?
 
     /// Documentation target for DocC linting.
-    /// If nil, lints all targets with documentation catalogs.
+    /// If nil, auto-detects the first library product target from Package.swift.
     public let docTarget: String?
 
     /// Minimum documentation coverage percentage (0-100).
@@ -869,6 +927,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for ConsistencyChecker (IJS).
     public let consistency: ConsistencyCheckerConfig
 
+    /// Per-checker configuration for ComplexityAnalyzer (advisory).
+    public let complexity: ComplexityAnalyzerConfig
+
     /// Per-rule severity overrides from configuration.
     ///
     /// Keys are rule IDs (e.g. `"safety.force-unwrap"`) or wildcard patterns
@@ -903,6 +964,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         mcpReadiness: MCPReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
+        complexity: ComplexityAnalyzerConfig = .default,
         overrides: [String: SeverityOverride] = [:]
     ) {
         self.parallelWorkers = parallelWorkers
@@ -931,6 +993,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.mcpReadiness = mcpReadiness
         self.build = build
         self.consistency = consistency
+        self.complexity = complexity
         self.overrides = overrides
     }
 
@@ -1020,6 +1083,7 @@ extension Configuration {
         case mcpReadiness
         case build
         case consistency
+        case complexity
         case overrides
     }
 
@@ -1053,6 +1117,7 @@ extension Configuration {
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
+        complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
     }
 }

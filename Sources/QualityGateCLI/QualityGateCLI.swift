@@ -26,6 +26,7 @@ import StochasticDeterminismAuditor
 import MCPReadinessAuditor
 import ProcessSafetyAuditor
 import MemoryLifecycleGuard
+import ComplexityAnalyzer
 import ConsistencyChecker
 import IJSSensor
 import IJSAggregator
@@ -160,6 +161,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             MemoryLifecycleGuard(),
             MCPReadinessAuditor(),
             ProcessSafetyAuditor(),
+            ComplexityAnalyzer(),
             ConsistencyChecker(),
             DiskCleaner()
         ]
@@ -175,7 +177,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else if !configuration.enabledCheckers.isEmpty {
             effectiveCheckers = configuration.enabledCheckers
         } else {
-            let optOutCheckers: Set<String> = ["disk-clean", "mcp-readiness", "consistency"]
+            let optOutCheckers: Set<String> = ["disk-clean", "mcp-readiness", "consistency", "complexity"]
             effectiveCheckers = allCheckers.map(\.id).filter { !optOutCheckers.contains($0) }
         }
 
