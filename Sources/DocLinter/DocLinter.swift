@@ -31,7 +31,18 @@ public struct DocLinter: QualityChecker, Sendable {
 
         // Build the command arguments
         var arguments = ["package", "generate-documentation"]
-        arguments.append(contentsOf: docArguments(for: configuration))
+
+        let projectRoot = FileManager.default.currentDirectoryPath
+        let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
+        let packageContent = (try? String(contentsOfFile: packagePath, encoding: .utf8)) ?? ""
+
+        if let target = Self.resolveDocTarget(
+            configured: configuration.docTarget,
+            packageContent: packageContent
+        ) {
+            arguments.append("--target")
+            arguments.append(target)
+        }
 
         // Run swift package generate-documentation
         // SAFETY: runs swift package generate-documentation to lint DocC coverage
@@ -186,6 +197,40 @@ public struct DocLinter: QualityChecker, Sendable {
             diagnostics: diagnostics,
             duration: duration
         )
+    }
+
+    // MARK: - Target Auto-Detection
+
+    /// Parses the first library product's target from Package.swift content.
+    ///
+    /// - Parameter packageContent: The raw text of a Package.swift file.
+    /// - Returns: The first target name from the first `.library` product, or nil.
+    public static func parseLibraryTarget(from packageContent: String) -> String? {
+        guard !packageContent.isEmpty else { return nil }
+        let pattern = #"\.library\s*\([\s\S]*?targets:\s*\[\s*"([^"]+)""#
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.dotMatchesLineSeparators]
+        ) else { return nil }
+        let range = NSRange(packageContent.startIndex..., in: packageContent)
+        guard let match = regex.firstMatch(in: packageContent, range: range),
+              let targetRange = Range(match.range(at: 1), in: packageContent) else {
+            return nil
+        }
+        return String(packageContent[targetRange])
+    }
+
+    /// Resolves the documentation target, preferring explicit config over auto-detection.
+    ///
+    /// - Parameters:
+    ///   - configured: The explicitly configured `docTarget`, if any.
+    ///   - packageContent: The raw text of Package.swift for auto-detection fallback.
+    /// - Returns: The resolved target name, or nil if neither source provides one.
+    public static func resolveDocTarget(
+        configured: String?,
+        packageContent: String
+    ) -> String? {
+        configured ?? parseLibraryTarget(from: packageContent)
     }
 
     // MARK: - Private Helpers
