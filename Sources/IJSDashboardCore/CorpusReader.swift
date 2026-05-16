@@ -71,4 +71,62 @@ public struct CorpusReader: Sendable {
         }
         return result
     }
+
+    // MARK: - Pulse Loading
+
+    /// Loads the most recent InstitutionalPulse from the corpus pulse directory.
+    ///
+    /// Scans `<corpusPath>/pulse/` for week-label directories sorted descending,
+    /// then tries to decode `PULSE_<weekLabel>.json` in each until one succeeds.
+    /// Returns nil if no pulse directory exists or all files are malformed.
+    public func loadLatestPulse() -> InstitutionalPulse? {
+        let pulsePath = "\(corpusPath)/pulse" // SAFETY: corpusPath is from configuration
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: pulsePath) else { return nil } // SAFETY: read-only check on configured path
+
+        guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return nil } // SAFETY: reads configured pulse dir
+
+        let weekDirs = contents
+            .filter { name in
+                var isDir: ObjCBool = false
+                return fm.fileExists(atPath: "\(pulsePath)/\(name)", isDirectory: &isDir) && isDir.boolValue // SAFETY: reads subdir of configured path
+            }
+            .sorted(by: >)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        for weekLabel in weekDirs {
+            let filePath = "\(pulsePath)/\(weekLabel)/PULSE_\(weekLabel).json" // SAFETY: child of configured pulse path
+            guard let data = fm.contents(atPath: filePath) else { continue } // SAFETY: reads pulse JSON
+            do {
+                return try decoder.decode(InstitutionalPulse.self, from: data)
+            } catch {
+                Self.logger.warning("Skipping malformed pulse at \(filePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+        }
+
+        return nil
+    }
+
+    /// Loads a specific pulse by week label.
+    ///
+    /// - Parameter weekLabel: ISO week label (e.g., "2026-W20").
+    /// - Returns: The decoded pulse, or nil if not found or malformed.
+    public func loadPulse(weekLabel: String) -> InstitutionalPulse? {
+        let filePath = "\(corpusPath)/pulse/\(weekLabel)/PULSE_\(weekLabel).json" // SAFETY: corpusPath from config, weekLabel from caller
+        let fm = FileManager.default
+        guard let data = fm.contents(atPath: filePath) else { return nil } // SAFETY: reads single configured file
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        do {
+            return try decoder.decode(InstitutionalPulse.self, from: data)
+        } catch {
+            Self.logger.warning("Failed to decode pulse \(weekLabel, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
 }

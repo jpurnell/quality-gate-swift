@@ -76,12 +76,14 @@ struct Dashboard: AsyncParsableCommand {
 
         let portfolio = PortfolioSummary.compute(from: projects)
 
+        let pulse = reader.loadLatestPulse()
+
         if outputFormat == "json" {
             print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: projects)) // logging: CLI user-facing output
         } else if summary {
-            print(DashboardRenderer.renderPortfolio(portfolio, projects: projects)) // logging: CLI user-facing output
+            print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse)) // logging: CLI user-facing output
         } else {
-            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader)
+            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse)
         }
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import IJSDashboardCore
+import IJSSensor
 import SwiftCLIKit
 
 /// Renders the portfolio overview as a box-drawn terminal frame.
@@ -13,7 +14,8 @@ public enum PortfolioTUIView: Sendable {
         projects: [ProjectSummary],
         allRuns: [String: [TimestampedRun]],
         state: DashboardState,
-        width: Int
+        width: Int,
+        pulse: InstitutionalPulse? = nil
     ) -> String {
         let box = BoxDrawing.unicode
         var buf = ScreenBuffer(width: width)
@@ -61,6 +63,26 @@ public enum PortfolioTUIView: Sendable {
                 buf.appendLine(boxRow("    - \(checker)", width: width))
             }
             buf.appendLine(boxRow("", width: width))
+        }
+
+        if let pulse {
+            buf.appendLine(box.midBorder(width: width))
+            let stats = pulse.statistics
+            for line in PulseSectionRenderer.renderStatistics(stats, weekLabel: pulse.weekLabel, width: width) {
+                buf.appendLine(line)
+            }
+            for line in PulseSectionRenderer.renderCorpusTrend(stats.corpusSnapshots, width: width) {
+                buf.appendLine(line)
+            }
+            for line in PulseSectionRenderer.renderClusters(pulse.violationClusters, width: width) {
+                buf.appendLine(line)
+            }
+            for line in PulseSectionRenderer.renderAnomalies(stats.anomalies, width: width) {
+                buf.appendLine(line)
+            }
+            for line in PulseSectionRenderer.renderNarrative(pulse.narrative, width: width) {
+                buf.appendLine(line)
+            }
         }
 
         buf.appendLine(box.bottomBorder(width: width))
