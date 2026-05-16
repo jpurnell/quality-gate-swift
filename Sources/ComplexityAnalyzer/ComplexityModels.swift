@@ -112,6 +112,8 @@ public enum ComplexityBasis: Sendable, Codable, Equatable {
     case stdlibOperation(name: String, cost: String)
     /// Recursion pattern classification.
     case recursion(type: RecursionClassification)
+    /// Cross-function amplification from call graph analysis.
+    case callGraphAmplification(callee: String, calleeCost: String)
 
     /// Human-readable description of this basis element.
     public var description: String {
@@ -119,6 +121,7 @@ public enum ComplexityBasis: Sendable, Codable, Equatable {
         case .loopNesting(let depth): return "loop nesting depth \(depth)"
         case .stdlibOperation(let name, let cost): return "\(name) (\(cost))"
         case .recursion(let type): return "recursion: \(type.rawValue)"
+        case .callGraphAmplification(let callee, let cost): return "calls \(callee) (\(cost))"
         }
     }
 }
@@ -142,6 +145,50 @@ public enum RecursionClassification: String, Sendable, Codable, Equatable, CaseI
         case .branching: return "O(2^n)"
         case .tail: return "O(n)"
         }
+    }
+}
+
+/// A directed edge in a function call graph.
+public struct CallEdge: Sendable, Codable, Equatable {
+    /// Name of the calling function.
+    public let caller: String
+    /// Name of the called function.
+    public let callee: String
+    /// Whether the call occurs inside a loop in the caller.
+    public let insideLoop: Bool
+    /// Source line of the call site.
+    public let line: Int
+
+    /// Creates a call edge.
+    public init(caller: String, callee: String, insideLoop: Bool, line: Int) {
+        self.caller = caller
+        self.callee = callee
+        self.insideLoop = insideLoop
+        self.line = line
+    }
+}
+
+/// Intra-module call graph built from static analysis.
+public struct CallGraph: Sendable, Codable, Equatable {
+    /// All directed edges (caller → callee).
+    public let edges: [CallEdge]
+    /// Set of function names defined in this module.
+    public let definedFunctions: Set<String>
+
+    /// Creates a call graph.
+    public init(edges: [CallEdge], definedFunctions: Set<String>) {
+        self.edges = edges
+        self.definedFunctions = definedFunctions
+    }
+
+    /// Returns all callees for a given function.
+    public func callees(of function: String) -> [CallEdge] {
+        edges.filter { $0.caller == function }
+    }
+
+    /// Returns all callers of a given function.
+    public func callers(of function: String) -> [CallEdge] {
+        edges.filter { $0.callee == function }
     }
 }
 

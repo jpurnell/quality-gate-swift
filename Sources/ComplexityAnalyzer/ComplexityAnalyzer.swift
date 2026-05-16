@@ -51,6 +51,18 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
                     ruleId: patternRuleId(pattern)
                 ))
             }
+
+            for basis in record.complexityBasis {
+                if case .callGraphAmplification(let callee, let calleeCost) = basis {
+                    diagnostics.append(Diagnostic(
+                        severity: .note,
+                        message: "\(record.functionName) calls \(callee) (\(calleeCost)) inside a loop — effective \(record.estimatedTimeComplexity)",
+                        filePath: record.filePath,
+                        lineNumber: record.startLine,
+                        ruleId: "complexity.call-graph-amplification"
+                    ))
+                }
+            }
         }
 
         let duration = ContinuousClock.now - startTime
@@ -69,6 +81,8 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allRecords: [FunctionComplexityRecord] = []
+        let callGraphEnabled = configuration.complexity.callGraphEnabled
+        let maxDepth = configuration.complexity.callGraphMaxDepth
 
         guard fileManager.fileExists(atPath: sourcesPath), // SAFETY: CLI tool reads local project sources
               let enumerator = fileManager.enumerator(atPath: sourcesPath) else {
@@ -81,12 +95,37 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
             guard let source = try? String(contentsOfFile: fullPath, encoding: .utf8) else { continue } // silent: unreadable file skipped
 
             let moduleName = extractModuleName(from: relativePath)
-            let records = CognitiveComplexityVisitor.analyze(
-                source: source,
-                filePath: fullPath,
-                moduleName: moduleName
-            )
-            allRecords.append(contentsOf: records)
+
+            if callGraphEnabled {
+                let records = CallGraphAmplifier.analyze(
+                    source: source,
+                    moduleName: moduleName,
+                    maxDepth: maxDepth
+                )
+                let withPaths = records.map { record in
+                    FunctionComplexityRecord(
+                        functionName: record.functionName,
+                        moduleName: record.moduleName,
+                        filePath: fullPath,
+                        startLine: record.startLine,
+                        endLine: record.endLine,
+                        cognitiveComplexity: record.cognitiveComplexity,
+                        cognitiveBreakdown: record.cognitiveBreakdown,
+                        estimatedTimeComplexity: record.estimatedTimeComplexity,
+                        complexityBasis: record.complexityBasis,
+                        confidence: record.confidence,
+                        detectedPatterns: record.detectedPatterns
+                    )
+                }
+                allRecords.append(contentsOf: withPaths)
+            } else {
+                let records = CognitiveComplexityVisitor.analyze(
+                    source: source,
+                    filePath: fullPath,
+                    moduleName: moduleName
+                )
+                allRecords.append(contentsOf: records)
+            }
         }
 
         return allRecords
@@ -96,9 +135,18 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     public func analyzeSource(
         _ source: String,
         filePath: String = "<test>",
-        moduleName: String = "Test"
+        moduleName: String = "Test",
+        callGraphEnabled: Bool = false,
+        callGraphMaxDepth: Int = 1
     ) -> [FunctionComplexityRecord] {
-        CognitiveComplexityVisitor.analyze(
+        if callGraphEnabled {
+            return CallGraphAmplifier.analyze(
+                source: source,
+                moduleName: moduleName,
+                maxDepth: callGraphMaxDepth
+            )
+        }
+        return CognitiveComplexityVisitor.analyze(
             source: source,
             filePath: filePath,
             moduleName: moduleName
