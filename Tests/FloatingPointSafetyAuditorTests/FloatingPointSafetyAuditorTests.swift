@@ -346,6 +346,76 @@ struct FPDivisionTests {
         #expect(!results.contains { $0.ruleId == ruleId })
     }
 
+    @Test("Does NOT flag guarded division in init body")
+    func exemptGuardInInit() {
+        let code = """
+        struct S {
+            let result: Double
+            init(divisor: Double) {
+                guard divisor > 0 else {
+                    self.result = 0
+                    return
+                }
+                self.result = 100.0 / divisor
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded division with guard statement")
+    func exemptGuardStatement() {
+        let code = """
+        func compute(divisor: Double) -> Double {
+            guard divisor > 0 else { return 0 }
+            return 100.0 / divisor
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded division in ternary expression")
+    func exemptTernaryGuard() {
+        let code = """
+        func compute(divisor: Double) -> Double {
+            return divisor > 0 ? 100.0 / divisor : 0
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded member access division")
+    func exemptMemberAccessGuard() {
+        let code = """
+        struct S { var rrInterval: Double = 0 }
+        func compute(sample: S) -> Double {
+            if sample.rrInterval > 0 {
+                return 60000.0 / sample.rrInterval
+            }
+            return 0
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag division by count when isEmpty is checked")
+    func exemptIsEmptyGuard() {
+        let code = """
+        func average(values: [Double]) -> Double {
+            if !values.isEmpty {
+                return values.reduce(0, +) / Double(values.count)
+            }
+            return 0
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
     @Test("Diagnostics have warning severity")
     func warningSeverity() {
         let code = """

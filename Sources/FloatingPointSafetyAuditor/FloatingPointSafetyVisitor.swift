@@ -120,6 +120,19 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         guardedVariables = []
     }
 
+    override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        guardedVariables = []
+        if let body = node.body {
+            collectGuardedVariables(from: Syntax(body))
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: InitializerDeclSyntax) {
+        guardedVariables = []
+    }
+
     override func visit(_ node: AccessorDeclSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
         guardedVariables = []
@@ -386,6 +399,16 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
                 }
             }
 
+            // Pattern: `!collection.isEmpty` implies collection.count > 0
+            if let prefixOp = descendant.as(PrefixOperatorExprSyntax.self),
+               prefixOp.operator.text == "!",
+               let memberAccess = prefixOp.expression.as(MemberAccessExprSyntax.self),
+               memberAccess.declName.baseName.text == "isEmpty",
+               let base = memberAccess.base {
+                let countExpr = "\(base.trimmedDescription).count"
+                guardedVariables.insert(countExpr)
+            }
+
             // Recurse into children
             collectGuardedVariables(from: descendant)
         }
@@ -424,14 +447,16 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         if let declRef = expr.as(DeclReferenceExprSyntax.self) {
             return declRef.baseName.text
         }
+        if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
+            return memberAccess.trimmedDescription
+        }
         if let funcCall = expr.as(FunctionCallExprSyntax.self),
            let callee = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
            fpTypeNames.contains(callee.baseName.text),
            funcCall.arguments.count == 1,
            let firstArg = funcCall.arguments.first,
-           firstArg.label == nil,
-           let innerRef = firstArg.expression.as(DeclReferenceExprSyntax.self) {
-            return innerRef.baseName.text
+           firstArg.label == nil {
+            return extractVariableName(firstArg.expression)
         }
         return nil
     }
