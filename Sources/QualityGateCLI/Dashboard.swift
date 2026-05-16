@@ -25,8 +25,23 @@ struct Dashboard: AsyncParsableCommand {
     @Flag(name: .long, help: "Show one-shot portfolio summary (non-interactive)")
     var summary: Bool = false
 
+    @Flag(name: .long, help: "Export HTML report to pulse directory")
+    var exportHtml: Bool = false
+
+    @Option(name: .long, help: "Output path for HTML report (default: pulse directory)")
+    var output: String?
+
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
+
+    private func isoWeekLabel(for date: Date) -> String {
+        let calendar = Calendar(identifier: .iso8601)
+        let year = calendar.component(.yearForWeekOfYear, from: date)
+        let week = calendar.component(.weekOfYear, from: date)
+        let yearStr = "\(year)".padding(toLength: 4, withPad: "0", startingAt: 0)
+        let weekStr = "\(week)".count < 2 ? "0\(week)" : "\(week)"
+        return "\(yearStr)-W\(weekStr)"
+    }
 
     func run() async throws {
         var configuration: Configuration
@@ -77,6 +92,25 @@ struct Dashboard: AsyncParsableCommand {
         let portfolio = PortfolioSummary.compute(from: projects)
 
         let pulse = reader.loadLatestPulse()
+
+        if exportHtml {
+            let html = HTMLReportRenderer.render(portfolio: portfolio, projects: projects, pulse: pulse)
+            let outputPath: String
+            if let output {
+                outputPath = output
+            } else {
+                let weekLabel = pulse?.weekLabel ?? isoWeekLabel(for: Date())
+                let pulseDir = "\(effectiveCorpusPath)/pulse/\(weekLabel)" // SAFETY: corpusPath from config; weekLabel computed from date
+                let fm = FileManager.default
+                if !fm.fileExists(atPath: pulseDir) { // SAFETY: pulseDir constructed from config corpus path + date-derived week label
+                    try fm.createDirectory(atPath: pulseDir, withIntermediateDirectories: true) // SAFETY: creates subdirectory within configured corpus
+                }
+                outputPath = "\(pulseDir)/REPORT_\(weekLabel).html" // SAFETY: child of configured corpus path
+            }
+            try Data(html.utf8).write(to: URL(fileURLWithPath: outputPath)) // SAFETY: writes to configured corpus or user-specified path
+            print("[dashboard] HTML report written to \(outputPath)") // logging: CLI user-facing output
+            return
+        }
 
         if outputFormat == "json" {
             print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: projects)) // logging: CLI user-facing output
