@@ -4,6 +4,8 @@ excludePatterns:
   # outer package would always fail the gate.
   - "**/Tests/UnreachableCodeAuditorTests/Fixtures/**"
 
+docTarget: QualityGateCore
+
 build:
   solverExpressionTimeThreshold: 500
 
@@ -13,7 +15,7 @@ dependencyAudit:
     - swift-lmdb
 
 consistency:
-  corpusPath: .ijs-corpus
+  corpusPath: /Users/jpurnell/Dropbox/Computer/Development/Swift/Tools/org-judgement-corpus
   projectID: quality-gate-swift
   consistencyThreshold: 0.7
   defaultRiskTier: 2
