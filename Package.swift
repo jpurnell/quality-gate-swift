@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "quality-gate-swift",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
         // Core library with shared protocol and models
@@ -136,6 +136,11 @@ let package = Package(
             name: "ConsistencyChecker",
             targets: ["ConsistencyChecker"]
         ),
+        // Dashboard
+        .library(
+            name: "IJSDashboardCore",
+            targets: ["IJSDashboardCore"]
+        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -155,6 +160,7 @@ let package = Package(
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
+        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.0.0"),
     ],
     targets: [
         // MARK: - Core Module
@@ -522,6 +528,43 @@ let package = Package(
             ]
         ),
 
+        // MARK: - Dashboard
+        .target(
+            name: "IJSDashboardCore",
+            dependencies: [
+                "IJSSensor",
+                "IJSAggregator",
+            ]
+        ),
+        .testTarget(
+            name: "IJSDashboardCoreTests",
+            dependencies: [
+                "IJSDashboardCore",
+                "IJSSensor",
+                .product(name: "QualityGateTypes", package: "quality-gate-types"),
+            ]
+        ),
+        .target(
+            name: "IJSDashboardCLI",
+            dependencies: [
+                "IJSDashboardCore",
+                "IJSSensor",
+                "IJSAggregator",
+                .product(name: "QualityGateTypes", package: "quality-gate-types"),
+                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+            ]
+        ),
+        .testTarget(
+            name: "IJSDashboardCLITests",
+            dependencies: [
+                "IJSDashboardCLI",
+                "IJSDashboardCore",
+                "IJSSensor",
+                .product(name: "QualityGateTypes", package: "quality-gate-types"),
+                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+            ]
+        ),
+
         // MARK: - Test Kit
         .target(
             name: "QualityGateTestKit",
@@ -567,6 +610,9 @@ let package = Package(
                 "ConsistencyChecker",
                 "IJSSensor",
                 "IJSAggregator",
+                "IJSRefiner",
+                "IJSDashboardCore",
+                "IJSDashboardCLI",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
