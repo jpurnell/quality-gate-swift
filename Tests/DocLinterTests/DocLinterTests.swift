@@ -189,4 +189,112 @@ struct DocLinterTests {
         // Should not include --target without configuration
         #expect(!args.contains("--target"))
     }
+
+    // MARK: - Library Target Auto-Detection Tests
+
+    @Test("Detects library target from Package.swift content")
+    func detectsLibraryTarget() {
+        let packageContent = """
+        let package = Package(
+            name: "my-project",
+            products: [
+                .library(
+                    name: "MyLib",
+                    targets: ["MyLib"]
+                ),
+            ],
+            targets: [
+                .target(name: "MyLib"),
+                .testTarget(name: "MyLibTests", dependencies: ["MyLib"]),
+            ]
+        )
+        """
+
+        let target = DocLinter.parseLibraryTarget(from: packageContent)
+        #expect(target == "MyLib")
+    }
+
+    @Test("Detects first library target when multiple products exist")
+    func detectsFirstLibraryTarget() {
+        let packageContent = """
+        let package = Package(
+            name: "multi-lib",
+            products: [
+                .library(name: "Core", targets: ["Core"]),
+                .library(name: "Utils", targets: ["Utils"]),
+                .executable(name: "CLI", targets: ["CLI"]),
+            ],
+            targets: [
+                .target(name: "Core"),
+                .target(name: "Utils"),
+                .executableTarget(name: "CLI"),
+            ]
+        )
+        """
+
+        let target = DocLinter.parseLibraryTarget(from: packageContent)
+        #expect(target == "Core")
+    }
+
+    @Test("Returns nil when no library products exist")
+    func returnsNilForNoLibrary() {
+        let packageContent = """
+        let package = Package(
+            name: "cli-only",
+            products: [
+                .executable(name: "mytool", targets: ["mytool"]),
+            ],
+            targets: [
+                .executableTarget(name: "mytool"),
+            ]
+        )
+        """
+
+        let target = DocLinter.parseLibraryTarget(from: packageContent)
+        #expect(target == nil)
+    }
+
+    @Test("Returns nil for empty content")
+    func returnsNilForEmptyContent() {
+        let target = DocLinter.parseLibraryTarget(from: "")
+        #expect(target == nil)
+    }
+
+    @Test("Resolves explicit docTarget over auto-detection")
+    func explicitDocTargetTakesPrecedence() {
+        let packageContent = """
+        let package = Package(
+            name: "my-project",
+            products: [
+                .library(name: "AutoDetected", targets: ["AutoDetected"]),
+            ],
+            targets: [.target(name: "AutoDetected")]
+        )
+        """
+
+        let resolved = DocLinter.resolveDocTarget(
+            configured: "ExplicitTarget",
+            packageContent: packageContent
+        )
+        #expect(resolved == "ExplicitTarget")
+    }
+
+    @Test("Falls back to auto-detection when docTarget is nil")
+    func fallsBackToAutoDetection() {
+        let packageContent = """
+        let package = Package(
+            name: "my-project",
+            products: [
+                .library(name: "MyLib", targets: ["MyLib"]),
+            ],
+            targets: [.target(name: "MyLib")]
+        )
+        """
+
+        let resolved = DocLinter.resolveDocTarget(
+            configured: nil,
+            packageContent: packageContent
+        )
+        #expect(resolved == "MyLib")
+    }
 }
