@@ -9,6 +9,7 @@ public enum ProjectDetailTUIView: Sendable {
     public static func render(
         project: ProjectSummary,
         trends: [TrendPoint],
+        runs: [TimestampedRun],
         state: DashboardState,
         width: Int
     ) -> String {
@@ -26,7 +27,7 @@ public enum ProjectDetailTUIView: Sendable {
         case .overview:
             renderOverview(into: &buf, project: project, width: width)
         case .checkers:
-            renderCheckers(into: &buf, project: project, width: width)
+            renderCheckers(into: &buf, project: project, runs: runs, width: width)
         case .trends:
             renderTrends(into: &buf, trends: trends, width: width)
         }
@@ -88,42 +89,44 @@ public enum ProjectDetailTUIView: Sendable {
 
     // MARK: - Checkers Tab
 
-    private static func renderCheckers(into buf: inout ScreenBuffer, project: ProjectSummary, width: Int) {
+    private static let gaugeWidth = 15
+
+    private static func renderCheckers(
+        into buf: inout ScreenBuffer,
+        project: ProjectSummary,
+        runs: [TimestampedRun],
+        width: Int
+    ) {
         buf.appendLine(boxRow("", width: width))
         if project.checkerPassRates.isEmpty {
             buf.appendLine(boxRow("  No checker data available.", width: width))
         } else {
             let sorted = project.checkerPassRates.sorted { $0.value < $1.value }
+
             for (checker, rate) in sorted {
                 let passingNow = project.latestCheckerPassed[checker] ?? false
                 let indicator = passingNow ? "\u{2713}" : "\u{2717}"
                 let indicatorColor = passingNow ? ANSICodes.fg(.green) : ANSICodes.fg(.red)
-                let barColor = rateColor(rate)
                 let pctStr = formatPercent(rate)
-                let gauge = InlineGauge.render(
-                    current: Int((rate * 100).rounded()),
-                    total: 100,
-                    width: 15,
-                    filledColor: barColor
-                )
                 let name = checker.padding(toLength: 22, withPad: " ", startingAt: 0)
+                let gauge = renderPassFailGauge(rate: rate, width: gaugeWidth)
                 buf.appendLine(boxRow("  \(indicatorColor)\(indicator)\(ANSICodes.reset) \(name) \(gauge) \(pctStr)", width: width))
             }
         }
         buf.appendLine(boxRow("", width: width))
     }
 
-    private static func rateColor(_ rate: Double) -> Color {
-        let pct = Int((rate * 100).rounded())
-        if pct >= 90 {
-            return .ansi8(.green)
-        } else if pct >= 75 {
-            return .ansi8(.yellow)
-        } else if pct >= 60 {
-            return .truecolor(r: 255, g: 165, b: 0)
-        } else {
-            return .ansi8(.red)
+    private static func renderPassFailGauge(rate: Double, width: Int) -> String {
+        let passCount = Int((rate * Double(width)).rounded())
+        let failCount = width - passCount
+        var gauge = ""
+        if failCount > 0 {
+            gauge += ANSICodes.fg(.red) + String(repeating: "\u{2588}", count: failCount) + ANSICodes.reset
         }
+        if passCount > 0 {
+            gauge += ANSICodes.fg(.green) + String(repeating: "\u{2588}", count: passCount) + ANSICodes.reset
+        }
+        return gauge
     }
 
     // MARK: - Trends Tab

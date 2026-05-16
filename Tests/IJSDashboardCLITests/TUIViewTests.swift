@@ -89,6 +89,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: trends,
+            runs: [],
             state: state,
             width: 80
         )
@@ -104,6 +105,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: [],
+            runs: [],
             state: state,
             width: 80
         )
@@ -126,6 +128,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: [],
+            runs: [],
             state: state,
             width: 80
         )
@@ -146,6 +149,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: trends,
+            runs: [],
             state: state,
             width: 80
         )
@@ -161,6 +165,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: [],
+            runs: [],
             state: state,
             width: 80
         )
@@ -187,6 +192,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: [],
+            runs: [],
             state: state,
             width: 80
         )
@@ -213,6 +219,7 @@ struct TUIViewTests {
         let output = ProjectDetailTUIView.render(
             project: summary,
             trends: [],
+            runs: [],
             state: state,
             width: width
         )

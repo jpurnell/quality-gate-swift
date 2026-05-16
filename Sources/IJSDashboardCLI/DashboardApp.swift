@@ -91,6 +91,7 @@ public enum DashboardApp: Sendable {
                 frame = ProjectDetailTUIView.render(
                     project: project,
                     trends: trends,
+                    runs: runs,
                     state: state,
                     width: cols
                 )
