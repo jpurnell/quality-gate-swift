@@ -60,6 +60,8 @@ quality-gate-swift/
 │   ├── IJSAggregator/            # IJS trend analysis and corpus queries
 │   ├── IJSRefiner/               # IJS pulse refinement and calibration
 │   ├── IJSPolicyDiscovery/       # IJS policy pattern discovery
+│   ├── IJSDashboardCore/         # IJS dashboard data layer (corpus reader, summaries, trends)
+│   ├── IJSDashboardCLI/          # IJS dashboard rendering (portfolio/project views)
 │   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
 ├── Tests/
 │   └── [Test targets for each module — 614 tests, 72 suites]
@@ -131,6 +133,8 @@ graph TD
 - [x] IJSAggregator — IJS trend analysis and corpus queries
 - [x] IJSRefiner — IJS pulse refinement and calibration
 - [x] IJSPolicyDiscovery — IJS policy pattern discovery
+- [x] IJSDashboardCore — IJS dashboard data layer (corpus reader, summaries, trends)
+- [x] IJSDashboardCLI — IJS dashboard rendering (portfolio/project views, JSON output)
 - [x] QualityGatePlugin — SPM CommandPlugin
 
 **Total: 1,130 tests across 25 checker modules**
