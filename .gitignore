@@ -15,3 +15,6 @@ DerivedData/
 # IDE
 .idea/
 .vscode/
+
+# Stale local corpus (telemetry now goes to org-judgement-corpus)
+.ijs-corpus/
