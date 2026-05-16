@@ -701,6 +701,8 @@ extension MCPReadinessConfig: Codable {
 ///     Parser: 25
 ///     Utilities: 10
 ///   emitToCorpus: true
+///   callGraphEnabled: true
+///   callGraphMaxDepth: 1
 /// ```
 public struct ComplexityAnalyzerConfig: Sendable, Equatable {
     /// Default cognitive complexity threshold for flagging functions.
@@ -715,17 +717,27 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
     /// Whether to emit complexity data to the IJS corpus.
     public let emitToCorpus: Bool
 
+    /// Whether to enable call-graph amplification (cross-function cost composition).
+    public let callGraphEnabled: Bool
+
+    /// Maximum transitive depth for call-graph amplification (1 = direct calls only).
+    public let callGraphMaxDepth: Int
+
     /// Creates a complexity analyzer configuration with the given options.
     public init(
         cognitiveThreshold: Int = 15,
         reportTopN: Int = 10,
         moduleThresholds: [String: Int] = [:],
-        emitToCorpus: Bool = true
+        emitToCorpus: Bool = true,
+        callGraphEnabled: Bool = true,
+        callGraphMaxDepth: Int = 1
     ) {
         self.cognitiveThreshold = cognitiveThreshold
         self.reportTopN = reportTopN
         self.moduleThresholds = moduleThresholds
         self.emitToCorpus = emitToCorpus
+        self.callGraphEnabled = callGraphEnabled
+        self.callGraphMaxDepth = callGraphMaxDepth
     }
 
     /// Default complexity analyzer configuration.
@@ -735,6 +747,7 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
 extension ComplexityAnalyzerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case cognitiveThreshold, reportTopN, moduleThresholds, emitToCorpus
+        case callGraphEnabled, callGraphMaxDepth
     }
 
     /// Creates a complexity analyzer configuration by decoding from the given decoder.
@@ -745,6 +758,8 @@ extension ComplexityAnalyzerConfig: Codable {
         reportTopN = try container.decodeIfPresent(Int.self, forKey: .reportTopN) ?? defaults.reportTopN
         moduleThresholds = try container.decodeIfPresent([String: Int].self, forKey: .moduleThresholds) ?? defaults.moduleThresholds
         emitToCorpus = try container.decodeIfPresent(Bool.self, forKey: .emitToCorpus) ?? defaults.emitToCorpus
+        callGraphEnabled = try container.decodeIfPresent(Bool.self, forKey: .callGraphEnabled) ?? defaults.callGraphEnabled
+        callGraphMaxDepth = try container.decodeIfPresent(Int.self, forKey: .callGraphMaxDepth) ?? defaults.callGraphMaxDepth
     }
 }
 
