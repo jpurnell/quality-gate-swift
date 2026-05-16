@@ -77,6 +77,7 @@ public enum DashboardApp: Sendable {
                 frame = PortfolioTUIView.render(
                     portfolio: currentPortfolio,
                     projects: sortedProjects,
+                    allRuns: currentAllRuns,
                     state: state,
                     width: cols
                 )

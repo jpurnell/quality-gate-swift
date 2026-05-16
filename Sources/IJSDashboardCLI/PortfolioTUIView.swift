@@ -5,10 +5,13 @@ import SwiftCLIKit
 /// Renders the portfolio overview as a box-drawn terminal frame.
 public enum PortfolioTUIView: Sendable {
 
+    private static let timelineWidth = 10
+
     /// Produces a formatted string for the portfolio view with project rows, gauges, and selection highlight.
     public static func render(
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
+        allRuns: [String: [TimestampedRun]],
         state: DashboardState,
         width: Int
     ) -> String {
@@ -25,7 +28,7 @@ public enum PortfolioTUIView: Sendable {
         if !projects.isEmpty {
             let nameWidth = min(max(width - 40, 16), 30)
             let header = "  " + "Project".padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-                + "  Status   Pass Rate        Runs"
+                + "  Status  Health      Runs"
             buf.appendLine(boxRow(header, width: width))
             buf.appendLine(box.midBorder(width: width))
 
@@ -37,14 +40,10 @@ public enum PortfolioTUIView: Sendable {
                 let name = String(project.projectID.prefix(nameWidth))
                     .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
 
-                let gauge = InlineGauge.render(
-                    current: Int((project.passRate * 100).rounded()),
-                    total: 100,
-                    width: 8,
-                    filledColor: project.latestPassed ? .ansi8(.green) : .ansi8(.red)
-                )
+                let runs = allRuns[project.projectID] ?? []
+                let timeline = renderHealthTimeline(runs: runs)
 
-                let row = "  \(name)  \(status)      \(gauge) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(project.runCount)"
+                let row = "  \(name)  \(status)     \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(project.runCount)"
 
                 if isSelected {
                     buf.appendLine(boxRow(ANSICodes.reverse + row + ANSICodes.reset, width: width))
@@ -80,6 +79,41 @@ public enum PortfolioTUIView: Sendable {
         return box.vertical + content
             + String(repeating: " ", count: padding)
             + box.vertical
+    }
+
+    private static func renderHealthTimeline(runs: [TimestampedRun]) -> String {
+        let sortedRuns = runs.sorted { $0.metadata.timestamp < $1.metadata.timestamp }
+        let recentRuns = Array(sortedRuns.suffix(timelineWidth))
+
+        var cells = ""
+        let padding = max(0, timelineWidth - recentRuns.count)
+        if padding > 0 {
+            cells += ANSICodes.dim + String(repeating: "\u{2500}", count: padding) + ANSICodes.reset
+        }
+        for run in recentRuns {
+            let results = run.metadata.results
+            guard !results.isEmpty else {
+                cells += ANSICodes.dim + "\u{2591}" + ANSICodes.reset
+                continue
+            }
+            let passingCount = results.filter { $0.status.isPassing }.count
+            let rate = Double(passingCount) / Double(results.count)
+            cells += healthColor(rate) + "\u{2588}" + ANSICodes.reset
+        }
+        return cells
+    }
+
+    private static func healthColor(_ rate: Double) -> String {
+        let pct = Int((rate * 100).rounded())
+        if pct >= 90 {
+            return ANSICodes.fg(.green)
+        } else if pct >= 75 {
+            return ANSICodes.fg(.yellow)
+        } else if pct >= 60 {
+            return "\u{001B}[38;2;255;165;0m"
+        } else {
+            return ANSICodes.fg(.red)
+        }
     }
 
     private static func formatPercent(_ value: Double) -> String {

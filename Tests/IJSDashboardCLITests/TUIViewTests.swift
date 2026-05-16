@@ -22,6 +22,7 @@ struct TUIViewTests {
         let output = PortfolioTUIView.render(
             portfolio: portfolio,
             projects: projects,
+            allRuns: [:],
             state: state,
             width: 80
         )
@@ -41,6 +42,7 @@ struct TUIViewTests {
         let output = PortfolioTUIView.render(
             portfolio: portfolio,
             projects: projects,
+            allRuns: [:],
             state: state,
             width: 80
         )
@@ -57,6 +59,7 @@ struct TUIViewTests {
         let output = PortfolioTUIView.render(
             portfolio: portfolio,
             projects: projects,
+            allRuns: [:],
             state: state,
             width: 80
         )
@@ -71,6 +74,7 @@ struct TUIViewTests {
         let output = PortfolioTUIView.render(
             portfolio: portfolio,
             projects: projects,
+            allRuns: [:],
             state: state,
             width: 80
         )
