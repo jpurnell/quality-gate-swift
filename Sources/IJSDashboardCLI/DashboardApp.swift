@@ -1,5 +1,6 @@
 import Foundation
 import IJSDashboardCore
+import IJSSensor
 import SwiftCLIKit
 
 #if canImport(Darwin)
@@ -25,11 +26,13 @@ public enum DashboardApp: Sendable {
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
         allRuns: [String: [TimestampedRun]],
-        corpusReader: CorpusReader? = nil
+        corpusReader: CorpusReader? = nil,
+        pulse: InstitutionalPulse? = nil
     ) {
         var currentPortfolio = portfolio
         var sortedProjects = projects.sorted { $0.projectID < $1.projectID }
         var currentAllRuns = allRuns
+        var currentPulse = pulse
         let projectIDs = sortedProjects.map(\.projectID)
         var state = DashboardState(projectIDs: projectIDs)
         var lastReloadTime = Date.now
@@ -79,7 +82,8 @@ public enum DashboardApp: Sendable {
                     projects: sortedProjects,
                     allRuns: currentAllRuns,
                     state: state,
-                    width: cols
+                    width: cols,
+                    pulse: currentPulse
                 )
             case .projectDetail:
                 guard let projectID = state.selectedProjectID,
@@ -138,7 +142,8 @@ public enum DashboardApp: Sendable {
                     portfolio: &currentPortfolio,
                     projects: &sortedProjects,
                     allRuns: &currentAllRuns,
-                    state: &state
+                    state: &state,
+                    pulse: &currentPulse
                 )
                 lastReloadTime = Date.now
                 lastContent = ""
@@ -164,7 +169,8 @@ public enum DashboardApp: Sendable {
         portfolio: inout PortfolioSummary,
         projects: inout [ProjectSummary],
         allRuns: inout [String: [TimestampedRun]],
-        state: inout DashboardState
+        state: inout DashboardState,
+        pulse: inout InstitutionalPulse?
     ) {
         guard let freshRuns = try? reader.loadAll() else { return } // silent: reload failure is non-fatal; dashboard continues with stale data
         allRuns = freshRuns
@@ -175,6 +181,7 @@ public enum DashboardApp: Sendable {
         portfolio = PortfolioSummary.compute(from: freshProjects)
         let newIDs = freshProjects.map(\.projectID)
         state.updateProjectIDs(newIDs)
+        pulse = reader.loadLatestPulse()
     }
 
     private static func writeToStdout(_ string: String) {

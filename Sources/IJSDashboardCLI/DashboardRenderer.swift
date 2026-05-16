@@ -1,5 +1,6 @@
 import Foundation
 import IJSDashboardCore
+import IJSSensor
 
 /// Renders dashboard summaries as formatted text or JSON.
 public enum DashboardRenderer: Sendable {
@@ -7,7 +8,7 @@ public enum DashboardRenderer: Sendable {
     // MARK: - Portfolio View
 
     /// Renders a portfolio overview as formatted text.
-    public static func renderPortfolio(_ portfolio: PortfolioSummary, projects: [ProjectSummary]) -> String {
+    public static func renderPortfolio(_ portfolio: PortfolioSummary, projects: [ProjectSummary], pulse: InstitutionalPulse? = nil) -> String {
         var lines: [String] = []
 
         lines.append("═══════════════════════════════════════════════")
@@ -35,6 +36,46 @@ public enum DashboardRenderer: Sendable {
                 lines.append("    - \(checker)")
             }
             lines.append("")
+        }
+
+        if let pulse {
+            lines.append("  ─────────────────────────────────────────────────────")
+            lines.append("  Pulse \(pulse.weekLabel)")
+            lines.append("")
+            let stats = pulse.statistics
+            let passRateStr = stats.passRate.formatted(.number.precision(.fractionLength(1)))
+            lines.append("  Gate Runs: \(stats.totalGateRuns)   Pass Rate: \(passRateStr)%")
+            lines.append("  Overrides: \(stats.totalOverrides)   Calibrations: \(stats.totalCalibrations)")
+            if let score = stats.meanConsistencyScore {
+                let scoreStr = score.formatted(.number.precision(.fractionLength(2)))
+                lines.append("  Consistency: \(scoreStr)")
+            }
+            lines.append("")
+
+            if !pulse.violationClusters.isEmpty {
+                lines.append("  Violation Clusters:")
+                for cluster in pulse.violationClusters.prefix(5) {
+                    let recurring = cluster.isRecurring ? " [RECURRING]" : ""
+                    lines.append("    ✗ \(cluster.ruleId)  \(cluster.occurrenceCount)x across \(cluster.affectedProjectCount) project(s)\(recurring)")
+                }
+                lines.append("")
+            }
+
+            if !stats.anomalies.isEmpty {
+                lines.append("  Anomalies:")
+                for anomaly in stats.anomalies {
+                    let direction = anomaly.direction == .negative ? "↓" : "↑"
+                    let zStr = abs(anomaly.zScore).formatted(.number.precision(.fractionLength(2)))
+                    lines.append("    ⚠ \(anomaly.metric): z=\(zStr) (\(anomaly.severity.rawValue), \(direction))")
+                }
+                lines.append("")
+            }
+
+            if let narrative = pulse.narrative, !narrative.isEmpty {
+                lines.append("  Narrative:")
+                lines.append("  \(narrative)")
+                lines.append("")
+            }
         }
 
         return lines.joined(separator: "\n")
