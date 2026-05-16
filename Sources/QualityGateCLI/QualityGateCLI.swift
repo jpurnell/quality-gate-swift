@@ -349,6 +349,19 @@ struct QualityGateCLI: AsyncParsableCommand {
                 let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
                 let writer = TelemetryWriter()
                 try await writer.write(metadata: metadata, calibrations: [], to: corpus)
+
+                if configuration.complexity.emitToCorpus {
+                    let analyzer = ComplexityAnalyzer()
+                    let records = analyzer.scanProject(configuration: configuration)
+                    let report = ComplexityTelemetryEmitter.buildReport(
+                        from: records,
+                        projectID: projectID,
+                        timestamp: metadata.timestamp,
+                        threshold: configuration.complexity.cognitiveThreshold
+                    )
+                    try await writer.writeComplexityReport(report, to: corpus)
+                }
+
                 if verbose {
                     print("\n[ijs] Telemetry written to \(corpus.projectDirectory)") // logging: CLI verbose progress output
                 }

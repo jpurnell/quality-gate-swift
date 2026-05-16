@@ -466,6 +466,7 @@ let package = Package(
             name: "ComplexityAnalyzer",
             dependencies: [
                 "QualityGateCore",
+                "IJSSensor",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftOperators", package: "swift-syntax"),
@@ -473,7 +474,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ComplexityAnalyzerTests",
-            dependencies: ["ComplexityAnalyzer"]
+            dependencies: ["ComplexityAnalyzer", "IJSSensor"]
         ),
 
         // MARK: - IJS Modules

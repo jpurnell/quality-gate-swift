@@ -35,6 +35,8 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
     public let corpusSnapshots: [DailySnapshot]
     /// Per-project daily snapshots, keyed by project ID.
     public let projectSnapshots: [String: [DailySnapshot]]
+    /// Complexity trend analyses (nil if no complexity data in corpus).
+    public let complexityTrends: [ComplexityTrend]?
 
     /// Pass rate as a percentage (0.0-100.0).
     public var passRate: Double {
@@ -64,7 +66,8 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
         projectTrends: [String: [TrendAnalysis]],
         anomalies: [StatisticalAnomaly],
         corpusSnapshots: [DailySnapshot],
-        projectSnapshots: [String: [DailySnapshot]]
+        projectSnapshots: [String: [DailySnapshot]],
+        complexityTrends: [ComplexityTrend]? = nil
     ) {
         self.totalGateRuns = totalGateRuns
         self.passedRuns = passedRuns
@@ -81,5 +84,6 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
         self.anomalies = anomalies
         self.corpusSnapshots = corpusSnapshots
         self.projectSnapshots = projectSnapshots
+        self.complexityTrends = complexityTrends
     }
 }

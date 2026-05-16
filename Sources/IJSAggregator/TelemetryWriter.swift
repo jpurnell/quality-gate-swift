@@ -281,6 +281,62 @@ public actor TelemetryWriter {
             }
     }
 
+    // MARK: - Complexity Report I/O
+
+    /// Writes a ComplexityReport to the corpus daily directory.
+    ///
+    /// Creates the daily directory if it doesn't exist.
+    ///
+    /// - Throws: `IJSError.telemetryWriteFailed` if directory creation or file write fails.
+    public func writeComplexityReport(
+        _ report: ComplexityReport,
+        to corpusPath: CorpusPath
+    ) async throws {
+        let dailyDir = try sanitizedURL(
+            corpusPath.dailyDirectory(for: report.timestamp),
+            within: corpusPath.basePath
+        )
+        try createDirectoryIfNeeded(at: dailyDir)
+
+        let fileURL = try sanitizedURL(
+            corpusPath.complexityPath(for: report.timestamp),
+            within: corpusPath.basePath
+        )
+        try writeJSON(report, to: fileURL)
+    }
+
+    /// Reads all ComplexityReport artifacts for a project within a date range (inclusive).
+    ///
+    /// Scans daily directories concurrently. Results are sorted by timestamp.
+    ///
+    /// - Throws: `IJSError.telemetryReadFailed` if deserialization fails.
+    public func readComplexityReports(
+        from corpusPath: CorpusPath,
+        startDate: Date,
+        endDate: Date
+    ) async throws -> [ComplexityReport] {
+        let directories = try dailyDirectoryURLs(in: corpusPath, startDate: startDate, endDate: endDate)
+        guard !directories.isEmpty else { return [] }
+
+        let allReports = try await withThrowingTaskGroup(
+            of: [ComplexityReport].self
+        ) { group in
+            for dir in directories {
+                let dec = self.decoder
+                group.addTask {
+                    try Self.readComplexityFiles(in: dir, decoder: dec)
+                }
+            }
+            var results: [ComplexityReport] = []
+            for try await batch in group {
+                results.append(contentsOf: batch)
+            }
+            return results
+        }
+
+        return allReports.sorted { $0.timestamp < $1.timestamp }
+    }
+
     // MARK: - Path Sanitization
 
     private func sanitizedURL(_ path: String, within basePath: String) throws -> URL {
@@ -405,6 +461,32 @@ public actor TelemetryWriter {
                 do {
                     let data = try Data(contentsOf: standardized)
                     return try decoder.decode(JudgmentCalibration.self, from: data)
+                } catch {
+                    throw IJSError.telemetryReadFailed(reason: "Cannot read \(standardized.path): \(error.localizedDescription)")
+                }
+            }
+    }
+
+    private static func readComplexityFiles(
+        in directory: URL,
+        decoder: JSONDecoder
+    ) throws -> [ComplexityReport] {
+        // silent: best-effort directory listing, returns nil/empty on failure
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: .skipsHiddenFiles
+        ) else {
+            return []
+        }
+        return try files
+            .filter { $0.lastPathComponent.hasSuffix("_complexity.json") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { fileURL in
+                let standardized = fileURL.standardized
+                do {
+                    let data = try Data(contentsOf: standardized)
+                    return try decoder.decode(ComplexityReport.self, from: data)
                 } catch {
                     throw IJSError.telemetryReadFailed(reason: "Cannot read \(standardized.path): \(error.localizedDescription)")
                 }
