@@ -17,7 +17,7 @@ Built a full-screen interactive terminal dashboard for viewing quality-gate heal
 - `IJSDashboardCLI` — rendering: portfolio view, project detail view (Overview/Checkers/Trends tabs), keyboard/mouse navigation
 
 **Key capabilities:**
-- Portfolio view with pass-rate gauges, project status, scroll support
+- Portfolio view with per-run health timeline (10-cell gradient: green/yellow/orange/red based on checker pass rate per run), project status, scroll support
 - Project detail with tabbed navigation (Overview, Checkers, Trends)
 - Checker tab shows ✓/× for current pass/fail status and a red/green ratio bar showing historical pass rate
 - Sparkline trend charts for daily pass-rate history
@@ -61,6 +61,8 @@ Brought all 8 narbis sub-packages to quality-gate compliance:
 
 **Round 3 — Gauge redesign:** Replaced opaque `InlineGauge` percentage bar with a red/green ratio bar. Each cell is proportional: a 40% pass rate shows 9 red blocks then 6 green blocks.
 
+**Round 4 — Portfolio health timeline:** Replaced single-cell status icon with a 10-cell per-run gradient in the portfolio view. Each cell represents one quality-gate run (most recent on right). Color encodes the percentage of checkers passing in that run: green (90%+), yellow (75%+), orange (60%+), red (<60%). Runs fewer than 10 show dim `─` padding on the left.
+
 **Other fixes:**
 - Portfolio scroll follow — selection stays visible when navigating with arrow keys or page up/down
 - Live reload — `poll()` on stdin with 500ms timeout, corpus re-read every 30s
@@ -87,6 +89,8 @@ Brought all 8 narbis sub-packages to quality-gate compliance:
 | `bb24801` | feat: add corpus onboarding script for batch project setup |
 | `6f12a03` | fix: checker indicators use per-checker latest run; add live reload |
 | `d4b1b15` | feat: replace checker gauge with pass/fail ratio bar |
+| `131d325` | docs: session summary, handoff doc, gitignore stale corpus |
+| `7ce9e00` | feat: portfolio health timeline — per-run gradient showing checker pass rate |
 
 ---
 
@@ -110,7 +114,7 @@ org-judgement-corpus/telemetry/<project>/<date>/<timestamp>_metadata.json
 
 Each JSON file is a `CheckResultMetadata` containing `[CheckResult]` with checker IDs and pass/fail status. `ProjectSummary.compute()` aggregates these into per-checker pass rates and per-checker latest status (scanning newest run first per checker).
 
-The TUI renders using SwiftCLIKit primitives (ScreenBuffer, BoxDrawing, InlineSparkline). The checker gauge uses raw ANSI color codes with Unicode full-block characters for the red/green ratio bar.
+The TUI renders using SwiftCLIKit primitives (ScreenBuffer, BoxDrawing, InlineSparkline). The portfolio view shows a 10-cell health timeline per project — each cell is a full-block character colored by that run's checker pass rate (green/yellow/orange/red gradient). The checker detail tab uses a red/green ratio bar proportional to historical pass rate.
 
 Live reload uses POSIX `poll()` on stdin with a 500ms timeout. When no input arrives and 30 seconds have elapsed, the corpus is re-read and summaries recomputed. `DashboardState.updateProjectIDs()` preserves the current selection across reloads.
 
