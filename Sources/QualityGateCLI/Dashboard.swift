@@ -81,7 +81,7 @@ struct Dashboard: AsyncParsableCommand {
         } else if summary {
             print(DashboardRenderer.renderPortfolio(portfolio, projects: projects)) // logging: CLI user-facing output
         } else {
-            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns)
+            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader)
         }
     }
 }

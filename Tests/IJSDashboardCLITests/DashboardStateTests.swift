@@ -210,4 +210,24 @@ struct DashboardStateTests {
         state.handleInput(.quit)
         #expect(state.shouldQuit)
     }
+
+    // MARK: - Project ID Updates
+
+    @Test("updateProjectIDs preserves selection by ID")
+    func updatePreservesSelection() {
+        var state = DashboardState(projectIDs: ["alpha", "beta", "gamma"])
+        state.handleInput(.arrowDown) // select beta
+        state.updateProjectIDs(["alpha", "beta", "delta", "gamma"])
+        #expect(state.selectedProjectID == "beta")
+        #expect(state.selectedIndex == 1)
+    }
+
+    @Test("updateProjectIDs clamps index when selected project removed")
+    func updateClampsOnRemoval() {
+        var state = DashboardState(projectIDs: ["alpha", "beta", "gamma"])
+        state.handleInput(.arrowDown)
+        state.handleInput(.arrowDown) // select gamma (index 2)
+        state.updateProjectIDs(["alpha", "beta"])
+        #expect(state.selectedIndex == 1)
+    }
 }

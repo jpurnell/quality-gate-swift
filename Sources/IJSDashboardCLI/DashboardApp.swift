@@ -17,15 +17,22 @@ public enum DashboardApp: Sendable {
     private static let mouseEnableSequence = MouseMode.enable
     private static let mouseDisableSequence = MouseMode.disable
 
+    private static let reloadIntervalSeconds: Double = 30
+
     /// Launches the full-screen interactive dashboard with keyboard and mouse navigation.
+    /// When a `corpusReader` is provided, data reloads every 30 seconds.
     public static func run(
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
-        allRuns: [String: [TimestampedRun]]
+        allRuns: [String: [TimestampedRun]],
+        corpusReader: CorpusReader? = nil
     ) {
-        let sortedProjects = projects.sorted { $0.projectID < $1.projectID }
+        var currentPortfolio = portfolio
+        var sortedProjects = projects.sorted { $0.projectID < $1.projectID }
+        var currentAllRuns = allRuns
         let projectIDs = sortedProjects.map(\.projectID)
         var state = DashboardState(projectIDs: projectIDs)
+        var lastReloadTime = Date.now
 
         setvbuf(stdout, nil, _IONBF, 0)
         dashboardShouldExit = false
@@ -68,7 +75,7 @@ public enum DashboardApp: Sendable {
             switch state.currentView {
             case .portfolio:
                 frame = PortfolioTUIView.render(
-                    portfolio: portfolio,
+                    portfolio: currentPortfolio,
                     projects: sortedProjects,
                     state: state,
                     width: cols
@@ -79,7 +86,7 @@ public enum DashboardApp: Sendable {
                     frame = ""
                     break
                 }
-                let runs = allRuns[projectID] ?? []
+                let runs = currentAllRuns[projectID] ?? []
                 let trends = TrendComputer.dailyPassRate(from: runs)
                 frame = ProjectDetailTUIView.render(
                     project: project,
@@ -115,15 +122,57 @@ public enum DashboardApp: Sendable {
                 lastContent = output
             }
 
-            guard let key = reader.readKey() else { break }
-            if let input = mapKey(key) {
-                state.handleInput(input)
+            if stdinReady(timeoutMs: 500) {
+                guard let key = reader.readKey() else { break }
+                if let input = mapKey(key) {
+                    state.handleInput(input)
+                }
+            }
+
+            if let corpusReader,
+               Date.now.timeIntervalSince(lastReloadTime) >= reloadIntervalSeconds {
+                reloadData(
+                    reader: corpusReader,
+                    portfolio: &currentPortfolio,
+                    projects: &sortedProjects,
+                    allRuns: &currentAllRuns,
+                    state: &state
+                )
+                lastReloadTime = Date.now
+                lastContent = ""
             }
         }
 
         writeToStdout(mouseDisableSequence)
         writeToStdout(CursorControl.show)
         _ = screen
+    }
+
+    private static func stdinReady(timeoutMs: Int32) -> Bool {
+        #if canImport(Darwin) || canImport(Glibc)
+        var pfd = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+        return poll(&pfd, 1, timeoutMs) > 0 && (pfd.revents & Int16(POLLIN)) != 0
+        #else
+        return true
+        #endif
+    }
+
+    private static func reloadData(
+        reader: CorpusReader,
+        portfolio: inout PortfolioSummary,
+        projects: inout [ProjectSummary],
+        allRuns: inout [String: [TimestampedRun]],
+        state: inout DashboardState
+    ) {
+        guard let freshRuns = try? reader.loadAll() else { return } // silent: reload failure is non-fatal; dashboard continues with stale data
+        allRuns = freshRuns
+        let freshProjects = freshRuns.map { (projectID, runs) in
+            ProjectSummary.compute(projectID: projectID, from: runs)
+        }.sorted { $0.projectID < $1.projectID }
+        projects = freshProjects
+        portfolio = PortfolioSummary.compute(from: freshProjects)
+        let newIDs = freshProjects.map(\.projectID)
+        state.updateProjectIDs(newIDs)
     }
 
     private static func writeToStdout(_ string: String) {

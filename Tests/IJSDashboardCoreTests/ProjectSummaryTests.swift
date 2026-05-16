@@ -67,6 +67,20 @@ struct ProjectSummaryTests {
         #expect(abs(summary.passRate) < 1e-6)
         #expect(summary.runCount == 0)
     }
+
+    @Test("Latest checker status uses most recent run per checker")
+    func latestCheckerPerRun() {
+        let runs = makeRunsWithCheckers(
+            checkerResults: [
+                ["safety": true, "build": true, "concurrency": true],
+                ["safety": false],
+            ]
+        )
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        #expect(summary.latestCheckerPassed["safety"] == false)
+        #expect(summary.latestCheckerPassed["build"] == true)
+        #expect(summary.latestCheckerPassed["concurrency"] == true)
+    }
 }
 
 // MARK: - Helpers
