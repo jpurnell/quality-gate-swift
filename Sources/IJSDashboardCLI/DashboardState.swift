@@ -46,7 +46,7 @@ public struct DashboardState: Sendable {
     /// Terminal height used for scroll calculations.
     public var terminalHeight: Int = 24
     /// Sorted project identifiers for the portfolio list.
-    public let projectIDs: [String]
+    public private(set) var projectIDs: [String]
 
     /// The project ID at the current selection index, or nil if the list is empty.
     public var selectedProjectID: String? {
@@ -57,6 +57,17 @@ public struct DashboardState: Sendable {
     /// Creates a dashboard state for the given project list.
     public init(projectIDs: [String]) {
         self.projectIDs = projectIDs
+    }
+
+    /// Updates the project list, preserving the current selection when possible.
+    public mutating func updateProjectIDs(_ newIDs: [String]) {
+        let currentID = selectedProjectID
+        projectIDs = newIDs
+        if let currentID, let idx = newIDs.firstIndex(of: currentID) {
+            selectedIndex = idx
+        } else {
+            selectedIndex = min(selectedIndex, max(0, newIDs.count - 1))
+        }
     }
 
     /// Processes a keyboard input, updating view, selection, and tab state.

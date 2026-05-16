@@ -68,9 +68,11 @@ public struct ProjectSummary: Sendable {
         let worstChecker = checkerPassRates.min { $0.value < $1.value }?.key
 
         var latestCheckerPassed: [String: Bool] = [:]
-        if let latestRun {
-            for result in latestRun.metadata.results {
-                latestCheckerPassed[result.checkerId] = result.status.isPassing
+        for run in sortedRuns.reversed() {
+            for result in run.metadata.results {
+                if latestCheckerPassed[result.checkerId] == nil {
+                    latestCheckerPassed[result.checkerId] = result.status.isPassing
+                }
             }
         }
 

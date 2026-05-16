@@ -66,7 +66,7 @@ public enum PortfolioTUIView: Sendable {
 
         buf.appendLine(box.bottomBorder(width: width))
 
-        let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  Enter Select  q Quit" + ANSICodes.reset
+        let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  Enter Select  q Quit  (live reload every 30s)" + ANSICodes.reset
         buf.appendLine(helpLine)
 
         return buf.raw
