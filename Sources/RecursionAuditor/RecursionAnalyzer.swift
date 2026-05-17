@@ -23,6 +23,7 @@ final class RecursionVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
     let protocolNames: Set<String>
+    private let sourceLines: [String]
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var declarations: [DeclarationInfo] = []
@@ -32,11 +33,22 @@ final class RecursionVisitor: SyntaxVisitor {
     /// True at indices where the matching type stack frame is a protocol extension.
     private var inProtocolExtensionStack: [Bool] = []
 
-    init(fileName: String, converter: SourceLocationConverter, protocolNames: Set<String>) {
+    /// Inline suppression annotation: `// recursion:safe`
+    private static let suppressionMarker = "// recursion:safe"
+
+    init(fileName: String, source: String, converter: SourceLocationConverter, protocolNames: Set<String>) {
         self.fileName = fileName
         self.converter = converter
         self.protocolNames = protocolNames
+        self.sourceLines = source.components(separatedBy: .newlines)
         super.init(viewMode: .sourceAccurate)
+    }
+
+    /// Returns true if the given line (1-based) contains the suppression annotation.
+    private func isSuppressed(atLine line: Int) -> Bool {
+        let index = line - 1
+        guard index >= 0, index < sourceLines.count else { return false }
+        return sourceLines[index].contains(Self.suppressionMarker)
     }
 
     private var currentTypeContext: String { typeStack.joined(separator: ".") }
@@ -138,7 +150,7 @@ final class RecursionVisitor: SyntaxVisitor {
                 in: Syntax(body),
                 ownSignature: signature
             )
-            if !selfRefs.isEmpty {
+            if !selfRefs.isEmpty, !isSuppressed(atLine: location.line) {
                 if insideProtocolExtension {
                     diagnostics.append(Diagnostic(
                         severity: .error,
@@ -186,7 +198,7 @@ final class RecursionVisitor: SyntaxVisitor {
 
         let isConvenience = node.modifiers.contains { $0.name.tokenKind == .keyword(.convenience) }
 
-        if isConvenience, let body = node.body {
+        if isConvenience, let body = node.body, !isSuppressed(atLine: location.line) {
             // Find self.init(...) calls whose argument labels exactly match this init's labels.
             let selfInitCalls = collectSelfInitCalls(in: Syntax(body))
             for call in selfInitCalls where call == labels {
@@ -222,7 +234,8 @@ final class RecursionVisitor: SyntaxVisitor {
             switch accessorBlock.accessors {
             case .getter(let codeBlock):
                 // Shorthand getter: `var x: Int { ... }`
-                if containsIdentifierReference(in: Syntax(codeBlock), name: name) {
+                if containsIdentifierReference(in: Syntax(codeBlock), name: name),
+                   !isSuppressed(atLine: bindingLocation.line) {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "computed property '\(name)' references itself in its getter",
@@ -238,7 +251,8 @@ final class RecursionVisitor: SyntaxVisitor {
                     let kind = accessor.accessorSpecifier.text
                     guard let body = accessor.body else { continue }
                     if kind == "get" {
-                        if containsIdentifierReference(in: Syntax(body), name: name) {
+                        if containsIdentifierReference(in: Syntax(body), name: name),
+                           !isSuppressed(atLine: bindingLocation.line) {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
                                 message: "computed property '\(name)' references itself in its getter",
@@ -250,7 +264,8 @@ final class RecursionVisitor: SyntaxVisitor {
                             ))
                         }
                     } else if kind == "set" {
-                        if containsAssignmentTo(name: name, in: Syntax(body)) {
+                        if containsAssignmentTo(name: name, in: Syntax(body)),
+                           !isSuppressed(atLine: bindingLocation.line) {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
                                 message: "computed property setter for '\(name)' assigns to itself",
@@ -277,6 +292,8 @@ final class RecursionVisitor: SyntaxVisitor {
     private func analyzeSubscript(_ node: SubscriptDeclSyntax) {
         let location = startLocation(of: Syntax(node))
         guard let accessorBlock = node.accessorBlock else { return }
+
+        guard !isSuppressed(atLine: location.line) else { return }
 
         switch accessorBlock.accessors {
         case .getter(let codeBlock):
@@ -503,29 +520,88 @@ func collectCalls(in body: Syntax, enclosingTypeContext: String) -> [CallSite] {
     return walker.calls
 }
 
-/// True if the syntax tree contains an identifier reference with the given
-/// name, either as a bare identifier or as `self.name`.
+/// True if the syntax tree contains a self-referencing identifier with the
+/// given name. Ignores member accesses on other objects, implicit member
+/// expressions (`.name`), and identifiers that are shadowed by local bindings
+/// (e.g., `let name` in a switch case pattern).
 func containsIdentifierReference(in node: Syntax, name: String) -> Bool {
     final class Walker: SyntaxVisitor {
         let target: String
         var found = false
+        /// Names introduced by local bindings that shadow the target.
+        private var shadowDepth = 0
+
         init(target: String) {
             self.target = target
             super.init(viewMode: .sourceAccurate)
         }
+
+        // Track local bindings that shadow the property name.
+        override func visit(_ node: ValueBindingPatternSyntax) -> SyntaxVisitorContinueKind {
+            if containsBindingNamed(target, in: Syntax(node)) {
+                shadowDepth += 1
+            }
+            return .visitChildren
+        }
+        override func visitPost(_ node: ValueBindingPatternSyntax) {
+            if containsBindingNamed(target, in: Syntax(node)) {
+                shadowDepth -= 1
+            }
+        }
+
+        // Track switch case bindings — the binding's scope is the entire case body.
+        override func visit(_ node: SwitchCaseSyntax) -> SyntaxVisitorContinueKind {
+            if caseLabelIntroducesBinding(node, named: target) {
+                shadowDepth += 1
+            }
+            return .visitChildren
+        }
+        override func visitPost(_ node: SwitchCaseSyntax) {
+            if caseLabelIntroducesBinding(node, named: target) {
+                shadowDepth -= 1
+            }
+        }
+
+        private func caseLabelIntroducesBinding(_ node: SwitchCaseSyntax, named name: String) -> Bool {
+            guard case .case(let caseLabel) = node.label else { return false }
+            return containsBindingNamed(name, in: Syntax(caseLabel))
+        }
+
         override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-            if node.baseName.text == target {
+            if node.baseName.text == target, shadowDepth == 0 {
                 found = true
             }
             return .skipChildren
         }
+
         override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
             if let base = node.base, base.trimmedDescription == "self",
                node.declName.baseName.text == target {
                 found = true
                 return .skipChildren
             }
-            return .visitChildren
+            // Any member access (with or without base) uses the member name
+            // in a qualified context — not a bare self-reference. Skip children
+            // to avoid the declName being visited as a DeclReferenceExprSyntax.
+            return .skipChildren
+        }
+
+        private func containsBindingNamed(_ name: String, in node: Syntax) -> Bool {
+            final class Finder: SyntaxVisitor {
+                let name: String
+                var found = false
+                init(name: String) {
+                    self.name = name
+                    super.init(viewMode: .sourceAccurate)
+                }
+                override func visit(_ node: IdentifierPatternSyntax) -> SyntaxVisitorContinueKind {
+                    if node.identifier.text == name { found = true }
+                    return .skipChildren
+                }
+            }
+            let finder = Finder(name: name)
+            finder.walk(node)
+            return finder.found
         }
     }
     let walker = Walker(target: name)
