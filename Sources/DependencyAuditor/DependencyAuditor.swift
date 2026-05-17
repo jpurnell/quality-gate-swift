@@ -77,11 +77,28 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         let start = clock.now
 
         let projectRoot = FileManager.default.currentDirectoryPath
+        let packageSwiftPath = projectRoot + "/Package.swift"
+
+        guard FileManager.default.fileExists(atPath: packageSwiftPath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
+            let duration = start.duration(to: clock.now)
+            return CheckResult(
+                checkerId: id,
+                status: .skipped,
+                diagnostics: [
+                    Diagnostic(
+                        severity: .note,
+                        message: "No Package.swift found; skipping dependency audit.",
+                        ruleId: "dep-skip"
+                    )
+                ],
+                duration: duration
+            )
+        }
+
         var diagnostics: [Diagnostic] = []
 
         // --- dep-unresolved ---
         let resolvedPath = projectRoot + "/Package.resolved"
-        let packageSwiftPath = projectRoot + "/Package.swift"
         let resolvedExists = FileManager.default.fileExists(atPath: resolvedPath) // SAFETY: reads local project file
         // silent: missing Package.swift handled by empty string fallback
         let packageSwiftContent = (try? String(contentsOfFile: packageSwiftPath, encoding: .utf8)) ?? ""
