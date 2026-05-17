@@ -29,11 +29,28 @@ public struct DocLinter: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
+        let projectRoot = FileManager.default.currentDirectoryPath
+        let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
+
+        guard FileManager.default.fileExists(atPath: packagePath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
+            let duration = ContinuousClock.now - startTime
+            return CheckResult(
+                checkerId: id,
+                status: .skipped,
+                diagnostics: [
+                    Diagnostic(
+                        severity: .note,
+                        message: "No Package.swift found; skipping documentation lint.",
+                        ruleId: "doc-lint-skip"
+                    )
+                ],
+                duration: duration
+            )
+        }
+
         // Build the command arguments
         var arguments = ["package", "generate-documentation"]
 
-        let projectRoot = FileManager.default.currentDirectoryPath
-        let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
         let packageContent = (try? String(contentsOfFile: packagePath, encoding: .utf8)) ?? "" // silent: missing Package.swift handled by empty fallback
 
         if let target = Self.resolveDocTarget(

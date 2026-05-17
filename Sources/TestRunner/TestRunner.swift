@@ -38,6 +38,24 @@ public struct TestRunner: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
+        let projectRoot = FileManager.default.currentDirectoryPath
+        let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
+        guard FileManager.default.fileExists(atPath: packagePath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
+            let duration = ContinuousClock.now - startTime
+            return CheckResult(
+                checkerId: id,
+                status: .skipped,
+                diagnostics: [
+                    Diagnostic(
+                        severity: .note,
+                        message: "No Package.swift found; skipping test run.",
+                        ruleId: "test-skip"
+                    )
+                ],
+                duration: duration
+            )
+        }
+
         let args = testArguments(for: configuration)
         let (output, exitCode) = try await runSwiftTest(arguments: args)
 
