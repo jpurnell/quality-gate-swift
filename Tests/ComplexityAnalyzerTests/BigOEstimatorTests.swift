@@ -152,6 +152,61 @@ struct BigOEstimatorTests {
         #expect(confidence == .low)
     }
 
+    // MARK: - User-defined cost overlay
+
+    @Test("User-defined costs override stdlib table")
+    func userCostOverride() {
+        let userCosts = ["DatabaseClient.fetch": "O(n)", "Cache.lookup": "O(1)"]
+        let result = StdlibCostTable.cost(for: "DatabaseClient.fetch", userCosts: userCosts)
+        #expect(result == "O(n)")
+    }
+
+    @Test("User costs fall through to built-in for unknown patterns")
+    func userCostFallthrough() {
+        let userCosts: [String: String] = [:]
+        let result = StdlibCostTable.cost(for: "contains", userCosts: userCosts)
+        #expect(result == "O(n)")
+    }
+
+    @Test("User costs match by suffix")
+    func userCostSuffixMatch() {
+        let userCosts = ["fetch": "O(n log n)"]
+        let result = StdlibCostTable.cost(for: "DatabaseClient.fetch", userCosts: userCosts)
+        #expect(result == "O(n log n)")
+    }
+
+    @Test("User costs propagate through BigOEstimator analysis")
+    func userCostInAnalysis() {
+        let code = """
+        func loadData(client: DatabaseClient) {
+            client.fetch()
+        }
+        """
+        let analyzer = ComplexityAnalyzer()
+        let records = analyzer.analyzeSource(
+            code,
+            userCosts: ["fetch": "O(n)"]
+        )
+        #expect(records[0].estimatedTimeComplexity == "O(n)")
+    }
+
+    @Test("User cost amplified inside loop")
+    func userCostAmplifiedInLoop() {
+        let code = """
+        func loadAll(clients: [DatabaseClient]) {
+            for client in clients {
+                client.fetch()
+            }
+        }
+        """
+        let analyzer = ComplexityAnalyzer()
+        let records = analyzer.analyzeSource(
+            code,
+            userCosts: ["fetch": "O(n)"]
+        )
+        #expect(records[0].estimatedTimeComplexity == "O(n²)")
+    }
+
     // MARK: - Helpers
 
     private func analyze(_ source: String) -> [FunctionComplexityRecord] {

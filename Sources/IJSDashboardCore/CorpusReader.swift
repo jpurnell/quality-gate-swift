@@ -84,7 +84,8 @@ public struct CorpusReader: Sendable {
         let fm = FileManager.default
         guard fm.fileExists(atPath: pulsePath) else { return nil } // SAFETY: read-only check on configured path
 
-        guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return nil } // SAFETY: reads configured pulse dir
+        // SAFETY: pulsePath derived from validated configuration, read-only listing
+        guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return nil } // silent: empty pulse dir returns nil
 
         let weekDirs = contents
             .filter { name in

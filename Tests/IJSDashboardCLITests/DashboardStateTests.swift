@@ -121,20 +121,30 @@ struct DashboardStateTests {
 
     // MARK: - Scroll
 
-    @Test("Mouse scroll down in portfolio moves selection")
-    func scrollDownMovesSelection() {
+    @Test("Mouse scroll down in portfolio scrolls viewport")
+    func scrollDownMovesViewport() {
         var state = DashboardState(projectIDs: ["a", "b", "c"])
         state.handleInput(.scrollDown)
-        #expect(state.selectedIndex == 1)
+        #expect(state.scrollOffset == 3)
+        #expect(state.selectedIndex == 0)
     }
 
-    @Test("Mouse scroll up in portfolio moves selection")
-    func scrollUpMovesSelection() {
+    @Test("Mouse scroll up in portfolio scrolls viewport")
+    func scrollUpMovesViewport() {
         var state = DashboardState(projectIDs: ["a", "b", "c"])
         state.handleInput(.scrollDown)
-        state.handleInput(.scrollDown)
         state.handleInput(.scrollUp)
-        #expect(state.selectedIndex == 1)
+        #expect(state.scrollOffset == 0)
+        #expect(state.selectedIndex == 0)
+    }
+
+    @Test("Page down in portfolio scrolls viewport by half screen")
+    func pageDownScrollsViewport() {
+        var state = DashboardState(projectIDs: (0..<50).map { "p\($0)" })
+        state.terminalHeight = 24
+        state.handleInput(.pageDown)
+        #expect(state.scrollOffset == 12)
+        #expect(state.selectedIndex == 0)
     }
 
     @Test("Detail arrow down scrolls content by 1")

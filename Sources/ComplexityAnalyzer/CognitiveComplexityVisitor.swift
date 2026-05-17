@@ -14,12 +14,14 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
     private let filePath: String
     private let moduleName: String
     private let tree: SourceFileSyntax
+    private let userCosts: [String: String]
 
     /// Creates a visitor for the given file context.
-    public init(filePath: String, moduleName: String, tree: SourceFileSyntax) {
+    public init(filePath: String, moduleName: String, tree: SourceFileSyntax, userCosts: [String: String] = [:]) {
         self.filePath = filePath
         self.moduleName = moduleName
         self.tree = tree
+        self.userCosts = userCosts
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -27,12 +29,13 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
     public static func analyze(
         source: String,
         filePath: String,
-        moduleName: String
+        moduleName: String,
+        userCosts: [String: String] = [:]
     ) -> [FunctionComplexityRecord] {
         let parsed = Parser.parse(source: source)
         let folded = OperatorTable.standardOperators.foldAll(parsed) { _ in }
         let tree = folded.as(SourceFileSyntax.self) ?? parsed
-        let visitor = CognitiveComplexityVisitor(filePath: filePath, moduleName: moduleName, tree: tree)
+        let visitor = CognitiveComplexityVisitor(filePath: filePath, moduleName: moduleName, tree: tree, userCosts: userCosts)
         visitor.walk(tree)
         return visitor.results
     }
@@ -48,7 +51,7 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
 
         if let body = node.body {
             scorer.walk(body)
-            bigO = BigOEstimator.estimate(body: body)
+            bigO = BigOEstimator.estimate(body: body, userCosts: userCosts)
             let paramTypes = PatternDetector.extractParameterTypes(from: node.signature.parameterClause.parameters)
             patterns = PatternDetector.detect(body: body, parameterTypes: paramTypes)
         }
@@ -81,7 +84,7 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
 
         if let body = node.body {
             scorer.walk(body)
-            bigO = BigOEstimator.estimate(body: body)
+            bigO = BigOEstimator.estimate(body: body, userCosts: userCosts)
             let paramTypes = PatternDetector.extractParameterTypes(from: node.signature.parameterClause.parameters)
             patterns = PatternDetector.detect(body: body, parameterTypes: paramTypes)
         }

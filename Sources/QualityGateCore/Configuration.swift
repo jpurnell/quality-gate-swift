@@ -690,6 +690,33 @@ extension MCPReadinessConfig: Codable {
     }
 }
 
+/// A user-declared cost for a function pattern.
+///
+/// Used in `.quality-gate.yml` to declare known Big-O costs for project-specific
+/// or third-party library calls that the complexity analyzer cannot infer from AST alone.
+///
+/// ## YAML Example
+/// ```yaml
+/// complexity:
+///   knownCosts:
+///     - pattern: "DatabaseClient.fetch"
+///       cost: "O(n)"
+///     - pattern: "Cache.lookup"
+///       cost: "O(1)"
+/// ```
+public struct KnownCostEntry: Sendable, Equatable, Codable {
+    /// Function name or pattern to match (e.g., "DatabaseClient.fetch", "Cache.lookup").
+    public let pattern: String
+    /// The known Big-O cost (e.g., "O(n)", "O(1)", "O(n log n)").
+    public let cost: String
+
+    /// Creates a known cost entry with the specified pattern and cost.
+    public init(pattern: String, cost: String) {
+        self.pattern = pattern
+        self.cost = cost
+    }
+}
+
 /// Per-checker configuration for ComplexityAnalyzer (advisory).
 ///
 /// ## YAML Example
@@ -703,6 +730,9 @@ extension MCPReadinessConfig: Codable {
 ///   emitToCorpus: true
 ///   callGraphEnabled: true
 ///   callGraphMaxDepth: 1
+///   knownCosts:
+///     - pattern: "DatabaseClient.fetch"
+///       cost: "O(n)"
 /// ```
 public struct ComplexityAnalyzerConfig: Sendable, Equatable {
     /// Default cognitive complexity threshold for flagging functions.
@@ -723,6 +753,9 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
     /// Maximum transitive depth for call-graph amplification (1 = direct calls only).
     public let callGraphMaxDepth: Int
 
+    /// User-declared function costs for project-specific or third-party operations.
+    public let knownCosts: [KnownCostEntry]
+
     /// Creates a complexity analyzer configuration with the given options.
     public init(
         cognitiveThreshold: Int = 15,
@@ -730,7 +763,8 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
         moduleThresholds: [String: Int] = [:],
         emitToCorpus: Bool = true,
         callGraphEnabled: Bool = true,
-        callGraphMaxDepth: Int = 1
+        callGraphMaxDepth: Int = 1,
+        knownCosts: [KnownCostEntry] = []
     ) {
         self.cognitiveThreshold = cognitiveThreshold
         self.reportTopN = reportTopN
@@ -738,6 +772,7 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
         self.emitToCorpus = emitToCorpus
         self.callGraphEnabled = callGraphEnabled
         self.callGraphMaxDepth = callGraphMaxDepth
+        self.knownCosts = knownCosts
     }
 
     /// Default complexity analyzer configuration.
@@ -747,7 +782,7 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
 extension ComplexityAnalyzerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case cognitiveThreshold, reportTopN, moduleThresholds, emitToCorpus
-        case callGraphEnabled, callGraphMaxDepth
+        case callGraphEnabled, callGraphMaxDepth, knownCosts
     }
 
     /// Creates a complexity analyzer configuration by decoding from the given decoder.
@@ -760,6 +795,7 @@ extension ComplexityAnalyzerConfig: Codable {
         emitToCorpus = try container.decodeIfPresent(Bool.self, forKey: .emitToCorpus) ?? defaults.emitToCorpus
         callGraphEnabled = try container.decodeIfPresent(Bool.self, forKey: .callGraphEnabled) ?? defaults.callGraphEnabled
         callGraphMaxDepth = try container.decodeIfPresent(Int.self, forKey: .callGraphMaxDepth) ?? defaults.callGraphMaxDepth
+        knownCosts = try container.decodeIfPresent([KnownCostEntry].self, forKey: .knownCosts) ?? defaults.knownCosts
     }
 }
 
@@ -943,7 +979,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     public let consistency: ConsistencyCheckerConfig
 
     /// Per-checker configuration for ComplexityAnalyzer (advisory).
-    public let complexity: ComplexityAnalyzerConfig
+    public var complexity: ComplexityAnalyzerConfig
 
     /// Per-rule severity overrides from configuration.
     ///
