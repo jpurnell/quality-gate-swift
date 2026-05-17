@@ -571,3 +571,132 @@ struct CatchWithoutLoggingTests {
         #expect(diag?.severity == .warning)
     }
 }
+
+// MARK: - Rule 7: privacy-in-fallback
+
+@Suite("LoggingAuditor: privacy-in-fallback")
+struct PrivacyInFallbackTests {
+    private let ruleId = "logging.privacy-in-fallback"
+
+    @Test("Flags privacy: annotation inside #else of #if canImport(OSLog)")
+    func flagsPrivacyInOSLogElse() async throws {
+        let code = """
+        #if canImport(OSLog)
+        import os
+        #else
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        let logger = Logger()
+        logger.error("Failed \\(name, privacy: .public)")
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Flags privacy: annotation inside #else of #if canImport(os)")
+    func flagsPrivacyInOsElse() async throws {
+        let code = """
+        #if canImport(os)
+        import os
+        #else
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        let logger = Logger()
+        logger.error("Failed \\(name, privacy: .public)")
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag privacy: in the #if canImport(OSLog) branch (Apple side)")
+    func allowsPrivacyInAppleBranch() async throws {
+        let code = """
+        #if canImport(OSLog)
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.error("Failed \\(name, privacy: .public)")
+        #else
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag logger calls without privacy: in #else (no false positive)")
+    func noFalsePositiveInElse() async throws {
+        let code = """
+        #if canImport(OSLog)
+        import os
+        #else
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        let logger = Logger()
+        logger.error("Failed \\(name)")
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Suppresses missing-privacy inside #else fallback block")
+    func suppressesMissingPrivacyInFallback() async throws {
+        let code = """
+        #if canImport(OSLog)
+        import os
+        #else
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        let logger = Logger()
+        logger.error("Failed \\(name)")
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "logging.missing-privacy" })
+    }
+
+    @Test("Diagnostic has error severity (compile failure on Linux)")
+    func errorSeverity() async throws {
+        let code = """
+        #if canImport(OSLog)
+        import os
+        #else
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        let logger = Logger()
+        logger.error("Failed \\(name, privacy: .public)")
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        let diag = result.diagnostics.first { $0.ruleId == ruleId }
+        #expect(diag?.severity == .error)
+    }
+
+    @Test("Handles nested #if inside #else")
+    func handlesNestedIf() async throws {
+        let code = """
+        #if canImport(OSLog)
+        import os
+        #else
+        #if DEBUG
+        struct Logger {
+            func error(_ msg: String) {}
+        }
+        let logger = Logger()
+        logger.error("Failed \\(name, privacy: .public)")
+        #endif
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+}

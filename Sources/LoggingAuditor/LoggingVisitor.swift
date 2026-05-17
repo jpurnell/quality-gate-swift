@@ -11,6 +11,7 @@ import SwiftSyntax
 /// - `logging.missing-privacy`: Logger call with interpolation but no `privacy:` annotation (warning)
 /// - `logging.bare-logger-init`: `Logger()` with no subsystem/category (note)
 /// - `logging.catch-without-logging`: `catch` block with no logger call and no `throw` (warning)
+/// - `logging.privacy-in-fallback`: `privacy:` annotation inside non-Apple `#else` block (error)
 final class LoggingVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
@@ -23,6 +24,7 @@ final class LoggingVisitor: SyntaxVisitor {
 
     private var hasOSImport = false
     private var hasPrintOrNSLog = false
+    private var nonApplePlatformDepth = 0
 
     init(
         fileName: String,
@@ -50,6 +52,44 @@ final class LoggingVisitor: SyntaxVisitor {
 
         super.init(viewMode: .sourceAccurate)
     }
+
+    // MARK: - Platform-conditional tracking
+
+    private static let appleImportConditions: Set<String> = ["canImport(os)", "canImport(OSLog)"]
+
+    private func isApplePlatformCondition(_ condition: ExprSyntax) -> Bool {
+        let text = condition.trimmedDescription
+        return Self.appleImportConditions.contains(text)
+    }
+
+    override func visit(_ node: IfConfigDeclSyntax) -> SyntaxVisitorContinueKind {
+        let clauses = node.clauses
+        guard let firstClause = clauses.first,
+              let condition = firstClause.condition,
+              isApplePlatformCondition(condition) else {
+            return .visitChildren
+        }
+
+        for clause in clauses {
+            let isAppleBranch = clause.condition.map { isApplePlatformCondition($0) } ?? false
+            if isAppleBranch {
+                if let elements = clause.elements {
+                    walk(elements)
+                }
+            } else {
+                nonApplePlatformDepth += 1
+                if let elements = clause.elements {
+                    walk(elements)
+                }
+                nonApplePlatformDepth -= 1
+            }
+        }
+
+        return .skipChildren
+    }
+
+    /// Whether the visitor is currently inside a non-Apple platform block.
+    private var isInNonAppleFallback: Bool { nonApplePlatformDepth > 0 }
 
     // MARK: - Import tracking
 
@@ -108,6 +148,7 @@ final class LoggingVisitor: SyntaxVisitor {
     ]
 
     /// Checks logger method calls for interpolation segments missing `privacy:` annotations.
+    /// Also detects `privacy:` usage inside non-Apple fallback blocks (Rule 7).
     private func checkMissingPrivacy(_ node: FunctionCallExprSyntax) {
         guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self) else { return }
         let methodName = memberAccess.declName.baseName.text
@@ -119,6 +160,12 @@ final class LoggingVisitor: SyntaxVisitor {
         guard argText.contains("\\(") else { return }
 
         let line = startLine(of: Syntax(node))
+
+        if isInNonAppleFallback {
+            checkPrivacyInFallback(argText: argText, line: line)
+            return
+        }
+
         if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.missing-privacy") {
             overrides.append(override)
             return
@@ -134,6 +181,26 @@ final class LoggingVisitor: SyntaxVisitor {
                     lineNumber: line,
                     ruleId: "logging.missing-privacy",
                     suggestedFix: "Add privacy: .public or privacy: .private to each interpolated value"
+                ))
+                return
+            }
+        }
+    }
+
+    // MARK: - Rule 7: privacy-in-fallback
+
+    /// Flags `privacy:` annotations inside non-Apple fallback blocks where they won't compile.
+    private func checkPrivacyInFallback(argText: String, line: Int) {
+        let segments = argText.components(separatedBy: "\\(")
+        for segment in segments.dropFirst() {
+            if segment.contains("privacy:") {
+                diagnostics.append(Diagnostic(
+                    severity: .error,
+                    message: "privacy: annotation used in non-Apple platform fallback — will not compile on Linux",
+                    filePath: fileName,
+                    lineNumber: line,
+                    ruleId: "logging.privacy-in-fallback",
+                    suggestedFix: "Remove privacy: annotations from logger calls in #else blocks; privacy: is only valid with Apple's os.Logger"
                 ))
                 return
             }
