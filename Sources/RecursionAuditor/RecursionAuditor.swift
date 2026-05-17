@@ -85,7 +85,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         allDiagnostics.append(contentsOf: detectMutualCycles(declarations: allDeclarations))
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
+        let hasErrors = allDiagnostics.contains { $0.severity == .error }
+        let status: CheckResult.Status = hasErrors ? .failed : .passed
         return CheckResult(
             checkerId: id,
             status: status,
@@ -116,6 +117,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let visitor = RecursionVisitor(
             fileName: fileName,
+            source: source,
             converter: converter,
             protocolNames: protocolNames
         )

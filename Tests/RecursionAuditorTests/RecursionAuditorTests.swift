@@ -511,6 +511,106 @@ struct RecursionAuditorTests {
         #expect(diag?.columnNumber == 9)
     }
 
+    // MARK: - Suppression annotation
+
+    @Test("Suppresses computed property diagnostic with // recursion:safe")
+    func suppressesComputedPropertyWithAnnotation() async throws {
+        let code = """
+        struct Foo {
+            var value: Int { value } // recursion:safe
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
+    }
+
+    @Test("Suppresses function diagnostic with // recursion:safe")
+    func suppressesFunctionWithAnnotation() async throws {
+        let code = """
+        func loop(_ n: Int) -> Int { // recursion:safe
+            return loop(n)
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+    }
+
+    @Test("Does not suppress when annotation is on a different line")
+    func doesNotSuppressWrongLine() async throws {
+        let code = """
+        struct Foo {
+            // recursion:safe
+            var other: Int { 0 }
+            var value: Int { value }
+        }
+        """
+        let result = try await audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
+    }
+
+    // MARK: - Member-access false positive fix
+
+    @Test("Does not flag computed property that delegates to a member with same name")
+    func ignoresComputedPropertyDelegatingToMemberSameName() async throws {
+        let code = """
+        struct TimeSeries {
+            let periods: [Int]
+            var count: Int { periods.count }
+            var isEmpty: Bool { periods.isEmpty }
+            var first: Int? { periods.first }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
+    }
+
+    @Test("Does not flag computed property returning a shadowed local binding from switch")
+    func ignoresShadowedBindingInSwitch() async throws {
+        let code = """
+        enum Result {
+            case valid
+            case invalid([String])
+        }
+        struct Foo {
+            let result: Result
+            var errors: [String] {
+                switch result {
+                case .valid: return []
+                case .invalid(let errors): return errors
+                }
+            }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
+    }
+
+    @Test("Does not flag computed property using implicit enum member access")
+    func ignoresImplicitEnumMemberAccess() async throws {
+        let code = """
+        enum Reason { case converged; case maxIterations }
+        struct Result {
+            let terminationReason: Reason
+            var converged: Bool { terminationReason == .converged }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
+    }
+
+    @Test("Does not flag isFinite delegating to member.isFinite")
+    func ignoresIsFiniteDelegatingToMember() async throws {
+        let code = """
+        struct Vector {
+            let x: Double
+            let y: Double
+            var isFinite: Bool { x.isFinite && y.isFinite }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
+    }
+
     // MARK: - Helper
 
     private func audit(_ code: String) async throws -> CheckResult {
