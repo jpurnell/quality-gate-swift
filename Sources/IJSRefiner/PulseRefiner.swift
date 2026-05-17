@@ -82,11 +82,64 @@ public actor PulseRefiner {
         allAnomalies.append(contentsOf: corpusAnomalies)
 
         let previousClusters = previousPulse?.violationClusters ?? []
-        let clusters = detectClusters(
+        var clusters = detectClusters(
             from: allWindowMetadata,
             calibrations: allWindowCalibrations,
             previousClusters: previousClusters
         )
+
+        var allComplexityReports: [ComplexityReport] = []
+        var projectComplexityReports: [String: [ComplexityReport]] = [:]
+        for corpus in corpusPaths {
+            let reports = (try? await writer.readComplexityReports( // silent: complexity reports may not exist yet
+                from: corpus, startDate: lookbackStart, endDate: windowEnd
+            )) ?? []
+            allComplexityReports.append(contentsOf: reports)
+            if !reports.isEmpty {
+                projectComplexityReports[corpus.projectID] = reports
+            }
+        }
+
+        let complexityClusters = detectComplexityClusters(
+            from: allComplexityReports,
+            previousClusters: previousClusters
+        )
+        clusters.append(contentsOf: complexityClusters)
+        clusters.sort { $0.occurrenceCount > $1.occurrenceCount }
+
+        let complexityTrends: [ComplexityTrend]?
+        if allComplexityReports.isEmpty {
+            complexityTrends = nil
+        } else {
+            let windowReports = allComplexityReports.filter { $0.timestamp >= windowStart }
+            let baselineReports = allComplexityReports.filter { $0.timestamp < windowStart }
+            let scope = corpusPaths.count == 1 ? corpusPaths[0].projectID : "corpus"
+            var trends = buildComplexityTrends(
+                windowReports: windowReports,
+                baselineReports: baselineReports,
+                scope: scope
+            )
+
+            let crossProjectPatterns = detectCrossProjectPatterns(
+                projectReports: projectComplexityReports
+            )
+            if !crossProjectPatterns.isEmpty, var enriched = trends {
+                for i in enriched.indices {
+                    enriched[i] = ComplexityTrend(
+                        metricName: enriched[i].metricName,
+                        trend: enriched[i].trend,
+                        topDriftingModules: enriched[i].topDriftingModules,
+                        emergingPatterns: enriched[i].emergingPatterns + crossProjectPatterns.filter {
+                            !enriched[i].emergingPatterns.contains($0)
+                        },
+                        resolvedPatterns: enriched[i].resolvedPatterns
+                    )
+                }
+                trends = enriched
+            }
+
+            complexityTrends = trends
+        }
 
         let statistics = buildStatistics(
             windowMetadata: allWindowMetadata,
@@ -95,7 +148,8 @@ public actor PulseRefiner {
             projectTrends: projectTrends,
             anomalies: allAnomalies,
             corpusSnapshots: windowCorpusSnapshots,
-            projectSnapshots: projectSnapshots
+            projectSnapshots: projectSnapshots,
+            complexityTrends: complexityTrends
         )
 
         let weekLabel = isoWeekLabel(for: windowStart)
@@ -310,7 +364,8 @@ public actor PulseRefiner {
         projectTrends: [String: [TrendAnalysis]],
         anomalies: [StatisticalAnomaly],
         corpusSnapshots: [DailySnapshot],
-        projectSnapshots: [String: [DailySnapshot]]
+        projectSnapshots: [String: [DailySnapshot]],
+        complexityTrends: [ComplexityTrend]? = nil
     ) -> PulseStatistics {
         let totalGateRuns = windowMetadata.count
         let passedRuns = windowMetadata.filter { meta in
@@ -360,7 +415,8 @@ public actor PulseRefiner {
             projectTrends: projectTrends,
             anomalies: anomalies,
             corpusSnapshots: corpusSnapshots,
-            projectSnapshots: projectSnapshots
+            projectSnapshots: projectSnapshots,
+            complexityTrends: complexityTrends
         )
     }
 

@@ -62,6 +62,26 @@ enum StdlibCostTable {
         return nil
     }
 
+    /// Returns the known cost for a method, checking user overrides first, then built-in table.
+    ///
+    /// User costs are checked with exact match and suffix match (e.g., "fetch" matches
+    /// "DatabaseClient.fetch") before falling through to the built-in stdlib table.
+    ///
+    /// - Parameters:
+    ///   - methodName: The method name to look up.
+    ///   - userCosts: A dictionary of user-declared pattern-to-cost mappings.
+    /// - Returns: The Big-O cost string, or nil if no match found.
+    static func cost(for methodName: String, userCosts: [String: String]) -> String? {
+        // Check user-defined costs (exact match or suffix match)
+        for (pattern, cost) in userCosts {
+            if methodName == pattern || methodName.hasSuffix(".\(pattern)") {
+                return cost
+            }
+        }
+        // Fall through to built-in table
+        return cost(for: methodName)
+    }
+
     /// Whether a method is a linear search (O(n) lookup on a collection).
     static func isLinearSearch(_ methodName: String) -> Bool {
         let searches: Set<String> = ["contains", "first", "firstIndex", "contains(where:)", "first(where:)", "firstIndex(where:)"]

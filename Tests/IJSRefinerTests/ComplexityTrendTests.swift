@@ -77,6 +77,77 @@ struct ComplexityTrendTests {
         #expect(trends.isEmpty)
     }
 
+    @Test("Detects complexity-based violation clusters from recurring patterns")
+    func detectComplexityClusters() async throws {
+        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let reports = [
+            makeReport(day: "2026-05-10", patterns: ["containsInFilter", "sortInLoop"]),
+            makeReport(day: "2026-05-11", patterns: ["containsInFilter", "quadraticStringConcat"]),
+            makeReport(day: "2026-05-12", patterns: ["containsInFilter", "sortInLoop"]),
+            makeReport(day: "2026-05-13", patterns: ["containsInFilter"]),
+        ]
+
+        let clusters = await refiner.detectComplexityClusters(
+            from: reports,
+            previousClusters: []
+        )
+        let containsCluster = try #require(clusters.first { $0.ruleId == "complexity.containsInFilter" })
+        #expect(containsCluster.occurrenceCount == 4)
+        #expect(containsCluster.isRecurring == false)
+
+        let sortCluster = try #require(clusters.first { $0.ruleId == "complexity.sortInLoop" })
+        #expect(sortCluster.occurrenceCount == 2)
+    }
+
+    @Test("Marks complexity clusters as recurring when they appeared in previous pulse")
+    func complexityClustersRecurring() async {
+        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let reports = [
+            makeReport(day: "2026-05-14", patterns: ["containsInFilter", "sortInLoop"]),
+            makeReport(day: "2026-05-15", patterns: ["containsInFilter", "sortInLoop"]),
+        ]
+        let previousClusters = [
+            ViolationCluster(
+                ruleId: "complexity.containsInFilter",
+                occurrenceCount: 3,
+                affectedProjectCount: 1,
+                dominantRootCause: nil,
+                dominantFailedStep: nil,
+                isRecurring: false
+            )
+        ]
+
+        let clusters = await refiner.detectComplexityClusters(
+            from: reports,
+            previousClusters: previousClusters
+        )
+        let containsCluster = clusters.first { $0.ruleId == "complexity.containsInFilter" }
+        #expect(containsCluster?.isRecurring == true)
+
+        let sortCluster = clusters.first { $0.ruleId == "complexity.sortInLoop" }
+        #expect(sortCluster?.isRecurring == false)
+    }
+
+    @Test("Aggregates patterns across multiple projects for cross-project detection")
+    func crossProjectPatternAggregation() async {
+        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let projectAReports = [
+            makeReport(day: "2026-05-10", patterns: ["containsInFilter", "sortInLoop"], projectID: "project-a"),
+            makeReport(day: "2026-05-11", patterns: ["containsInFilter"], projectID: "project-a"),
+        ]
+        let projectBReports = [
+            makeReport(day: "2026-05-10", patterns: ["containsInFilter", "quadraticStringConcat"], projectID: "project-b"),
+            makeReport(day: "2026-05-11", patterns: ["containsInFilter"], projectID: "project-b"),
+        ]
+
+        let crossProject = await refiner.detectCrossProjectPatterns(
+            projectReports: ["project-a": projectAReports, "project-b": projectBReports]
+        )
+        #expect(crossProject.contains("containsInFilter"))
+        #expect(!crossProject.contains("sortInLoop"))
+        #expect(!crossProject.contains("quadraticStringConcat"))
+    }
+
     // MARK: - Helpers
 
     private func makeReport(
@@ -104,11 +175,11 @@ struct ComplexityTrendTests {
         )
     }
 
-    private func makeReport(day: String, patterns: [String]) -> ComplexityReport {
+    private func makeReport(day: String, patterns: [String], projectID: String = "test-project") -> ComplexityReport {
         var breakdown: [String: Int] = [:]
         for p in patterns { breakdown[p, default: 0] += 1 }
         return ComplexityReport(
-            projectID: "test-project",
+            projectID: projectID,
             timestamp: dateFromDay(day),
             modules: [],
             summary: ComplexitySummary(

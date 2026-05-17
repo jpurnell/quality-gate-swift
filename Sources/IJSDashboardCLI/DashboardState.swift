@@ -89,13 +89,17 @@ public struct DashboardState: Sendable {
 
     private mutating func handlePortfolioInput(_ input: DashboardInput) {
         switch input {
-        case .arrowDown, .scrollDown:
+        case .arrowDown:
             guard !projectIDs.isEmpty else { return }
             selectedIndex = min(selectedIndex + 1, projectIDs.count - 1)
             ensureSelectionVisible()
-        case .arrowUp, .scrollUp:
+        case .arrowUp:
             selectedIndex = max(selectedIndex - 1, 0)
             ensureSelectionVisible()
+        case .scrollDown:
+            scrollOffset += 3
+        case .scrollUp:
+            scrollOffset = max(0, scrollOffset - 3)
         case .enter:
             guard !projectIDs.isEmpty else { return }
             currentView = .projectDetail
@@ -104,11 +108,9 @@ public struct DashboardState: Sendable {
         case .quit, .escape:
             shouldQuit = true
         case .pageDown:
-            selectedIndex = min(selectedIndex + terminalHeight / 2, projectIDs.count - 1)
-            ensureSelectionVisible()
+            scrollOffset += terminalHeight / 2
         case .pageUp:
-            selectedIndex = max(selectedIndex - terminalHeight / 2, 0)
-            ensureSelectionVisible()
+            scrollOffset = max(0, scrollOffset - terminalHeight / 2)
         case .click(let row, _):
             let clickedIndex = row - Self.portfolioHeaderLines - 1 + scrollOffset
             if clickedIndex >= 0, clickedIndex < projectIDs.count {

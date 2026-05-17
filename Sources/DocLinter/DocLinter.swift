@@ -34,7 +34,7 @@ public struct DocLinter: QualityChecker, Sendable {
 
         let projectRoot = FileManager.default.currentDirectoryPath
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
-        let packageContent = (try? String(contentsOfFile: packagePath, encoding: .utf8)) ?? ""
+        let packageContent = (try? String(contentsOfFile: packagePath, encoding: .utf8)) ?? "" // silent: missing Package.swift handled by empty fallback
 
         if let target = Self.resolveDocTarget(
             configured: configuration.docTarget,
@@ -208,7 +208,7 @@ public struct DocLinter: QualityChecker, Sendable {
     public static func parseLibraryTarget(from packageContent: String) -> String? {
         guard !packageContent.isEmpty else { return nil }
         let pattern = #"\.library\s*\([\s\S]*?targets:\s*\[\s*"([^"]+)""#
-        guard let regex = try? NSRegularExpression(
+        guard let regex = try? NSRegularExpression( // silent: invalid regex returns nil handled by guard
             pattern: pattern,
             options: [.dotMatchesLineSeparators]
         ) else { return nil }

@@ -83,6 +83,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         var allRecords: [FunctionComplexityRecord] = []
         let callGraphEnabled = configuration.complexity.callGraphEnabled
         let maxDepth = configuration.complexity.callGraphMaxDepth
+        let userCosts = Self.buildUserCostDictionary(from: configuration.complexity.knownCosts)
 
         guard fileManager.fileExists(atPath: sourcesPath), // SAFETY: CLI tool reads local project sources
               let enumerator = fileManager.enumerator(atPath: sourcesPath) else {
@@ -100,7 +101,8 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
                 let records = CallGraphAmplifier.analyze(
                     source: source,
                     moduleName: moduleName,
-                    maxDepth: maxDepth
+                    maxDepth: maxDepth,
+                    userCosts: userCosts
                 )
                 let withPaths = records.map { record in
                     FunctionComplexityRecord(
@@ -122,7 +124,8 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
                 let records = CognitiveComplexityVisitor.analyze(
                     source: source,
                     filePath: fullPath,
-                    moduleName: moduleName
+                    moduleName: moduleName,
+                    userCosts: userCosts
                 )
                 allRecords.append(contentsOf: records)
             }
@@ -137,20 +140,32 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         filePath: String = "<test>",
         moduleName: String = "Test",
         callGraphEnabled: Bool = false,
-        callGraphMaxDepth: Int = 1
+        callGraphMaxDepth: Int = 1,
+        userCosts: [String: String] = [:]
     ) -> [FunctionComplexityRecord] {
         if callGraphEnabled {
             return CallGraphAmplifier.analyze(
                 source: source,
                 moduleName: moduleName,
-                maxDepth: callGraphMaxDepth
+                maxDepth: callGraphMaxDepth,
+                userCosts: userCosts
             )
         }
         return CognitiveComplexityVisitor.analyze(
             source: source,
             filePath: filePath,
-            moduleName: moduleName
+            moduleName: moduleName,
+            userCosts: userCosts
         )
+    }
+
+    /// Builds a dictionary from KnownCostEntry array for efficient lookup.
+    static func buildUserCostDictionary(from entries: [QualityGateCore.KnownCostEntry]) -> [String: String] {
+        var dict: [String: String] = [:]
+        for entry in entries {
+            dict[entry.pattern] = entry.cost
+        }
+        return dict
     }
 
     private func extractModuleName(from relativePath: String) -> String {

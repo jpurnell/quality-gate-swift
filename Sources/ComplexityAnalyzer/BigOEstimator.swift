@@ -1,3 +1,4 @@
+import Foundation
 import SwiftSyntax
 import SwiftParser
 import SwiftOperators
@@ -14,9 +15,14 @@ struct BigOEstimator {
         let confidence: EstimationConfidence
     }
 
-    /// Estimates the Big-O complexity of a function body.
-    static func estimate(body: CodeBlockSyntax) -> Estimate {
-        let visitor = BigOVisitor()
+    /// Estimates the Big-O complexity of a function body, consulting user-declared costs first.
+    ///
+    /// - Parameters:
+    ///   - body: The function body to analyze.
+    ///   - userCosts: User-declared pattern-to-cost mappings from configuration.
+    /// - Returns: The estimated complexity with basis and confidence.
+    static func estimate(body: CodeBlockSyntax, userCosts: [String: String] = [:]) -> Estimate {
+        let visitor = BigOVisitor(userCosts: userCosts)
         visitor.walk(body)
 
         let maxLoopDepth = visitor.maxLoopDepth
@@ -84,8 +90,10 @@ private final class BigOVisitor: SyntaxVisitor {
 
     private var currentLoopDepth: Int = 0
     private var inLoopBody: Bool = false
+    private let userCosts: [String: String]
 
-    init() {
+    init(userCosts: [String: String] = [:]) {
+        self.userCosts = userCosts
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -129,7 +137,24 @@ private final class BigOVisitor: SyntaxVisitor {
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         let methodName = node.declName.baseName.text
 
-        if let cost = StdlibCostTable.cost(for: methodName) {
+        // Build a qualified name (e.g., "receiver.method") for user cost matching
+        let qualifiedName: String
+        if let base = node.base?.description.trimmingCharacters(in: .whitespacesAndNewlines) {
+            qualifiedName = "\(base).\(methodName)"
+        } else {
+            qualifiedName = methodName
+        }
+
+        if let cost = StdlibCostTable.cost(for: qualifiedName, userCosts: userCosts) {
+            let effectiveCost: String
+            if inLoopBody {
+                effectiveCost = amplify(cost, byLoopDepth: currentLoopDepth)
+            } else {
+                effectiveCost = cost
+            }
+            stdlibBasis.append(.stdlibOperation(name: methodName, cost: cost))
+            updateHighestCost(effectiveCost)
+        } else if let cost = StdlibCostTable.cost(for: methodName, userCosts: userCosts) {
             let effectiveCost: String
             if inLoopBody {
                 effectiveCost = amplify(cost, byLoopDepth: currentLoopDepth)

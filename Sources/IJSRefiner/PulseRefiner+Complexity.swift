@@ -119,6 +119,66 @@ extension PulseRefiner {
         return trends
     }
 
+    /// Detects ViolationClusters from recurring complexity anti-patterns.
+    ///
+    /// Unlike the standard cluster detection (which scans failed diagnostics),
+    /// this method scans ComplexityReport pattern breakdowns since complexity
+    /// is advisory-only and never fails.
+    public func detectComplexityClusters(
+        from reports: [ComplexityReport],
+        previousClusters: [ViolationCluster]
+    ) -> [ViolationCluster] {
+        var patternOccurrences: [String: Int] = [:]
+        var patternProjects: [String: Set<String>] = [:]
+
+        for report in reports {
+            for (pattern, count) in report.summary.patternBreakdown {
+                patternOccurrences[pattern, default: 0] += count
+                patternProjects[pattern, default: []].insert(report.projectID)
+            }
+        }
+
+        let previousRuleIds = Set(previousClusters.map(\.ruleId))
+
+        return patternOccurrences
+            .filter { $0.value >= 2 }
+            .map { (pattern, count) in
+                let ruleId = "complexity.\(pattern)"
+                return ViolationCluster(
+                    ruleId: ruleId,
+                    occurrenceCount: count,
+                    affectedProjectCount: patternProjects[pattern]?.count ?? 0,
+                    dominantRootCause: nil,
+                    dominantFailedStep: nil,
+                    isRecurring: previousRuleIds.contains(ruleId)
+                )
+            }
+            .sorted { $0.occurrenceCount > $1.occurrenceCount }
+    }
+
+    /// Detects patterns that appear across multiple projects.
+    ///
+    /// Returns pattern names that occur in 2+ distinct projects, indicating
+    /// a systemic gap in team knowledge rather than a project-specific issue.
+    public func detectCrossProjectPatterns(
+        projectReports: [String: [ComplexityReport]]
+    ) -> [String] {
+        var patternToProjects: [String: Set<String>] = [:]
+
+        for (projectID, reports) in projectReports {
+            for report in reports {
+                for pattern in report.summary.patternBreakdown.keys {
+                    patternToProjects[pattern, default: []].insert(projectID)
+                }
+            }
+        }
+
+        return patternToProjects
+            .filter { $0.value.count >= 2 }
+            .keys
+            .sorted()
+    }
+
     // MARK: - Private
 
     private func collectPatternNames(from reports: [ComplexityReport]) -> Set<String> {

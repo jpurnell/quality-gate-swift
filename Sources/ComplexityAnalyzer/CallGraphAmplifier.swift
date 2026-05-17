@@ -9,9 +9,9 @@ import SwiftParser
 struct CallGraphAmplifier {
 
     /// Analyzes source with call-graph amplification applied.
-    static func analyze(source: String, moduleName: String, maxDepth: Int = 1) -> [FunctionComplexityRecord] {
+    static func analyze(source: String, moduleName: String, maxDepth: Int = 1, userCosts: [String: String] = [:]) -> [FunctionComplexityRecord] {
         let analyzer = ComplexityAnalyzer()
-        var records = analyzer.analyzeSource(source, moduleName: moduleName)
+        var records = analyzer.analyzeSource(source, moduleName: moduleName, userCosts: userCosts)
         let graph = CallGraphBuilder.build(source: source, moduleName: moduleName)
 
         let costMap = buildCostMap(from: records, graph: graph, maxDepth: maxDepth)

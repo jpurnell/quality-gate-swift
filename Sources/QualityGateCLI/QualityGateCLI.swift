@@ -81,6 +81,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Generate initial status documents from actual project state (use with --check status)")
     var bootstrap: Bool = false
 
+    @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
+    var threshold: Int?
+
     func run() async throws {
         // Load configuration
         var configuration: Configuration
@@ -122,6 +125,18 @@ struct QualityGateCLI: AsyncParsableCommand {
                 build: configuration.build,
                 consistency: configuration.consistency,
                 overrides: configuration.overrides
+            )
+        }
+
+        if let thresholdOverride = threshold {
+            configuration.complexity = ComplexityAnalyzerConfig(
+                cognitiveThreshold: thresholdOverride,
+                reportTopN: configuration.complexity.reportTopN,
+                moduleThresholds: configuration.complexity.moduleThresholds,
+                emitToCorpus: configuration.complexity.emitToCorpus,
+                callGraphEnabled: configuration.complexity.callGraphEnabled,
+                callGraphMaxDepth: configuration.complexity.callGraphMaxDepth,
+                knownCosts: configuration.complexity.knownCosts
             )
         }
 
@@ -177,7 +192,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else if !configuration.enabledCheckers.isEmpty {
             effectiveCheckers = configuration.enabledCheckers
         } else {
-            let optOutCheckers: Set<String> = ["disk-clean", "mcp-readiness", "consistency", "complexity"]
+            let optOutCheckers: Set<String> = ["disk-clean"]
             effectiveCheckers = allCheckers.map(\.id).filter { !optOutCheckers.contains($0) }
         }
 

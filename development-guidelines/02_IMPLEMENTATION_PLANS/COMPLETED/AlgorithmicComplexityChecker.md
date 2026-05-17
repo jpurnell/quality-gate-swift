@@ -1,7 +1,7 @@
 # Algorithmic Complexity Checker
 
 **Date:** 2026-05-16
-**Status:** Approved
+**Status:** Completed (2026-05-16)
 **Context:** Advisory-only checker that measures cognitive complexity and estimates Big-O per function, then feeds structured metrics into the IJS corpus for trend analysis and institutional pattern detection. Unlike existing quality-gate auditors, this checker never fails a build — it produces telemetry that becomes actionable through the Pulse refiner over time.
 
 ---
