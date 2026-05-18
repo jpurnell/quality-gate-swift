@@ -207,10 +207,27 @@ public struct TestRunner: QualityChecker, Sendable {
         exitCode: Int32,
         duration: Duration
     ) -> CheckResult {
-        let diagnostics = parseTestOutput(output)
+        var diagnostics = parseTestOutput(output)
 
-        // Tests failed if exit code is non-zero
-        let status: CheckResult.Status = exitCode == 0 ? .passed : .failed
+        let status: CheckResult.Status
+        if exitCode == 0 {
+            status = .passed
+        } else {
+            let hasTestFailures = !diagnostics.isEmpty
+            let summary = parseTestSummary(output)
+            let allTestsPassed = summary.map { $0.failedTests == 0 } ?? false
+
+            if !hasTestFailures && allTestsPassed && isCodeSigningError(output) {
+                status = .passed
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Ad-hoc code signing failed (tests passed)",
+                    ruleId: "test-codesign"
+                ))
+            } else {
+                status = .failed
+            }
+        }
 
         return CheckResult(
             checkerId: "test",
@@ -218,6 +235,10 @@ public struct TestRunner: QualityChecker, Sendable {
             diagnostics: diagnostics,
             duration: duration
         )
+    }
+
+    private static func isCodeSigningError(_ output: String) -> Bool {
+        output.contains("Code Signing subsystem") || output.contains("codesign failed")
     }
 
     /// Generate test arguments based on configuration.
