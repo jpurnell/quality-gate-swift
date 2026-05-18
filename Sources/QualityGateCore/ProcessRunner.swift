@@ -3,12 +3,12 @@ import Foundation
 /// Runs a child process and captures its output without pipe-buffer deadlocks.
 ///
 /// Foundation's `Process` with `Pipe` can deadlock when the child process
-/// produces more output than the pipe buffer (~64 KB). The standard pattern
-/// of `process.waitUntilExit()` then `pipe.readDataToEndOfFile()` blocks
-/// because the process can't exit while the buffer is full, and the caller
-/// can't drain the buffer while waiting for exit.
+/// produces more output than the pipe buffer (~64 KB). Reading stdout then
+/// stderr sequentially blocks if the child fills stderr before closing
+/// stdout — the child blocks on stderr write while the caller blocks
+/// waiting for stdout EOF.
 ///
-/// This helper reads stdout and stderr concurrently in the background,
+/// This helper reads stdout and stderr concurrently on background threads,
 /// then waits for the process to finish.
 public enum ProcessRunner: Sendable {
     /// Result of running a process.
@@ -57,8 +57,23 @@ public enum ProcessRunner: Sendable {
 
         try process.run()
 
+        // Read stdout and stderr concurrently to prevent pipe-buffer deadlock.
+        // If either pipe's buffer fills (~64 KB) while the other is being read
+        // sequentially, the child blocks on write and the caller blocks on read.
+        var stderrData = Data()
+        let stderrQueue = DispatchQueue(label: "quality-gate.stderr-reader")
+        let stderrGroup = DispatchGroup()
+
+        if let stderrPipe {
+            stderrGroup.enter()
+            stderrQueue.async {
+                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                stderrGroup.leave()
+            }
+        }
+
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe?.fileHandleForReading.readDataToEndOfFile() ?? Data()
+        stderrGroup.wait()
 
         process.waitUntilExit()
 
