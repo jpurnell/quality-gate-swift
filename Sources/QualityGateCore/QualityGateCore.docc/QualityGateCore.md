@@ -42,8 +42,6 @@ QualityGateCore defines the contract that all quality checkers implement, along 
 ### Essentials
 
 - ``QualityChecker``
-- ``CheckResult``
-- ``Diagnostic``
 
 ### Configuration
 

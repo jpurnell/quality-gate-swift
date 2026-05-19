@@ -1,4 +1,5 @@
 import Foundation
+import IJSAggregator
 import IJSDashboardCore
 import IJSSensor
 
@@ -15,13 +16,27 @@ public enum DashboardRenderer: Sendable {
         lines.append("  IJS Portfolio Dashboard")
         lines.append("═══════════════════════════════════════════════")
         lines.append("")
-        lines.append("  \(portfolio.totalProjects) projects | \(portfolio.passingProjects) passing | \(portfolio.failingProjects) failing")
+        var statusParts = ["\(portfolio.totalProjects) active", "\(portfolio.passingProjects) passing", "\(portfolio.failingProjects) failing"]
+        if portfolio.sunsetProjects > 0 {
+            statusParts.append("\(portfolio.sunsetProjects) sunset")
+        }
+        lines.append("  " + statusParts.joined(separator: " | "))
+
+        if let pulse {
+            let stats = pulse.statistics
+            let passRateStr = stats.passRate.formatted(.number.precision(.fractionLength(1)))
+            lines.append("  Pulse \(pulse.weekLabel)   Gate Runs: \(stats.totalGateRuns)   Pass Rate: \(passRateStr)%   Overrides: \(stats.totalOverrides)   Calibrations: \(stats.totalCalibrations)\(stats.meanConsistencyScore.map { "   Consistency: \($0.formatted(.number.precision(.fractionLength(2))))" } ?? "")")
+        }
+
         lines.append("")
 
-        if !projects.isEmpty {
+        let active = projects.filter { $0.lifecycle == .active }
+        let sunset = projects.filter { $0.lifecycle == .sunset }
+
+        if !active.isEmpty {
             lines.append("  Project                  Status   Pass Rate   Runs")
             lines.append("  ─────────────────────────────────────────────────────")
-            for project in projects.sorted(by: { $0.passRate > $1.passRate }) {
+            for project in active.sorted(by: { $0.passRate > $1.passRate }) {
                 let status = project.latestPassed ? "✓" : "✗"
                 let rate = formatPercent(project.passRate)
                 let name = project.projectID.prefix(24).padding(toLength: 24, withPad: " ", startingAt: 0)
@@ -38,18 +53,19 @@ public enum DashboardRenderer: Sendable {
             lines.append("")
         }
 
+        if !sunset.isEmpty {
+            lines.append("  ─────────────────────────────────────────────────────")
+            lines.append("  Sunset Projects (\(sunset.count)):")
+            let names = sunset.sorted(by: { $0.projectID < $1.projectID }).map(\.projectID)
+            for chunk in stride(from: 0, to: names.count, by: 3) {
+                let end = min(chunk + 3, names.count)
+                lines.append("    " + names[chunk..<end].joined(separator: ", "))
+            }
+            lines.append("")
+        }
+
         if let pulse {
             lines.append("  ─────────────────────────────────────────────────────")
-            lines.append("  Pulse \(pulse.weekLabel)")
-            lines.append("")
-            let stats = pulse.statistics
-            let passRateStr = stats.passRate.formatted(.number.precision(.fractionLength(1)))
-            lines.append("  Gate Runs: \(stats.totalGateRuns)   Pass Rate: \(passRateStr)%")
-            lines.append("  Overrides: \(stats.totalOverrides)   Calibrations: \(stats.totalCalibrations)")
-            if let score = stats.meanConsistencyScore {
-                let scoreStr = score.formatted(.number.precision(.fractionLength(2)))
-                lines.append("  Consistency: \(scoreStr)")
-            }
             lines.append("")
 
             if !pulse.violationClusters.isEmpty {
@@ -61,9 +77,9 @@ public enum DashboardRenderer: Sendable {
                 lines.append("")
             }
 
-            if !stats.anomalies.isEmpty {
+            if !pulse.statistics.anomalies.isEmpty {
                 lines.append("  Anomalies:")
-                for anomaly in stats.anomalies {
+                for anomaly in pulse.statistics.anomalies {
                     let direction = anomaly.direction == .negative ? "↓" : "↑"
                     let zStr = abs(anomaly.zScore).formatted(.number.precision(.fractionLength(2)))
                     lines.append("    ⚠ \(anomaly.metric): z=\(zStr) (\(anomaly.severity.rawValue), \(direction))")

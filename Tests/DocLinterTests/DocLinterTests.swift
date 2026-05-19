@@ -297,4 +297,353 @@ struct DocLinterTests {
         )
         #expect(resolved == "MyLib")
     }
+
+    // MARK: - Parameter Name Extraction Tests
+
+    @Test("Extracts parameter name from missing-documentation message")
+    func extractsParamNameMissingDoc() {
+        let name = DocLinter.extractParameterName(
+            from: "Parameter 'config' is missing documentation"
+        )
+        #expect(name == "config")
+    }
+
+    @Test("Extracts parameter name from not-found message")
+    func extractsParamNameNotFound() {
+        let name = DocLinter.extractParameterName(
+            from: "Parameter 'expertFiles' not found in instance method declaration"
+        )
+        #expect(name == "expertFiles")
+    }
+
+    @Test("Returns nil for non-parameter message")
+    func returnsNilForNonParameterMessage() {
+        let name = DocLinter.extractParameterName(
+            from: "Symbol 'foo' is undocumented"
+        )
+        #expect(name == nil)
+    }
+
+    // MARK: - Diagnostic Location Enrichment Tests
+
+    @Test("Enriches parameter diagnostic with source location")
+    func enrichesParameterDiagnostic() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
+        let sourcesDir = tmpDir.appendingPathComponent("Sources/MyLib")
+        try FileManager.default.createDirectory(
+            at: sourcesDir,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sourceContent = """
+        /// A greeter.
+        public struct Greeter {
+            /// Greets someone.
+            public func greet(config: Config, name: String) {
+                print("hello")
+            }
+        }
+        """
+        try sourceContent.write(
+            to: sourcesDir.appendingPathComponent("Greeter.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "Parameter 'config' is missing documentation",
+                ruleId: "docc"
+            )
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: tmpDir.path
+        )
+
+        #expect(enriched.count == 1)
+        #expect(enriched[0].filePath?.contains("Greeter.swift") == true)
+        #expect(enriched[0].lineNumber == 4)
+        #expect(enriched[0].message == "Parameter 'config' is missing documentation")
+    }
+
+    @Test("Finds parameter in multiline function signature")
+    func findsParameterInMultilineSignature() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
+        let sourcesDir = tmpDir.appendingPathComponent("Sources/MyLib")
+        try FileManager.default.createDirectory(
+            at: sourcesDir,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sourceContent = """
+        /// Processes data.
+        public func process(
+            input: Data,
+            config: Configuration,
+            verbose: Bool
+        ) -> Result {
+            fatalError()
+        }
+        """
+        try sourceContent.write(
+            to: sourcesDir.appendingPathComponent("Processor.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "Parameter 'config' is missing documentation",
+                ruleId: "docc"
+            )
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: tmpDir.path
+        )
+
+        #expect(enriched.count == 1)
+        #expect(enriched[0].filePath?.contains("Processor.swift") == true)
+        #expect(enriched[0].lineNumber == 4)
+    }
+
+    @Test("Does not modify diagnostics that already have locations")
+    func preservesExistingLocations() {
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "Parameter 'x' is missing documentation",
+                filePath: "/existing/path.swift",
+                lineNumber: 42,
+                ruleId: "docc"
+            )
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: "/nonexistent"
+        )
+
+        #expect(enriched[0].filePath == "/existing/path.swift")
+        #expect(enriched[0].lineNumber == 42)
+    }
+
+    @Test("Distributes multiple locations for same parameter name")
+    func distributesMultipleLocations() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
+        let sourcesDir = tmpDir.appendingPathComponent("Sources/MyLib")
+        try FileManager.default.createDirectory(
+            at: sourcesDir,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sourceContent = """
+        /// First function.
+        public func alpha(config: Config) {}
+
+        /// Second function.
+        public func beta(config: Config) {}
+        """
+        try sourceContent.write(
+            to: sourcesDir.appendingPathComponent("Funcs.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "Parameter 'config' is missing documentation",
+                ruleId: "docc"
+            ),
+            Diagnostic(
+                severity: .warning,
+                message: "Parameter 'config' is missing documentation",
+                ruleId: "docc"
+            ),
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: tmpDir.path
+        )
+
+        #expect(enriched[0].filePath?.contains("Funcs.swift") == true)
+        #expect(enriched[1].filePath?.contains("Funcs.swift") == true)
+        #expect(enriched[0].lineNumber == 2)
+        #expect(enriched[1].lineNumber == 5)
+    }
+
+    @Test("Finds doc-comment parameter for not-found warnings")
+    func findsDocCommentParameter() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
+        let sourcesDir = tmpDir.appendingPathComponent("Sources/MyLib")
+        try FileManager.default.createDirectory(
+            at: sourcesDir,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sourceContent = """
+        /// Does something.
+        ///
+        /// - Parameter expertFiles: The files to use.
+        public func doStuff(files: [URL]) {}
+        """
+        try sourceContent.write(
+            to: sourcesDir.appendingPathComponent("Stuff.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "Parameter 'expertFiles' not found in instance method declaration",
+                ruleId: "docc"
+            )
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: tmpDir.path
+        )
+
+        #expect(enriched[0].filePath?.contains("Stuff.swift") == true)
+        #expect(enriched[0].lineNumber == 3)
+    }
+
+    // MARK: - Symbol Reference Extraction Tests
+
+    @Test("Extracts symbol reference from doesn't-exist message")
+    func extractsSymbolReference() {
+        let ref = DocLinter.extractSymbolReference(
+            from: "'CheckResult' doesn't exist at '/QualityGateCore/OverrideProcessor'"
+        )
+        #expect(ref?.symbol == "CheckResult")
+        #expect(ref?.contextPath == "/QualityGateCore/OverrideProcessor")
+    }
+
+    @Test("Extracts symbol reference with method context")
+    func extractsSymbolReferenceWithMethod() {
+        let ref = DocLinter.extractSymbolReference(
+            from: "'CheckResult' doesn't exist at '/QualityGateCore/OverrideProcessor/apply(to:)'"
+        )
+        #expect(ref?.symbol == "CheckResult")
+        #expect(ref?.contextPath == "/QualityGateCore/OverrideProcessor/apply(to:)")
+    }
+
+    @Test("Returns nil for non-symbol-reference message")
+    func returnsNilForNonSymbolMessage() {
+        let ref = DocLinter.extractSymbolReference(
+            from: "Parameter 'config' is missing documentation"
+        )
+        #expect(ref == nil)
+    }
+
+    // MARK: - Symbol Reference Location Enrichment Tests
+
+    @Test("Enriches symbol-reference diagnostic with source location")
+    func enrichesSymbolReferenceDiagnostic() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
+        let sourcesDir = tmpDir.appendingPathComponent("Sources/QualityGateCore")
+        try FileManager.default.createDirectory(
+            at: sourcesDir,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sourceContent = """
+        /// Applies overrides to a result.
+        ///
+        /// Processes each ``CheckResult`` and filters diagnostics.
+        public struct OverrideProcessor {
+            /// Applies overrides.
+            ///
+            /// - Parameter result: The ``CheckResult`` to process.
+            public func apply(to result: CheckResult) -> CheckResult {
+                result
+            }
+        }
+        """
+        try sourceContent.write(
+            to: sourcesDir.appendingPathComponent("OverrideProcessor.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "'CheckResult' doesn't exist at '/QualityGateCore/OverrideProcessor'",
+                ruleId: "docc"
+            ),
+            Diagnostic(
+                severity: .warning,
+                message: "'CheckResult' doesn't exist at '/QualityGateCore/OverrideProcessor/apply(to:)'",
+                ruleId: "docc"
+            ),
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: tmpDir.path
+        )
+
+        #expect(enriched[0].filePath?.contains("OverrideProcessor.swift") == true)
+        #expect(enriched[0].lineNumber == 3)
+        #expect(enriched[1].filePath?.contains("OverrideProcessor.swift") == true)
+        #expect(enriched[1].lineNumber == 7)
+    }
+
+    @Test("Enriches symbol-reference using single backtick format")
+    func enrichesSingleBacktickSymbolRef() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
+        let sourcesDir = tmpDir.appendingPathComponent("Sources/MyModule")
+        try FileManager.default.createDirectory(
+            at: sourcesDir,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sourceContent = """
+        /// Converts a `Widget` to output.
+        public func convert() {}
+        """
+        try sourceContent.write(
+            to: sourcesDir.appendingPathComponent("Converter.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = [
+            Diagnostic(
+                severity: .warning,
+                message: "'Widget' doesn't exist at '/MyModule/convert()'",
+                ruleId: "docc"
+            )
+        ]
+
+        let enriched = DocLinter.enrichDiagnosticsWithLocations(
+            diagnostics,
+            sourceRoot: tmpDir.path
+        )
+
+        #expect(enriched[0].filePath?.contains("Converter.swift") == true)
+        #expect(enriched[0].lineNumber == 1)
+    }
 }

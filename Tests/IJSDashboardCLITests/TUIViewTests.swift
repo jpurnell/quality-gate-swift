@@ -3,6 +3,7 @@ import Foundation
 @testable import IJSDashboardCLI
 @testable import IJSDashboardCore
 @testable import IJSSensor
+import IJSAggregator
 import QualityGateTypes
 import SwiftCLIKit
 
@@ -177,6 +178,198 @@ struct TUIViewTests {
         #expect(output.contains("Checkers"))
         #expect(output.contains("Trends"))
     }
+    // MARK: - Sunset Lifecycle
+
+    @Test("Portfolio view shows active and sunset counts in status line")
+    func portfolioSunsetCounts() {
+        let active = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.8),
+        ]
+        let sunset = [
+            makeProjectSummary(id: "gamma", passRate: 0.0, lifecycle: .sunset),
+        ]
+        let projects = active + sunset
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let state = DashboardState(projectIDs: active.map(\.projectID))
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: [:],
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("2 active"))
+        #expect(output.contains("1 sunset"))
+    }
+
+    @Test("Portfolio view only shows active projects in main table")
+    func portfolioActiveOnly() {
+        let active = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+        ]
+        let sunset = [
+            makeProjectSummary(id: "retired-proj", passRate: 0.0, lifecycle: .sunset),
+        ]
+        let projects = active + sunset
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let state = DashboardState(projectIDs: active.map(\.projectID))
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: [:],
+            state: state,
+            width: 80
+        )
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let headerIdx = lines.firstIndex(where: { $0.contains("Project") && $0.contains("Status") })
+        let sunsetIdx = lines.firstIndex(where: { $0.contains("Sunset") })
+        if let headerIdx, let sunsetIdx {
+            let mainTableLines = lines[headerIdx..<sunsetIdx].joined()
+            #expect(!mainTableLines.contains("retired-proj"))
+        }
+        #expect(output.contains("retired-proj"))
+    }
+
+    @Test("Portfolio view shows sunset section when sunset projects exist")
+    func portfolioSunsetSection() {
+        let sunset = [
+            makeProjectSummary(id: "old-proj", passRate: 0.0, lifecycle: .sunset),
+        ]
+        let active = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+        ]
+        let projects = active + sunset
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let state = DashboardState(projectIDs: active.map(\.projectID))
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: [:],
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("Sunset"))
+        #expect(output.contains("old-proj"))
+    }
+
+    @Test("Portfolio view sorts by pass rate when sort key is passRate")
+    func portfolioSortsByPassRate() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.3),
+            makeProjectSummary(id: "gamma", passRate: 0.7),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["alpha", "beta", "gamma"])
+        // Cycle to passRate sort key: name → status → passRate
+        state.handleInput(.cycleSort) // → .status
+        state.handleInput(.cycleSort) // → .passRate (ascending)
+        #expect(state.sortKey == .passRate)
+        let sortedIDs = PortfolioTUIView.sortedActiveIDs(
+            from: projects, sortKey: state.sortKey, sortAscending: state.sortAscending
+        )
+        state.updateProjectIDs(sortedIDs)
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: [:],
+            state: state,
+            width: 80
+        )
+
+        // Strip ANSI codes to get plain text for ordering check
+        let plain = output.replacingOccurrences(of: "\u{001B}\\[[^m]*m", with: "", options: .regularExpression)
+        if let betaRange = plain.range(of: "beta"),
+           let gammaRange = plain.range(of: "gamma"),
+           let alphaRange = plain.range(of: "alpha") {
+            // Ascending passRate: beta (0.3) < gamma (0.7) < alpha (1.0)
+            #expect(betaRange.lowerBound < gammaRange.lowerBound)
+            #expect(gammaRange.lowerBound < alphaRange.lowerBound)
+        }
+    }
+
+    @Test("Portfolio view hides sunset section when no sunset projects")
+    func portfolioNoSunsetSection() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.8),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let state = DashboardState(projectIDs: ["alpha", "beta"])
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: [:],
+            state: state,
+            width: 80
+        )
+        #expect(!output.contains("Sunset"))
+    }
+
+    // MARK: - Compact Pulse Header
+
+    @Test("Portfolio view shows compact pulse stats before project table")
+    func portfolioCompactPulseHeader() throws {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.8),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let state = DashboardState(projectIDs: ["alpha", "beta"])
+
+        let stats = PulseStatistics(
+            totalGateRuns: 688,
+            passedRuns: 132,
+            failedRuns: 556,
+            totalOverrides: 0,
+            totalCalibrations: 0,
+            overridesByRiskTier: [:],
+            failuresByChecker: [:],
+            rootCauseDistribution: [:],
+            failedStepDistribution: [:],
+            meanConsistencyScore: 0.85,
+            corpusTrends: [],
+            projectTrends: [:],
+            anomalies: [],
+            corpusSnapshots: [],
+            projectSnapshots: [:]
+        )
+        let pulse = InstitutionalPulse(
+            windowStart: Date(timeIntervalSince1970: 1747267200),
+            windowEnd: Date(timeIntervalSince1970: 1747872000),
+            weekLabel: "W20",
+            projects: ["alpha", "beta"],
+            statistics: stats,
+            violationClusters: [],
+            proposedPolicyUpdates: [],
+            calibrationSummaries: [],
+            narrative: nil,
+            generatedAt: Date(timeIntervalSince1970: 1747872000)
+        )
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: [:],
+            state: state,
+            width: 80,
+            pulse: pulse
+        )
+
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        // Find indices of the compact pulse line and the project table header
+        let pulseLineIdx = lines.firstIndex(where: { $0.contains("Pulse") && $0.contains("688") })
+        let tableHeaderIdx = lines.firstIndex(where: { $0.contains("Project") && $0.contains("Status") })
+
+        let pulseIdx = try #require(pulseLineIdx, "Expected compact pulse stats line to be present")
+        let tableIdx = try #require(tableHeaderIdx, "Expected project table header to be present")
+
+        #expect(pulseIdx < tableIdx, "Compact pulse stats should appear before the project table header")
+    }
+
     // MARK: - Scroll Clipping
 
     @Test("Detail checkers tab with many checkers exceeds typical terminal height")
@@ -233,6 +426,62 @@ struct TUIViewTests {
             #expect(visLen <= width, "Line \(idx) visible length \(visLen) exceeds width \(width)")
         }
     }
+    // MARK: - Sort-Aware Project IDs
+
+    @Test("sortedActiveIDs returns IDs in pass rate order")
+    func sortedActiveIDsByPassRate() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.3),
+            makeProjectSummary(id: "gamma", passRate: 0.7),
+        ]
+        let ids = PortfolioTUIView.sortedActiveIDs(
+            from: projects, sortKey: .passRate, sortAscending: true
+        )
+        #expect(ids == ["beta", "gamma", "alpha"])
+    }
+
+    @Test("sortedActiveIDs excludes sunset projects")
+    func sortedActiveIDsExcludesSunset() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.5, lifecycle: .sunset),
+        ]
+        let ids = PortfolioTUIView.sortedActiveIDs(
+            from: projects, sortKey: .name, sortAscending: true
+        )
+        #expect(ids == ["alpha"])
+    }
+
+    @Test("drill-in after sort selects correct project")
+    func drillInAfterSort() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0),
+            makeProjectSummary(id: "beta", passRate: 0.3),
+            makeProjectSummary(id: "gamma", passRate: 0.7),
+        ]
+        var state = DashboardState(projectIDs: ["alpha", "beta", "gamma"])
+
+        state.handleInput(.cycleSort)
+        state.handleInput(.cycleSort)
+        let ids = PortfolioTUIView.sortedActiveIDs(
+            from: projects, sortKey: state.sortKey, sortAscending: state.sortAscending
+        )
+        state.updateProjectIDs(ids)
+
+        #expect(state.sortKey == .passRate)
+        // ids is [beta, gamma, alpha] (ascending pass rate)
+        #expect(ids == ["beta", "gamma", "alpha"])
+        // selection preserved on "alpha" which is now at index 2
+        #expect(state.selectedProjectID == "alpha")
+        // navigate to first row, then drill in — should get beta
+        state.handleInput(.arrowUp)
+        state.handleInput(.arrowUp)
+        #expect(state.selectedIndex == 0)
+        state.handleInput(.enter)
+        #expect(state.selectedProjectID == "beta")
+        #expect(state.currentView == .projectDetail)
+    }
 }
 
 // MARK: - Test Helpers
@@ -242,7 +491,8 @@ private func makeProjectSummary(
     passRate: Double,
     runCount: Int = 10,
     checkerRates: [String: Double] = ["safety": 1.0],
-    overrides: Int = 0
+    overrides: Int = 0,
+    lifecycle: ProjectLifecycle = .active
 ) -> ProjectSummary {
     let latestPassed = passRate > 0.5
     let passingRunCount = Int((Double(runCount) * passRate).rounded())
@@ -297,7 +547,7 @@ private func makeProjectSummary(
             )
         )
     }
-    return ProjectSummary.compute(projectID: id, from: runs)
+    return ProjectSummary.compute(projectID: id, from: runs, lifecycle: lifecycle)
 }
 
 private func makeTrends() -> [TrendPoint] {

@@ -299,6 +299,61 @@ struct BuildCheckerTests {
         #expect(args.contains("-solver-expression-time-threshold=250"))
     }
 
+    // MARK: - Code Signing Resilience Tests
+
+    @Test("Passes when only code signing fails")
+    func passesOnCodeSigningError() {
+        let output = """
+        Building for debugging...
+        [42/42] Linking quality-gate
+        /path/to/.build/debug/quality-gate: internal error in Code Signing subsystem
+        """
+
+        let result = BuildChecker.createResult(
+            output: output,
+            exitCode: 1,
+            duration: .seconds(20)
+        )
+
+        #expect(result.status == .passed)
+        let warnings = result.diagnostics.filter { $0.severity == .warning }
+        #expect(warnings.count == 1)
+        #expect(warnings.first?.message.contains("code signing") == true)
+    }
+
+    @Test("Fails when compilation errors accompany code signing error")
+    func failsOnCompilationErrorsWithSigningError() {
+        let output = """
+        /path/to/File.swift:10:5: error: missing return
+        /path/to/.build/debug/quality-gate: internal error in Code Signing subsystem
+        """
+
+        let result = BuildChecker.createResult(
+            output: output,
+            exitCode: 1,
+            duration: .seconds(5)
+        )
+
+        #expect(result.status == .failed)
+    }
+
+    @Test("Passes on codesign failed variant")
+    func passesOnCodesignFailed() {
+        let output = """
+        Building for debugging...
+        [10/10] Linking my-tool
+        /path/to/.build/debug/my-tool: codesign failed
+        """
+
+        let result = BuildChecker.createResult(
+            output: output,
+            exitCode: 1,
+            duration: .seconds(3)
+        )
+
+        #expect(result.status == .passed)
+    }
+
     // MARK: - Error Message Quality Tests
 
     @Test("Provides actionable error messages")

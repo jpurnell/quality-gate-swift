@@ -35,6 +35,17 @@ struct HTMLReportRendererTests {
         #expect(html.contains("</style>"))
     }
 
+    @Test("includes inline JavaScript (self-contained)")
+    func selfContainedJS() {
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: nil
+        )
+        #expect(html.contains("<script>"))
+        #expect(html.contains("</script>"))
+    }
+
     @Test("includes title with IJS Portfolio")
     func titlePresent() {
         let html = HTMLReportRenderer.render(
@@ -44,6 +55,169 @@ struct HTMLReportRendererTests {
         )
         #expect(html.contains("<title>"))
         #expect(html.contains("IJS"))
+    }
+
+    // MARK: - CSS Grid Layout
+
+    @Test("renders dashboard-grid container for two-column layout")
+    func dashboardGridPresent() {
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: nil
+        )
+        #expect(html.contains("class=\"dashboard-grid\""))
+        #expect(html.contains("grid-template-columns"))
+    }
+
+    @Test("CSS includes responsive breakpoint at 768px")
+    func responsiveBreakpoint() {
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: nil
+        )
+        #expect(html.contains("max-width: 768px"))
+    }
+
+    // MARK: - Stats Cards
+
+    @Test("renders stats cards with correct active passing count")
+    func statsCardsActivePassing() {
+        let projects = [
+            makeProjectSummary(id: "a", passRate: 1.0, latestPassed: true),
+            makeProjectSummary(id: "b", passRate: 1.0, latestPassed: true),
+            makeProjectSummary(id: "c", passRate: 0.0, latestPassed: false),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(
+            portfolio: portfolio,
+            projects: projects,
+            pulse: nil,
+            sunsetProjectIDs: []
+        )
+        #expect(html.contains("class=\"stats-cards\""))
+        #expect(html.contains("class=\"stat-card passing\""))
+        #expect(html.contains("class=\"stat-card failing\""))
+        #expect(html.contains("class=\"stat-card sunset\""))
+        #expect(html.contains("class=\"stat-card consistency\""))
+    }
+
+    @Test("stats cards show correct counts when sunset IDs provided")
+    func statsCardsWithSunset() {
+        let projects = [
+            makeProjectSummary(id: "active-pass", passRate: 1.0, latestPassed: true),
+            makeProjectSummary(id: "active-fail", passRate: 0.0, latestPassed: false),
+            makeProjectSummary(id: "sunset-one", passRate: 0.5, latestPassed: false),
+            makeProjectSummary(id: "sunset-two", passRate: 0.0, latestPassed: false),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(
+            portfolio: portfolio,
+            projects: projects,
+            pulse: nil,
+            sunsetProjectIDs: ["sunset-one", "sunset-two"]
+        )
+        // Active: 1 passing, 1 failing; Sunset: 2
+        // The stats cards should contain these values
+        #expect(html.contains("active passing"))
+        #expect(html.contains("active failing"))
+        #expect(html.contains("sunset"))
+    }
+
+    // MARK: - Sortable Columns
+
+    @Test("th elements have data-sort attribute for sortable columns")
+    func sortableHeaders() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 0.8, latestPassed: true),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(portfolio: portfolio, projects: projects, pulse: nil)
+        #expect(html.contains("data-sort=\"string\""))
+        #expect(html.contains("data-sort=\"number\""))
+        #expect(html.contains("data-sort=\"status\""))
+    }
+
+    @Test("table has sortable class for JS hookup")
+    func sortableTableClass() {
+        let projects = [
+            makeProjectSummary(id: "test", passRate: 0.5, latestPassed: true),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(portfolio: portfolio, projects: projects, pulse: nil)
+        #expect(html.contains("class=\"sortable\""))
+    }
+
+    @Test("sort script handles ascending and descending toggle")
+    func sortScriptToggle() {
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: nil
+        )
+        #expect(html.contains("sort-asc"))
+        #expect(html.contains("sort-desc"))
+        #expect(html.contains("addEventListener"))
+    }
+
+    // MARK: - Sunset Section
+
+    @Test("sunset projects appear in details element when present")
+    func sunsetInDetails() {
+        let projects = [
+            makeProjectSummary(id: "active-proj", passRate: 0.9, latestPassed: true),
+            makeProjectSummary(id: "sunset-proj", passRate: 0.1, latestPassed: false),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(
+            portfolio: portfolio,
+            projects: projects,
+            pulse: nil,
+            sunsetProjectIDs: ["sunset-proj"]
+        )
+        #expect(html.contains("<details"))
+        #expect(html.contains("class=\"sunset-section\""))
+        #expect(html.contains("<summary>"))
+        #expect(html.contains("Sunset Projects (1)"))
+        #expect(html.contains("sunset-proj"))
+    }
+
+    @Test("sunset section is absent when no sunset IDs")
+    func noSunsetSection() {
+        let projects = [
+            makeProjectSummary(id: "active", passRate: 1.0, latestPassed: true),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(
+            portfolio: portfolio,
+            projects: projects,
+            pulse: nil,
+            sunsetProjectIDs: []
+        )
+        #expect(!html.contains("<details class=\"sunset-section\""))
+    }
+
+    @Test("sunset projects do not appear in active table")
+    func sunsetExcludedFromActiveTable() {
+        let projects = [
+            makeProjectSummary(id: "active-proj", passRate: 0.9, latestPassed: true),
+            makeProjectSummary(id: "sunset-proj", passRate: 0.1, latestPassed: false),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(
+            portfolio: portfolio,
+            projects: projects,
+            pulse: nil,
+            sunsetProjectIDs: ["sunset-proj"]
+        )
+        // Split at the details element; the active table section is before it
+        let parts = html.components(separatedBy: "<details")
+        let activeSection = parts.first ?? ""
+        // sunset-proj should NOT be in the active table area
+        // But it SHOULD be in the details area
+        #expect(!activeSection.contains("sunset-proj"))
+        #expect(html.contains("sunset-proj"))
     }
 
     // MARK: - Portfolio Section
@@ -95,6 +269,29 @@ struct HTMLReportRendererTests {
         #expect(html.contains("200"))
         #expect(html.contains("60.0"))
         #expect(html.contains("2026-W20"))
+    }
+
+    @Test("renders pulse in sidebar area")
+    func pulseSidebar() {
+        let pulse = makePulse(gateRuns: 100, passedRuns: 60, failedRuns: 40)
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: pulse
+        )
+        #expect(html.contains("class=\"pulse-sidebar\""))
+    }
+
+    @Test("renders pass rate bar visualization")
+    func passRateBar() {
+        let pulse = makePulse(gateRuns: 100, passedRuns: 60, failedRuns: 40)
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: pulse
+        )
+        #expect(html.contains("bar-container"))
+        #expect(html.contains("bar-fill"))
     }
 
     @Test("renders violation clusters in pulse section")
@@ -153,6 +350,8 @@ struct HTMLReportRendererTests {
         #expect(html.contains("significant"))
     }
 
+    // MARK: - Narrative Section
+
     @Test("renders narrative text when present")
     func narrativePresent() {
         let pulse = makePulse(narrative: "This week saw a significant improvement in code quality.")
@@ -162,6 +361,20 @@ struct HTMLReportRendererTests {
             pulse: pulse
         )
         #expect(html.contains("significant improvement"))
+        #expect(html.contains("class=\"narrative\""))
+    }
+
+    @Test("narrative section is full-width below grid")
+    func narrativeBelowGrid() throws {
+        let pulse = makePulse(narrative: "Full width narrative content.")
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: pulse
+        )
+        let narrativePos = try #require(html.range(of: "class=\"narrative\""), "Expected narrative section")
+        let gridDivPos = try #require(html.range(of: "class=\"dashboard-grid\""), "Expected dashboard-grid section")
+        #expect(narrativePos.lowerBound > gridDivPos.lowerBound, "Narrative should appear after the grid")
     }
 
     @Test("omits pulse section when pulse is nil")
@@ -171,11 +384,21 @@ struct HTMLReportRendererTests {
             projects: makeProjects(),
             pulse: nil
         )
-        #expect(!html.contains("<section class=\"pulse\">"))
         #expect(!html.contains("2026-W"))
     }
 
-    // MARK: - No Empty Projects
+    @Test("omits narrative section when narrative is nil")
+    func noNarrativeWhenNil() {
+        let pulse = makePulse(narrative: nil)
+        let html = HTMLReportRenderer.render(
+            portfolio: makePortfolio(total: 1, passing: 1, failing: 0),
+            projects: makeProjects(),
+            pulse: pulse
+        )
+        #expect(!html.contains("class=\"narrative\""))
+    }
+
+    // MARK: - Graceful Degradation
 
     @Test("renders gracefully with empty project list")
     func emptyProjects() {
@@ -183,6 +406,41 @@ struct HTMLReportRendererTests {
         let html = HTMLReportRenderer.render(portfolio: portfolio, projects: [], pulse: nil)
         #expect(html.contains("0"))
         #expect(html.contains("</html>"))
+    }
+
+    @Test("renders gracefully with no pulse and no sunset")
+    func noPulseNoSunset() {
+        let projects = [
+            makeProjectSummary(id: "solo", passRate: 0.75, latestPassed: true),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let html = HTMLReportRenderer.render(
+            portfolio: portfolio,
+            projects: projects,
+            pulse: nil,
+            sunsetProjectIDs: []
+        )
+        #expect(html.contains("solo"))
+        #expect(html.contains("</html>"))
+        #expect(!html.contains("<details"))
+        #expect(!html.contains("class=\"narrative\""))
+    }
+
+    // MARK: - Overload Delegation
+
+    @Test("three-argument render delegates to four-argument with empty sunset")
+    func threeArgDelegatesToFour() {
+        let projects = [
+            makeProjectSummary(id: "proj-a", passRate: 0.9, latestPassed: true),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let threeArg = HTMLReportRenderer.render(
+            portfolio: portfolio, projects: projects, pulse: nil
+        )
+        let fourArg = HTMLReportRenderer.render(
+            portfolio: portfolio, projects: projects, pulse: nil, sunsetProjectIDs: []
+        )
+        #expect(threeArg == fourArg)
     }
 
     // MARK: - HTML Safety

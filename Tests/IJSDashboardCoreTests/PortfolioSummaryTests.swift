@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+@testable import IJSAggregator
 @testable import IJSDashboardCore
 @testable import IJSSensor
 import QualityGateTypes
@@ -39,6 +40,55 @@ struct PortfolioSummaryTests {
         let portfolio = PortfolioSummary.compute(from: [])
         #expect(portfolio.totalProjects == 0)
         #expect(portfolio.passingProjects == 0)
+        #expect(portfolio.sunsetProjects == 0)
+    }
+
+    // MARK: - Lifecycle Partitioning
+
+    @Test("Sunset projects are excluded from active counts")
+    func sunsetExcludedFromActiveCounts() {
+        let projects = [
+            ProjectSummary.compute(projectID: "a", from: makePassingRuns(count: 3)),
+            ProjectSummary.compute(projectID: "b", from: makePassingRuns(count: 2), lifecycle: .sunset),
+            ProjectSummary.compute(projectID: "c", from: makeFailingRuns(count: 1)),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        #expect(portfolio.totalProjects == 2)
+        #expect(portfolio.passingProjects == 1)
+        #expect(portfolio.failingProjects == 1)
+        #expect(portfolio.sunsetProjects == 1)
+    }
+
+    @Test("All sunset portfolio has zero active projects")
+    func allSunset() {
+        let projects = [
+            ProjectSummary.compute(projectID: "a", from: makePassingRuns(count: 1), lifecycle: .sunset),
+            ProjectSummary.compute(projectID: "b", from: makeFailingRuns(count: 1), lifecycle: .sunset),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        #expect(portfolio.totalProjects == 0)
+        #expect(portfolio.passingProjects == 0)
+        #expect(portfolio.failingProjects == 0)
+        #expect(portfolio.sunsetProjects == 2)
+    }
+
+    @Test("Worst checkers only consider active projects")
+    func worstCheckersOnlyActive() {
+        let sunsetRuns = makeRunsWithCheckers([
+            ["safety": false, "build": false, "test": false],
+        ])
+        let activeRuns = makeRunsWithCheckers([
+            ["safety": true, "build": false, "test": true],
+        ])
+        let projects = [
+            ProjectSummary.compute(projectID: "sunset-proj", from: sunsetRuns, lifecycle: .sunset),
+            ProjectSummary.compute(projectID: "active-proj", from: activeRuns),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        // Only build should be the worst checker from the active project
+        #expect(portfolio.worstCheckers.first == "build")
+        // Safety and test from sunset project should not appear as failing
+        #expect(portfolio.totalProjects == 1)
     }
 }
 

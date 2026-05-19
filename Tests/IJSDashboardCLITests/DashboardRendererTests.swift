@@ -3,6 +3,7 @@ import Foundation
 @testable import IJSDashboardCLI
 @testable import IJSDashboardCore
 @testable import IJSSensor
+import IJSAggregator
 import QualityGateTypes
 
 @Suite("DashboardRenderer")
@@ -14,7 +15,7 @@ struct DashboardRendererTests {
     func portfolioHeader() {
         let portfolio = makePortfolio(total: 5, passing: 3, failing: 2)
         let output = DashboardRenderer.renderPortfolio(portfolio, projects: [])
-        #expect(output.contains("5 projects"))
+        #expect(output.contains("5 active"))
         #expect(output.contains("3 passing"))
         #expect(output.contains("2 failing"))
     }
@@ -47,7 +48,7 @@ struct DashboardRendererTests {
     func emptyPortfolio() {
         let portfolio = PortfolioSummary.compute(from: [])
         let output = DashboardRenderer.renderPortfolio(portfolio, projects: [])
-        #expect(output.contains("0 projects"))
+        #expect(output.contains("0 active"))
     }
 
     // MARK: - Project Detail View
@@ -96,6 +97,44 @@ struct DashboardRendererTests {
 
     // MARK: - JSON Output
 
+    // MARK: - Sunset Lifecycle
+
+    @Test("Portfolio header shows sunset count when sunset projects exist")
+    func portfolioHeaderSunsetCount() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0, latestPassed: true),
+            makeProjectSummary(id: "sunset-proj", passRate: 0.0, latestPassed: false, lifecycle: .sunset),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let output = DashboardRenderer.renderPortfolio(portfolio, projects: projects)
+        #expect(output.contains("1 active"))
+        #expect(output.contains("1 sunset"))
+    }
+
+    @Test("Portfolio separates active and sunset projects")
+    func portfolioSeparatesActiveSunset() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0, latestPassed: true),
+            makeProjectSummary(id: "old-proj", passRate: 0.0, latestPassed: false, lifecycle: .sunset),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let output = DashboardRenderer.renderPortfolio(portfolio, projects: projects)
+        #expect(output.contains("Sunset"))
+        #expect(output.contains("old-proj"))
+    }
+
+    @Test("Portfolio hides sunset section when no sunset projects")
+    func portfolioNoSunsetSection() {
+        let projects = [
+            makeProjectSummary(id: "alpha", passRate: 1.0, latestPassed: true),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        let output = DashboardRenderer.renderPortfolio(portfolio, projects: projects)
+        #expect(!output.contains("Sunset"))
+    }
+
+    // MARK: - JSON Output
+
     @Test("Renders portfolio as JSON")
     func jsonOutput() throws {
         let projects = [
@@ -127,7 +166,8 @@ private func makeProjectSummary(
     latestPassed: Bool,
     runCount: Int = 10,
     checkerRates: [String: Double] = ["safety": 1.0],
-    overrides: Int = 0
+    overrides: Int = 0,
+    lifecycle: ProjectLifecycle = .active
 ) -> ProjectSummary {
     let passingRunCount = Int((Double(runCount) * passRate).rounded())
     let runs = (0..<runCount).map { i in
@@ -181,7 +221,7 @@ private func makeProjectSummary(
             )
         )
     }
-    return ProjectSummary.compute(projectID: id, from: runs)
+    return ProjectSummary.compute(projectID: id, from: runs, lifecycle: lifecycle)
 }
 
 private let dateFormatter: DateFormatter = {

@@ -61,6 +61,14 @@ fi
 
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
+# Ad-hoc codesign — macOS kills unsigned binaries from system paths
+echo "Signing binary..."
+if [ -w "$INSTALL_DIR/$BINARY_NAME" ]; then
+    codesign --force -s - "$INSTALL_DIR/$BINARY_NAME"
+else
+    sudo codesign --force -s - "$INSTALL_DIR/$BINARY_NAME"
+fi
+
 echo ""
 echo "=== Installed ==="
 echo "  Binary:  $INSTALL_DIR/$BINARY_NAME"

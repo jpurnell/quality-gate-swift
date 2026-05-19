@@ -240,4 +240,130 @@ struct DashboardStateTests {
         state.updateProjectIDs(["alpha", "beta"])
         #expect(state.selectedIndex == 1)
     }
+
+    // MARK: - Sort
+
+    @Test("cycleSort advances through all sort keys and wraps back to name")
+    func cycleSortAdvancesKeys() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        #expect(state.sortKey == .name)
+        state.handleInput(.cycleSort)
+        #expect(state.sortKey == .status)
+        state.handleInput(.cycleSort)
+        #expect(state.sortKey == .passRate)
+        state.handleInput(.cycleSort)
+        #expect(state.sortKey == .runs)
+        state.handleInput(.cycleSort)
+        #expect(state.sortKey == .name)
+    }
+
+    @Test("cycleSort resets scroll offset")
+    func cycleSortResetsScroll() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.handleInput(.scrollDown)
+        #expect(state.scrollOffset > 0)
+        state.handleInput(.cycleSort)
+        #expect(state.scrollOffset == 0)
+    }
+
+    @Test("cycleSort starts each new key ascending")
+    func cycleSortNewKeyIsAscending() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.cycleSort) // → .status
+        #expect(state.sortAscending)
+        state.handleInput(.cycleSort) // → .passRate
+        #expect(state.sortAscending)
+        state.handleInput(.cycleSort) // → .runs
+        #expect(state.sortAscending)
+    }
+
+    // MARK: - Week Navigation
+
+    @Test("Arrow left in portfolio decrements week index")
+    func arrowLeftPreviousWeek() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"])
+        #expect(state.selectedWeekIndex == 2)
+        state.handleInput(.arrowLeft)
+        #expect(state.selectedWeekIndex == 1)
+        #expect(state.selectedWeekLabel == "2026-W19")
+    }
+
+    @Test("Arrow right in portfolio increments week index")
+    func arrowRightNextWeek() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"])
+        state.handleInput(.arrowLeft)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedWeekIndex == 2)
+        #expect(state.selectedWeekLabel == "2026-W20")
+    }
+
+    @Test("Arrow left clamps at first week")
+    func arrowLeftClampsAtFirst() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.setAvailableWeeks(["2026-W18", "2026-W19"])
+        state.handleInput(.arrowLeft)
+        state.handleInput(.arrowLeft)
+        state.handleInput(.arrowLeft)
+        #expect(state.selectedWeekIndex == 0)
+        #expect(state.selectedWeekLabel == "2026-W18")
+    }
+
+    @Test("Arrow right clamps at latest week")
+    func arrowRightClampsAtLatest() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.setAvailableWeeks(["2026-W18", "2026-W19"])
+        state.handleInput(.arrowRight)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedWeekIndex == 1)
+        #expect(state.selectedWeekLabel == "2026-W19")
+    }
+
+    @Test("Arrow left/right no-ops when no weeks available")
+    func arrowLeftRightNoWeeks() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.arrowLeft)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedWeekIndex == nil)
+        #expect(state.selectedWeekLabel == nil)
+    }
+
+    @Test("setAvailableWeeks selects specific week by label")
+    func setAvailableWeeksWithInitialWeek() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"], selecting: "2026-W19")
+        #expect(state.selectedWeekIndex == 1)
+        #expect(state.selectedWeekLabel == "2026-W19")
+    }
+
+    @Test("weekChanged flag set on navigation and cleared on read")
+    func weekChangedFlag() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"])
+        #expect(!state.weekChanged)
+        state.handleInput(.arrowLeft)
+        #expect(state.weekChanged)
+        state.clearWeekChanged()
+        #expect(!state.weekChanged)
+    }
+
+    @Test("cycleSort on the same key already active toggles sortAscending")
+    func cycleSortWrapsAndTogglesDirection() {
+        var state = DashboardState(projectIDs: ["a"])
+        // Cycle through all 4 keys back to .name (wrap toggles sortAscending)
+        state.handleInput(.cycleSort) // → .status  asc
+        state.handleInput(.cycleSort) // → .passRate asc
+        state.handleInput(.cycleSort) // → .runs     asc
+        state.handleInput(.cycleSort) // → .name     direction toggled → false
+        #expect(state.sortKey == .name)
+        #expect(state.sortAscending == false)
+        // Second full cycle wraps again, toggling back to true
+        state.handleInput(.cycleSort) // → .status  asc
+        state.handleInput(.cycleSort) // → .passRate asc
+        state.handleInput(.cycleSort) // → .runs     asc
+        state.handleInput(.cycleSort) // → .name     direction toggled → true
+        #expect(state.sortKey == .name)
+        #expect(state.sortAscending == true)
+    }
 }

@@ -79,6 +79,35 @@ struct CorpusReaderPulseTests {
         #expect(pulse?.violationClusters.count == 1)
         #expect(pulse?.violationClusters.first?.ruleId == "force-unwrap")
     }
+
+    // MARK: - listAvailableWeeks
+
+    @Test("listAvailableWeeks returns sorted week labels")
+    func listAvailableWeeksSorted() throws {
+        let corpus = try makeCorpusWithPulses(weekLabels: ["2026-W20", "2026-W18", "2026-W19"])
+        let reader = CorpusReader(corpusPath: corpus)
+        let weeks = reader.listAvailableWeeks()
+        #expect(weeks == ["2026-W18", "2026-W19", "2026-W20"])
+    }
+
+    @Test("listAvailableWeeks returns empty when no pulse directory")
+    func listAvailableWeeksNoPulseDir() throws {
+        let tmp = NSTemporaryDirectory() + "ijs-test-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: "\(tmp)/telemetry", withIntermediateDirectories: true)
+        let reader = CorpusReader(corpusPath: tmp)
+        let weeks = reader.listAvailableWeeks()
+        #expect(weeks.isEmpty)
+    }
+
+    @Test("listAvailableWeeks skips directories without valid pulse JSON")
+    func listAvailableWeeksSkipsInvalid() throws {
+        let corpus = try makeCorpusWithPulses(weekLabels: ["2026-W18", "2026-W19"])
+        let emptyDir = "\(corpus)/pulse/2026-W17"
+        try FileManager.default.createDirectory(atPath: emptyDir, withIntermediateDirectories: true)
+        let reader = CorpusReader(corpusPath: corpus)
+        let weeks = reader.listAvailableWeeks()
+        #expect(weeks == ["2026-W18", "2026-W19"])
+    }
 }
 
 // MARK: - Helpers

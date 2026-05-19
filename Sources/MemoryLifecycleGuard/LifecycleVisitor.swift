@@ -147,8 +147,87 @@ final class LifecycleVisitor: SyntaxVisitor {
     // MARK: - Actor Declarations (exempt)
 
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Actors manage their own isolation; skip all lifecycle checks.
         return .skipChildren
+    }
+
+    // MARK: - Loop Memory Rules
+
+    override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
+        checkLoopBody(node.body, loopNode: Syntax(node))
+        return .visitChildren
+    }
+
+    override func visit(_ node: WhileStmtSyntax) -> SyntaxVisitorContinueKind {
+        checkLoopBody(node.body, loopNode: Syntax(node))
+        return .visitChildren
+    }
+
+    /// Checks a loop body for array growth and missing autoreleasepool patterns.
+    private func checkLoopBody(_ body: CodeBlockSyntax, loopNode: Syntax) {
+        guard !isLoopExempt(loopNode) else { return }
+        let bodyText = body.description
+
+        // Rule: lifecycle-missing-autoreleasepool
+        let hasAutoreleasepool = bodyText.contains("autoreleasepool")
+        if !hasAutoreleasepool {
+            for typeName in config.heavyFrameworkTypes {
+                if bodyText.contains(typeName + "(") {
+                    let line = startLine(of: loopNode)
+                    diagnostics.append(Diagnostic(
+                        severity: .warning,
+                        message: "Loop creates '\(typeName)' objects without autoreleasepool; GPU/framework memory may accumulate across iterations",
+                        filePath: filePath,
+                        lineNumber: line,
+                        columnNumber: 1,
+                        ruleId: "lifecycle-missing-autoreleasepool",
+                        suggestedFix: "Wrap the loop body in autoreleasepool { } to release framework objects each iteration."
+                    ))
+                    break
+                }
+            }
+        }
+
+        // Rule: lifecycle-loop-array-growth
+        // Find .append( calls inside the loop body on variables that may grow unboundedly
+        checkLoopArrayGrowth(body: body, loopNode: loopNode)
+    }
+
+    /// Detects arrays appended to inside a loop that have no size bound or removal.
+    private func checkLoopArrayGrowth(body: CodeBlockSyntax, loopNode: Syntax) {
+        let bodyText = body.description
+
+        // Skip if the loop body contains removal/bounds logic
+        let hasBoundsCheck = bodyText.contains(".removeAll(")
+            || bodyText.contains(".removeFirst(")
+            || bodyText.contains(".removeLast(")
+            || bodyText.contains(".count >")
+            || bodyText.contains(".count >=")
+
+        guard !hasBoundsCheck else { return }
+
+        // Look for .append( calls on identifiers that reference heavy framework types
+        // We check if the append pattern co-occurs with heavy type construction
+        let hasAppend = bodyText.contains(".append(")
+        guard hasAppend else { return }
+
+        let hasHeavyType = config.heavyFrameworkTypes.contains { typeName in
+            bodyText.contains(typeName)
+        }
+        guard hasHeavyType else { return }
+
+        // Skip if wrapped in autoreleasepool
+        guard !bodyText.contains("autoreleasepool") else { return }
+
+        let line = startLine(of: loopNode)
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Loop appends framework objects to a collection without size bounds; this can cause unbounded memory growth",
+            filePath: filePath,
+            lineNumber: line,
+            columnNumber: 1,
+            ruleId: "lifecycle-loop-array-growth",
+            suggestedFix: "Add a size cap with removal, or scope allocations within autoreleasepool."
+        ))
     }
 
     // MARK: - Helpers
@@ -186,6 +265,17 @@ final class LifecycleVisitor: SyntaxVisitor {
         let zeroIndexed = line - 1
         guard zeroIndexed >= 0, zeroIndexed < sourceLines.count else { return false }
         return sourceLines[zeroIndexed].contains("lifecycle:exempt")
+    }
+
+    /// Checks if a loop statement has a `// lifecycle:exempt` comment on its line
+    /// or on the immediately preceding line.
+    private func isLoopExempt(_ node: Syntax) -> Bool {
+        let line = startLine(of: node)
+        let zeroIndexed = line - 1
+        guard zeroIndexed >= 0, zeroIndexed < sourceLines.count else { return false }
+        if sourceLines[zeroIndexed].contains("lifecycle:exempt") { return true }
+        if zeroIndexed > 0, sourceLines[zeroIndexed - 1].contains("lifecycle:exempt") { return true }
+        return false
     }
 
     /// Returns the 1-based line number for a syntax node using the source location converter.
