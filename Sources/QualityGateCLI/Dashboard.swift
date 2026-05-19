@@ -31,8 +31,28 @@ struct Dashboard: AsyncParsableCommand {
     @Option(name: .long, help: "Output path for HTML report (default: pulse directory)")
     var output: String?
 
+    @Option(name: .long, help: "ISO week label to display (e.g. 2026-W20). Defaults to latest.")
+    var week: String?
+
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
+
+    private func syncCorpusFromRemote(at corpusPath: String) {
+        let gitDir = "\(corpusPath)/.git"
+        guard FileManager.default.fileExists(atPath: gitDir) else { return } // SAFETY: read-only existence check on configured path
+        do {
+            let result = try ProcessRunner.run(
+                "/usr/bin/git", // SAFETY: hardcoded system path
+                arguments: ["pull", "--rebase", "--quiet"],
+                currentDirectory: corpusPath
+            )
+            if result.exitCode != 0 {
+                print("[dashboard] Warning: corpus pull failed (exit \(result.exitCode)) — using local data") // logging: CLI user-facing output
+            }
+        } catch {
+            print("[dashboard] Warning: corpus pull failed (\(error.localizedDescription)) — using local data") // logging: CLI user-facing output
+        }
+    }
 
     private func isoWeekLabel(for date: Date) -> String {
         let calendar = Calendar(identifier: .iso8601)
@@ -58,6 +78,8 @@ struct Dashboard: AsyncParsableCommand {
             throw ExitCode(1)
         }
 
+        syncCorpusFromRemote(at: effectiveCorpusPath)
+
         let reader = CorpusReader(corpusPath: effectiveCorpusPath)
         let allRuns: [String: [TimestampedRun]]
         do {
@@ -67,13 +89,21 @@ struct Dashboard: AsyncParsableCommand {
             throw ExitCode(1)
         }
 
+        let manifest: CorpusManifest
+        do {
+            manifest = try reader.loadManifest()
+        } catch { // logging: manifest is optional; missing file treated as all-active
+            manifest = CorpusManifest()
+        }
+
         if let projectID = project {
             let runs = allRuns[projectID] ?? []
             guard !runs.isEmpty else {
                 print("[dashboard] No data found for project: \(projectID)") // logging: CLI user-facing output
                 throw ExitCode(1)
             }
-            let projectSummary = ProjectSummary.compute(projectID: projectID, from: runs)
+            let lifecycle = manifest.lifecycle(for: projectID)
+            let projectSummary = ProjectSummary.compute(projectID: projectID, from: runs, lifecycle: lifecycle)
             let trends = TrendComputer.dailyPassRate(from: runs)
 
             if outputFormat == "json" {
@@ -86,15 +116,22 @@ struct Dashboard: AsyncParsableCommand {
         }
 
         let projects = allRuns.map { (projectID, runs) in
-            ProjectSummary.compute(projectID: projectID, from: runs)
+            let lifecycle = manifest.lifecycle(for: projectID)
+            return ProjectSummary.compute(projectID: projectID, from: runs, lifecycle: lifecycle)
         }.sorted { $0.projectID < $1.projectID }
 
         let portfolio = PortfolioSummary.compute(from: projects)
 
-        let pulse = reader.loadLatestPulse()
+        let pulse: InstitutionalPulse?
+        if let week {
+            pulse = reader.loadPulse(weekLabel: week)
+        } else {
+            pulse = reader.loadLatestPulse()
+        }
+        let sunsetIDs = projects.filter { $0.lifecycle == .sunset }.map(\.projectID)
 
         if exportHtml {
-            let html = HTMLReportRenderer.render(portfolio: portfolio, projects: projects, pulse: pulse)
+            let html = HTMLReportRenderer.render(portfolio: portfolio, projects: projects, pulse: pulse, sunsetProjectIDs: sunsetIDs)
             let outputPath: String
             if let output {
                 outputPath = output
@@ -117,7 +154,7 @@ struct Dashboard: AsyncParsableCommand {
         } else if summary {
             print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse)) // logging: CLI user-facing output
         } else {
-            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse)
+            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, initialWeek: week)
         }
     }
 }
