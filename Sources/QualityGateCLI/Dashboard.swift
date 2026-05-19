@@ -40,17 +40,35 @@ struct Dashboard: AsyncParsableCommand {
     private func syncCorpusFromRemote(at corpusPath: String) {
         let gitDir = "\(corpusPath)/.git"
         guard FileManager.default.fileExists(atPath: gitDir) else { return } // SAFETY: read-only existence check on configured path
-        do {
-            let result = try ProcessRunner.run(
+
+        func git(_ arguments: [String]) throws -> ProcessRunner.Output {
+            try ProcessRunner.run(
                 "/usr/bin/git", // SAFETY: hardcoded system path
-                arguments: ["pull", "--rebase", "--quiet"],
+                arguments: arguments,
                 currentDirectory: corpusPath
             )
-            if result.exitCode != 0 {
-                print("[dashboard] Warning: corpus pull failed (exit \(result.exitCode)) — using local data") // logging: CLI user-facing output
+        }
+
+        do {
+            let status = try git(["status", "--porcelain"])
+            if !status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = try git(["add", "-A"])
+                let dateStr = ISO8601DateFormatter().string(from: Date())
+                _ = try git(["commit", "-m", "telemetry: auto-commit \(dateStr)"])
+            }
+
+            let pull = try git(["pull", "--rebase", "--quiet"])
+            if pull.exitCode != 0 {
+                print("[dashboard] Warning: corpus pull failed (exit \(pull.exitCode)) — using local data") // logging: CLI user-facing output
+                return
+            }
+
+            let push = try git(["push", "--quiet"])
+            if push.exitCode != 0 {
+                print("[dashboard] Warning: corpus push failed (exit \(push.exitCode)) — local commit preserved") // logging: CLI user-facing output
             }
         } catch { // logging: non-fatal sync failure — fall back to local corpus data
-            print("[dashboard] Warning: corpus pull failed (\(error.localizedDescription)) — using local data") // logging: CLI user-facing output
+            print("[dashboard] Warning: corpus sync failed (\(error.localizedDescription)) — using local data") // logging: CLI user-facing output
         }
     }
 
