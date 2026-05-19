@@ -559,6 +559,7 @@ let package = Package(
             name: "IJSDashboardCoreTests",
             dependencies: [
                 "IJSDashboardCore",
+                "IJSAggregator",
                 "IJSSensor",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
             ]

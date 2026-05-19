@@ -49,7 +49,7 @@ struct Dashboard: AsyncParsableCommand {
             if result.exitCode != 0 {
                 print("[dashboard] Warning: corpus pull failed (exit \(result.exitCode)) — using local data") // logging: CLI user-facing output
             }
-        } catch {
+        } catch { // logging: non-fatal sync failure — fall back to local corpus data
             print("[dashboard] Warning: corpus pull failed (\(error.localizedDescription)) — using local data") // logging: CLI user-facing output
         }
     }

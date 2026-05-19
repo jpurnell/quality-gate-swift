@@ -57,14 +57,25 @@ struct PulseSectionRendererTests {
         #expect(joined.contains("50"))
     }
 
-    @Test("flags recurring clusters")
-    func clustersRecurring() {
+    @Test("shows three-column table with prior, window, and current counts")
+    func clustersThreeColumns() {
         let clusters = [
-            ViolationCluster(ruleId: "force-unwrap", occurrenceCount: 50, affectedProjectCount: 10, dominantRootCause: nil, dominantFailedStep: nil, isRecurring: true),
+            ViolationCluster(
+                ruleId: "force-unwrap", occurrenceCount: 50,
+                affectedProjectCount: 10, dominantRootCause: nil,
+                dominantFailedStep: nil, isRecurring: true,
+                priorOccurrenceCount: 80, priorProjectCount: 15,
+                currentOccurrenceCount: 30, currentProjectCount: 5
+            ),
         ]
-        let lines = PulseSectionRenderer.renderClusters(clusters, width: 80)
-        let joined = lines.joined(separator: "\n").uppercased()
-        #expect(joined.contains("RECURRING"))
+        let lines = PulseSectionRenderer.renderClusters(clusters, width: 100)
+        let joined = lines.joined(separator: "\n")
+        #expect(joined.contains("Last Wk"))
+        #expect(joined.contains("This Wk"))
+        #expect(joined.contains("Current"))
+        #expect(joined.contains("80x/15p"))
+        #expect(joined.contains("50x/10p"))
+        #expect(joined.contains("30x/5p"))
     }
 
     @Test("limits to top 5 clusters")

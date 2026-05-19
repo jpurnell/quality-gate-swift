@@ -613,15 +613,28 @@ public struct MemoryLifecycleConfig: Sendable, Equatable {
     /// Files exempt from lifecycle checks.
     public let exemptFiles: [String]
 
+    /// Type names whose construction inside loops requires autoreleasepool.
+    public let heavyFrameworkTypes: [String]
+
+    /// File patterns exempt from the loop-growth rule.
+    public let loopGrowthExemptPatterns: [String]
+
     /// Creates a memory lifecycle configuration with the given options.
     public init(
         delegatePatterns: [String] = ["delegate", "parent", "owner", "dataSource"],
         requireTaskCancellation: Bool = true,
-        exemptFiles: [String] = []
+        exemptFiles: [String] = [],
+        heavyFrameworkTypes: [String] = [
+            "MLXArray", "MTLBuffer", "MTLTexture",
+            "CGImage", "CGContext", "CVPixelBuffer"
+        ],
+        loopGrowthExemptPatterns: [String] = []
     ) {
         self.delegatePatterns = delegatePatterns
         self.requireTaskCancellation = requireTaskCancellation
         self.exemptFiles = exemptFiles
+        self.heavyFrameworkTypes = heavyFrameworkTypes
+        self.loopGrowthExemptPatterns = loopGrowthExemptPatterns
     }
 
     /// Default memory lifecycle configuration.
@@ -631,6 +644,7 @@ public struct MemoryLifecycleConfig: Sendable, Equatable {
 extension MemoryLifecycleConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case delegatePatterns, requireTaskCancellation, exemptFiles
+        case heavyFrameworkTypes, loopGrowthExemptPatterns
     }
 
     /// Creates a memory lifecycle configuration by decoding from the given decoder.
@@ -640,6 +654,8 @@ extension MemoryLifecycleConfig: Codable {
         delegatePatterns = try container.decodeIfPresent([String].self, forKey: .delegatePatterns) ?? defaults.delegatePatterns
         requireTaskCancellation = try container.decodeIfPresent(Bool.self, forKey: .requireTaskCancellation) ?? defaults.requireTaskCancellation
         exemptFiles = try container.decodeIfPresent([String].self, forKey: .exemptFiles) ?? defaults.exemptFiles
+        heavyFrameworkTypes = try container.decodeIfPresent([String].self, forKey: .heavyFrameworkTypes) ?? defaults.heavyFrameworkTypes
+        loopGrowthExemptPatterns = try container.decodeIfPresent([String].self, forKey: .loopGrowthExemptPatterns) ?? defaults.loopGrowthExemptPatterns
     }
 }
 

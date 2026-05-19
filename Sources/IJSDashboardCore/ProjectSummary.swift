@@ -1,4 +1,5 @@
 import Foundation
+import IJSAggregator
 import QualityGateTypes
 
 /// Aggregated statistics for a single project's quality gate history.
@@ -19,9 +20,21 @@ public struct ProjectSummary: Sendable {
     public let totalOverrides: Int
     /// Number of runs analyzed.
     public let runCount: Int
+    /// The lifecycle state of the project.
+    public let lifecycle: ProjectLifecycle
 
     /// Computes a summary from a series of timestamped runs.
-    public static func compute(projectID: String, from runs: [TimestampedRun]) -> ProjectSummary {
+    ///
+    /// - Parameters:
+    ///   - projectID: The project identifier.
+    ///   - runs: The timestamped runs to analyze.
+    ///   - lifecycle: The project's lifecycle state (defaults to ``ProjectLifecycle/active``).
+    /// - Returns: An aggregated summary of the project's quality gate history.
+    public static func compute(
+        projectID: String,
+        from runs: [TimestampedRun],
+        lifecycle: ProjectLifecycle = .active
+    ) -> ProjectSummary {
         guard !runs.isEmpty else {
             return ProjectSummary(
                 projectID: projectID,
@@ -31,7 +44,8 @@ public struct ProjectSummary: Sendable {
                 checkerPassRates: [:],
                 latestCheckerPassed: [:],
                 totalOverrides: 0,
-                runCount: 0
+                runCount: 0,
+                lifecycle: lifecycle
             )
         }
 
@@ -86,7 +100,8 @@ public struct ProjectSummary: Sendable {
             checkerPassRates: checkerPassRates,
             latestCheckerPassed: latestCheckerPassed,
             totalOverrides: totalOverrides,
-            runCount: sortedRuns.count
+            runCount: sortedRuns.count,
+            lifecycle: lifecycle
         )
     }
 }

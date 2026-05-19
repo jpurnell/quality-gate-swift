@@ -6,6 +6,14 @@ public enum DashboardView: Sendable, Equatable {
     case projectDetail
 }
 
+/// The column by which the portfolio project list is sorted.
+public enum SortKey: Sendable, Equatable, CaseIterable {
+    case name
+    case status
+    case passRate
+    case runs
+}
+
 /// Tabs available in the project detail view.
 public enum DetailTab: Int, Sendable, Equatable, CaseIterable {
     case overview = 0
@@ -29,6 +37,8 @@ public enum DashboardInput: Sendable {
     case scrollUp
     case scrollDown
     case click(row: Int, column: Int)
+    case cycleSort
+    case reverseSort
 }
 
 /// Navigation state for the interactive TUI dashboard.
@@ -43,10 +53,23 @@ public struct DashboardState: Sendable {
     public private(set) var shouldQuit: Bool = false
     /// Vertical scroll offset for content that exceeds terminal height.
     public private(set) var scrollOffset: Int = 0
+    /// The column currently used to sort the portfolio project list.
+    public private(set) var sortKey: SortKey = .name
+    /// Whether the portfolio list is sorted in ascending order.
+    public private(set) var sortAscending: Bool = true
+    /// The value of sortAscending when the sort key was last set to .name;
+    /// used so wrapping a full cycle toggles the name-column direction correctly.
+    private var nameBaseAscending: Bool = true
     /// Terminal height used for scroll calculations.
     public var terminalHeight: Int = 24
     /// Sorted project identifiers for the portfolio list.
     public private(set) var projectIDs: [String]
+    /// Available pulse week labels, sorted ascending.
+    public private(set) var availableWeeks: [String] = []
+    /// Index into `availableWeeks` for the currently displayed pulse.
+    public private(set) var selectedWeekIndex: Int?
+    /// Set when the user navigates to a different week; cleared by `clearWeekChanged()`.
+    public private(set) var weekChanged: Bool = false
 
     /// The project ID at the current selection index, or nil if the list is empty.
     public var selectedProjectID: String? {
@@ -54,9 +77,32 @@ public struct DashboardState: Sendable {
         return projectIDs[selectedIndex]
     }
 
+    /// The week label currently selected, or nil if no weeks are loaded.
+    public var selectedWeekLabel: String? {
+        guard let idx = selectedWeekIndex, idx >= 0, idx < availableWeeks.count else { return nil }
+        return availableWeeks[idx]
+    }
+
     /// Creates a dashboard state for the given project list.
     public init(projectIDs: [String]) {
         self.projectIDs = projectIDs
+    }
+
+    /// Sets the list of available pulse weeks and selects the given label (or latest).
+    public mutating func setAvailableWeeks(_ weeks: [String], selecting weekLabel: String? = nil) {
+        availableWeeks = weeks
+        if let weekLabel, let idx = weeks.firstIndex(of: weekLabel) {
+            selectedWeekIndex = idx
+        } else if !weeks.isEmpty {
+            selectedWeekIndex = weeks.count - 1
+        } else {
+            selectedWeekIndex = nil
+        }
+    }
+
+    /// Clears the week-changed flag after the caller has reacted to the change.
+    public mutating func clearWeekChanged() {
+        weekChanged = false
     }
 
     /// Updates the project list, preserving the current selection when possible.
@@ -96,6 +142,16 @@ public struct DashboardState: Sendable {
         case .arrowUp:
             selectedIndex = max(selectedIndex - 1, 0)
             ensureSelectionVisible()
+        case .arrowLeft:
+            guard let idx = selectedWeekIndex, idx > 0 else { return }
+            selectedWeekIndex = idx - 1
+            weekChanged = true
+            scrollOffset = 0
+        case .arrowRight:
+            guard let idx = selectedWeekIndex, idx < availableWeeks.count - 1 else { return }
+            selectedWeekIndex = idx + 1
+            weekChanged = true
+            scrollOffset = 0
         case .scrollDown:
             scrollOffset += 3
         case .scrollUp:
@@ -119,6 +175,30 @@ public struct DashboardState: Sendable {
                 selectedTab = .overview
                 scrollOffset = 0
             }
+        case .reverseSort:
+            sortAscending.toggle()
+            if sortKey == .name { nameBaseAscending = sortAscending }
+            scrollOffset = 0
+        case .cycleSort:
+            let allKeys = SortKey.allCases
+            guard let currentIdx = allKeys.firstIndex(of: sortKey) else { return }
+            let nextIdx = (currentIdx + 1) % allKeys.count
+            let nextKey = allKeys[nextIdx]
+            if nextKey == sortKey {
+                // Only reachable when allCases has a single element; toggle direction in place.
+                sortAscending.toggle()
+                nameBaseAscending = sortAscending
+            } else if nextIdx == 0 {
+                // Wrapped back to the first key: flip the baseline direction so each complete
+                // cycle through all sort keys alternates ascending/descending for the name column.
+                sortKey = nextKey
+                sortAscending = !nameBaseAscending
+                nameBaseAscending = sortAscending
+            } else {
+                sortKey = nextKey
+                sortAscending = true
+            }
+            scrollOffset = 0
         default:
             break
         }

@@ -5,7 +5,7 @@ import Foundation
 /// `OverrideProcessor` sits between checker output and the reporter. It
 /// re-maps diagnostic severities (or suppresses them entirely) based on
 /// override rules from `.quality-gate.yml`, then recomputes the
-/// ``CheckResult/status`` to match the new diagnostic set.
+/// `CheckResult.status` to match the new diagnostic set.
 ///
 /// ## Override Resolution
 ///
@@ -40,7 +40,7 @@ public struct OverrideProcessor: Sendable {
     /// adjusted diagnostics and recomputed status.
     ///
     /// - Parameter result: The original check result from a checker.
-    /// - Returns: A new ``CheckResult`` with overrides applied.
+    /// - Returns: A new `CheckResult` with overrides applied.
     public func apply(to result: CheckResult) -> CheckResult {
         guard !overrides.isEmpty else { return result }
 
@@ -109,7 +109,7 @@ public struct OverrideProcessor: Sendable {
     /// - Parameters:
     ///   - severity: The new severity level.
     ///   - diagnostic: The original diagnostic.
-    /// - Returns: A new ``Diagnostic`` with the updated severity.
+    /// - Returns: A new `Diagnostic` with the updated severity.
     private func withSeverity(_ severity: Diagnostic.Severity, for diagnostic: Diagnostic) -> Diagnostic {
         Diagnostic(
             severity: severity,

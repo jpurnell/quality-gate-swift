@@ -287,7 +287,12 @@ enum IndexStoreManager {
             mergeStderr: true
         )
         if result.exitCode != 0 {
-            throw Error.buildFailed(result.stdout)
+            let isSigningOnly = !result.stdout.contains(": error:")
+                && (result.stdout.contains("Code Signing subsystem")
+                    || result.stdout.contains("codesign failed"))
+            if !isSigningOnly {
+                throw Error.buildFailed(result.stdout)
+            }
         }
     }
 }

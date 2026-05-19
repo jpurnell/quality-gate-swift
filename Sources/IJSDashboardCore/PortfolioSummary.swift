@@ -1,23 +1,32 @@
 import Foundation
+import IJSAggregator
 
 /// Aggregated statistics across all projects in the corpus.
 public struct PortfolioSummary: Sendable {
-    /// Total number of projects in the portfolio.
+    /// Total number of active projects in the portfolio.
     public let totalProjects: Int
-    /// Number of projects whose latest run passed.
+    /// Number of active projects whose latest run passed.
     public let passingProjects: Int
-    /// Number of projects whose latest run failed.
+    /// Number of active projects whose latest run failed.
     public let failingProjects: Int
+    /// Number of projects in the sunset lifecycle state.
+    public let sunsetProjects: Int
     /// Checker IDs sorted by aggregate pass rate (worst first).
     public let worstCheckers: [String]
 
     /// Computes a portfolio summary from per-project summaries.
+    ///
+    /// Active and sunset projects are partitioned by their ``ProjectLifecycle`` state.
+    /// Only active projects contribute to ``totalProjects``, ``passingProjects``,
+    /// ``failingProjects``, and ``worstCheckers``.
     public static func compute(from projects: [ProjectSummary]) -> PortfolioSummary {
-        let passing = projects.filter(\.latestPassed).count
+        let active = projects.filter { $0.lifecycle == .active }
+        let sunsetCount = projects.filter { $0.lifecycle == .sunset }.count
+        let passing = active.filter(\.latestPassed).count
 
         var checkerPassCount: [String: Int] = [:]
         var checkerTotalCount: [String: Int] = [:]
-        for project in projects {
+        for project in active {
             for (checkerId, rate) in project.checkerPassRates {
                 checkerTotalCount[checkerId, default: 0] += 1
                 if abs(rate - 1.0) < Double.ulpOfOne {
@@ -35,9 +44,10 @@ public struct PortfolioSummary: Sendable {
         let sorted = aggregateRates.sorted { $0.value < $1.value }.map(\.key)
 
         return PortfolioSummary(
-            totalProjects: projects.count,
+            totalProjects: active.count,
             passingProjects: passing,
-            failingProjects: projects.count - passing,
+            failingProjects: active.count - passing,
+            sunsetProjects: sunsetCount,
             worstCheckers: sorted
         )
     }

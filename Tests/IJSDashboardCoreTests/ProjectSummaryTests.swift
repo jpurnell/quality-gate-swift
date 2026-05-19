@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+@testable import IJSAggregator
 @testable import IJSDashboardCore
 @testable import IJSSensor
 import QualityGateTypes
@@ -80,6 +81,29 @@ struct ProjectSummaryTests {
         #expect(summary.latestCheckerPassed["safety"] == false)
         #expect(summary.latestCheckerPassed["build"] == true)
         #expect(summary.latestCheckerPassed["concurrency"] == true)
+    }
+
+    // MARK: - Lifecycle
+
+    @Test("Default lifecycle is active")
+    func defaultLifecycleActive() {
+        let runs = makeRuns(statuses: [true])
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        #expect(summary.lifecycle == .active)
+    }
+
+    @Test("Lifecycle can be set to sunset")
+    func lifecycleSunset() {
+        let runs = makeRuns(statuses: [true])
+        let summary = ProjectSummary.compute(projectID: "test", from: runs, lifecycle: .sunset)
+        #expect(summary.lifecycle == .sunset)
+    }
+
+    @Test("Empty runs preserves lifecycle")
+    func emptyRunsPreservesLifecycle() {
+        let summary = ProjectSummary.compute(projectID: "test", from: [], lifecycle: .sunset)
+        #expect(summary.lifecycle == .sunset)
+        #expect(summary.runCount == 0)
     }
 }
 

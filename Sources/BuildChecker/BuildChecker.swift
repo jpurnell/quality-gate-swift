@@ -126,10 +126,24 @@ public struct BuildChecker: QualityChecker, Sendable {
         exitCode: Int32,
         duration: Duration
     ) -> CheckResult {
-        let diagnostics = parseBuildOutput(output)
+        var diagnostics = parseBuildOutput(output)
 
-        // Build failed if exit code is non-zero
-        let status: CheckResult.Status = exitCode == 0 ? .passed : .failed
+        let status: CheckResult.Status
+        if exitCode == 0 {
+            status = .passed
+        } else {
+            let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
+            if !hasCompilationErrors && isCodeSigningError(output) {
+                status = .passed
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Ad-hoc code signing failed (compilation succeeded)",
+                    ruleId: "swift-compiler"
+                ))
+            } else {
+                status = .failed
+            }
+        }
 
         return CheckResult(
             checkerId: "build",
@@ -137,6 +151,10 @@ public struct BuildChecker: QualityChecker, Sendable {
             diagnostics: diagnostics,
             duration: duration
         )
+    }
+
+    private static func isCodeSigningError(_ output: String) -> Bool {
+        output.contains("Code Signing subsystem") || output.contains("codesign failed")
     }
 
     /// Generate build arguments based on configuration.

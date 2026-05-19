@@ -236,7 +236,21 @@ private final class TestQualityVisitor: SyntaxVisitor {
     }
 
     override func visitPost(_ node: FunctionDeclSyntax) {
-        // When leaving a @Test function, check if it had any assertions.
+        // Only process when leaving a @Test function, not nested helpers.
+        let hasTestAttribute = node.attributes.contains { attr in
+            if let identAttr = attr.as(AttributeSyntax.self) {
+                let attrName: String
+                if let identifier = identAttr.attributeName.as(IdentifierTypeSyntax.self) {
+                    attrName = identifier.name.text
+                } else {
+                    attrName = identAttr.attributeName.description.trimmingCharacters(in: .whitespaces)
+                }
+                return attrName == "Test"
+            }
+            return false
+        }
+        guard hasTestAttribute else { return }
+
         if let testName = currentTestFunctionName, !currentTestHasAssertion {
             let line = currentTestFunctionLine ?? 1
             if let override = overrideIfExempted(line: line, ruleId: "missing-assertion") {

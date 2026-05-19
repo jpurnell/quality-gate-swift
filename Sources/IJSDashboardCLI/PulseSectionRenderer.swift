@@ -50,7 +50,7 @@ public enum PulseSectionRenderer: Sendable {
         return lines
     }
 
-    /// Renders the top violation clusters with recurring indicators.
+    /// Renders the top violation clusters as a three-column table.
     ///
     /// - Parameters:
     ///   - clusters: Violation clusters to render (limited to top 5).
@@ -66,15 +66,56 @@ public enum PulseSectionRenderer: Sendable {
         var lines: [String] = []
         lines.append(boxRow("  Violation Clusters:", width: width))
 
+        let ruleWidth = computeRuleColumnWidth(top, maxWidth: width)
+        let colWidth = 14
+
+        let header = "    "
+            + "Rule".padding(toLength: ruleWidth, withPad: " ", startingAt: 0)
+            + "Last Wk".padding(toLength: colWidth, withPad: " ", startingAt: 0)
+            + "This Wk".padding(toLength: colWidth, withPad: " ", startingAt: 0)
+            + "Current"
+        lines.append(boxRow(header, width: width))
+
+        let divider = "    "
+            + String(repeating: "\u{2500}", count: ruleWidth - 1) + " "
+            + String(repeating: "\u{2500}", count: colWidth - 1) + " "
+            + String(repeating: "\u{2500}", count: colWidth - 1) + " "
+            + String(repeating: "\u{2500}", count: colWidth - 1)
+        lines.append(boxRow(divider, width: width))
+
         for cluster in top {
-            let recurring = cluster.isRecurring
-                ? "  " + ANSICodes.fg(.red) + "[RECURRING]" + ANSICodes.reset
-                : ""
-            let indicator = ANSICodes.fg(.red) + "\u{2717}" + ANSICodes.reset
-            lines.append(boxRow(
-                "    \(indicator) \(cluster.ruleId)  \(cluster.occurrenceCount)x across \(cluster.affectedProjectCount) project(s)\(recurring)",
-                width: width
-            ))
+            let rule = String(cluster.ruleId.prefix(ruleWidth - 1))
+                .padding(toLength: ruleWidth, withPad: " ", startingAt: 0)
+
+            let lastWeek: String
+            if let prior = cluster.priorOccurrenceCount,
+               let priorProj = cluster.priorProjectCount {
+                lastWeek = "\(prior)x/\(priorProj)p"
+            } else if cluster.isRecurring {
+                lastWeek = "?"
+            } else {
+                lastWeek = ANSICodes.fg(.cyan) + "NEW" + ANSICodes.reset
+            }
+
+            let thisWeek = "\(cluster.occurrenceCount)x/\(cluster.affectedProjectCount)p"
+
+            let current: String
+            if let cur = cluster.currentOccurrenceCount,
+               let curProj = cluster.currentProjectCount {
+                if cur == 0 {
+                    current = ANSICodes.fg(.green) + "RESOLVED" + ANSICodes.reset
+                } else {
+                    current = "\(cur)x/\(curProj)p"
+                }
+            } else {
+                current = ANSICodes.dim + "N/A" + ANSICodes.reset
+            }
+
+            let lastWeekPad = padVisible(lastWeek, to: colWidth)
+            let thisWeekPad = padVisible(thisWeek, to: colWidth)
+
+            let row = "    " + rule + lastWeekPad + thisWeekPad + current
+            lines.append(boxRow(row, width: width))
         }
 
         lines.append(boxRow("", width: width))
@@ -117,6 +158,8 @@ public enum PulseSectionRenderer: Sendable {
 
     /// Renders the narrative text, word-wrapped to terminal width.
     ///
+    /// Strips markdown formatting for clean TUI display.
+    ///
     /// - Parameters:
     ///   - narrative: The narrative string, or nil if not yet generated.
     ///   - width: Terminal width for formatting.
@@ -130,8 +173,9 @@ public enum PulseSectionRenderer: Sendable {
         var lines: [String] = []
         lines.append(boxRow("  Narrative:", width: width))
 
+        let cleaned = stripMarkdown(narrative)
         let innerWidth = width - 6
-        let wrapped = wrapText(narrative, to: innerWidth)
+        let wrapped = wrapText(cleaned, to: innerWidth)
         for line in wrapped {
             lines.append(boxRow("  \(line)", width: width))
         }
@@ -175,7 +219,15 @@ public enum PulseSectionRenderer: Sendable {
         let box = BoxDrawing.unicode
         let visLen = ANSIStringMetrics.visibleLength(content)
         let innerWidth = width - 2
-        let padding = max(0, innerWidth - visLen)
+        if visLen >= innerWidth {
+            let truncated = ANSIStringMetrics.truncateVisible(content, to: innerWidth - 1)
+            let truncLen = ANSIStringMetrics.visibleLength(truncated)
+            let pad = max(0, innerWidth - truncLen)
+            return box.vertical + truncated
+                + String(repeating: " ", count: pad)
+                + box.vertical
+        }
+        let padding = innerWidth - visLen
         return box.vertical + content
             + String(repeating: " ", count: padding)
             + box.vertical
@@ -183,20 +235,106 @@ public enum PulseSectionRenderer: Sendable {
 
     private static func wrapText(_ text: String, to maxWidth: Int) -> [String] {
         guard maxWidth > 0 else { return [text] }
-        let words = text.split(separator: " ", omittingEmptySubsequences: true)
-        var lines: [String] = []
-        var current = ""
+        var result: [String] = []
+        let paragraphs = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for paragraph in paragraphs {
+            let trimmed = paragraph.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                result.append("")
+                continue
+            }
+            let words = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+            var current = ""
+            for word in words {
+                let candidate = current.isEmpty ? String(word) : "\(current) \(word)"
+                if candidate.count <= maxWidth {
+                    current = candidate
+                } else {
+                    if !current.isEmpty { result.append(current) }
+                    if word.count > maxWidth {
+                        var remaining = String(word)
+                        while remaining.count > maxWidth {
+                            result.append(String(remaining.prefix(maxWidth)))
+                            remaining = String(remaining.dropFirst(maxWidth))
+                        }
+                        current = remaining
+                    } else {
+                        current = String(word)
+                    }
+                }
+            }
+            if !current.isEmpty { result.append(current) }
+        }
+        return result
+    }
 
-        for word in words {
-            let candidate = current.isEmpty ? String(word) : "\(current) \(word)"
-            if candidate.count <= maxWidth {
-                current = candidate
-            } else {
-                if !current.isEmpty { lines.append(current) }
-                current = String(word)
+    private static func stripMarkdown(_ text: String) -> String {
+        var result = text
+
+        // Remove YAML frontmatter
+        if result.hasPrefix("---") {
+            if let endRange = result.range(of: "\n---\n", range: result.index(result.startIndex, offsetBy: 3)..<result.endIndex) {
+                result = String(result[endRange.upperBound...])
             }
         }
-        if !current.isEmpty { lines.append(current) }
-        return lines
+
+        // Remove markdown tables (pipe-delimited rows and separator rows)
+        let tablePattern = #"^\|.+\|$"#
+        let separatorPattern = #"^\|[\s\-\|:]+\|$"#
+        result = result
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.range(of: separatorPattern, options: .regularExpression) != nil {
+                    return false
+                }
+                if trimmed.range(of: tablePattern, options: .regularExpression) != nil {
+                    return false
+                }
+                return true
+            }
+            .joined(separator: "\n")
+
+        // Convert ## headers to plain text with emphasis
+        result = result.replacingOccurrences(
+            of: #"^#{1,3}\s+"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Strip bold markers
+        result = result.replacingOccurrences(of: "**", with: "")
+
+        // Strip italic markers (single *)
+        result = result.replacingOccurrences(
+            of: #"(?<!\*)\*(?!\*)"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Strip backticks
+        result = result.replacingOccurrences(of: "`", with: "")
+
+        // Collapse multiple blank lines
+        while result.contains("\n\n\n") {
+            result = result.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func computeRuleColumnWidth(
+        _ clusters: [ViolationCluster],
+        maxWidth: Int
+    ) -> Int {
+        let longest = clusters.map(\.ruleId.count).max() ?? 20
+        let available = maxWidth - 52
+        return min(max(longest + 2, 20), max(available, 20))
+    }
+
+    private static func padVisible(_ text: String, to width: Int) -> String {
+        let visLen = ANSIStringMetrics.visibleLength(text)
+        let pad = max(0, width - visLen)
+        return text + String(repeating: " ", count: pad)
     }
 }

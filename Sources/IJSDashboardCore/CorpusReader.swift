@@ -1,4 +1,5 @@
 import Foundation
+import IJSAggregator
 import IJSSensor
 import os
 
@@ -72,6 +73,20 @@ public struct CorpusReader: Sendable {
         return result
     }
 
+    // MARK: - Manifest Loading
+
+    /// Loads the corpus manifest from `<corpusPath>/manifest.yml`.
+    ///
+    /// Returns an empty manifest (treating all projects as active) if the
+    /// file does not exist.
+    ///
+    /// - Returns: The decoded ``CorpusManifest``.
+    /// - Throws: ``IJSError/configurationError(reason:)`` if the file exists but cannot be parsed.
+    public func loadManifest() throws -> CorpusManifest {
+        let manifestURL = URL(fileURLWithPath: "\(corpusPath)/manifest.yml") // SAFETY: corpusPath from configuration
+        return try CorpusManifest.load(from: manifestURL)
+    }
+
     // MARK: - Pulse Loading
 
     /// Loads the most recent InstitutionalPulse from the corpus pulse directory.
@@ -111,14 +126,38 @@ public struct CorpusReader: Sendable {
         return nil
     }
 
+    /// Lists all week labels that have a valid pulse JSON file, sorted ascending.
+    public func listAvailableWeeks() -> [String] {
+        let pulsePath = "\(corpusPath)/pulse" // SAFETY: corpusPath from configuration
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: pulsePath) else { return [] } // SAFETY: read-only check on configured path
+        guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return [] } // silent: empty pulse dir returns []
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        return contents
+            .filter { name in
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: "\(pulsePath)/\(name)", isDirectory: &isDir), // SAFETY: child of configured pulse path
+                      isDir.boolValue else { return false }
+                let filePath = "\(pulsePath)/\(name)/PULSE_\(name).json" // SAFETY: child of configured pulse path
+                guard let data = fm.contents(atPath: filePath) else { return false } // SAFETY: reads pulse JSON
+                return (try? decoder.decode(InstitutionalPulse.self, from: data)) != nil // silent: malformed JSON treated as absent
+            }
+            .sorted()
+    }
+
     /// Loads a specific pulse by week label.
     ///
     /// - Parameter weekLabel: ISO week label (e.g., "2026-W20").
     /// - Returns: The decoded pulse, or nil if not found or malformed.
     public func loadPulse(weekLabel: String) -> InstitutionalPulse? {
-        let filePath = "\(corpusPath)/pulse/\(weekLabel)/PULSE_\(weekLabel).json" // SAFETY: corpusPath from config, weekLabel from caller
+        let baseURL = URL(fileURLWithPath: corpusPath).standardized
+        let fileURL = baseURL.appendingPathComponent("pulse/\(weekLabel)/PULSE_\(weekLabel).json").standardized
+        guard fileURL.path.hasPrefix(baseURL.path) else { return nil } // SAFETY: reject path traversal
         let fm = FileManager.default
-        guard let data = fm.contents(atPath: filePath) else { return nil } // SAFETY: reads single configured file
+        guard let data = fm.contents(atPath: fileURL.path) else { return nil } // SAFETY: reads validated pulse file
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
