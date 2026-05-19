@@ -10,6 +10,7 @@
 set -uo pipefail
 
 CORPUS_PATH="/Users/jpurnell/Dropbox/Computer/Development/Swift/Tools/org-judgement-corpus"
+CORPUS_REMOTE="git@github.com:jpurnell/org-judgement-corpus.git"
 QG_BIN="$(command -v quality-gate 2>/dev/null || echo "")"
 GUIDELINES_REPO="https://github.com/jpurnell/development-guidelines.git"
 SWIFT_DIR="/Users/jpurnell/Dropbox/Computer/Development/Swift"
@@ -171,6 +172,22 @@ consistency:
 EOF
             fi
         fi
+        # Add ijs: section if missing
+        if ! grep -q "^ijs:" "$config_file" 2>/dev/null; then
+            if $DRY_RUN; then
+                echo "  Would append ijs section to $config_file"
+            else
+                cat >> "$config_file" << EOF
+
+ijs:
+  projectID: "$project_name"
+  corpusPath: "$CORPUS_PATH"
+  decisionOwner: "jpurnell"
+  defaultRiskTier: 2
+  remoteURL: "$CORPUS_REMOTE"
+EOF
+            fi
+        fi
     else
         if $DRY_RUN; then
             echo "  Would create $config_file"
@@ -181,6 +198,13 @@ consistency:
   projectID: $project_name
   consistencyThreshold: 0.7
   defaultRiskTier: 2
+
+ijs:
+  projectID: "$project_name"
+  corpusPath: "$CORPUS_PATH"
+  decisionOwner: "jpurnell"
+  defaultRiskTier: 2
+  remoteURL: "$CORPUS_REMOTE"
 EOF
         fi
     fi
