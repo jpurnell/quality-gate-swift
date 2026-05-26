@@ -162,7 +162,8 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         let visitor = AccessibilityVisitor(
             fileName: fileName,
             source: source,
-            exemptionPatterns: configuration.safetyExemptions
+            exemptionPatterns: configuration.safetyExemptions,
+            tree: sourceFile
         )
         visitor.walk(sourceFile)
         return (visitor.diagnostics, visitor.overrides)
@@ -176,14 +177,16 @@ final class AccessibilityVisitor: SyntaxVisitor {
     let source: String
     let exemptionPatterns: [String]
     let sourceLines: [String]
+    let converter: SourceLocationConverter
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
 
-    init(fileName: String, source: String, exemptionPatterns: [String]) {
+    init(fileName: String, source: String, exemptionPatterns: [String], tree: SourceFileSyntax) {
         self.fileName = fileName
         self.source = source
         self.exemptionPatterns = exemptionPatterns
         self.sourceLines = source.components(separatedBy: .newlines)
+        self.converter = SourceLocationConverter(fileName: fileName, tree: tree)
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -210,7 +213,7 @@ final class AccessibilityVisitor: SyntaxVisitor {
         guard hasSize else { return }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if let override = overrideIfExempted(line: location.line, ruleId: "fixed-font-size") {
             overrides.append(override)
@@ -237,7 +240,7 @@ final class AccessibilityVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if let override = overrideIfExempted(line: location.line, ruleId: "missing-reduce-motion") {
             overrides.append(override)
@@ -269,8 +272,8 @@ final class AccessibilityVisitor: SyntaxVisitor {
     private func checkAnimationModifier(_ node: MemberAccessExprSyntax) {
         guard node.declName.baseName.text == "animation" else { return }
 
-        let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+        let location = node.period.startLocation(
+            converter: converter
         )
         if let override = overrideIfExempted(line: location.line, ruleId: "missing-reduce-motion") {
             overrides.append(override)
@@ -312,7 +315,7 @@ final class AccessibilityVisitor: SyntaxVisitor {
         if hasModifierInChain(from: call, named: "accessibilityHidden") { return }
 
         let location = call.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: call.root)
+            converter: converter
         )
         if let override = overrideIfExempted(line: location.line, ruleId: "missing-accessibility-label") {
             overrides.append(override)

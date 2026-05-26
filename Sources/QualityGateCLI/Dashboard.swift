@@ -50,6 +50,18 @@ struct Dashboard: AsyncParsableCommand {
         }
 
         do {
+            let fm = FileManager.default
+            let rebaseMerge = "\(gitDir)/rebase-merge"
+            let rebaseApply = "\(gitDir)/rebase-apply"
+            if fm.fileExists(atPath: rebaseMerge) || fm.fileExists(atPath: rebaseApply) {
+                print("[dashboard] Recovering from interrupted rebase…") // logging: CLI user-facing output
+                let cont = try git(["rebase", "--continue"])
+                if cont.exitCode != 0 {
+                    _ = try git(["rebase", "--abort"])
+                    print("[dashboard] Rebase recovery failed — aborted rebase, retrying pull") // logging: CLI user-facing output
+                }
+            }
+
             let status = try git(["status", "--porcelain"])
             if !status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 _ = try git(["add", "-A"])

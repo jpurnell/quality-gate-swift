@@ -9,6 +9,7 @@ import SwiftParser
 /// - `lifecycle-task-no-deinit` — Class has stored `Task` property but no `deinit`
 /// - `lifecycle-task-no-cancel` — Class has stored `Task` property and `deinit` that omits `.cancel()`
 /// - `lifecycle-strong-delegate` — Stored property matching a delegate pattern is not `weak`/`unowned`
+/// - `lifecycle-unbounded-stream` — `AsyncStream.makeStream()` without explicit `bufferingPolicy`
 public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     /// Unique identifier for this checker.
     public let id = "memory-lifecycle"
