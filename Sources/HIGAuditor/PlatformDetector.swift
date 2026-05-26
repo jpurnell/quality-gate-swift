@@ -8,7 +8,7 @@ public struct PlatformDetector: Sendable {
     /// Parses the `platforms:` array for entries like `.macOS(.v15)`, `.iOS(.v17)`, etc.
     public static func detectFromPackageManifest(at projectPath: String) -> HIGPlatform {
         let manifestPath = (projectPath as NSString).appendingPathComponent("Package.swift")
-        guard let contents = try? String(contentsOfFile: manifestPath, encoding: .utf8) else {
+        guard let contents = try? String(contentsOfFile: manifestPath, encoding: .utf8) else { // silent: missing Package.swift falls back to all platforms
             return .all
         }
         return detectFromManifestContents(contents)

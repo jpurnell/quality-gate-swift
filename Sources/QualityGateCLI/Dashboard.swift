@@ -53,6 +53,7 @@ struct Dashboard: AsyncParsableCommand {
             let fm = FileManager.default
             let rebaseMerge = "\(gitDir)/rebase-merge"
             let rebaseApply = "\(gitDir)/rebase-apply"
+            // SAFETY: paths derived from configured corpus gitDir — no user-controlled traversal
             if fm.fileExists(atPath: rebaseMerge) || fm.fileExists(atPath: rebaseApply) {
                 print("[dashboard] Recovering from interrupted rebase…") // logging: CLI user-facing output
                 let cont = try git(["rebase", "--continue"])

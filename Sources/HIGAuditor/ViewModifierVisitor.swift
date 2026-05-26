@@ -37,10 +37,6 @@ final class ViewModifierVisitor: SyntaxVisitor {
         "cyan", "indigo", "mint", "teal",
     ]
 
-    /// Colors that are intentional and not flagged.
-    private static let allowedColors: Set<String> = [
-        "clear", "white", "black", "accentColor", "primary", "secondary",
-    ]
 
     init(
         fileName: String,
