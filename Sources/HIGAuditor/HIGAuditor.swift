@@ -24,18 +24,23 @@ import SwiftParser
 /// NavigationStack { UtilityView() }
 /// ```
 public struct HIGAuditor: FixableChecker, Sendable {
+    /// Unique identifier for this checker.
     public let id = "hig-auditor"
+    /// Human-readable display name for this checker.
     public let name = "HIG Auditor"
+    /// Describes the auto-fix behavior applied by this checker.
     public let fixDescription = "Inserts TODO-marked HIG scaffolding (Settings scene, .commands, .help, .contextMenu)."
 
     private let platformOverride: HIGPlatform?
 
+    /// Creates an auditor, optionally targeting specific platforms instead of auto-detecting.
     public init(platforms: HIGPlatform? = nil) {
         self.platformOverride = platforms
     }
 
     // MARK: - QualityChecker
 
+    /// Audits all Swift sources under `Sources/` for HIG compliance issues.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
@@ -48,7 +53,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
-        if fileManager.fileExists(atPath: sourcesPath) {
+        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: relative "Sources/" under cwd — no user input
             let result = try await auditDirectory(
                 at: sourcesPath,
                 activePlatforms: activePlatforms,
@@ -72,6 +77,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
     // MARK: - FixableChecker
 
+    /// Applies automatic scaffolding fixes for the given HIG diagnostics.
     public func fix(
         diagnostics: [Diagnostic],
         configuration: Configuration
@@ -87,7 +93,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
                 continue
             }
 
-            guard var source = try? String(contentsOfFile: filePath, encoding: .utf8) else {
+            guard var source = try? String(contentsOfFile: filePath, encoding: .utf8) else { // silent: file unreadable during fix pass — already diagnosed
                 unfixed.append(contentsOf: fileDiagnostics)
                 continue
             }
@@ -211,7 +217,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
                 let result = auditSource(source, fileName: fullPath, activePlatforms: activePlatforms)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch {
+            } catch { // silent: unreadable source file skipped during audit sweep
                 continue
             }
         }
