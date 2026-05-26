@@ -125,6 +125,12 @@ struct IndexStorePass {
             // Cases of `enum X: CodingKey` (or named `CodingKeys`) are
             // referenced only by synthesized Codable machinery — root.
             if rec.fact?.isCodingKey == true { roots.insert(usr); continue }
+            // SwiftUI property wrapper — reachable from SwiftUI's rendering
+            // pipeline (@State, @Binding, @Published, @Environment, etc.).
+            if rec.fact?.isSwiftUIWired == true { roots.insert(usr); continue }
+            // Member of a SwiftUI View/Scene/App/Widget type — rendered by
+            // the framework, so all stored properties and methods are live.
+            if rec.fact?.isSwiftUIViewMember == true { roots.insert(usr); continue }
             // v6: protocol-witness allow-list. Combines:
             //   1. The hand-curated set (operators, conventional names
             //      like `body` that aren't universally requirements).

@@ -18,6 +18,8 @@ struct DeclFact: Sendable {
     var isInit: Bool
     var isEnumCase: Bool
     var isCodingKey: Bool
+    var isSwiftUIWired: Bool  // @State / @Binding / @Published / @Environment / etc.
+    var isSwiftUIViewMember: Bool // member of a View / Scene / App / Widget struct
 }
 
 /// Lexical range of a declaration: line span of the whole decl plus the
@@ -113,8 +115,28 @@ private final class DeclFactVisitor: SyntaxVisitor {
     /// only via the compiler-synthesized `Codable` machinery, which the
     /// index store doesn't see. Treat such cases as roots.
     private var codingKeyEnumDepth = 0
+    /// Inside a SwiftUI View/Scene/App/Widget/Commands type — all members
+    /// are reachable from SwiftUI's rendering pipeline.
+    private var swiftUIViewTypeDepth = 0
     var facts: [Int: DeclFact] = [:]
     var ranges: [DeclRange] = []
+
+    private static let swiftUIPropertyWrappers: Set<String> = [
+        "State", "Binding", "StateObject", "ObservedObject",
+        "Environment", "EnvironmentObject",
+        "Published",
+        "AppStorage", "SceneStorage",
+        "FetchRequest", "SectionedFetchRequest", "Query",
+        "FocusState", "FocusedValue", "FocusedBinding",
+        "GestureState", "Namespace", "ScaledMetric",
+        "UIApplicationDelegateAdaptor", "NSApplicationDelegateAdaptor",
+    ]
+
+    private static let swiftUITypeProtocols: Set<String> = [
+        "View", "Scene", "App", "Widget", "Commands",
+        "WidgetBundle", "PreviewProvider", "LibraryContentProvider",
+        "ObservableObject",
+    ]
 
     private func recordRange(_ node: some SyntaxProtocol, nameLine: Int) {
         let start = node.startLocation(converter: converter).line
@@ -168,7 +190,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
         return false
     }
 
-    private func record(line: Int, name: String, isPublic: Bool, isObjC: Bool, isInit: Bool = false, isEnumCase: Bool = false) {
+    private func record(line: Int, name: String, isPublic: Bool, isObjC: Bool, isInit: Bool = false, isEnumCase: Bool = false, isSwiftUIWired: Bool = false) {
         let exempted = liveLines.contains(line) || liveLines.contains(line - 1)
         facts[line] = DeclFact(
             line: line,
@@ -179,8 +201,46 @@ private final class DeclFactVisitor: SyntaxVisitor {
             isExempted: exempted,
             isInit: isInit,
             isEnumCase: isEnumCase,
-            isCodingKey: isEnumCase && codingKeyEnumDepth > 0
+            isCodingKey: isEnumCase && codingKeyEnumDepth > 0,
+            isSwiftUIWired: isSwiftUIWired,
+            isSwiftUIViewMember: swiftUIViewTypeDepth > 0
         )
+    }
+
+    private func hasSwiftUIPropertyWrapper(_ attrs: AttributeListSyntax) -> Bool {
+        for attr in attrs {
+            if let a = attr.as(AttributeSyntax.self),
+               let name = a.attributeName.as(IdentifierTypeSyntax.self)?.name.text,
+               Self.swiftUIPropertyWrappers.contains(name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isSwiftUIType(_ inheritanceClause: InheritanceClauseSyntax?) -> Bool {
+        guard let clause = inheritanceClause else { return false }
+        for inherited in clause.inheritedTypes {
+            let typeName: String?
+            if let simple = inherited.type.as(IdentifierTypeSyntax.self) {
+                typeName = simple.name.text
+            } else if let member = inherited.type.as(MemberTypeSyntax.self) {
+                typeName = member.name.text
+            } else {
+                typeName = nil
+            }
+            if let name = typeName, Self.swiftUITypeProtocols.contains(name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func enterSwiftUITypeIfNeeded(_ inheritanceClause: InheritanceClauseSyntax?) {
+        if isSwiftUIType(inheritanceClause) { swiftUIViewTypeDepth += 1 }
+    }
+    private func leaveSwiftUITypeIfNeeded(_ inheritanceClause: InheritanceClauseSyntax?) {
+        if isSwiftUIType(inheritanceClause) { swiftUIViewTypeDepth -= 1 }
     }
 
     // MARK: visits
@@ -238,10 +298,11 @@ private final class DeclFactVisitor: SyntaxVisitor {
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
         let isPub = isPublicOrOpen(node.modifiers)
         let objc = isObjC(node.attributes)
+        let wired = hasSwiftUIPropertyWrapper(node.attributes)
         for binding in node.bindings {
             if let pat = binding.pattern.as(IdentifierPatternSyntax.self) {
                 let line = pat.identifier.startLocation(converter: converter).line
-                record(line: line, name: pat.identifier.text, isPublic: isPub, isObjC: objc)
+                record(line: line, name: pat.identifier.text, isPublic: isPub, isObjC: objc, isSwiftUIWired: wired)
             }
         }
         return .visitChildren
@@ -260,18 +321,26 @@ private final class DeclFactVisitor: SyntaxVisitor {
         record(line: line, name: node.name.text, isPublic: isPublicOrOpen(node.modifiers), isObjC: isObjC(node.attributes))
         recordRange(node, nameLine: line)
         enterTypeIfMain(node.attributes)
+        enterSwiftUITypeIfNeeded(node.inheritanceClause)
         return .visitChildren
     }
-    override func visitPost(_ node: StructDeclSyntax) { leaveTypeIfMain(node.attributes) }
+    override func visitPost(_ node: StructDeclSyntax) {
+        leaveTypeIfMain(node.attributes)
+        leaveSwiftUITypeIfNeeded(node.inheritanceClause)
+    }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         let line = node.name.startLocation(converter: converter).line
         record(line: line, name: node.name.text, isPublic: isPublicOrOpen(node.modifiers), isObjC: isObjC(node.attributes))
         recordRange(node, nameLine: line)
         enterTypeIfMain(node.attributes)
+        enterSwiftUITypeIfNeeded(node.inheritanceClause)
         return .visitChildren
     }
-    override func visitPost(_ node: ClassDeclSyntax) { leaveTypeIfMain(node.attributes) }
+    override func visitPost(_ node: ClassDeclSyntax) {
+        leaveTypeIfMain(node.attributes)
+        leaveSwiftUITypeIfNeeded(node.inheritanceClause)
+    }
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
         let line = node.name.startLocation(converter: converter).line
