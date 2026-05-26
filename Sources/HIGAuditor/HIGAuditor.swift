@@ -217,7 +217,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
                 let result = auditSource(source, fileName: fullPath, activePlatforms: activePlatforms)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch { // silent: unreadable source file skipped during audit sweep
+            } catch { // logging: unreadable source file skipped during audit sweep
                 continue
             }
         }
