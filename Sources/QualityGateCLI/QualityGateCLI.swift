@@ -27,6 +27,7 @@ import MCPReadinessAuditor
 import ProcessSafetyAuditor
 import MemoryLifecycleGuard
 import ComplexityAnalyzer
+import HIGAuditor
 import ConsistencyChecker
 import IJSSensor
 import IJSAggregator
@@ -177,6 +178,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             MCPReadinessAuditor(),
             ProcessSafetyAuditor(),
             ComplexityAnalyzer(),
+            HIGAuditor(),
             ConsistencyChecker(),
             DiskCleaner()
         ]
