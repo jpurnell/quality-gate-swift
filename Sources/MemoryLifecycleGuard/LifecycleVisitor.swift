@@ -150,6 +150,56 @@ final class LifecycleVisitor: SyntaxVisitor {
         return .skipChildren
     }
 
+    // MARK: - Unbounded AsyncStream Detection
+
+    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        checkUnboundedStream(node)
+        return .visitChildren
+    }
+
+    /// Detects `AsyncStream.makeStream()` or `AsyncThrowingStream.makeStream()`
+    /// calls without an explicit `bufferingPolicy` argument. These create
+    /// unbounded buffers that can grow indefinitely if the producer outpaces
+    /// the consumer.
+    private func checkUnboundedStream(_ node: FunctionCallExprSyntax) {
+        let calleeText = node.calledExpression.trimmedDescription
+
+        // Match: AsyncStream<T>.makeStream(...) or AsyncThrowingStream<T>.makeStream(...)
+        let isStreamMakeStream = (calleeText.hasPrefix("AsyncStream") || calleeText.hasPrefix("AsyncThrowingStream"))
+            && calleeText.contains("makeStream")
+
+        // Match: AsyncStream<T>(...) or AsyncThrowingStream<T>(...) init with continuation closure
+        let isStreamInit = (calleeText.hasPrefix("AsyncStream<") || calleeText.hasPrefix("AsyncThrowingStream<"))
+            && !calleeText.contains("makeStream")
+            && !calleeText.contains(".")
+
+        guard isStreamMakeStream || isStreamInit else { return }
+
+        // Check if bufferingPolicy is specified
+        let hasBufferingPolicy = node.arguments.contains { arg in
+            arg.label?.text == "bufferingPolicy"
+        }
+        guard !hasBufferingPolicy else { return }
+
+        // Check for lifecycle:exempt on the same line
+        let line = startLine(of: Syntax(node))
+        let zeroIndexed = line - 1
+        if zeroIndexed >= 0, zeroIndexed < sourceLines.count,
+           sourceLines[zeroIndexed].contains("lifecycle:exempt") {
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "AsyncStream created without explicit bufferingPolicy; defaults to .unbounded which can cause memory growth if producer outpaces consumer",
+            filePath: filePath,
+            lineNumber: line,
+            columnNumber: 1,
+            ruleId: "lifecycle-unbounded-stream",
+            suggestedFix: "Add bufferingPolicy: .bufferingNewest(1) (or .bufferingOldest(N)) to cap memory usage."
+        ))
+    }
+
     // MARK: - Loop Memory Rules
 
     override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
