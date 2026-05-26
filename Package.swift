@@ -116,6 +116,10 @@ let package = Package(
             targets: ["ComplexityAnalyzer"]
         ),
         .library(
+            name: "HIGAuditor",
+            targets: ["HIGAuditor"]
+        ),
+        .library(
             name: "QualityGateTestKit",
             targets: ["QualityGateTestKit"]
         ),
@@ -477,6 +481,19 @@ let package = Package(
             dependencies: ["ComplexityAnalyzer", "IJSSensor"]
         ),
 
+        .target(
+            name: "HIGAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "HIGAuditorTests",
+            dependencies: ["HIGAuditor"]
+        ),
+
         // MARK: - IJS Modules
         .target(
             name: "IJSSensor",
@@ -628,6 +645,7 @@ let package = Package(
                 "MCPReadinessAuditor",
                 "ProcessSafetyAuditor",
                 "ComplexityAnalyzer",
+                "HIGAuditor",
                 "ConsistencyChecker",
                 "IJSSensor",
                 "IJSAggregator",
