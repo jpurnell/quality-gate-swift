@@ -56,11 +56,7 @@ struct Dashboard: AsyncParsableCommand {
             // SAFETY: paths derived from configured corpus gitDir — no user-controlled traversal
             if fm.fileExists(atPath: rebaseMerge) || fm.fileExists(atPath: rebaseApply) {
                 print("[dashboard] Recovering from interrupted rebase…") // logging: CLI user-facing output
-                let cont = try git(["rebase", "--continue"])
-                if cont.exitCode != 0 {
-                    _ = try git(["rebase", "--abort"])
-                    print("[dashboard] Rebase recovery failed — aborted rebase, retrying pull") // logging: CLI user-facing output
-                }
+                _ = try git(["rebase", "--abort"])
             }
 
             let status = try git(["status", "--porcelain"])
@@ -72,8 +68,14 @@ struct Dashboard: AsyncParsableCommand {
 
             let pull = try git(["pull", "--rebase", "--quiet"])
             if pull.exitCode != 0 {
-                print("[dashboard] Warning: corpus pull failed (exit \(pull.exitCode)) — using local data") // logging: CLI user-facing output
-                return
+                // Rebase conflict — abort and retry with merge, accepting remote for telemetry data
+                _ = try git(["rebase", "--abort"])
+                print("[dashboard] Rebase conflict detected — retrying with merge strategy") // logging: CLI user-facing output
+                let mergePull = try git(["pull", "--no-rebase", "--strategy-option", "theirs", "--quiet"])
+                if mergePull.exitCode != 0 {
+                    print("[dashboard] Warning: corpus pull failed (exit \(mergePull.exitCode)) — using local data") // logging: CLI user-facing output
+                    return
+                }
             }
 
             let push = try git(["push", "--quiet"])
