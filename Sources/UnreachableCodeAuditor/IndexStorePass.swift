@@ -36,6 +36,14 @@ struct IndexStorePass {
     }
 
     static func run(inputs: Inputs) throws -> [Diagnostic] {
+        var pathCache: [String: String] = [:]
+        func canonicalize(_ path: String) -> String {
+            if let cached = pathCache[path] { return cached }
+            let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            pathCache[path] = resolved
+            return resolved
+        }
+
         let lib = try IndexStoreLibrary(dylibPath: inputs.libIndexStoreDylib.path)
         let dbPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("quality-gate-indexdb-\(UUID().uuidString)")
@@ -54,11 +62,13 @@ struct IndexStorePass {
         // -- Pre-pass: gather syntactic facts for every source file under
         // the project root (recursively, skipping build/dependency dirs).
         var liveness = LivenessIndex()
-        let swiftFiles = SourceWalker.swiftFiles(
+        let rawSwiftFiles = SourceWalker.swiftFiles(
             under: inputs.rootURL,
             excludePatterns: inputs.excludePatterns)
-        for file in swiftFiles {
-            guard let src = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable source file skipped
+        let swiftFiles = rawSwiftFiles.map { canonicalize($0) }
+        for (idx, file) in swiftFiles.enumerated() {
+            let rawFile = rawSwiftFiles[idx]
+            guard let src = try? String(contentsOfFile: rawFile, encoding: .utf8) else { continue } // silent: unreadable source file skipped
             liveness.ingest(file: file, source: src)
         }
 
@@ -74,16 +84,20 @@ struct IndexStorePass {
         }
         var defs: [String: DefRecord] = [:]
 
-        for file in swiftFiles {
-            let symbols = db.symbols(inFilePath: file)
+        for (idx, file) in swiftFiles.enumerated() {
+            let rawFile = rawSwiftFiles[idx]
+            var symbols = db.symbols(inFilePath: file)
+            if symbols.isEmpty && rawFile != file {
+                symbols = db.symbols(inFilePath: rawFile)
+            }
             for symbol in symbols {
                 guard Self.isCheckable(symbol) else { continue }
                 if defs[symbol.usr] != nil { continue }
                 let defOccs = db.occurrences(ofUSR: symbol.usr, roles: [.definition])
-                guard let def = defOccs.first(where: { $0.location.path == file }) ?? defOccs.first else {
+                guard let def = defOccs.first(where: { canonicalize($0.location.path) == file }) ?? defOccs.first else {
                     continue
                 }
-                let defFile = def.location.path
+                let defFile = canonicalize(def.location.path)
                 let defLine = def.location.line
                 let moduleName = def.location.moduleName
                 defs[symbol.usr] = DefRecord(
@@ -180,14 +194,18 @@ struct IndexStorePass {
             defByLocation[rec.defFile, default: [:]][rec.defLine] = usr
         }
 
-        for file in swiftFiles {
-            let symbols = db.symbols(inFilePath: file)
+        for (idx, file) in swiftFiles.enumerated() {
+            let rawFile = rawSwiftFiles[idx]
+            var symbols = db.symbols(inFilePath: file)
+            if symbols.isEmpty && rawFile != file {
+                symbols = db.symbols(inFilePath: rawFile)
+            }
             for symbol in symbols {
                 let occs = db.occurrences(
                     ofUSR: symbol.usr,
                     roles: [.reference, .call, .read, .write]
                 )
-                for occ in occs where occ.location.path == file {
+                for occ in occs where canonicalize(occ.location.path) == file {
                     let refLine = occ.location.line
                     if let enclosingLine = liveness.enclosingDeclNameLine(file: file, line: refLine),
                        let callerUSR = defByLocation[file]?[enclosingLine] {
@@ -245,7 +263,7 @@ struct IndexStorePass {
                 roles: [.reference, .call, .read, .write]
             )
             let externalRefs = refs.filter { occ in
-                !(occ.location.path == rec.defFile && occ.location.line == rec.defLine)
+                !(canonicalize(occ.location.path) == rec.defFile && occ.location.line == rec.defLine)
             }
             if !externalRefs.isEmpty { continue }
             diagnostics.append(Diagnostic(
@@ -256,6 +274,14 @@ struct IndexStorePass {
                 columnNumber: rec.defColumn,
                 ruleId: "unreachable.cross_module.unreachable_from_entry",
                 suggestedFix: "Remove '\(rec.symbol.name)', or mark its declaration with `// LIVE:` if it is invoked dynamically."
+            ))
+        }
+
+        if defs.isEmpty && !swiftFiles.isEmpty {
+            diagnostics.append(Diagnostic(
+                severity: .note,
+                message: "Cross-module pass found no indexed symbols — index store may be empty or file paths may not match the compilation record.",
+                ruleId: "unreachable.cross_module.no_symbols"
             ))
         }
 
