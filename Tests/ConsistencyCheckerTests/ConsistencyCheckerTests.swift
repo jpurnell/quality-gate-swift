@@ -56,7 +56,7 @@ struct ConsistencyCheckerTests {
     ) -> CheckResultMetadata {
         CheckResultMetadata(
             projectID: projectID,
-            timestamp: timestamp ?? makeDate("2026-04-28"),
+            timestamp: timestamp ?? Date().addingTimeInterval(-86400),
             environment: .local,
             decisionOwner: "jpurnell",
             results: results,
