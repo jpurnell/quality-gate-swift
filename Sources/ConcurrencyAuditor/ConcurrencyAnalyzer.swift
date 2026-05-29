@@ -32,6 +32,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
 
+    private let justificationValidator = JustificationValidator()
+    private var seenJustifications: Set<String> = []
+
     /// Stack of isolation contexts, one per nested decl.
     private var isolationStack: [IsolationContext] = [.none]
     /// Stack of stored property name sets, one per nested type/extension.
@@ -478,9 +481,11 @@ final class ConcurrencyVisitor: SyntaxVisitor {
             if let commentRange = lineText.range(of: "//") {
                 let commentText = String(lineText[commentRange.upperBound...])
                 if commentText.contains(justificationKeyword) {
+                    let trimmed = commentText.trimmingCharacters(in: .whitespaces)
+                    emitQualityDiagnosticsIfNeeded(justificationText: trimmed, line: line)
                     return DiagnosticOverride(
                         ruleId: ruleId,
-                        justification: commentText.trimmingCharacters(in: .whitespaces),
+                        justification: trimmed,
                         filePath: fileName,
                         lineNumber: line
                     )
@@ -492,6 +497,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         if aboveIndex >= 0 && aboveIndex < sourceLines.count {
             let prev = sourceLines[aboveIndex].trimmingCharacters(in: .whitespaces)
             if prev.hasPrefix("//") && prev.contains(justificationKeyword) {
+                emitQualityDiagnosticsIfNeeded(justificationText: prev, line: line)
                 return DiagnosticOverride(
                     ruleId: ruleId,
                     justification: prev,
@@ -501,6 +507,48 @@ final class ConcurrencyVisitor: SyntaxVisitor {
             }
         }
         return nil
+    }
+
+    private func emitQualityDiagnosticsIfNeeded(justificationText: String, line: Int) {
+        let result = justificationValidator.validateForDuplicates(
+            justificationText,
+            seen: &seenJustifications,
+            keyword: justificationKeyword
+        )
+        switch result {
+        case .valid:
+            break
+        case .tooShort(let wordCount):
+            diagnostics.append(Diagnostic(
+                severity: .error,
+                message: "Justification is too short (\(wordCount) words); provide at least 8 words explaining why this is safe",
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: 1,
+                ruleId: "justification.too-short",
+                suggestedFix: "Expand the justification to describe the synchronization mechanism or safety reasoning."
+            ))
+        case .generic(let matchedPhrase):
+            diagnostics.append(Diagnostic(
+                severity: .error,
+                message: "Justification matches known generic phrase '\(matchedPhrase)'; provide a substantive explanation",
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: 1,
+                ruleId: "justification.generic",
+                suggestedFix: "Replace with a specific explanation of why this code is safe (e.g., synchronization strategy, immutability proof)."
+            ))
+        case .duplicate:
+            diagnostics.append(Diagnostic(
+                severity: .warning,
+                message: "Duplicate justification text; each override should have a unique, site-specific explanation",
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: 1,
+                ruleId: "justification.duplicate",
+                suggestedFix: "Write a justification specific to this particular usage site."
+            ))
+        }
     }
 }
 

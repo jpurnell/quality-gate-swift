@@ -79,6 +79,12 @@ public actor PolicyDiscoveryAuditor {
             checkerLookup: buildCheckerLookup(from: failedResults)
         ))
 
+        findings.append(contentsOf: detectSuppressionPatterns(
+            metadata: metadata,
+            clusters: pulse.violationClusters,
+            checkerLookup: buildCheckerLookup(from: failedResults)
+        ))
+
         let baselineValidity = inferBaselineValidity(from: pulse)
         let score = scorer.score(findings: findings, baselineValidity: baselineValidity)
 
@@ -112,6 +118,54 @@ public actor PolicyDiscoveryAuditor {
                 historicalOccurrences: cluster.occurrenceCount,
                 isRecurringInPulse: cluster.isRecurring,
                 explanation: "Rule '\(cluster.ruleId)' matched ViolationCluster with \(cluster.occurrenceCount) occurrences"
+            ))
+        }
+        return findings
+    }
+
+    /// Detects clusters where violations were reduced primarily through overrides
+    /// rather than actual code fixes.
+    ///
+    /// For each cluster with `priorOccurrenceCount`, computes the ratio of
+    /// fixes to total reduction (fixes + new overrides). If the resolution rate
+    /// is below 0.5 and there are at least 2 new overrides, emits a finding.
+    private func detectSuppressionPatterns(
+        metadata: CheckResultMetadata,
+        clusters: [ViolationCluster],
+        checkerLookup: [String: String]
+    ) -> [ConsistencyFinding] {
+        var findings: [ConsistencyFinding] = []
+        let overridesByRule = Dictionary(
+            grouping: metadata.overrides,
+            by: \.diagnosticOverride.ruleId
+        )
+
+        for cluster in clusters {
+            guard let priorCount = cluster.priorOccurrenceCount else { continue }
+            guard !isExempted(ruleId: cluster.ruleId, matchType: .suppressionPattern) else { continue }
+
+            let currentCount = cluster.occurrenceCount
+            let overrideCount = overridesByRule[cluster.ruleId]?.count ?? 0
+
+            let reductionFromFixes = max(0, priorCount - currentCount)
+            let totalReduction = reductionFromFixes + overrideCount
+
+            // fp-safety: guarded by totalReduction > 0 check
+            let resolutionRate: Double = totalReduction > 0
+                ? Double(reductionFromFixes) / Double(totalReduction)
+                : 1.0
+
+            guard resolutionRate < 0.5, overrideCount >= 2 else { continue }
+
+            let rateFormatted = resolutionRate.formatted(.number.precision(.fractionLength(2)))
+            findings.append(ConsistencyFinding(
+                ruleId: cluster.ruleId,
+                checkerId: checkerLookup[cluster.ruleId] ?? "unknown",
+                matchType: .suppressionPattern,
+                clusterRiskWeight: Double(cluster.occurrenceCount) / 10.0,
+                historicalOccurrences: cluster.occurrenceCount,
+                isRecurringInPulse: cluster.isRecurring,
+                explanation: "Rule '\(cluster.ruleId)' reduced from \(priorCount) to \(currentCount) violations with \(overrideCount) overrides — resolution rate \(rateFormatted) indicates suppression over fixing"
             ))
         }
         return findings

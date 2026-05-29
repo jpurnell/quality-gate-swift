@@ -195,6 +195,97 @@ struct AccessibilityAuditorTests {
         #expect(fixedFont.isEmpty)
     }
 
+    // MARK: - Scope-Aware reduceMotion Check
+
+    @Test("Scope-aware check finds reduceMotion distant in same function body")
+    func scopeAwareFindsDistantCheck() async throws {
+        let padding = (0..<20).map { _ in "            let x = 1" }.joined(separator: "\n")
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @Environment(\\.accessibilityReduceMotion) var reduceMotion
+            var body: some View {
+                let _ = reduceMotion
+        \(padding)
+                withAnimation {
+                    show.toggle()
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ScopeAware.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        #expect(motion.isEmpty, "Scope-aware check should find reduceMotion in the same body closure")
+    }
+
+    @Test("Flags animation when reduceMotion is in a different function")
+    func differentScopeStillFlags() async throws {
+        let padding = (0..<20).map { _ in "        let x = 1" }.joined(separator: "\n")
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @State var show = false
+            func setup() {
+                if reduceMotion { return }
+            }
+        \(padding)
+            func animate() {
+                withAnimation {
+                    show.toggle()
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "DiffScope.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        #expect(motion.count >= 1, "Should flag animation when reduceMotion is in a different function scope")
+    }
+
+    @Test("Existing radius fast-path still works for nearby reduceMotion")
+    func radiusFastPathStillWorks() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @State var show = false
+            @Environment(\\.accessibilityReduceMotion) var reduceMotion
+            var body: some View {
+                Button("Toggle") {
+                    withAnimation(reduceMotion ? nil : .default) {
+                        show.toggle()
+                    }
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "RadiusFast.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        #expect(motion.isEmpty, "Fast-path radius check should still find nearby reduceMotion")
+    }
+
+    @Test(".animation() modifier with scope-aware reduceMotion check")
+    func animationModifierScopeAware() async throws {
+        let padding = (0..<20).map { _ in "            let x = 1" }.joined(separator: "\n")
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @Environment(\\.accessibilityReduceMotion) var reduceMotion
+            var body: some View {
+                let _ = reduceMotion
+        \(padding)
+                Rectangle()
+                    .animation(.easeInOut, value: offset)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "AnimModScope.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        #expect(motion.isEmpty, "Scope-aware check should find reduceMotion for .animation() modifier too")
+    }
+
     // MARK: - Checker metadata
 
     @Test("Checker has correct id and name")

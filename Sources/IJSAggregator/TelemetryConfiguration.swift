@@ -90,7 +90,8 @@ public struct TelemetryConfiguration: Sendable, Codable, Equatable {
                 clusterMatch: weightsSection["clusterMatch"] as? Double ?? ScorerWeights.defaults.clusterMatch,
                 anomalyPattern: weightsSection["anomalyPattern"] as? Double ?? ScorerWeights.defaults.anomalyPattern,
                 unaddressedPolicy: weightsSection["unaddressedPolicy"] as? Double ?? ScorerWeights.defaults.unaddressedPolicy,
-                recurrenceBonus: weightsSection["recurrenceBonus"] as? Double ?? ScorerWeights.defaults.recurrenceBonus
+                recurrenceBonus: weightsSection["recurrenceBonus"] as? Double ?? ScorerWeights.defaults.recurrenceBonus,
+                suppressionPattern: weightsSection["suppressionPattern"] as? Double ?? ScorerWeights.defaults.suppressionPattern
             )
         } else {
             scorerWeights = .defaults

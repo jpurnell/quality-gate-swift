@@ -91,7 +91,7 @@ struct UncheckedSendableTests {
     @Test("Does not flag when justification is on the line directly above")
     func ignoresJustificationLineAbove() async throws {
         let code = """
-        // Justification: synchronized via NSLock
+        // Justification: synchronized via NSLock in all public methods ensuring thread safety
         final class Foo: @unchecked Sendable {}
         """
         let result = try await TestHelpers.audit(code)
@@ -101,7 +101,7 @@ struct UncheckedSendableTests {
     @Test("Does not flag when justification is trailing on the same line")
     func ignoresJustificationSameLineTrailing() async throws {
         let code = """
-        final class Foo: @unchecked Sendable {} // Justification: lock-protected
+        final class Foo: @unchecked Sendable {} // Justification: lock-protected via DispatchQueue barrier ensuring exclusive access to state
         """
         let result = try await TestHelpers.audit(code)
         #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
@@ -110,7 +110,7 @@ struct UncheckedSendableTests {
     @Test("Does not flag with custom justification keyword")
     func ignoresCustomKeyword() async throws {
         let code = """
-        // SAFETY: protected by actor
+        // SAFETY: protected by actor isolation ensuring all mutations happen on MainActor
         final class Foo: @unchecked Sendable {}
         """
         let result = try await TestHelpers.audit(code, justificationKeyword: "SAFETY:")

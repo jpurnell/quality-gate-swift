@@ -45,6 +45,11 @@ public struct CorpusPath: Sendable, Equatable {
         "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_complexity.json"
     }
 
+    /// Skip artifact path: `<dailyDir>/<HHmmss>_skip.json`
+    public func skipPath(for timestamp: Date) -> String {
+        "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_skip.json"
+    }
+
     /// Snapshot directory for a scope: `<basePath>/snapshots/<scope>`
     public func snapshotDirectory(scope: String) -> String {
         "\(basePath)/snapshots/\(scope)"

@@ -11,6 +11,7 @@ struct ConsistencyMatchTypeTests {
         #expect(ConsistencyMatchType.clusterMatch.rawValue == "clusterMatch")
         #expect(ConsistencyMatchType.anomalyPattern.rawValue == "anomalyPattern")
         #expect(ConsistencyMatchType.unaddressedPolicy.rawValue == "unaddressedPolicy")
+        #expect(ConsistencyMatchType.suppressionPattern.rawValue == "suppressionPattern")
     }
 
     @Test("Codable round-trip preserves value")
@@ -18,7 +19,7 @@ struct ConsistencyMatchTypeTests {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
 
-        for matchType in [ConsistencyMatchType.clusterMatch, .anomalyPattern, .unaddressedPolicy] {
+        for matchType in [ConsistencyMatchType.clusterMatch, .anomalyPattern, .unaddressedPolicy, .suppressionPattern] {
             let data = try encoder.encode(matchType)
             let decoded = try decoder.decode(ConsistencyMatchType.self, from: data)
             #expect(decoded == matchType)
