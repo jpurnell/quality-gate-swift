@@ -101,7 +101,7 @@ graph TD
 ## Current Status
 
 ### What's Working
-- [x] QualityGateCore — Protocol, models, reporters, configuration (79 tests)
+- [x] QualityGateCore — Protocol, models, reporters, configuration (92 tests)
 - [x] SafetyAuditor — Code safety (9 rules) + OWASP security (10 rules), 83 tests
 - [x] BuildChecker — swift build wrapper with output parsing
 - [x] TestRunner — swift test wrapper with Swift Testing + XCTest parsing

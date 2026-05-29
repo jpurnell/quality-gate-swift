@@ -86,6 +86,18 @@ struct QualityGateCLI: AsyncParsableCommand {
     var threshold: Int?
 
     func run() async throws {
+        if let skipRef = ProcessInfo.processInfo.environment["QG_SKIP"] {
+            guard skipRef != "1", skipRef != "true",
+                  skipRef.contains("/") || skipRef.contains("#") else {
+                print("ERROR: QG_SKIP requires an issue URL or reference (e.g. QG_SKIP=https://github.com/org/repo/issues/42)") // logging: CLI user-facing output
+                print("Bare QG_SKIP=1 is not allowed — every skip must be traceable.") // logging: CLI user-facing output
+                throw ExitCode.failure
+            }
+            print("⚠ Quality gate SKIPPED — issue: \(skipRef)") // logging: CLI user-facing output
+            try await recordSkip(issueReference: skipRef)
+            return
+        }
+
         // Load configuration
         var configuration: Configuration
         do {
@@ -403,6 +415,41 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Exit with appropriate code
         if hasFailure && !fix {
             throw ExitCode(1)
+        }
+    }
+
+    private func recordSkip(issueReference: String) async throws {
+        var configuration: Configuration
+        do {
+            configuration = try Configuration.load(from: config)
+        } catch { // logging: skip recording doesn't require full config
+            configuration = Configuration()
+        }
+
+        guard let corpusPath = configuration.consistency.corpusPath else {
+            print("[ijs] No corpus configured — skip not recorded.") // logging: CLI user-facing output
+            return
+        }
+
+        let projectID = configuration.consistency.projectID
+            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+
+        let record = SkipRecord(
+            projectID: projectID,
+            timestamp: Date(),
+            issueReference: issueReference,
+            author: ProcessInfo.processInfo.environment["USER"] ?? "unknown",
+            environment: isCI ? .ci : .local
+        )
+
+        do {
+            let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
+            let writer = TelemetryWriter()
+            try await writer.writeSkip(record, to: corpus)
+            print("[ijs] Skip recorded to corpus for \(projectID)") // logging: CLI user-facing output
+        } catch { // logging: skip recording is best-effort
+            print("[ijs] Skip recording failed: \(error.localizedDescription)") // logging: CLI user-facing output
         }
     }
 }

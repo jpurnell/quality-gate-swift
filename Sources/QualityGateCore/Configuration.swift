@@ -24,13 +24,16 @@ public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
     public let unaddressedPolicy: Double
     /// Weight for recurrence bonus scoring.
     public let recurrenceBonus: Double
+    /// Weight for suppression pattern scoring.
+    public let suppressionPattern: Double
 
     /// Default scorer weight configuration.
     public static let defaults = ScorerWeightsConfig(
         clusterMatch: 0.15,
         anomalyPattern: 0.10,
         unaddressedPolicy: 0.05,
-        recurrenceBonus: 0.10
+        recurrenceBonus: 0.10,
+        suppressionPattern: 0.20
     )
 
     /// Creates a scorer weights configuration with the specified values.
@@ -38,12 +41,14 @@ public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
         clusterMatch: Double,
         anomalyPattern: Double,
         unaddressedPolicy: Double,
-        recurrenceBonus: Double
+        recurrenceBonus: Double,
+        suppressionPattern: Double = 0.20
     ) {
         self.clusterMatch = clusterMatch
         self.anomalyPattern = anomalyPattern
         self.unaddressedPolicy = unaddressedPolicy
         self.recurrenceBonus = recurrenceBonus
+        self.suppressionPattern = suppressionPattern
     }
 }
 

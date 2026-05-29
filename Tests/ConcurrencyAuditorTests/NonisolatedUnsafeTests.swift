@@ -45,7 +45,7 @@ struct NonisolatedUnsafeTests {
     @Test("Does not flag nonisolated(unsafe) with justification directly above")
     func ignoresJustified() async throws {
         let code = """
-        // Justification: process-wide debug counter, race acceptable
+        // Justification: process-wide debug counter used only for telemetry where races are acceptable
         nonisolated(unsafe) static var counter = 0
         """
         let result = try await TestHelpers.audit(code)

@@ -20,7 +20,8 @@ struct PolicyDiscoveryAuditorTests {
 
     private func makeMetadata(
         projectID: String = "test-project",
-        results: [CheckResult] = []
+        results: [CheckResult] = [],
+        overrides: [OverrideRecord] = []
     ) -> CheckResultMetadata {
         CheckResultMetadata(
             projectID: projectID,
@@ -28,7 +29,7 @@ struct PolicyDiscoveryAuditorTests {
             environment: .local,
             decisionOwner: "jpurnell",
             results: results,
-            overrides: [],
+            overrides: overrides,
             riskTier: .operational,
             ethicalFlags: [],
             consistencyScore: nil
@@ -419,5 +420,159 @@ struct PolicyDiscoveryAuditorTests {
 
         let report = await auditor.audit(metadata: metadata, against: pulse)
         #expect(report.pulseWeekLabel == "2026-W17")
+    }
+
+    // MARK: - Suppression Pattern Detection
+
+    private func makeClusterWithPrior(
+        ruleId: String = "concurrency.unchecked-sendable",
+        occurrenceCount: Int = 5,
+        priorOccurrenceCount: Int = 10,
+        isRecurring: Bool = true
+    ) -> ViolationCluster {
+        ViolationCluster(
+            ruleId: ruleId,
+            occurrenceCount: occurrenceCount,
+            affectedProjectCount: 1,
+            dominantRootCause: "systemic",
+            dominantFailedStep: .diagnosis,
+            isRecurring: isRecurring,
+            priorOccurrenceCount: priorOccurrenceCount
+        )
+    }
+
+    private func makeOverride(
+        ruleId: String = "concurrency.unchecked-sendable"
+    ) -> OverrideRecord {
+        OverrideRecord(
+            diagnosticOverride: DiagnosticOverride(
+                ruleId: ruleId,
+                justification: "Test override"
+            ),
+            author: "tester",
+            riskTier: .operational,
+            authorityLevel: .practitioner
+        )
+    }
+
+    @Test("Suppression detected: prior 10, current 8, 5 overrides → rate 2/7 = 0.28 → flag")
+    func suppressionHighOverrideRatio() async throws {
+        let writer = TelemetryWriter()
+        let auditor = PolicyDiscoveryAuditor(writer: writer)
+        let ruleId = "concurrency.unchecked-sendable"
+        let pulse = makePulse(violationClusters: [
+            makeClusterWithPrior(ruleId: ruleId, occurrenceCount: 8, priorOccurrenceCount: 10)
+        ])
+        let overrides = (0..<5).map { _ in makeOverride(ruleId: ruleId) }
+        let metadata = makeMetadata(
+            results: [makeFailedResult(ruleId: ruleId)],
+            overrides: overrides
+        )
+
+        let report = await auditor.audit(metadata: metadata, against: pulse)
+        let suppressionFindings = report.findings.filter { $0.matchType == .suppressionPattern }
+        #expect(suppressionFindings.count == 1)
+        #expect(suppressionFindings.first?.ruleId == ruleId)
+    }
+
+    @Test("No suppression: prior 10, current 5, 0 overrides → rate 1.0 → no flag")
+    func noSuppressionAllFixes() async throws {
+        let writer = TelemetryWriter()
+        let auditor = PolicyDiscoveryAuditor(writer: writer)
+        let ruleId = "concurrency.unchecked-sendable"
+        let pulse = makePulse(violationClusters: [
+            makeClusterWithPrior(ruleId: ruleId, occurrenceCount: 5, priorOccurrenceCount: 10)
+        ])
+        let metadata = makeMetadata(
+            results: [makeFailedResult(ruleId: ruleId)],
+            overrides: []
+        )
+
+        let report = await auditor.audit(metadata: metadata, against: pulse)
+        let suppressionFindings = report.findings.filter { $0.matchType == .suppressionPattern }
+        #expect(suppressionFindings.isEmpty)
+    }
+
+    @Test("Boundary: prior 10, current 9, 1 override → rate 1/2 = 0.5 → no flag (not < 0.5)")
+    func suppressionBoundaryNotTriggered() async throws {
+        let writer = TelemetryWriter()
+        let auditor = PolicyDiscoveryAuditor(writer: writer)
+        let ruleId = "concurrency.unchecked-sendable"
+        let pulse = makePulse(violationClusters: [
+            makeClusterWithPrior(ruleId: ruleId, occurrenceCount: 9, priorOccurrenceCount: 10)
+        ])
+        let overrides = [makeOverride(ruleId: ruleId)]
+        let metadata = makeMetadata(
+            results: [makeFailedResult(ruleId: ruleId)],
+            overrides: overrides
+        )
+
+        let report = await auditor.audit(metadata: metadata, against: pulse)
+        let suppressionFindings = report.findings.filter { $0.matchType == .suppressionPattern }
+        #expect(suppressionFindings.isEmpty)
+    }
+
+    @Test("No suppression: cluster without prior occurrence count is skipped")
+    func suppressionNoPriorCount() async throws {
+        let writer = TelemetryWriter()
+        let auditor = PolicyDiscoveryAuditor(writer: writer)
+        let ruleId = "concurrency.unchecked-sendable"
+        let pulse = makePulse(violationClusters: [
+            makeCluster(ruleId: ruleId, occurrenceCount: 5)
+        ])
+        let overrides = (0..<5).map { _ in makeOverride(ruleId: ruleId) }
+        let metadata = makeMetadata(
+            results: [makeFailedResult(ruleId: ruleId)],
+            overrides: overrides
+        )
+
+        let report = await auditor.audit(metadata: metadata, against: pulse)
+        let suppressionFindings = report.findings.filter { $0.matchType == .suppressionPattern }
+        #expect(suppressionFindings.isEmpty)
+    }
+
+    @Test("No suppression: only 1 override does not meet threshold")
+    func suppressionSingleOverrideBelowThreshold() async throws {
+        let writer = TelemetryWriter()
+        let auditor = PolicyDiscoveryAuditor(writer: writer)
+        let ruleId = "concurrency.unchecked-sendable"
+        let pulse = makePulse(violationClusters: [
+            makeClusterWithPrior(ruleId: ruleId, occurrenceCount: 10, priorOccurrenceCount: 10)
+        ])
+        let overrides = [makeOverride(ruleId: ruleId)]
+        let metadata = makeMetadata(
+            results: [makeFailedResult(ruleId: ruleId)],
+            overrides: overrides
+        )
+
+        let report = await auditor.audit(metadata: metadata, against: pulse)
+        let suppressionFindings = report.findings.filter { $0.matchType == .suppressionPattern }
+        #expect(suppressionFindings.isEmpty)
+    }
+
+    @Test("Suppression exemption suppresses suppression finding")
+    func suppressionExempted() async throws {
+        let writer = TelemetryWriter()
+        let ruleId = "concurrency.unchecked-sendable"
+        let exemption = ConsistencyExemption(
+            ruleId: ruleId,
+            matchType: .suppressionPattern,
+            justification: "Overrides are legitimate here",
+            addedDate: makeDate("2026-04-01"),
+            approvedBy: "jpurnell"
+        )
+        let auditor = PolicyDiscoveryAuditor(writer: writer, exemptions: [exemption])
+        let pulse = makePulse(violationClusters: [
+            makeClusterWithPrior(ruleId: ruleId, occurrenceCount: 8, priorOccurrenceCount: 10)
+        ])
+        let overrides = (0..<5).map { _ in makeOverride(ruleId: ruleId) }
+        let metadata = makeMetadata(
+            results: [makeFailedResult(ruleId: ruleId)],
+            overrides: overrides
+        )
+
+        let report = await auditor.audit(metadata: metadata, against: pulse)
+        let suppressionFindings = report.findings.filter { $0.matchType == .suppressionPattern }
+        #expect(suppressionFindings.isEmpty)
     }
 }

@@ -337,6 +337,49 @@ public actor TelemetryWriter {
         return allReports.sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// Writes a quality-gate skip record to the corpus.
+    public func writeSkip(
+        _ record: SkipRecord,
+        to corpusPath: CorpusPath
+    ) async throws {
+        let dailyDir = try sanitizedURL(
+            corpusPath.dailyDirectory(for: record.timestamp),
+            within: corpusPath.basePath
+        )
+        try createDirectoryIfNeeded(at: dailyDir)
+
+        let fileURL = try sanitizedURL(
+            corpusPath.skipPath(for: record.timestamp),
+            within: corpusPath.basePath
+        )
+        try writeJSON(record, to: fileURL)
+    }
+
+    /// Reads skip records from the corpus within the given date range.
+    public func readSkipRecords(
+        from corpusPath: CorpusPath,
+        startDate: Date,
+        endDate: Date
+    ) async throws -> [SkipRecord] {
+        let directories = try dailyDirectoryURLs(
+            in: corpusPath, startDate: startDate, endDate: endDate
+        )
+        guard !directories.isEmpty else { return [] }
+
+        var records: [SkipRecord] = []
+        for dir in directories {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil
+            ).filter { $0.lastPathComponent.hasSuffix("_skip.json") }
+            for file in files {
+                let data = try Data(contentsOf: file)
+                let record = try decoder.decode(SkipRecord.self, from: data)
+                records.append(record)
+            }
+        }
+        return records.sorted { $0.timestamp < $1.timestamp }
+    }
+
     // MARK: - Path Sanitization
 
     private func sanitizedURL(_ path: String, within basePath: String) throws -> URL {

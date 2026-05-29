@@ -247,8 +247,7 @@ final class AccessibilityVisitor: SyntaxVisitor {
             return
         }
 
-        // Check surrounding lines for a reduceMotion guard
-        if hasNearbyReduceMotionCheck(around: location.line) { return }
+        if hasReduceMotionCheck(for: node) { return }
 
         diagnostics.append(Diagnostic(
             severity: .warning,
@@ -280,7 +279,7 @@ final class AccessibilityVisitor: SyntaxVisitor {
             return
         }
 
-        if hasNearbyReduceMotionCheck(around: location.line) { return }
+        if hasReduceMotionCheck(for: node) { return }
 
         diagnostics.append(Diagnostic(
             severity: .warning,
@@ -337,6 +336,48 @@ final class AccessibilityVisitor: SyntaxVisitor {
     }
 
     // MARK: - Helpers
+
+    private func hasReduceMotionCheck(for node: some SyntaxProtocol) -> Bool {
+        let location = node.startLocation(converter: converter)
+
+        // Fast path: check ±10 line radius
+        if hasNearbyReduceMotionCheck(around: location.line) { return true }
+
+        // Scope walk: check each enclosing scope up to the function boundary
+        var current: Syntax? = Syntax(node)
+        while let parent = current?.parent {
+            let isFuncBoundary = parent.is(FunctionDeclSyntax.self) ||
+                parent.is(AccessorDeclSyntax.self)
+            let isScopeBoundary = isFuncBoundary ||
+                parent.is(ClosureExprSyntax.self) ||
+                parent.is(AccessorBlockSyntax.self)
+
+            if isScopeBoundary {
+                let startLoc = parent.startLocation(converter: converter)
+                let endLoc = parent.endLocation(converter: converter)
+                if searchLines(from: startLoc.line, to: endLoc.line) {
+                    return true
+                }
+                if isFuncBoundary { return false }
+            }
+            current = parent
+        }
+
+        return false
+    }
+
+    private func searchLines(from startLine: Int, to endLine: Int) -> Bool {
+        let start = max(0, startLine - 1)
+        let end = min(sourceLines.count - 1, endLine - 1)
+        guard start <= end else { return false }
+        for i in start...end {
+            let content = sourceLines[i]
+            if content.contains("reduceMotion") || content.contains("accessibilityReduceMotion") {
+                return true
+            }
+        }
+        return false
+    }
 
     private func hasNearbyReduceMotionCheck(around line: Int, radius: Int = 10) -> Bool {
         let start = max(0, line - radius - 1)

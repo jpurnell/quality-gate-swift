@@ -100,7 +100,8 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
                 clusterMatch: weights.clusterMatch,
                 anomalyPattern: weights.anomalyPattern,
                 unaddressedPolicy: weights.unaddressedPolicy,
-                recurrenceBonus: weights.recurrenceBonus
+                recurrenceBonus: weights.recurrenceBonus,
+                suppressionPattern: weights.suppressionPattern
             ))
         } else {
             scorer = ConsistencyScorer()

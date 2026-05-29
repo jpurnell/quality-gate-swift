@@ -53,6 +53,8 @@ public struct ConsistencyScorer: Sendable {
             base = weights.anomalyPattern
         case .unaddressedPolicy:
             base = weights.unaddressedPolicy
+        case .suppressionPattern:
+            base = weights.suppressionPattern
         }
         return finding.isRecurringInPulse ? base + weights.recurrenceBonus : base
     }

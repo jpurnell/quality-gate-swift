@@ -8,4 +8,6 @@ public enum ConsistencyMatchType: String, Sendable, Codable {
     case anomalyPattern
     /// Matches a calibration's proposed policy update that was not yet implemented.
     case unaddressedPolicy
+    /// Violations reduced primarily through overrides rather than code fixes.
+    case suppressionPattern
 }

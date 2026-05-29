@@ -13,6 +13,7 @@ struct ScorerWeightsTests {
         #expect(abs(weights.anomalyPattern - 0.10) < 1e-6)
         #expect(abs(weights.unaddressedPolicy - 0.05) < 1e-6)
         #expect(abs(weights.recurrenceBonus - 0.10) < 1e-6)
+        #expect(abs(weights.suppressionPattern - 0.20) < 1e-6)
     }
 
     @Test("Custom weights are stored")
@@ -201,5 +202,31 @@ struct ConsistencyScorerTests {
         let scorer = ConsistencyScorer(weights: weights)
         let score = scorer.score(findings: [makeFinding(matchType: .clusterMatch)])
         #expect(abs(score - 0.70) < 1e-6)
+    }
+
+    @Test("Single non-recurring suppression pattern deducts 0.20")
+    func singleSuppressionPattern() {
+        let scorer = ConsistencyScorer()
+        let score = scorer.score(findings: [makeFinding(matchType: .suppressionPattern)])
+        #expect(abs(score - 0.80) < 1e-6)
+    }
+
+    @Test("Recurring suppression pattern deducts 0.30 (0.20 + 0.10 bonus)")
+    func recurringSuppressionPattern() {
+        let scorer = ConsistencyScorer()
+        let score = scorer.score(findings: [makeFinding(matchType: .suppressionPattern, isRecurring: true)])
+        #expect(abs(score - 0.70) < 1e-6)
+    }
+
+    @Test("Suppression finding deducts from consistency score alongside other findings")
+    func suppressionFindingDeductsAlongsideOthers() {
+        let scorer = ConsistencyScorer()
+        let findings = [
+            makeFinding(matchType: .clusterMatch),
+            makeFinding(matchType: .suppressionPattern),
+        ]
+        // cluster: 0.15 + suppression: 0.20 = 0.35 deduction → 0.65
+        let score = scorer.score(findings: findings)
+        #expect(abs(score - 0.65) < 1e-6)
     }
 }
