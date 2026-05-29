@@ -277,6 +277,113 @@ final class TestQualityAuditorTests: XCTestCase {
         XCTAssertTrue(weakDiags.isEmpty)
     }
 
+    // MARK: - Hardcoded Date Detection
+
+    func testDetectsHardcodedDateInNilCoalescing() async throws {
+        let source = """
+        import Testing
+
+        private func makeMetadata(timestamp: Date? = nil) -> String {
+            let ts = timestamp ?? makeDate("2026-05-15")
+            return ts.description
+        }
+
+        @Test func testMeta() {
+            let meta = makeMetadata()
+            #expect(!meta.isEmpty)
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diag = result.diagnostics.first { $0.ruleId == "hardcoded-date" }
+        XCTAssertNotNil(diag)
+        XCTAssertEqual(diag?.severity, .warning)
+    }
+
+    func testAllowsHardcodedDateInDirectAssignment() async throws {
+        let source = """
+        import Testing
+
+        @Test func testSomething() {
+            let date = makeDate("2026-05-20")
+            #expect(date != nil)
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
+        XCTAssertTrue(diags.isEmpty)
+    }
+
+    func testAllowsDistantPastDateInNilCoalescing() async throws {
+        let source = """
+        import Testing
+
+        private func helper(date: Date? = nil) -> Date {
+            return date ?? makeDate("2020-01-01")
+        }
+
+        @Test func testFixture() {
+            let date = helper()
+            #expect(date != nil)
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
+        XCTAssertTrue(diags.isEmpty)
+    }
+
+    func testAllowsNonDateString() async throws {
+        let source = """
+        import Testing
+
+        @Test func testLabel() {
+            let label = "hello-world"
+            #expect(label == "hello-world")
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
+        XCTAssertTrue(diags.isEmpty)
+    }
+
+    func testHardcodedDateExemption() async throws {
+        let source = """
+        import Testing
+
+        private func helper(date: Date? = nil) -> Date {
+            // TEST-QUALITY: fixed date for deterministic snapshot
+            return date ?? makeDate("2026-05-20")
+        }
+
+        @Test func testSnapshot() {
+            let date = helper()
+            #expect(date != nil)
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
+        XCTAssertTrue(diags.isEmpty)
+    }
+
+    func testAllowsWeekLabelString() async throws {
+        let source = """
+        import Testing
+
+        @Test func testPulse() {
+            let label = "2026-W17"
+            #expect(label.contains("W"))
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
+        XCTAssertTrue(diags.isEmpty)
+    }
+
     // MARK: - Checker Identity
 
     func testCheckerIdAndName() {
