@@ -26,9 +26,7 @@ if grep -q "error:" /tmp/qg-build.log; then
 fi
 
 echo "Pre-push: running test suite..."
-swift test 2>&1 | tee /tmp/qg-test.log
-TEST_EXIT=$?
-if [ $TEST_EXIT -ne 0 ] || grep -q "failed" /tmp/qg-test.log; then
+if ! swift test 2>&1 | tee /tmp/qg-test.log; then
     echo "ERROR: Tests failed. Fix before pushing."
     exit 1
 fi
