@@ -1,6 +1,5 @@
 #!/bin/bash
-# Installs a git pre-push hook that verifies a clean build.
-# Full quality gate runs in CI — the hook is kept fast to avoid SSH timeouts.
+# Installs a git pre-push hook that verifies a clean build and passing tests.
 # Usage: ./scripts/install-hooks.sh
 
 set -euo pipefail
@@ -17,7 +16,6 @@ fi
 cat > "$HOOK_FILE" << 'HOOK'
 #!/bin/bash
 # quality-gate pre-push hook (installed by scripts/install-hooks.sh)
-# Kept fast to avoid SSH timeouts. Full quality gate runs in CI.
 set -euo pipefail
 
 echo "Pre-push: verifying build compiles clean..."
@@ -27,10 +25,18 @@ if grep -q "error:" /tmp/qg-build.log; then
     exit 1
 fi
 
-echo "Pre-push passed. Full quality gate will run in CI."
+echo "Pre-push: running test suite..."
+swift test 2>&1 | tee /tmp/qg-test.log
+TEST_EXIT=$?
+if [ $TEST_EXIT -ne 0 ] || grep -q "failed" /tmp/qg-test.log; then
+    echo "ERROR: Tests failed. Fix before pushing."
+    exit 1
+fi
+
+echo "Pre-push passed (build + tests)."
 HOOK
 
 chmod +x "$HOOK_FILE"
 echo "Installed pre-push hook at $HOOK_FILE"
-echo "The hook verifies a clean build. Full quality gate runs in CI."
+echo "The hook verifies a clean build and passing tests before push."
 echo "To remove: rm $HOOK_FILE"

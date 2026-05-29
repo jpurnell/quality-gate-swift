@@ -555,6 +555,68 @@ private final class TestQualityVisitor: SyntaxVisitor {
         ))
     }
 
+    // MARK: - Hardcoded Date Detection
+
+    override func visit(_ node: StringLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        guard node.segments.count == 1,
+              let segment = node.segments.first?.as(StringSegmentSyntax.self) else {
+            return .visitChildren
+        }
+
+        let text = segment.content.text
+        guard text.count == 10,
+              let _ = text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) else {
+            return .visitChildren
+        }
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = TimeZone(identifier: "UTC")
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        guard let parsedDate = fmt.date(from: text) else {
+            return .visitChildren
+        }
+
+        let daysBetween = abs(Calendar.current.dateComponents(
+            [.day], from: parsedDate, to: Date()
+        ).day ?? 0)
+        guard daysBetween <= 365 else {
+            return .visitChildren
+        }
+
+        let location = node.startLocation(
+            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+        )
+        let line = location.line
+
+        guard isInDefaultTimestampContext(line: line) else {
+            return .visitChildren
+        }
+
+        if let override = overrideIfExempted(line: line, ruleId: "hardcoded-date") {
+            overrides.append(override)
+            return .visitChildren
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Hardcoded date \"\(text)\" in default timestamp context will drift past time windows.",
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
+            ruleId: "hardcoded-date",
+            suggestedFix: "Use Date() or Date().addingTimeInterval(...) for timestamps that represent 'recent'"
+        ))
+
+        return .visitChildren
+    }
+
+    private func isInDefaultTimestampContext(line: Int) -> Bool {
+        guard line >= 1, line <= sourceLines.count else { return false }
+        let lineContent = sourceLines[line - 1]
+        return lineContent.contains("??")
+    }
+
     // MARK: - Exemption Checking
 
     private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
