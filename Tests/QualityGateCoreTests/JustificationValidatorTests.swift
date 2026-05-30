@@ -134,8 +134,16 @@ struct JustificationValidatorTests {
         var seen: Set<String> = []
         let text = "Justification: safe"
         let first = validator.validateForDuplicates(text, seen: &seen)
-        #expect(first == .generic)
+        if case .generic(let phrase) = first {
+            #expect(phrase == "safe")
+        } else {
+            #expect(Bool(false), "Expected .generic, got \(first)")
+        }
         let second = validator.validateForDuplicates(text, seen: &seen)
-        #expect(second == .generic)
+        if case .generic(let phrase2) = second {
+            #expect(phrase2 == "safe")
+        } else {
+            #expect(Bool(false), "Expected .generic on second call, got \(second)")
+        }
     }
 }
