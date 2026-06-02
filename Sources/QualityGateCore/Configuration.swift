@@ -448,15 +448,20 @@ public struct DependencyAuditorConfig: Sendable, Equatable {
     /// Skip network calls to check latest tags.
     public let offlineMode: Bool
 
+    /// Additional module names to treat as valid (e.g., Xcode-only targets, bridging modules).
+    public let additionalKnownModules: [String]
+
     /// Creates a dependency auditor configuration with the given options.
     public init(
         maxMajorVersionsBehind: Int = 2,
         allowBranchPins: [String] = [],
-        offlineMode: Bool = false
+        offlineMode: Bool = false,
+        additionalKnownModules: [String] = []
     ) {
         self.maxMajorVersionsBehind = maxMajorVersionsBehind
         self.allowBranchPins = allowBranchPins
         self.offlineMode = offlineMode
+        self.additionalKnownModules = additionalKnownModules
     }
 
     /// Default dependency auditor configuration.
@@ -465,7 +470,7 @@ public struct DependencyAuditorConfig: Sendable, Equatable {
 
 extension DependencyAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case maxMajorVersionsBehind, allowBranchPins, offlineMode
+        case maxMajorVersionsBehind, allowBranchPins, offlineMode, additionalKnownModules
     }
 
     /// Creates a dependency auditor configuration by decoding from the given decoder.
@@ -475,6 +480,7 @@ extension DependencyAuditorConfig: Codable {
         maxMajorVersionsBehind = try container.decodeIfPresent(Int.self, forKey: .maxMajorVersionsBehind) ?? defaults.maxMajorVersionsBehind
         allowBranchPins = try container.decodeIfPresent([String].self, forKey: .allowBranchPins) ?? defaults.allowBranchPins
         offlineMode = try container.decodeIfPresent(Bool.self, forKey: .offlineMode) ?? defaults.offlineMode
+        additionalKnownModules = try container.decodeIfPresent([String].self, forKey: .additionalKnownModules) ?? defaults.additionalKnownModules
     }
 }
 
@@ -820,6 +826,65 @@ extension ComplexityAnalyzerConfig: Codable {
     }
 }
 
+/// Per-checker configuration for XcodeBuildChecker.
+///
+/// Drives `xcodebuild build` for one or more simulator destinations,
+/// catching cross-platform errors invisible to `swift build` (macOS only).
+///
+/// ## YAML Example
+/// ```yaml
+/// xcodeBuild:
+///   project: MyApp.xcodeproj
+///   scheme: MyApp
+///   destinations:
+///     - "platform=iOS Simulator,name=iPhone 17 Pro"
+/// ```
+public struct XcodeBuildCheckerConfig: Sendable, Equatable {
+    /// Path to `.xcodeproj` (relative to project root).
+    public let project: String?
+
+    /// Path to `.xcworkspace` (takes precedence over `project`).
+    public let workspace: String?
+
+    /// Xcode scheme to build. nil auto-detects the first scheme.
+    public let scheme: String?
+
+    /// Simulator destinations to build for. Empty uses `generic/platform=macOS`.
+    public let destinations: [String]
+
+    /// Creates an Xcode build checker configuration with the given options.
+    public init(
+        project: String? = nil,
+        workspace: String? = nil,
+        scheme: String? = nil,
+        destinations: [String] = []
+    ) {
+        self.project = project
+        self.workspace = workspace
+        self.scheme = scheme
+        self.destinations = destinations
+    }
+
+    /// Default Xcode build checker configuration.
+    public static let `default` = XcodeBuildCheckerConfig()
+}
+
+extension XcodeBuildCheckerConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case project, workspace, scheme, destinations
+    }
+
+    /// Creates an Xcode build checker configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = XcodeBuildCheckerConfig.default
+        project = try container.decodeIfPresent(String.self, forKey: .project) ?? defaults.project
+        workspace = try container.decodeIfPresent(String.self, forKey: .workspace) ?? defaults.workspace
+        scheme = try container.decodeIfPresent(String.self, forKey: .scheme) ?? defaults.scheme
+        destinations = try container.decodeIfPresent([String].self, forKey: .destinations) ?? defaults.destinations
+    }
+}
+
 /// Per-checker configuration for BuildChecker.
 ///
 /// Controls how the `swift build` invocation is tuned, including the
@@ -996,6 +1061,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for BuildChecker.
     public let build: BuildCheckerConfig
 
+    /// Per-checker configuration for XcodeBuildChecker.
+    public let xcodeBuild: XcodeBuildCheckerConfig
+
     /// Per-checker configuration for ConsistencyChecker (IJS).
     public let consistency: ConsistencyCheckerConfig
 
@@ -1035,6 +1103,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
+        xcodeBuild: XcodeBuildCheckerConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
         overrides: [String: SeverityOverride] = [:]
@@ -1064,6 +1133,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
         self.build = build
+        self.xcodeBuild = xcodeBuild
         self.consistency = consistency
         self.complexity = complexity
         self.overrides = overrides
@@ -1154,6 +1224,7 @@ extension Configuration {
         case memoryLifecycle
         case mcpReadiness
         case build
+        case xcodeBuild
         case consistency
         case complexity
         case overrides
@@ -1188,6 +1259,7 @@ extension Configuration {
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
+        xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
