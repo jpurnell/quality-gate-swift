@@ -10,7 +10,12 @@ DerivedData/
 
 # macOS
 .DS_Store
+
+# Editor backups
 *.swp
+*~
+\#*\#
+.\#*
 
 # IDE
 .idea/
