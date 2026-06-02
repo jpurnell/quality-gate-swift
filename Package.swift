@@ -120,6 +120,10 @@ let package = Package(
             targets: ["HIGAuditor"]
         ),
         .library(
+            name: "XcodeBuildChecker",
+            targets: ["XcodeBuildChecker"]
+        ),
+        .library(
             name: "QualityGateTestKit",
             targets: ["QualityGateTestKit"]
         ),
@@ -494,6 +498,11 @@ let package = Package(
             dependencies: ["HIGAuditor"]
         ),
 
+        .target(
+            name: "XcodeBuildChecker",
+            dependencies: ["QualityGateCore", "BuildChecker"]
+        ),
+
         // MARK: - IJS Modules
         .target(
             name: "IJSSensor",
@@ -646,6 +655,7 @@ let package = Package(
                 "ProcessSafetyAuditor",
                 "ComplexityAnalyzer",
                 "HIGAuditor",
+                "XcodeBuildChecker",
                 "ConsistencyChecker",
                 "IJSSensor",
                 "IJSAggregator",

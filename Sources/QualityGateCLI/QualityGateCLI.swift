@@ -28,6 +28,7 @@ import ProcessSafetyAuditor
 import MemoryLifecycleGuard
 import ComplexityAnalyzer
 import HIGAuditor
+import XcodeBuildChecker
 import ConsistencyChecker
 import IJSSensor
 import IJSAggregator
@@ -72,6 +73,9 @@ struct QualityGateCLI: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Drive `xcodebuild build` automatically when the unreachable checker can't find a fresh DerivedData index store for an Xcode project / workspace.")
     var autoBuildXcode: Bool = false
+
+    @Flag(name: .long, help: "Include slow checkers (xcode-build) that are skipped by default")
+    var full: Bool = false
 
     @Flag(name: .long, help: "Apply auto-fixes for checkers that support FixableChecker protocol")
     var fix: Bool = false
@@ -136,6 +140,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 memoryLifecycle: configuration.memoryLifecycle,
                 mcpReadiness: configuration.mcpReadiness,
                 build: configuration.build,
+                xcodeBuild: configuration.xcodeBuild,
                 consistency: configuration.consistency,
                 overrides: configuration.overrides
             )
@@ -192,6 +197,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             ComplexityAnalyzer(),
             HIGAuditor(),
             ConsistencyChecker(),
+            XcodeBuildChecker(),
             DiskCleaner()
         ]
 
@@ -206,7 +212,10 @@ struct QualityGateCLI: AsyncParsableCommand {
         } else if !configuration.enabledCheckers.isEmpty {
             effectiveCheckers = configuration.enabledCheckers
         } else {
-            let optOutCheckers: Set<String> = ["disk-clean"]
+            var optOutCheckers: Set<String> = ["disk-clean", "xcode-build"]
+            if full {
+                optOutCheckers.remove("xcode-build")
+            }
             effectiveCheckers = allCheckers.map(\.id).filter { !optOutCheckers.contains($0) }
         }
 
