@@ -62,9 +62,12 @@ quality-gate-swift/
 │   ├── IJSPolicyDiscovery/       # IJS policy pattern discovery
 │   ├── IJSDashboardCore/         # IJS dashboard data layer (corpus reader, summaries, trends)
 │   ├── IJSDashboardCLI/          # IJS dashboard rendering (portfolio/project views)
+│   ├── XcodeBuildChecker/        # xcodebuild wrapper (multi-destination, --full flag)
+│   ├── HIGAuditor/               # Apple HIG compliance checks
+│   ├── ComplexityAnalyzer/       # Cyclomatic/cognitive complexity, Big-O estimation
 │   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
 ├── Tests/
-│   └── [Test targets for each module — 614 tests, 72 suites]
+│   └── [Test targets for each module — 1,491 tests, 192 suites]
 └── Package.swift
 ```
 
@@ -124,7 +127,10 @@ graph TD
 - [x] MCPReadinessAuditor — MCP server schema validation and best practices
 - [x] ReleaseReadinessAuditor — Changelog, TODO, and version tag compliance
 - [x] MemoryLifecycleGuard — Memory management lifecycle safety
-- [x] DependencyAuditor — SPM dependency health (branch pins, local overrides)
+- [x] DependencyAuditor — SPM dependency health (branch pins, local overrides, hallucinated imports)
+- [x] XcodeBuildChecker — xcodebuild wrapper with multi-destination support (--full flag)
+- [x] HIGAuditor — Apple Human Interface Guidelines compliance
+- [x] ComplexityAnalyzer — Cyclomatic/cognitive complexity and Big-O estimation
 - [x] QualityGateTestKit — Shared test helpers and fixtures
 - [x] QualityGateCLI — Umbrella CLI with all checkers, --fix/--dry-run/--bootstrap flags
 - [x] ProcessSafetyAuditor — Pipe-buffer deadlock pattern detection
@@ -137,7 +143,7 @@ graph TD
 - [x] IJSDashboardCLI — IJS dashboard rendering (portfolio/project views, JSON output)
 - [x] QualityGatePlugin — SPM CommandPlugin
 
-**Total: 1,130 tests across 25 checker modules**
+**Total: 1,491 tests across 28 checker modules**
 
 ### Known Issues
 - None currently
@@ -223,4 +229,4 @@ graph TD
 
 ---
 
-**Last Updated:** 2026-05-15
+**Last Updated:** 2026-06-01
