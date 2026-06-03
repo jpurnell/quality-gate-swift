@@ -48,7 +48,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.0",
-        subcommands: [TelemetryPush.self, GeneratePulse.self, Dashboard.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, Dashboard.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -375,22 +375,42 @@ struct QualityGateCLI: AsyncParsableCommand {
                 }
 
             let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+            let author = ProcessInfo.processInfo.environment["USER"] ?? "local"
+            let allOverrides = allResults.flatMap(\.overrides)
+            let overrideRecords = allOverrides.map { override in
+                OverrideRecord(
+                    diagnosticOverride: override,
+                    author: author,
+                    riskTier: riskTier,
+                    authorityLevel: riskTier.requiredAuthority
+                )
+            }
+
+            let runTimestamp = Date()
             let metadata = CheckResultMetadata(
                 projectID: projectID,
-                timestamp: Date(),
+                timestamp: runTimestamp,
                 environment: isCI ? .ci : .local,
-                decisionOwner: "local",
+                decisionOwner: author,
                 results: allResults,
-                overrides: [],
+                overrides: overrideRecords,
                 riskTier: riskTier,
                 ethicalFlags: [],
                 consistencyScore: consistencyScore
             )
 
+            let calibrations = CalibrationClassifier.classify(
+                overrides: allOverrides,
+                decisionOwner: author,
+                practitioner: author,
+                riskTier: riskTier,
+                timestamp: runTimestamp
+            )
+
             do {
                 let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
                 let writer = TelemetryWriter()
-                try await writer.write(metadata: metadata, calibrations: [], to: corpus)
+                try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
 
                 if configuration.complexity.emitToCorpus {
                     let analyzer = ComplexityAnalyzer()
@@ -406,6 +426,9 @@ struct QualityGateCLI: AsyncParsableCommand {
 
                 if verbose {
                     print("\n[ijs] Telemetry written to \(corpus.projectDirectory)") // logging: CLI verbose progress output
+                    if !calibrations.isEmpty {
+                        print("[ijs] \(calibrations.count) calibration(s) auto-generated") // logging: CLI verbose progress output
+                    }
                 }
             } catch {
                 if verbose {
