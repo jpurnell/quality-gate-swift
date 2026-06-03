@@ -47,7 +47,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
-        version: "1.2.0",
+        version: "2.0.0",
         subcommands: [TelemetryPush.self, GeneratePulse.self, Dashboard.self]
     )
 
