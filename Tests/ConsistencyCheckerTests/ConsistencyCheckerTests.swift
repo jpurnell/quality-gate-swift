@@ -359,4 +359,169 @@ struct ConsistencyCheckerTests {
         #expect(scoreDiag?.ruleId == "consistency-score")
         #expect(scoreDiag?.message.contains("Institutional consistency score") ?? false)
     }
+
+    // MARK: - Calibration-Recommended Diagnostics
+
+    private func makeCalibration(
+        ruleId: String,
+        rootCause: String,
+        date: Date
+    ) -> JudgmentCalibration {
+        JudgmentCalibration(
+            date: date,
+            decisionOwner: "jpurnell",
+            practitioner: "agent",
+            riskTier: .operational,
+            rootCauseAnalysis: RootCauseAnalysis(
+                proximateCause: "Override of \(ruleId): test override",
+                chainOfInquiry: ["Why?"],
+                rootCause: rootCause,
+                failedStep: .diagnosis,
+                isRecurringPattern: false
+            ),
+            redTeamDissent: "none",
+            proposedPolicyUpdate: nil,
+            pulseContribution: "test"
+        )
+    }
+
+    private func makeSafetyResult() -> CheckResult {
+        CheckResult(
+            checkerId: "safety",
+            status: .passed,
+            diagnostics: [],
+            duration: .seconds(1)
+        )
+    }
+
+    @Test("Checker at validity with high FP rate produces calibration-recommended note")
+    func highFalsePositiveRateProducesCalibrationNote() async throws {
+        let pulse = makePulse()
+        let basePath = makeTempCorpus()
+        defer { cleanup(basePath) }
+
+        let corpus = CorpusPath(basePath: basePath, projectID: "test-project")
+        let writer = TelemetryWriter()
+
+        try await writer.writePulse(pulse, to: corpus)
+
+        let now = Date()
+        for dayOffset in 0..<31 {
+            let timestamp = now.addingTimeInterval(-Double(dayOffset) * 86400 - Double(dayOffset))
+            let metadata = makeMetadata(
+                results: [makeSafetyResult()],
+                timestamp: timestamp
+            )
+            let calibrations: [JudgmentCalibration]
+            if dayOffset < 20 {
+                calibrations = [makeCalibration(
+                    ruleId: "safety.force-unwrap",
+                    rootCause: "imprecise",
+                    date: timestamp
+                )]
+            } else if dayOffset < 25 {
+                calibrations = [makeCalibration(
+                    ruleId: "safety.force-unwrap",
+                    rootCause: "structural",
+                    date: timestamp
+                )]
+            } else {
+                calibrations = []
+            }
+            try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
+        }
+
+        let checker = ConsistencyChecker()
+        let config = makeConfig(corpusPath: basePath, projectID: "test-project")
+
+        let result = try await checker.check(configuration: config)
+
+        let calDiags = result.diagnostics.filter { $0.ruleId == "calibration-recommended" }
+        #expect(!calDiags.isEmpty)
+        guard let diag = calDiags.first else { return }
+        #expect(diag.severity == .note)
+        #expect(diag.message.contains("safety"))
+        #expect(diag.message.contains("false positive rate"))
+    }
+
+    @Test("Checker at validity with low FP rate produces no calibration-recommended note")
+    func lowFalsePositiveRateNoCalibrationNote() async throws {
+        let pulse = makePulse()
+        let basePath = makeTempCorpus()
+        defer { cleanup(basePath) }
+
+        let corpus = CorpusPath(basePath: basePath, projectID: "test-project")
+        let writer = TelemetryWriter()
+
+        try await writer.writePulse(pulse, to: corpus)
+
+        let now = Date()
+        for dayOffset in 0..<31 {
+            let timestamp = now.addingTimeInterval(-Double(dayOffset) * 86400 - Double(dayOffset))
+            let metadata = makeMetadata(
+                results: [makeSafetyResult()],
+                timestamp: timestamp
+            )
+            let calibrations: [JudgmentCalibration]
+            if dayOffset < 5 {
+                calibrations = [makeCalibration(
+                    ruleId: "safety.force-unwrap",
+                    rootCause: "imprecise",
+                    date: timestamp
+                )]
+            } else if dayOffset < 20 {
+                calibrations = [makeCalibration(
+                    ruleId: "safety.force-unwrap",
+                    rootCause: "structural",
+                    date: timestamp
+                )]
+            } else {
+                calibrations = []
+            }
+            try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
+        }
+
+        let checker = ConsistencyChecker()
+        let config = makeConfig(corpusPath: basePath, projectID: "test-project")
+
+        let result = try await checker.check(configuration: config)
+
+        let calDiags = result.diagnostics.filter { $0.ruleId == "calibration-recommended" }
+        #expect(calDiags.isEmpty)
+    }
+
+    @Test("Checker below validity threshold produces no calibration-recommended note")
+    func belowValidityThresholdNoCalibrationNote() async throws {
+        let pulse = makePulse()
+        let basePath = makeTempCorpus()
+        defer { cleanup(basePath) }
+
+        let corpus = CorpusPath(basePath: basePath, projectID: "test-project")
+        let writer = TelemetryWriter()
+
+        try await writer.writePulse(pulse, to: corpus)
+
+        let now = Date()
+        for dayOffset in 0..<20 {
+            let timestamp = now.addingTimeInterval(-Double(dayOffset) * 86400 - Double(dayOffset))
+            let metadata = makeMetadata(
+                results: [makeSafetyResult()],
+                timestamp: timestamp
+            )
+            let calibrations = [makeCalibration(
+                ruleId: "safety.force-unwrap",
+                rootCause: "imprecise",
+                date: timestamp
+            )]
+            try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
+        }
+
+        let checker = ConsistencyChecker()
+        let config = makeConfig(corpusPath: basePath, projectID: "test-project")
+
+        let result = try await checker.check(configuration: config)
+
+        let calDiags = result.diagnostics.filter { $0.ruleId == "calibration-recommended" }
+        #expect(calDiags.isEmpty)
+    }
 }

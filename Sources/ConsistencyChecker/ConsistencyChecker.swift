@@ -80,6 +80,12 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
             endDate: now
         )
 
+        let recentCalibrations = try await writer.readCalibrations(
+            from: corpus,
+            startDate: thirtyDaysAgo,
+            endDate: now
+        )
+
         guard let latestMetadata = recentMetadata.sorted(by: { $0.timestamp > $1.timestamp }).first else {
             return makeResult(
                 startTime: startTime,
@@ -129,11 +135,67 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
             ruleId: "consistency-score"
         ))
 
+        diagnostics.append(contentsOf: calibrationRecommendations(
+            metadata: recentMetadata,
+            calibrations: recentCalibrations
+        ))
+
         let status: CheckResult.Status = report.consistencyScore < config.consistencyThreshold
             ? .warning
             : .passed
 
         return makeResult(startTime: startTime, status: status, diagnostics: diagnostics)
+    }
+
+    private static let minimumSampleCount = 30
+    private static let falsePositiveThreshold = 0.5
+
+    private func calibrationRecommendations(
+        metadata: [CheckResultMetadata],
+        calibrations: [JudgmentCalibration]
+    ) -> [Diagnostic] {
+        var samplesByChecker: [String: Int] = [:]
+        for entry in metadata {
+            for result in entry.results {
+                samplesByChecker[result.checkerId, default: 0] += 1
+            }
+        }
+
+        var totalByChecker: [String: Int] = [:]
+        var impreciseByChecker: [String: Int] = [:]
+
+        for calibration in calibrations {
+            let proximate = calibration.rootCauseAnalysis.proximateCause
+            guard proximate.hasPrefix("Override of ") else { continue }
+            let afterPrefix = proximate.dropFirst("Override of ".count)
+            guard let colonIndex = afterPrefix.firstIndex(of: ":") else { continue }
+            let ruleId = String(afterPrefix[afterPrefix.startIndex..<colonIndex])
+            guard let dotIndex = ruleId.firstIndex(of: ".") else { continue }
+            let checkerId = String(ruleId[ruleId.startIndex..<dotIndex])
+
+            totalByChecker[checkerId, default: 0] += 1
+            if calibration.rootCauseAnalysis.rootCause == "imprecise" {
+                impreciseByChecker[checkerId, default: 0] += 1
+            }
+        }
+
+        var results: [Diagnostic] = []
+
+        for (checkerId, sampleCount) in samplesByChecker where sampleCount >= Self.minimumSampleCount {
+            guard let total = totalByChecker[checkerId], total > 0 else { continue }
+            let imprecise = impreciseByChecker[checkerId] ?? 0
+            let fpRate = Double(imprecise) / Double(total)
+            guard fpRate > Self.falsePositiveThreshold else { continue }
+
+            let fpPercent = Int((fpRate * 100).rounded())
+            results.append(Diagnostic(
+                severity: .note,
+                message: "Checker '\(checkerId)' has a \(fpPercent)% false positive rate across \(sampleCount) runs. Consider tuning the checker or adding exemption patterns.",
+                ruleId: "calibration-recommended"
+            ))
+        }
+
+        return results
     }
 
     private func makeResult(
