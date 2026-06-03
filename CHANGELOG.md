@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0
+
+- IndexStoreInfra shared module: ProjectKind, StoreLocator, IndexStoreSession, ConformanceQuery, SourceWalker
+- RecursionAuditor Pass 2: USR-based call graph with iterative Tarjan SCC, cross-module and protocol witness cycle detection, syntactic base case scanning
+- ConcurrencyAuditor Pass 2: cross-file Sendable stored property, isolation crossing, and preconcurrency import analysis (stub queries, pure analysis tested)
+- AppIntentsAuditor: opt-in checker for App Intents readiness (entity conformance, parameter wrappers, metadata protocols)
+- Configuration: RecursionAuditorConfig.useIndexStore, ConcurrencyAuditorConfig.useIndexStore/trackIsolationDepth
+- Iterative Tarjan SCC algorithm handles 1000+ node graphs without stack overflow
+- Pass 2 base case scanning reads cycle participant source for guard statements
+- DocC articles for IndexStoreInfra and AppIntentsAuditor
+- 5 design proposals for checker IndexStoreDB upgrade candidates
+- 1556 tests across 205 suites, quality gate 0/0
+
+## 1.1.0
+
+- XcodeBuildChecker, HIGAuditor, ComplexityAnalyzer call-graph amplification
+- Institutional Judgment System (IJS) with pulse, telemetry, and consistency scoring
+- Anti-gaming mitigants: red-team dissent, conviction flags, minimum-deliberation windows
+- IJSDashboardCore module with health timeline and portfolio rendering
+- Hallucinated import detection in DependencyAuditor
+- Master Plan tracking and status auditing
+
 ## 1.0.0
 
 - 23 checkers across correctness, safety, security, documentation, accessibility, and project health
