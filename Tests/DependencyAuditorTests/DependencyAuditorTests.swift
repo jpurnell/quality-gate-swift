@@ -796,3 +796,78 @@ struct CSystemModuleTests {
         #expect(DependencyAuditor.systemFrameworks.contains("SQLite3"))
     }
 }
+
+// MARK: - Hallucinated Import: Checkout-vended sub-products
+
+@Suite("DependencyAuditor: Checkout Sub-products")
+struct CheckoutSubproductTests {
+
+    @Test("Recognises products from .build/checkouts dependency manifests")
+    func recognisesCheckoutProducts() throws {
+        let tmp = NSTemporaryDirectory()
+            .appending("dep-audit-checkout-test-\(ProcessInfo.processInfo.processIdentifier)")
+        let fm = FileManager.default
+        defer { try? fm.removeItem(atPath: tmp) }
+
+        let sourcesDir = (tmp as NSString).appendingPathComponent("Sources/MyApp")
+        try fm.createDirectory(atPath: sourcesDir, withIntermediateDirectories: true)
+
+        let checkoutDir = (tmp as NSString)
+            .appendingPathComponent(".build/checkouts/swift-numerics")
+        try fm.createDirectory(atPath: checkoutDir, withIntermediateDirectories: true)
+
+        let depManifest = """
+        let package = Package(
+            name: "swift-numerics",
+            products: [
+                .library(name: "Numerics", targets: ["Numerics"]),
+                .library(name: "RealModule", targets: ["RealModule"]),
+                .library(name: "ComplexModule", targets: ["ComplexModule"]),
+            ],
+            targets: [
+                .target(name: "Numerics"),
+                .target(name: "RealModule"),
+                .target(name: "ComplexModule"),
+            ]
+        )
+        """
+        try depManifest.write(
+            toFile: (checkoutDir as NSString).appendingPathComponent("Package.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        let rootManifest = """
+        let package = Package(
+            name: "MyApp",
+            dependencies: [
+                .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
+            ],
+            targets: [
+                .target(name: "MyApp", dependencies: [
+                    .product(name: "Numerics", package: "swift-numerics"),
+                ]),
+            ]
+        )
+        """
+        try rootManifest.write(
+            toFile: (tmp as NSString).appendingPathComponent("Package.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        let sourceFile = "import Foundation\nimport RealModule\n"
+        try sourceFile.write(
+            toFile: (sourcesDir as NSString).appendingPathComponent("main.swift"),
+            atomically: true, encoding: .utf8
+        )
+
+        let diagnostics = DependencyAuditor.runHallucinatedImportCheck(
+            projectRoot: tmp,
+            packageSwiftContent: rootManifest,
+            pins: [],
+            config: DependencyAuditorConfig()
+        )
+
+        let hallucinatedImports = diagnostics.filter { $0.ruleId == "dep-hallucinated-import" }
+        #expect(hallucinatedImports.isEmpty, "RealModule should be recognised from .build/checkouts")
+    }
+}

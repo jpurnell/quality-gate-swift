@@ -197,15 +197,96 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         }
 
         let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
-        _ = session
 
-        // Index query stubs — refined in future iteration.
-        // For now, emit the unavailable note until index queries are wired.
-        // When fully implemented:
-        // 1. Query protocol requirements and their doc status.
-        // 2. Build undocumentedAPIs list from Pass 1 diagnostics.
-        // 3. Call classifyInheritedDocs / rankByUsage.
-        return ([DocCoverageIndexPass.unavailableNote()], 0)
+        // Step 1: Build undocumented APIs list from Pass 1 "missing-doc" diagnostics.
+        let missingDocDiagnostics = pass1Diagnostics.filter { $0.ruleId == "missing-doc" }
+        guard !missingDocDiagnostics.isEmpty else {
+            // All APIs are already documented; nothing for Pass 2 to do.
+            return ([], 0)
+        }
+
+        var undocumentedAPIs: [DocCoverageIndexPass.UndocumentedAPI] = []
+        let messagePattern = /Public (\w+) '([^']+)' is missing documentation/
+
+        // Collect distinct file paths that contain undocumented APIs for index lookup.
+        var undocumentedFiles = Set<String>()
+        for diag in missingDocDiagnostics {
+            if let fp = diag.filePath {
+                undocumentedFiles.insert(fp)
+            }
+        }
+
+        // Query the index for all symbols defined in those files to enable USR resolution.
+        let indexedSymbols = ConformanceQuery.symbolsInFiles(
+            Array(undocumentedFiles),
+            in: session
+        )
+
+        // Build a lookup from (filePath, symbolName) to USR for best-effort matching.
+        var symbolUSRLookup: [String: String] = [:]
+        for entry in indexedSymbols {
+            let key = "\(entry.filePath):\(entry.symbol.name)"
+            symbolUSRLookup[key] = entry.symbol.usr
+        }
+
+        for diag in missingDocDiagnostics {
+            guard let match = diag.message.firstMatch(of: messagePattern) else { continue }
+            let apiType = String(match.1)
+            let apiName = String(match.2)
+            let filePath = diag.filePath ?? ""
+            let line = diag.lineNumber ?? 0
+
+            // Attempt USR lookup by matching file path and symbol name.
+            let lookupKey = "\(filePath):\(apiName)"
+            let usr = symbolUSRLookup[lookupKey]
+
+            undocumentedAPIs.append(DocCoverageIndexPass.UndocumentedAPI(
+                name: apiName,
+                apiType: apiType,
+                filePath: filePath,
+                line: line,
+                usr: usr
+            ))
+        }
+
+        // Step 2: Protocol inheritance detection.
+        // Protocol-method USR resolution requires complex overrideOf/baseOf graph
+        // traversal that IndexStoreDB does not directly expose. Return empty for now
+        // so classifyInheritedDocs passes all APIs through as remaining.
+        let protocolRequirementDocs: [String: Bool] = [:]
+
+        // Step 3: Get reference counts for usage-priority ranking.
+        var referenceCounts: [String: Int] = [:]
+        for api in undocumentedAPIs {
+            guard let usr = api.usr else { continue }
+            let refs = ConformanceQuery.findReferences(toUSR: usr, in: session)
+
+            // Optionally filter out test-target references.
+            let filteredRefs: [ConformanceQuery.SymbolReference]
+            if configuration.docCoverage.includeTestReferences {
+                filteredRefs = refs
+            } else {
+                filteredRefs = refs.filter { ref in
+                    !ref.filePath.contains("/Tests/")
+                }
+            }
+
+            referenceCounts[api.name] = filteredRefs.count
+        }
+
+        // Step 4: Classify inherited docs and rank by usage.
+        let (inheritedDiagnostics, remaining) = DocCoverageIndexPass.classifyInheritedDocs(
+            undocumentedAPIs: undocumentedAPIs,
+            protocolRequirementDocs: protocolRequirementDocs
+        )
+        let usagePriorityDiagnostics = DocCoverageIndexPass.rankByUsage(
+            undocumentedAPIs: remaining,
+            referenceCounts: referenceCounts
+        )
+
+        // Step 5: Return combined diagnostics and inherited count.
+        let combinedDiagnostics = inheritedDiagnostics + usagePriorityDiagnostics
+        return (combinedDiagnostics, inheritedDiagnostics.count)
     }
 
     // MARK: - Private Implementation
