@@ -28,6 +28,7 @@ import ProcessSafetyAuditor
 import MemoryLifecycleGuard
 import ComplexityAnalyzer
 import HIGAuditor
+import AppIntentsAuditor
 import XcodeBuildChecker
 import ConsistencyChecker
 import IJSSensor
@@ -196,6 +197,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             ProcessSafetyAuditor(),
             ComplexityAnalyzer(),
             HIGAuditor(),
+            AppIntentsAuditor(),
             ConsistencyChecker(),
             XcodeBuildChecker(),
             DiskCleaner()

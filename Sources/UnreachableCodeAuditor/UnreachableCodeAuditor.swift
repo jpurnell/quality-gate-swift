@@ -1,5 +1,6 @@
 import Foundation
 import QualityGateCore
+import IndexStoreInfra
 import SwiftSyntax
 import SwiftParser
 
@@ -78,8 +79,8 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
 
         // Cross-module pass.
         do {
-            var located: IndexStoreManager.LocatedStore?
-            located = try IndexStoreManager.locate(projectKind: kind)
+            var located: StoreLocator.LocatedStore?
+            located = try StoreLocator.locate(projectKind: kind)
 
             // v5: optional auto-build for Xcode projects/workspaces.
             if (located == nil || located?.isStale == true)
@@ -152,12 +153,12 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     private static func runXcodebuildAndRelocate(
         kind: ProjectKind,
         configuration: Configuration
-    ) throws -> IndexStoreManager.LocatedStore {
-        var options = IndexStoreManager.XcodebuildOptions.defaults(rootURL: kind.rootURL)
+    ) throws -> StoreLocator.LocatedStore {
+        var options = StoreLocator.XcodebuildOptions.defaults(rootURL: kind.rootURL)
         if let s = configuration.xcodeScheme { options.scheme = s }
         if let d = configuration.xcodeDestination { options.destination = d }
-        let store = try IndexStoreManager.runXcodebuild(projectKind: kind, options: options)
-        return IndexStoreManager.LocatedStore(url: store, isStale: false)
+        let store = try StoreLocator.runXcodebuild(projectKind: kind, options: options)
+        return StoreLocator.LocatedStore(url: store, isStale: false)
     }
 
     /// Backwards-compatible alias for the v3 entry point. Prefer `audit(at:)`.
