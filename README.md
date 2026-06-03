@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-25 checkers. 1,130 tests. Zero regex workarounds — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
+29 checkers. 1,130 tests. Zero regex workarounds — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
