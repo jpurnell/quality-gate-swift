@@ -51,7 +51,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         subcommands: [TelemetryPush.self, GeneratePulse.self, Dashboard.self]
     )
 
-    @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif)")
+    @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
     var format: String = "terminal"
 
     @Option(name: .shortAndLong, help: "Path to configuration file")
@@ -237,6 +237,8 @@ struct QualityGateCLI: AsyncParsableCommand {
             outputFormat = .json
         case "sarif":
             outputFormat = .sarif
+        case "xcode":
+            outputFormat = .xcode
         default:
             outputFormat = .terminal
         }

@@ -641,6 +641,9 @@ public struct MemoryLifecycleConfig: Sendable, Equatable {
     /// File patterns exempt from the loop-growth rule.
     public let loopGrowthExemptPatterns: [String]
 
+    /// Whether to run the optional Pass 2 using IndexStoreDB for cross-file lifecycle validation.
+    public let useIndexStore: Bool
+
     /// Creates a memory lifecycle configuration with the given options.
     public init(
         delegatePatterns: [String] = ["delegate", "parent", "owner", "dataSource"],
@@ -650,13 +653,15 @@ public struct MemoryLifecycleConfig: Sendable, Equatable {
             "MLXArray", "MTLBuffer", "MTLTexture",
             "CGImage", "CGContext", "CVPixelBuffer"
         ],
-        loopGrowthExemptPatterns: [String] = []
+        loopGrowthExemptPatterns: [String] = [],
+        useIndexStore: Bool = true
     ) {
         self.delegatePatterns = delegatePatterns
         self.requireTaskCancellation = requireTaskCancellation
         self.exemptFiles = exemptFiles
         self.heavyFrameworkTypes = heavyFrameworkTypes
         self.loopGrowthExemptPatterns = loopGrowthExemptPatterns
+        self.useIndexStore = useIndexStore
     }
 
     /// Default memory lifecycle configuration.
@@ -666,7 +671,7 @@ public struct MemoryLifecycleConfig: Sendable, Equatable {
 extension MemoryLifecycleConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case delegatePatterns, requireTaskCancellation, exemptFiles
-        case heavyFrameworkTypes, loopGrowthExemptPatterns
+        case heavyFrameworkTypes, loopGrowthExemptPatterns, useIndexStore
     }
 
     /// Creates a memory lifecycle configuration by decoding from the given decoder.
@@ -678,6 +683,7 @@ extension MemoryLifecycleConfig: Codable {
         exemptFiles = try container.decodeIfPresent([String].self, forKey: .exemptFiles) ?? defaults.exemptFiles
         heavyFrameworkTypes = try container.decodeIfPresent([String].self, forKey: .heavyFrameworkTypes) ?? defaults.heavyFrameworkTypes
         loopGrowthExemptPatterns = try container.decodeIfPresent([String].self, forKey: .loopGrowthExemptPatterns) ?? defaults.loopGrowthExemptPatterns
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
     }
 }
 
@@ -860,6 +866,18 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
     /// User-declared function costs for project-specific or third-party operations.
     public let knownCosts: [KnownCostEntry]
 
+    /// Whether to run the optional Pass 2 using IndexStoreDB for cross-module complexity resolution.
+    public let useIndexStore: Bool
+
+    /// Whether to enable cross-module cognitive complexity amplification in Pass 2.
+    public let crossModuleAmplification: Bool
+
+    /// Maximum transitive depth for cross-module amplification (1 = direct cross-module calls only).
+    public let crossModuleMaxDepth: Int
+
+    /// Amplified cognitive complexity threshold for cross-module warnings.
+    public let amplifiedCognitiveThreshold: Int
+
     /// Creates a complexity analyzer configuration with the given options.
     public init(
         cognitiveThreshold: Int = 15,
@@ -868,7 +886,11 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
         emitToCorpus: Bool = true,
         callGraphEnabled: Bool = true,
         callGraphMaxDepth: Int = 1,
-        knownCosts: [KnownCostEntry] = []
+        knownCosts: [KnownCostEntry] = [],
+        useIndexStore: Bool = true,
+        crossModuleAmplification: Bool = true,
+        crossModuleMaxDepth: Int = 1,
+        amplifiedCognitiveThreshold: Int = 30
     ) {
         self.cognitiveThreshold = cognitiveThreshold
         self.reportTopN = reportTopN
@@ -877,6 +899,10 @@ public struct ComplexityAnalyzerConfig: Sendable, Equatable {
         self.callGraphEnabled = callGraphEnabled
         self.callGraphMaxDepth = callGraphMaxDepth
         self.knownCosts = knownCosts
+        self.useIndexStore = useIndexStore
+        self.crossModuleAmplification = crossModuleAmplification
+        self.crossModuleMaxDepth = crossModuleMaxDepth
+        self.amplifiedCognitiveThreshold = amplifiedCognitiveThreshold
     }
 
     /// Default complexity analyzer configuration.
@@ -887,6 +913,7 @@ extension ComplexityAnalyzerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case cognitiveThreshold, reportTopN, moduleThresholds, emitToCorpus
         case callGraphEnabled, callGraphMaxDepth, knownCosts
+        case useIndexStore, crossModuleAmplification, crossModuleMaxDepth, amplifiedCognitiveThreshold
     }
 
     /// Creates a complexity analyzer configuration by decoding from the given decoder.
@@ -900,6 +927,10 @@ extension ComplexityAnalyzerConfig: Codable {
         callGraphEnabled = try container.decodeIfPresent(Bool.self, forKey: .callGraphEnabled) ?? defaults.callGraphEnabled
         callGraphMaxDepth = try container.decodeIfPresent(Int.self, forKey: .callGraphMaxDepth) ?? defaults.callGraphMaxDepth
         knownCosts = try container.decodeIfPresent([KnownCostEntry].self, forKey: .knownCosts) ?? defaults.knownCosts
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
+        crossModuleAmplification = try container.decodeIfPresent(Bool.self, forKey: .crossModuleAmplification) ?? defaults.crossModuleAmplification
+        crossModuleMaxDepth = try container.decodeIfPresent(Int.self, forKey: .crossModuleMaxDepth) ?? defaults.crossModuleMaxDepth
+        amplifiedCognitiveThreshold = try container.decodeIfPresent(Int.self, forKey: .amplifiedCognitiveThreshold) ?? defaults.amplifiedCognitiveThreshold
     }
 }
 
@@ -988,6 +1019,52 @@ extension RecursionAuditorConfig: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? RecursionAuditorConfig.default.useIndexStore
+    }
+}
+
+/// Per-checker configuration for DocCoverageChecker.
+///
+/// Controls whether the IndexStoreDB-backed Pass 2 runs to detect
+/// inherited documentation from protocol requirements and rank
+/// undocumented APIs by usage frequency.
+///
+/// ## YAML Example
+/// ```yaml
+/// docCoverage:
+///   useIndexStore: true
+///   includeTestReferences: false
+/// ```
+public struct DocCoverageConfig: Sendable, Codable, Equatable {
+    /// Whether to run the optional Pass 2 using IndexStoreDB for inherited-doc detection and usage-priority ranking.
+    public let useIndexStore: Bool
+
+    /// Whether to include references from test targets when computing usage-priority rankings.
+    public let includeTestReferences: Bool
+
+    /// Creates a documentation coverage configuration with the given options.
+    public init(
+        useIndexStore: Bool = true,
+        includeTestReferences: Bool = false
+    ) {
+        self.useIndexStore = useIndexStore
+        self.includeTestReferences = includeTestReferences
+    }
+
+    /// Default documentation coverage configuration.
+    public static let `default` = DocCoverageConfig()
+}
+
+extension DocCoverageConfig {
+    private enum CodingKeys: String, CodingKey {
+        case useIndexStore, includeTestReferences
+    }
+
+    /// Creates a documentation coverage configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = DocCoverageConfig.default
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
+        includeTestReferences = try container.decodeIfPresent(Bool.self, forKey: .includeTestReferences) ?? defaults.includeTestReferences
     }
 }
 
@@ -1182,6 +1259,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for ComplexityAnalyzer (advisory).
     public var complexity: ComplexityAnalyzerConfig
 
+    /// Per-checker configuration for DocCoverageChecker.
+    public let docCoverage: DocCoverageConfig
+
     /// Per-rule severity overrides from configuration.
     ///
     /// Keys are rule IDs (e.g. `"safety.force-unwrap"`) or wildcard patterns
@@ -1220,6 +1300,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         xcodeBuild: XcodeBuildCheckerConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
+        docCoverage: DocCoverageConfig = .default,
         overrides: [String: SeverityOverride] = [:]
     ) {
         self.parallelWorkers = parallelWorkers
@@ -1252,6 +1333,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.xcodeBuild = xcodeBuild
         self.consistency = consistency
         self.complexity = complexity
+        self.docCoverage = docCoverage
         self.overrides = overrides
     }
 
@@ -1345,6 +1427,7 @@ extension Configuration {
         case xcodeBuild
         case consistency
         case complexity
+        case docCoverage
         case overrides
     }
 
@@ -1382,6 +1465,7 @@ extension Configuration {
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default
+        docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
     }
 }

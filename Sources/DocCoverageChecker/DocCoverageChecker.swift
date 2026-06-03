@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -24,7 +25,14 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
     /// Creates a new DocCoverageChecker instance.
     public init() {}
 
+    /// Sentinel error to short-circuit Pass 2 without propagating a real error.
+    private enum SkipMarker: Error { case skipped }
+
     /// Run the documentation coverage check on the current directory.
+    ///
+    /// Runs Pass 1 (syntactic) unconditionally, then attempts Pass 2 (index-backed)
+    /// if `configuration.docCoverage.useIndexStore` is true. Pass 2 degrades
+    /// gracefully — a missing or stale index store never fails the quality gate.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
@@ -37,6 +45,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         var documentedAPIs = 0
         var allDiagnostics: [Diagnostic] = []
 
+        // Pass 1: syntactic analysis (always runs).
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let (diagnostics, total, documented) = try await checkDirectoryWithStats(
                 at: sourcesPath,
@@ -47,33 +56,71 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
             documentedAPIs += documented
         }
 
+        // Pass 2: index-backed inherited-doc detection and usage-priority ranking (optional, graceful degradation).
+        var inheritedDocCount = 0
+        if configuration.docCoverage.useIndexStore && totalPublicAPIs > 0 {
+            do {
+                let (indexDiagnostics, inherited) = try runIndexPass(
+                    pass1Diagnostics: allDiagnostics,
+                    totalPublicAPIs: totalPublicAPIs,
+                    documentedAPIs: documentedAPIs,
+                    configuration: configuration
+                )
+                allDiagnostics.append(contentsOf: indexDiagnostics)
+                inheritedDocCount = inherited
+            } catch SkipMarker.skipped { // logging: skip note already added
+            } catch { // logging: index pass error captured as note diagnostic
+                allDiagnostics.append(Diagnostic(
+                    severity: .note,
+                    message: "DocCoverage Pass 2 skipped: \(error.localizedDescription)",
+                    ruleId: "doc-coverage.index-pass.skipped"
+                ))
+            }
+        }
+
         let duration = ContinuousClock.now - startTime
 
-        // Calculate coverage and determine status
+        // Calculate coverage and determine status using effective coverage when Pass 2 ran.
+        let effectiveDocumented = documentedAPIs + inheritedDocCount
         let coveragePercent = totalPublicAPIs > 0
-            ? (documentedAPIs * 100) / totalPublicAPIs
+            ? (effectiveDocumented * 100) / totalPublicAPIs
             : 100
 
         let status: CheckResult.Status
         if let threshold = configuration.docCoverageThreshold {
-            // Threshold mode: pass if coverage >= threshold
+            // Threshold mode: pass if effective coverage >= threshold
             status = coveragePercent >= threshold ? .passed : .failed
         } else {
-            // Strict mode: fail if any undocumented APIs
-            status = allDiagnostics.isEmpty ? .passed : .failed
+            // Strict mode: fail if any undocumented APIs (excluding inherited)
+            let undocumentedCount = totalPublicAPIs - effectiveDocumented
+            status = undocumentedCount <= 0 ? .passed : .failed
         }
 
         // Add summary diagnostic
         var finalDiagnostics = allDiagnostics
         if totalPublicAPIs > 0 {
-            let summaryMessage = "Documentation coverage: \(coveragePercent)% (\(documentedAPIs)/\(totalPublicAPIs) public APIs documented)"
-            let summarySeverity: Diagnostic.Severity = status == .passed ? .note : .warning
+            if inheritedDocCount > 0 {
+                // Replace with adjusted summary showing both explicit and effective.
+                let adjusted = DocCoverageIndexPass.adjustedSummary(
+                    totalAPIs: totalPublicAPIs,
+                    explicitlyDocumented: documentedAPIs,
+                    inheritedCount: inheritedDocCount,
+                    threshold: configuration.docCoverageThreshold
+                )
+                finalDiagnostics.insert(adjusted, at: 0)
+            } else {
+                let explicitPercent = totalPublicAPIs > 0
+                    ? (documentedAPIs * 100) / totalPublicAPIs
+                    : 100
+                let summaryMessage = "Documentation coverage: \(explicitPercent)% (\(documentedAPIs)/\(totalPublicAPIs) public APIs documented)"
+                let summarySeverity: Diagnostic.Severity = status == .passed ? .note : .warning
 
-            finalDiagnostics.insert(Diagnostic(
-                severity: summarySeverity,
-                message: summaryMessage,
-                ruleId: "doc-coverage-summary"
-            ), at: 0)
+                finalDiagnostics.insert(Diagnostic(
+                    severity: summarySeverity,
+                    message: summaryMessage,
+                    ruleId: "doc-coverage-summary"
+                ), at: 0)
+            }
         }
 
         return CheckResult(
@@ -127,6 +174,38 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
             }
         }
         return false
+    }
+
+    // MARK: - Pass 2 (index-backed)
+
+    /// Attempts to locate an index store and run inherited-doc detection and usage-priority ranking.
+    private func runIndexPass(
+        pass1Diagnostics: [Diagnostic],
+        totalPublicAPIs: Int,
+        documentedAPIs: Int,
+        configuration: Configuration
+    ) throws -> (diagnostics: [Diagnostic], inheritedCount: Int) {
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let kind = ProjectKind.detect(at: cwd)
+
+        guard let located = try StoreLocator.locate(projectKind: kind) else {
+            return ([DocCoverageIndexPass.unavailableNote()], 0)
+        }
+
+        guard let libPath = IndexStoreSession.findLibIndexStore() else {
+            return ([DocCoverageIndexPass.unavailableNote()], 0)
+        }
+
+        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        _ = session
+
+        // Index query stubs — refined in future iteration.
+        // For now, emit the unavailable note until index queries are wired.
+        // When fully implemented:
+        // 1. Query protocol requirements and their doc status.
+        // 2. Build undocumentedAPIs list from Pass 1 diagnostics.
+        // 3. Call classifyInheritedDocs / rankByUsage.
+        return ([DocCoverageIndexPass.unavailableNote()], 0)
     }
 
     // MARK: - Private Implementation

@@ -62,6 +62,13 @@ public struct FunctionComplexityRecord: Sendable, Codable, Equatable {
     /// Anti-patterns detected in this function.
     public let detectedPatterns: [ComplexityPattern]
 
+    /// Amplified cognitive complexity accounting for cross-module call costs.
+    /// nil when Pass 2 (IndexStoreDB) has not run or no amplification applies.
+    public let amplifiedCognitiveComplexity: Int?
+
+    /// Cross-module callees resolved via IndexStoreDB.
+    public let crossModuleCallees: [CrossModuleCallEdge]
+
     /// Creates a function complexity record.
     public init(
         functionName: String,
@@ -74,7 +81,9 @@ public struct FunctionComplexityRecord: Sendable, Codable, Equatable {
         estimatedTimeComplexity: String = "O(1)",
         complexityBasis: [ComplexityBasis] = [],
         confidence: EstimationConfidence = .high,
-        detectedPatterns: [ComplexityPattern] = []
+        detectedPatterns: [ComplexityPattern] = [],
+        amplifiedCognitiveComplexity: Int? = nil,
+        crossModuleCallees: [CrossModuleCallEdge] = []
     ) {
         self.functionName = functionName
         self.moduleName = moduleName
@@ -87,6 +96,8 @@ public struct FunctionComplexityRecord: Sendable, Codable, Equatable {
         self.complexityBasis = complexityBasis
         self.confidence = confidence
         self.detectedPatterns = detectedPatterns
+        self.amplifiedCognitiveComplexity = amplifiedCognitiveComplexity
+        self.crossModuleCallees = crossModuleCallees
     }
 }
 
@@ -114,6 +125,8 @@ public enum ComplexityBasis: Sendable, Codable, Equatable {
     case recursion(type: RecursionClassification)
     /// Cross-function amplification from call graph analysis.
     case callGraphAmplification(callee: String, calleeCost: String)
+    /// Cross-module cognitive complexity amplification from IndexStoreDB analysis.
+    case crossModuleCognitiveAmplification(callee: String, module: String, calleeCost: Int)
 
     /// Human-readable description of this basis element.
     public var description: String {
@@ -122,6 +135,7 @@ public enum ComplexityBasis: Sendable, Codable, Equatable {
         case .stdlibOperation(let name, let cost): return "\(name) (\(cost))"
         case .recursion(let type): return "recursion: \(type.rawValue)"
         case .callGraphAmplification(let callee, let cost): return "calls \(callee) (\(cost))"
+        case .crossModuleCognitiveAmplification(let callee, let module, let cost): return "cross-module \(callee) in \(module) (complexity \(cost))"
         }
     }
 }
@@ -145,6 +159,43 @@ public enum RecursionClassification: String, Sendable, Codable, Equatable, CaseI
         case .branching: return "O(2^n)"
         case .tail: return "O(n)"
         }
+    }
+}
+
+/// A directed edge in the cross-module call graph, resolved by USR.
+public struct CrossModuleCallEdge: Sendable, Codable, Equatable {
+    /// USR of the calling function.
+    public let callerUSR: String
+    /// USR of the called function.
+    public let calleeUSR: String
+    /// Human-readable name of the callee.
+    public let calleeName: String
+    /// Module containing the callee.
+    public let calleeModule: String
+    /// Cognitive complexity of the callee.
+    public let calleeCognitiveComplexity: Int
+    /// Whether the call occurs inside a loop in the caller.
+    public let insideLoop: Bool
+    /// Source line of the call site.
+    public let line: Int
+
+    /// Creates a cross-module call edge.
+    public init(
+        callerUSR: String,
+        calleeUSR: String,
+        calleeName: String,
+        calleeModule: String,
+        calleeCognitiveComplexity: Int,
+        insideLoop: Bool,
+        line: Int
+    ) {
+        self.callerUSR = callerUSR
+        self.calleeUSR = calleeUSR
+        self.calleeName = calleeName
+        self.calleeModule = calleeModule
+        self.calleeCognitiveComplexity = calleeCognitiveComplexity
+        self.insideLoop = insideLoop
+        self.line = line
     }
 }
 
