@@ -2,13 +2,13 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-25 checkers. 1,130 tests. Zero regex workarounds — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
+29 checkers. 1,626 tests. Zero regex workarounds — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
 - **AST-first analysis** — SwiftSyntax-based visitors instead of regex, so rules understand scope, type context, and control flow
 - **Modular architecture** — each checker is an independent SPM module with its own test suite and DocC documentation
-- **Structured output** — terminal, JSON, and SARIF 2.1.0 for GitHub Code Scanning integration
+- **Structured output** — terminal, JSON, SARIF 2.1.0 for GitHub Code Scanning, and Xcode Build Phase format
 - **Auto-fix support** — checkers implementing `FixableChecker` can patch issues automatically with `--fix`
 - **Self-dogfooding** — quality-gate-swift runs its own checkers on every push via CI
 
@@ -58,6 +58,9 @@ quality-gate --fix
 # SARIF output for GitHub Code Scanning
 quality-gate --format sarif > results.sarif
 
+# Xcode Build Phase integration
+quality-gate --format xcode
+
 # Generate initial project status documents
 quality-gate --check status --bootstrap
 ```
@@ -68,12 +71,14 @@ quality-gate --check status --bootstrap
 
 | ID | Module | Description |
 |----|--------|-------------|
-| `recursion` | RecursionAuditor | Self-forwarding inits, computed property cycles, mutual recursion via call-graph analysis |
+| `recursion` | RecursionAuditor | Self-forwarding inits, computed property cycles, mutual recursion via USR call-graph analysis |
 | `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
 | `concurrency` | ConcurrencyAuditor | Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation |
 | `fp-safety` | FloatingPointSafetyAuditor | Floating-point exact equality, unguarded division |
-| `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references |
+| `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis |
 | `unreachable` | UnreachableCodeAuditor | Dead code via SwiftSyntax + IndexStore cross-reference |
+| `process-safety` | ProcessSafetyAuditor | Unsafe process spawning, command injection patterns |
+| `complexity` | ComplexityAnalyzer | Cognitive complexity per function, call-graph amplification, cross-module amplification, O(n) pattern detection |
 
 ### Safety & Security
 
@@ -81,6 +86,7 @@ quality-gate --check status --bootstrap
 |----|--------|-------------|
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
+| `hig-auditor` | HIGAuditor | Apple Human Interface Guidelines compliance for SwiftUI views |
 
 ### Code Hygiene
 
@@ -95,7 +101,7 @@ quality-gate --check status --bootstrap
 
 | ID | Module | Description |
 |----|--------|-------------|
-| `doc-coverage` | DocCoverageChecker | Undocumented public APIs (SwiftSyntax-based) |
+| `doc-coverage` | DocCoverageChecker | Undocumented public APIs, inherited documentation detection, usage-priority ranking |
 | `doc-lint` | DocLinter | DocC documentation build errors |
 
 ### Project Health
@@ -114,10 +120,13 @@ quality-gate --check status --bootstrap
 
 | ID | Module | Description |
 |----|--------|-------------|
-| `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference (opt-in) |
+| `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference |
 | `disk-clean` | DiskCleaner | Build artifact and cache cleanup (opt-in) |
+| `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
+| `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
+| `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 
-`mcp-readiness` and `disk-clean` are opt-in — excluded from default runs unless explicitly requested with `--check`.
+`disk-clean` and `xcode-build` are opt-in — excluded from default runs unless explicitly requested with `--check`.
 
 ## CLI reference
 
@@ -125,7 +134,7 @@ quality-gate --check status --bootstrap
 |------|-------------|
 | `--check <name>` | Run specific checker(s) by ID. Use `all` for every checker |
 | `--exclude <name>` | Skip checker(s) when using `--check all` |
-| `--format <fmt>` | Output format: `terminal` (default), `json`, `sarif` |
+| `--format <fmt>` | Output format: `terminal` (default), `json`, `sarif`, `xcode` |
 | `--config <path>` | Config file path (default: `.quality-gate.yml`) |
 | `--continue-on-failure` | Run all checks even if one fails |
 | `--strict` | Treat warnings as failures (exit code 1) |
@@ -174,7 +183,7 @@ security:
   allowedHTTPHosts: [localhost, 127.0.0.1]
 ```
 
-Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, and `build`.
+Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, and `consistency`.
 
 Severity overrides let you downgrade or upgrade any rule:
 
@@ -250,9 +259,11 @@ quality-gate-swift/
 │   ├── QualityGateCore/                 # Protocol, models, reporters, configuration
 │   ├── QualityGateTestKit/              # Test helpers for writing checker tests
 │   ├── QualityGateCLI/                  # Umbrella CLI entry point
-│   ├── [23 checker modules]             # One module per checker (see table above)
-│   └── [25 DocC catalogs]              # Per-module documentation
-├── Tests/                               # 853 tests across 74 test files
+│   ├── IndexStoreInfra/                  # Shared IndexStoreDB infrastructure
+│   ├── IJS*/                             # Institutional Judgment System modules
+│   ├── [29 checker modules]             # One module per checker (see table above)
+│   └── [27 DocC catalogs]              # Per-module documentation
+├── Tests/                               # 1,626 tests across 151 test files
 ├── Plugins/
 │   └── QualityGatePlugin/              # SPM command plugin
 └── .github/workflows/                   # CI, quality gate, security staleness

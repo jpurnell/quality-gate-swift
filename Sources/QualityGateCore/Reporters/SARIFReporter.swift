@@ -81,7 +81,7 @@ private struct SARIFDocument: Codable {
 
             init() {
                 self.name = "quality-gate-swift"
-                self.version = "1.2.0"
+                self.version = "2.0.0"
                 self.informationUri = "https://github.com/jpurnell/quality-gate-swift"
             }
         }
