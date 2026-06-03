@@ -658,7 +658,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
     /// Extracts `.product(name:` references from a `Package.swift` content string.
     public static func extractProductNames(from content: String) -> [String] {
-        let pattern = #"\.product\s*\(\s*name:\s*"([^"]+)""#
+        let pattern = #"\.(?:product|library|executable|plugin)\s*\(\s*name:\s*"([^"]+)""#
         // silent: constant regex pattern
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
             return []
