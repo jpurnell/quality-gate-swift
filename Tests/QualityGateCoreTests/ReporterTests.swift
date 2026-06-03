@@ -206,6 +206,7 @@ struct ReporterTests {
         #expect(OutputFormat.terminal.rawValue == "terminal")
         #expect(OutputFormat.json.rawValue == "json")
         #expect(OutputFormat.sarif.rawValue == "sarif")
+        #expect(OutputFormat.xcode.rawValue == "xcode")
     }
 
     @Test("OutputFormat initializes from string")
@@ -213,6 +214,73 @@ struct ReporterTests {
         #expect(OutputFormat(rawValue: "terminal") == .terminal)
         #expect(OutputFormat(rawValue: "json") == .json)
         #expect(OutputFormat(rawValue: "sarif") == .sarif)
+        #expect(OutputFormat(rawValue: "xcode") == .xcode)
         #expect(OutputFormat(rawValue: "invalid") == nil)
+    }
+
+    // MARK: - Xcode Reporter Tests
+
+    @Test("XcodeReporter emits standard Xcode diagnostic format")
+    func xcodeReporterFormat() throws {
+        let reporter = XcodeReporter()
+        var output = ""
+
+        try reporter.report(sampleResults, to: &output)
+
+        #expect(output.contains("/path/to/File.swift:42:15: error: [safety] [force-unwrap] Force unwrap detected"))
+    }
+
+    @Test("XcodeReporter handles diagnostics without file path")
+    func xcodeReporterNoFilePath() throws {
+        let results = [
+            CheckResult(
+                checkerId: "build",
+                status: .failed,
+                diagnostics: [
+                    Diagnostic(severity: .error, message: "Build failed")
+                ],
+                duration: .seconds(1)
+            )
+        ]
+
+        let reporter = XcodeReporter()
+        var output = ""
+
+        try reporter.report(results, to: &output)
+
+        #expect(output.contains("error: [build] Build failed"))
+        #expect(!output.contains("/"))
+    }
+
+    @Test("XcodeReporter handles diagnostics without column")
+    func xcodeReporterNoColumn() throws {
+        let results = [
+            CheckResult(
+                checkerId: "safety",
+                status: .failed,
+                diagnostics: [
+                    Diagnostic(
+                        severity: .warning,
+                        message: "Suspicious pattern",
+                        filePath: "/src/Foo.swift",
+                        lineNumber: 10
+                    )
+                ],
+                duration: .seconds(1)
+            )
+        ]
+
+        let reporter = XcodeReporter()
+        var output = ""
+
+        try reporter.report(results, to: &output)
+
+        #expect(output.contains("/src/Foo.swift:10: warning: [safety] Suspicious pattern"))
+    }
+
+    @Test("ReporterFactory creates XcodeReporter for xcode format")
+    func reporterFactoryCreatesXcodeReporter() {
+        let reporter = ReporterFactory.create(for: .xcode)
+        #expect(reporter is XcodeReporter)
     }
 }

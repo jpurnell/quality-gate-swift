@@ -241,6 +241,7 @@ let package = Package(
             name: "DocCoverageChecker",
             dependencies: [
                 "QualityGateCore",
+                "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]
@@ -460,6 +461,7 @@ let package = Package(
             name: "MemoryLifecycleGuard",
             dependencies: [
                 "QualityGateCore",
+                "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]
@@ -486,6 +488,7 @@ let package = Package(
             dependencies: [
                 "QualityGateCore",
                 "IJSSensor",
+                "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftOperators", package: "swift-syntax"),

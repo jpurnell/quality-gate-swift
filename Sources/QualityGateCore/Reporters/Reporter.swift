@@ -5,6 +5,7 @@ public enum OutputFormat: String, Sendable, CaseIterable {
     case terminal
     case json
     case sarif
+    case xcode
 }
 
 /// Protocol for outputting check results.
@@ -37,6 +38,8 @@ public enum ReporterFactory {
             return JSONReporter()
         case .sarif:
             return SARIFReporter()
+        case .xcode:
+            return XcodeReporter()
         }
     }
 }
