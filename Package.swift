@@ -120,6 +120,14 @@ let package = Package(
             targets: ["HIGAuditor"]
         ),
         .library(
+            name: "IndexStoreInfra",
+            targets: ["IndexStoreInfra"]
+        ),
+        .library(
+            name: "AppIntentsAuditor",
+            targets: ["AppIntentsAuditor"]
+        ),
+        .library(
             name: "XcodeBuildChecker",
             targets: ["XcodeBuildChecker"]
         ),
@@ -255,6 +263,7 @@ let package = Package(
             name: "UnreachableCodeAuditor",
             dependencies: [
                 "QualityGateCore",
+                "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
@@ -503,6 +512,34 @@ let package = Package(
             dependencies: ["QualityGateCore", "BuildChecker"]
         ),
 
+        // MARK: - IndexStoreInfra
+        .target(
+            name: "IndexStoreInfra",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "IndexStoreDB", package: "indexstore-db"),
+            ]
+        ),
+        .testTarget(
+            name: "IndexStoreInfraTests",
+            dependencies: ["IndexStoreInfra"]
+        ),
+
+        // MARK: - AppIntentsAuditor
+        .target(
+            name: "AppIntentsAuditor",
+            dependencies: [
+                "QualityGateCore",
+                "IndexStoreInfra",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "AppIntentsAuditorTests",
+            dependencies: ["AppIntentsAuditor"]
+        ),
+
         // MARK: - IJS Modules
         .target(
             name: "IJSSensor",
@@ -656,6 +693,7 @@ let package = Package(
                 "ComplexityAnalyzer",
                 "HIGAuditor",
                 "XcodeBuildChecker",
+                "AppIntentsAuditor",
                 "ConsistencyChecker",
                 "IJSSensor",
                 "IJSAggregator",

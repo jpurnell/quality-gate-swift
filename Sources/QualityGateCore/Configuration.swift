@@ -717,6 +717,72 @@ extension MCPReadinessConfig: Codable {
     }
 }
 
+/// Per-checker configuration for AppIntentsAuditor.
+public struct AppIntentsReadinessConfig: Sendable, Equatable {
+    /// Whether the App Intents readiness checker is enabled.
+    public let enabled: Bool
+
+    /// Minimum character length for intent and parameter descriptions.
+    public let minDescriptionLength: Int
+
+    /// Source directories to exclude from scanning.
+    public let excludePaths: [String]
+
+    /// Whether to require AppShortcutsProvider when intents exist.
+    public let requireShortcutsProvider: Bool
+
+    /// Whether to audit AppEntity conformances for queries and display.
+    public let auditEntities: Bool
+
+    /// Whether to audit AppEnum conformances for display and assistant annotations.
+    public let auditEnums: Bool
+
+    /// Whether to use IndexStoreDB for cross-file conformance resolution.
+    public let useIndexStore: Bool
+
+    /// Creates an App Intents readiness configuration with the given options.
+    public init(
+        enabled: Bool = false,
+        minDescriptionLength: Int = 10,
+        excludePaths: [String] = [],
+        requireShortcutsProvider: Bool = true,
+        auditEntities: Bool = true,
+        auditEnums: Bool = true,
+        useIndexStore: Bool = true
+    ) {
+        self.enabled = enabled
+        self.minDescriptionLength = minDescriptionLength
+        self.excludePaths = excludePaths
+        self.requireShortcutsProvider = requireShortcutsProvider
+        self.auditEntities = auditEntities
+        self.auditEnums = auditEnums
+        self.useIndexStore = useIndexStore
+    }
+
+    /// Default App Intents readiness configuration.
+    public static let `default` = AppIntentsReadinessConfig()
+}
+
+extension AppIntentsReadinessConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case enabled, minDescriptionLength, excludePaths
+        case requireShortcutsProvider, auditEntities, auditEnums, useIndexStore
+    }
+
+    /// Creates an App Intents readiness configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AppIntentsReadinessConfig.default
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+        minDescriptionLength = try container.decodeIfPresent(Int.self, forKey: .minDescriptionLength) ?? defaults.minDescriptionLength
+        excludePaths = try container.decodeIfPresent([String].self, forKey: .excludePaths) ?? defaults.excludePaths
+        requireShortcutsProvider = try container.decodeIfPresent(Bool.self, forKey: .requireShortcutsProvider) ?? defaults.requireShortcutsProvider
+        auditEntities = try container.decodeIfPresent(Bool.self, forKey: .auditEntities) ?? defaults.auditEntities
+        auditEnums = try container.decodeIfPresent(Bool.self, forKey: .auditEnums) ?? defaults.auditEnums
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
+    }
+}
+
 /// A user-declared cost for a function pattern.
 ///
 /// Used in `.quality-gate.yml` to declare known Big-O costs for project-specific
@@ -1058,6 +1124,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for MCPReadinessAuditor.
     public let mcpReadiness: MCPReadinessConfig
 
+    /// Per-checker configuration for AppIntentsAuditor.
+    public let appIntentsReadiness: AppIntentsReadinessConfig
+
     /// Per-checker configuration for BuildChecker.
     public let build: BuildCheckerConfig
 
@@ -1102,6 +1171,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         stochasticDeterminism: StochasticDeterminismConfig = .default,
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
+        appIntentsReadiness: AppIntentsReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
         xcodeBuild: XcodeBuildCheckerConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
@@ -1132,6 +1202,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.stochasticDeterminism = stochasticDeterminism
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
+        self.appIntentsReadiness = appIntentsReadiness
         self.build = build
         self.xcodeBuild = xcodeBuild
         self.consistency = consistency
@@ -1223,6 +1294,7 @@ extension Configuration {
         case stochasticDeterminism
         case memoryLifecycle
         case mcpReadiness
+        case appIntentsReadiness
         case build
         case xcodeBuild
         case consistency
@@ -1258,6 +1330,7 @@ extension Configuration {
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
+        appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
