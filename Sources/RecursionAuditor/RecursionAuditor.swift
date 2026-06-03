@@ -2,6 +2,7 @@ import Foundation
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
+import IndexStoreInfra
 
 /// Scans Swift source files for infinite-recursion bugs that compile cleanly.
 ///
@@ -58,7 +59,11 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     }
 
     /// Multi-file audit. Builds a project-wide call graph for cross-file
-    /// mutual recursion detection.
+    /// mutual recursion detection. When an IndexStoreDB session is available
+    /// and `configuration.recursion.useIndexStore` is true, Pass 2 (USR-based
+    /// cycle detection) runs after the syntactic Pass 1, confirming or
+    /// rejecting name-based mutual-cycle findings and detecting cross-module
+    /// and protocol-witness cycles.
     public func auditProject(
         sources: [(fileName: String, source: String)],
         configuration: Configuration
@@ -81,8 +86,25 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             allDiagnostics.append(contentsOf: analysis.diagnostics)
         }
 
-        // Project-wide mutual cycle detection (rule 8).
-        allDiagnostics.append(contentsOf: detectMutualCycles(declarations: allDeclarations))
+        // Pass 1: Project-wide mutual cycle detection (name-based, rule 8).
+        let nameBasedCycleDiagnostics = detectMutualCyclesImpl(declarations: allDeclarations)
+
+        // Pass 2: USR-based cycle detection via IndexStoreDB (when available).
+        if configuration.recursion.useIndexStore {
+            do {
+                let pass2Diagnostics = try runIndexStorePass(configuration: configuration)
+                allDiagnostics.append(contentsOf: pass2Diagnostics)
+
+                for diag in nameBasedCycleDiagnostics {
+                    allDiagnostics.append(RecursionIndexPass.demoteToNote(diag))
+                }
+            } catch { // logging: Pass 2 failure captured as note diagnostic
+                allDiagnostics.append(contentsOf: nameBasedCycleDiagnostics)
+                allDiagnostics.append(contentsOf: RecursionIndexPass.runWithoutIndex())
+            }
+        } else {
+            allDiagnostics.append(contentsOf: nameBasedCycleDiagnostics)
+        }
 
         let duration = ContinuousClock.now - startTime
         let hasErrors = allDiagnostics.contains { $0.severity == .error }
@@ -128,7 +150,38 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         )
     }
 
-    private func detectMutualCycles(declarations: [DeclarationInfo]) -> [Diagnostic] {
+    /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
+    private func runIndexStorePass(configuration: Configuration) throws -> [Diagnostic] {
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let kind = ProjectKind.detect(at: cwd)
+
+        guard let located = try StoreLocator.locate(projectKind: kind) else {
+            throw IndexStorePassError.noIndexStore
+        }
+
+        guard let libPath = IndexStoreSession.findLibIndexStore() else {
+            throw IndexStorePassError.toolchainNotFound
+        }
+
+        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        let swiftFiles = SourceWalker.swiftFiles(under: kind.rootURL, excludePatterns: configuration.excludePatterns)
+
+        return try RecursionIndexPass.run(
+            session: session,
+            swiftFiles: swiftFiles,
+            baseCaseUSRs: []
+        )
+    }
+
+    /// Errors specific to the IndexStore pass integration.
+    enum IndexStorePassError: Error {
+        /// No index store could be located for the project.
+        case noIndexStore
+        /// The Swift toolchain or libIndexStore.dylib could not be found.
+        case toolchainNotFound
+    }
+
+    private func detectMutualCyclesImpl(declarations: [DeclarationInfo]) -> [Diagnostic] {
         // Build the callable subgraph: only functions/methods participate.
         let callable = declarations.filter { $0.isCallable }
         // Index declarations by signature for quick lookup.
@@ -178,45 +231,66 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     }
 
     private func tarjanSCCs(adjacency: [[Int]]) -> [[Int]] {
+        let count = adjacency.count
         var index = 0
-        var stack: [Int] = []
-        var indices: [Int?] = Array(repeating: nil, count: adjacency.count)
-        var lowlinks: [Int] = Array(repeating: 0, count: adjacency.count)
-        var onStack: [Bool] = Array(repeating: false, count: adjacency.count)
+        var sccStack: [Int] = []
+        var indices: [Int?] = Array(repeating: nil, count: count)
+        var lowlinks: [Int] = Array(repeating: 0, count: count)
+        var onStack: [Bool] = Array(repeating: false, count: count)
         var result: [[Int]] = []
 
-        func strongConnect(_ v: Int) {
-            indices[v] = index
-            lowlinks[v] = index
-            index += 1
-            stack.append(v)
-            onStack[v] = true
+        struct Frame {
+            let node: Int
+            var neighborIndex: Int
+            let parent: Int?
+        }
 
-            for w in adjacency[v] {
-                if indices[w] == nil {
-                    strongConnect(w)
-                    lowlinks[v] = min(lowlinks[v], lowlinks[w])
-                } else if onStack[w] {
-                    if let wIdx = indices[w] {
-                        lowlinks[v] = min(lowlinks[v], wIdx)
+        for startNode in 0..<count where indices[startNode] == nil {
+            var workStack = [Frame(node: startNode, neighborIndex: 0, parent: nil)]
+            indices[startNode] = index
+            lowlinks[startNode] = index
+            index += 1
+            sccStack.append(startNode)
+            onStack[startNode] = true
+
+            while let frame = workStack.last {
+                let v = frame.node
+                let neighbors = adjacency[v]
+
+                if frame.neighborIndex < neighbors.count {
+                    let w = neighbors[frame.neighborIndex]
+                    workStack[workStack.count - 1].neighborIndex += 1
+
+                    if indices[w] == nil {
+                        indices[w] = index
+                        lowlinks[w] = index
+                        index += 1
+                        sccStack.append(w)
+                        onStack[w] = true
+                        workStack.append(Frame(node: w, neighborIndex: 0, parent: v))
+                    } else if onStack[w] {
+                        if let wIdx = indices[w] {
+                            lowlinks[v] = min(lowlinks[v], wIdx)
+                        }
+                    }
+                } else {
+                    if let vIdx = indices[v], lowlinks[v] == vIdx {
+                        var component: [Int] = []
+                        while true { // SAFETY: loop terminates when sccStack is empty or w == v
+                            guard let w = sccStack.popLast() else { break }
+                            onStack[w] = false
+                            component.append(w)
+                            if w == v { break }
+                        }
+                        result.append(component)
+                    }
+
+                    workStack.removeLast()
+                    if let parent = frame.parent {
+                        lowlinks[parent] = min(lowlinks[parent], lowlinks[v])
                     }
                 }
             }
-
-            if let vIdx = indices[v], lowlinks[v] == vIdx {
-                var component: [Int] = []
-                while true { // SAFETY: loop always terminates — breaks when stack is empty or when w == v
-                    guard let w = stack.popLast() else { break }
-                    onStack[w] = false
-                    component.append(w)
-                    if w == v { break }
-                }
-                result.append(component)
-            }
-        }
-
-        for v in 0..<adjacency.count where indices[v] == nil {
-            strongConnect(v)
         }
         return result
     }

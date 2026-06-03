@@ -279,6 +279,7 @@ let package = Package(
             name: "RecursionAuditor",
             dependencies: [
                 "QualityGateCore",
+                "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]
@@ -292,6 +293,7 @@ let package = Package(
             name: "ConcurrencyAuditor",
             dependencies: [
                 "QualityGateCore",
+                "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]

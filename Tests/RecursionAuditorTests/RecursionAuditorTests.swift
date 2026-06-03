@@ -461,7 +461,7 @@ struct RecursionAuditorTests {
             ("A.swift", "func a() { b() }"),
             ("B.swift", "func b() { a() }")
         ]
-        let result = try await RecursionAuditor().auditProject(sources: sources, configuration: Configuration())
+        let result = try await RecursionAuditor().auditProject(sources: sources, configuration: Configuration(recursion: RecursionAuditorConfig(useIndexStore: false)))
         let cycles = result.diagnostics.filter { $0.ruleId == "recursion.mutual-cycle" }
         #expect(cycles.count >= 2)
     }
@@ -481,7 +481,7 @@ struct RecursionAuditorTests {
             }
             """)
         ]
-        let result = try await RecursionAuditor().auditProject(sources: sources, configuration: Configuration())
+        let result = try await RecursionAuditor().auditProject(sources: sources, configuration: Configuration(recursion: RecursionAuditorConfig(useIndexStore: false)))
         #expect(!result.diagnostics.contains { $0.ruleId == "recursion.mutual-cycle" })
     }
 
@@ -615,7 +615,7 @@ struct RecursionAuditorTests {
 
     private func audit(_ code: String) async throws -> CheckResult {
         let auditor = RecursionAuditor()
-        let config = Configuration()
+        let config = Configuration(recursion: RecursionAuditorConfig(useIndexStore: false))
         return try await auditor.auditSource(code, fileName: "test.swift", configuration: config)
     }
 }

@@ -124,14 +124,23 @@ public struct ConcurrencyAuditorConfig: Sendable, Equatable {
     public let justificationKeyword: String
     /// Module names that are allowed to keep `@preconcurrency import` even if first-party.
     public let allowPreconcurrencyImports: [String]
+    /// Whether to run the optional Pass 2 using IndexStoreDB for cross-file Sendable validation.
+    public let useIndexStore: Bool
+    /// Whether to enable isolation-depth tracking for the `sendable-crosses-isolation` rule.
+    /// Off by default for performance.
+    public let trackIsolationDepth: Bool
 
     /// Creates a concurrency auditor configuration with the given options.
     public init(
         justificationKeyword: String = "Justification:",
-        allowPreconcurrencyImports: [String] = []
+        allowPreconcurrencyImports: [String] = [],
+        useIndexStore: Bool = true,
+        trackIsolationDepth: Bool = false
     ) {
         self.justificationKeyword = justificationKeyword
         self.allowPreconcurrencyImports = allowPreconcurrencyImports
+        self.useIndexStore = useIndexStore
+        self.trackIsolationDepth = trackIsolationDepth
     }
 
     /// Default concurrency auditor configuration.
@@ -140,7 +149,7 @@ public struct ConcurrencyAuditorConfig: Sendable, Equatable {
 
 extension ConcurrencyAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case justificationKeyword, allowPreconcurrencyImports
+        case justificationKeyword, allowPreconcurrencyImports, useIndexStore, trackIsolationDepth
     }
 
     /// Creates a concurrency auditor configuration by decoding from the given decoder.
@@ -149,6 +158,8 @@ extension ConcurrencyAuditorConfig: Codable {
         let defaults = ConcurrencyAuditorConfig.default
         justificationKeyword = try container.decodeIfPresent(String.self, forKey: .justificationKeyword) ?? defaults.justificationKeyword
         allowPreconcurrencyImports = try container.decodeIfPresent([String].self, forKey: .allowPreconcurrencyImports) ?? defaults.allowPreconcurrencyImports
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
+        trackIsolationDepth = try container.decodeIfPresent(Bool.self, forKey: .trackIsolationDepth) ?? defaults.trackIsolationDepth
     }
 }
 
@@ -951,6 +962,35 @@ extension XcodeBuildCheckerConfig: Codable {
     }
 }
 
+/// Per-checker configuration for RecursionAuditor.
+///
+/// Controls whether the IndexStoreDB-backed Pass 2 (USR-based call graph)
+/// is used to validate mutual-cycle findings from the syntactic Pass 1.
+public struct RecursionAuditorConfig: Sendable, Equatable {
+    /// Whether to use IndexStoreDB for USR-based call graph resolution.
+    public let useIndexStore: Bool
+
+    /// Creates a recursion auditor configuration with the given options.
+    public init(useIndexStore: Bool = true) {
+        self.useIndexStore = useIndexStore
+    }
+
+    /// Default recursion auditor configuration.
+    public static let `default` = RecursionAuditorConfig()
+}
+
+extension RecursionAuditorConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case useIndexStore
+    }
+
+    /// Creates a recursion auditor configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? RecursionAuditorConfig.default.useIndexStore
+    }
+}
+
 /// Per-checker configuration for BuildChecker.
 ///
 /// Controls how the `swift build` invocation is tuned, including the
@@ -1085,6 +1125,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// `"generic/platform=macOS"`.
     public let xcodeDestination: String?
 
+    /// Per-checker configuration for RecursionAuditor.
+    public let recursion: RecursionAuditorConfig
+
     /// Per-checker configuration for ConcurrencyAuditor.
     public let concurrency: ConcurrencyAuditorConfig
 
@@ -1158,6 +1201,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         unreachableAutoBuildXcode: Bool = false,
         xcodeScheme: String? = nil,
         xcodeDestination: String? = nil,
+        recursion: RecursionAuditorConfig = .default,
         concurrency: ConcurrencyAuditorConfig = .default,
         pointerEscape: PointerEscapeAuditorConfig = .default,
         security: SecurityAuditorConfig = .default,
@@ -1189,6 +1233,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.unreachableAutoBuildXcode = unreachableAutoBuildXcode
         self.xcodeScheme = xcodeScheme
         self.xcodeDestination = xcodeDestination
+        self.recursion = recursion
         self.concurrency = concurrency
         self.pointerEscape = pointerEscape
         self.security = security
@@ -1281,6 +1326,7 @@ extension Configuration {
         case unreachableAutoBuildXcode
         case xcodeScheme
         case xcodeDestination
+        case recursion
         case concurrency
         case pointerEscape
         case security
@@ -1317,6 +1363,7 @@ extension Configuration {
         unreachableAutoBuildXcode = try container.decodeIfPresent(Bool.self, forKey: .unreachableAutoBuildXcode) ?? false
         xcodeScheme = try container.decodeIfPresent(String.self, forKey: .xcodeScheme)
         xcodeDestination = try container.decodeIfPresent(String.self, forKey: .xcodeDestination)
+        recursion = try container.decodeIfPresent(RecursionAuditorConfig.self, forKey: .recursion) ?? .default
         concurrency = try container.decodeIfPresent(ConcurrencyAuditorConfig.self, forKey: .concurrency) ?? .default
         pointerEscape = try container.decodeIfPresent(PointerEscapeAuditorConfig.self, forKey: .pointerEscape) ?? .default
         security = try container.decodeIfPresent(SecurityAuditorConfig.self, forKey: .security) ?? .default
