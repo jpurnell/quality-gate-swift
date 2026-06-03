@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-29 checkers. 1,626 tests. Zero regex workarounds — every rule walks the SwiftSyntax AST for precise, low-false-positive detection.
+29 checkers. 1,662 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
@@ -111,7 +111,7 @@ quality-gate --check status --bootstrap
 | `build` | BuildChecker | `swift build` wrapper — captures all compiler errors and warnings |
 | `test` | TestRunner | `swift test` wrapper — parses Swift Testing and XCTest results |
 | `status` | StatusAuditor | Drift between project docs and actual code state; supports `--fix` |
-| `dependency-audit` | DependencyAuditor | Package.resolved sync, branch pins, local overrides |
+| `dependency-audit` | DependencyAuditor | Package.resolved sync, branch pins, local overrides, hallucinated import detection via AST-parsed manifests |
 | `release-readiness` | ReleaseReadinessAuditor | CHANGELOG entries, README placeholders, pending-work markers |
 | `swift-version` | SwiftVersionChecker | swift-tools-version validation and upgrade feasibility |
 | `memory-builder` | MemoryBuilder | Claude Code project memory generation and validation |
@@ -263,7 +263,7 @@ quality-gate-swift/
 │   ├── IJS*/                             # Institutional Judgment System modules
 │   ├── [29 checker modules]             # One module per checker (see table above)
 │   └── [27 DocC catalogs]              # Per-module documentation
-├── Tests/                               # 1,626 tests across 151 test files
+├── Tests/                               # 1,662 tests across 151 test files
 ├── Plugins/
 │   └── QualityGatePlugin/              # SPM command plugin
 └── .github/workflows/                   # CI, quality gate, security staleness

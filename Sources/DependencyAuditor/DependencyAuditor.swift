@@ -1,5 +1,7 @@
 import Foundation
 import QualityGateCore
+import SwiftParser
+import SwiftSyntax
 
 // MARK: - Package.resolved Models
 
@@ -178,82 +180,29 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         return try decoder.decode(PackageResolved.self, from: data)
     }
 
-    /// Extracts dependency URLs from `Package.swift` content using pattern matching.
+    /// Extracts dependency URLs from `Package.swift` content via AST.
     ///
     /// Handles both `.package(url:` and `.package(name:, url:` formats.
     ///
     /// - Parameter content: The raw text of `Package.swift`.
     /// - Returns: An array of dependency URL strings.
     static func extractPackageURLs(from content: String) -> [String] {
-        // Match both .package(url: "...") and .package(name: "...", url: "...") patterns
-        let pattern = #"\.package\([^)]*url:\s*"([^"]+)""#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return []
-        }
-
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-
-        return matches.compactMap { match -> String? in
-            guard match.numberOfRanges >= 2,
-                  let urlRange = Range(match.range(at: 1), in: content) else {
-                return nil
-            }
-            return String(content[urlRange])
-        }
+        ManifestParser.parse(source: content).packageURLs
     }
 
-    /// Extracts explicit package `name:` parameters from dependency declarations.
+    /// Extracts explicit package `name:` parameters from dependency declarations via AST.
     ///
     /// Handles `.package(name: "RxSwift", ...)` which declares the package identity.
     ///
     /// - Parameter content: The raw text of `Package.swift`.
     /// - Returns: An array of declared package names.
     static func extractPackageDeclaredNames(from content: String) -> [String] {
-        let pattern = #"\.package\(\s*name:\s*"([^"]+)""#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return []
-        }
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-        return matches.compactMap { match -> String? in
-            guard match.numberOfRanges >= 2,
-                  let nameRange = Range(match.range(at: 1), in: content) else { return nil }
-            return String(content[nameRange])
-        }
+        ManifestParser.parse(source: content).declaredNames
     }
 
-    /// Extracts target `exclude:` paths from a `Package.swift` content string.
+    /// Extracts target `exclude:` paths from a `Package.swift` content string via AST.
     static func extractExcludePaths(from content: String) -> [String] {
-        let pattern = #"exclude:\s*\[((?:[^\]]*?"[^"]*"[^\]]*?)*)\]"#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
-            return []
-        }
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-
-        let stringPattern = #""([^"]+)""#
-        // silent: constant regex pattern
-        guard let stringRegex = try? NSRegularExpression(pattern: stringPattern, options: []) else {
-            return []
-        }
-
-        var paths: [String] = []
-        for match in matches {
-            guard let arrayRange = Range(match.range(at: 1), in: content) else { continue }
-            let arrayContent = String(content[arrayRange])
-            let arrayNSRange = NSRange(arrayContent.startIndex..., in: arrayContent)
-            let stringMatches = stringRegex.matches(in: arrayContent, options: [], range: arrayNSRange)
-            for sm in stringMatches {
-                guard sm.numberOfRanges >= 2,
-                      let strRange = Range(sm.range(at: 1), in: arrayContent) else { continue }
-                paths.append(String(arrayContent[strRange]))
-            }
-        }
-        return paths
+        ManifestParser.parse(source: content).excludePaths
     }
 
     /// Checks whether `Package.resolved` exists and is in sync with `Package.swift`.
@@ -380,21 +329,25 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         let fm = FileManager.default
         var knownModules = systemFrameworks
 
-        // Add targets and products from root Package.swift
-        let rootTargets = extractTargetNames(from: packageSwiftContent)
-        let rootProducts = extractProductNames(from: packageSwiftContent)
-        knownModules.formUnion(rootTargets)
-        knownModules.formUnion(rootProducts)
-        knownModules.formUnion(extractPackageDeclaredNames(from: packageSwiftContent))
+        // Parse root manifest once via AST
+        let rootInfo = ManifestParser.parse(source: packageSwiftContent)
+        knownModules.formUnion(rootInfo.targetNames)
+        knownModules.formUnion(rootInfo.productNames)
+        knownModules.formUnion(rootInfo.declaredNames)
+        addURLDerivedNames(from: rootInfo.packageURLs, into: &knownModules)
 
-        // Add targets from all discovered Package.swift files (monorepo support)
+        // Parse all discovered sub-manifests once each (monorepo support)
         let manifests = discoverPackageManifests(in: projectRoot)
+        var manifestInfos: [(path: String, info: ManifestParser.ManifestInfo)] = []
         for manifestPath in manifests {
             // silent: unreadable manifest files skipped gracefully
             guard let content = try? String(contentsOfFile: manifestPath, encoding: .utf8) else { continue }
-            knownModules.formUnion(extractTargetNames(from: content))
-            knownModules.formUnion(extractProductNames(from: content))
-            knownModules.formUnion(extractPackageDeclaredNames(from: content))
+            let info = ManifestParser.parse(source: content)
+            manifestInfos.append((path: manifestPath, info: info))
+            knownModules.formUnion(info.targetNames)
+            knownModules.formUnion(info.productNames)
+            knownModules.formUnion(info.declaredNames)
+            addURLDerivedNames(from: info.packageURLs, into: &knownModules)
         }
 
         // Add package identities and derived names from Package.resolved
@@ -403,7 +356,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         }
 
         // Also scan Package.resolved files in subdirectories (monorepo)
-        for manifestPath in manifests {
+        for (manifestPath, _) in manifestInfos {
             let packageDir = (manifestPath as NSString).deletingLastPathComponent
             let resolvedPath = (packageDir as NSString).appendingPathComponent("Package.resolved")
             // SAFETY: CLI reads Package.resolved from discovered local package directories
@@ -415,18 +368,6 @@ public struct DependencyAuditor: QualityChecker, Sendable {
             }
         }
 
-        // Derive module names from package URLs in all manifests
-        var allManifestContents: [(path: String, content: String)] = []
-        for manifestPath in manifests {
-            // silent: unreadable manifest files skipped gracefully
-            guard let content = try? String(contentsOfFile: manifestPath, encoding: .utf8) else { continue }
-            allManifestContents.append((path: manifestPath, content: content))
-            addURLDerivedNames(from: content, into: &knownModules)
-        }
-        if !packageSwiftContent.isEmpty {
-            addURLDerivedNames(from: packageSwiftContent, into: &knownModules)
-        }
-
         // Scan .build/checkouts/ for dependency-vended products and targets
         let checkoutsDir = (projectRoot as NSString).appendingPathComponent(".build/checkouts")
         if let checkoutEntries = try? fm.contentsOfDirectory(atPath: checkoutsDir) { // SAFETY: CLI tool reads local .build/checkouts
@@ -435,8 +376,9 @@ public struct DependencyAuditor: QualityChecker, Sendable {
                     .appendingPathComponent(entry)
                     .appending("/Package.swift")
                 guard let content = try? String(contentsOfFile: depManifest, encoding: .utf8) else { continue }
-                knownModules.formUnion(extractProductNames(from: content))
-                knownModules.formUnion(extractTargetNames(from: content))
+                let info = ManifestParser.parse(source: content)
+                knownModules.formUnion(info.productNames)
+                knownModules.formUnion(info.targetNames)
             }
         }
 
@@ -444,34 +386,28 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         knownModules.formUnion(config.additionalKnownModules)
 
         // Discover source files from each package's Sources/ and Tests/ directories,
-        // respecting exclude: paths declared in each Package.swift
+        // respecting exclude: paths from the already-parsed manifests
         var sourceFiles: [(path: String, content: String)] = []
 
-        var packageRoots: [String] = []
+        // Build (root, excludePaths) pairs from parsed manifests
+        var packageExcludes: [(root: String, excludePaths: [String])] = []
         if !packageSwiftContent.isEmpty {
-            packageRoots.append(projectRoot)
+            packageExcludes.append((root: projectRoot, excludePaths: rootInfo.excludePaths))
         }
-        for manifestPath in manifests {
+        for (manifestPath, info) in manifestInfos {
             let packageDir = (manifestPath as NSString).deletingLastPathComponent
             if packageDir != projectRoot {
-                packageRoots.append(packageDir)
+                packageExcludes.append((root: packageDir, excludePaths: info.excludePaths))
             }
         }
 
-        for packageRoot in packageRoots {
-            // Get exclude paths for this package
-            let manifestPath = (packageRoot as NSString).appendingPathComponent("Package.swift")
-            // silent: unreadable manifest defaults to empty (no excludes applied)
-            let manifestContent = (try? String(contentsOfFile: manifestPath, encoding: .utf8)) ?? ""
-            let excludePaths = extractExcludePaths(from: manifestContent)
-
+        for (packageRoot, excludePaths) in packageExcludes {
             for dir in ["Sources", "Tests"] {
                 let dirPath = (packageRoot as NSString).appendingPathComponent(dir)
                 guard let enumerator = fm.enumerator(atPath: dirPath) else { continue }
                 while let relativePath = enumerator.nextObject() as? String {
                     guard relativePath.hasSuffix(".swift") else { continue }
 
-                    // Skip files within excluded directories
                     let shouldExclude = excludePaths.contains { excludePath in
                         relativePath.hasPrefix(excludePath + "/") || relativePath == excludePath
                     }
@@ -514,9 +450,8 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         }
     }
 
-    /// Adds URL-derived module names from a Package.swift content string.
-    private static func addURLDerivedNames(from content: String, into modules: inout Set<String>) {
-        let urls = extractPackageURLs(from: content)
+    /// Adds URL-derived module names from pre-extracted package URLs.
+    private static func addURLDerivedNames(from urls: [String], into modules: inout Set<String>) {
         for url in urls {
             var name = (url as NSString).lastPathComponent
             if name.hasSuffix(".git") {
@@ -640,103 +575,23 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         "Accessibility", "SwiftUICore",
     ]
 
-    /// Extracts target names from a `Package.swift` content string.
+    /// Extracts target names from a `Package.swift` content string via AST.
     public static func extractTargetNames(from content: String) -> [String] {
-        let pattern = #"\.(?:target|executableTarget|testTarget|plugin|systemLibrary|binaryTarget|macro)\s*\(\s*name:\s*"([^"]+)""#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return []
-        }
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-        return matches.compactMap { match -> String? in
-            guard match.numberOfRanges >= 2,
-                  let nameRange = Range(match.range(at: 1), in: content) else { return nil }
-            return String(content[nameRange])
-        }
+        ManifestParser.parse(source: content).targetNames
     }
 
-    /// Extracts `.product(name:` references from a `Package.swift` content string.
+    /// Extracts product names (`.library`, `.executable`, `.plugin`, `.product`) from a `Package.swift` content string via AST.
     public static func extractProductNames(from content: String) -> [String] {
-        let pattern = #"\.(?:product|library|executable|plugin)\s*\(\s*name:\s*"([^"]+)""#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return []
-        }
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-        return matches.compactMap { match -> String? in
-            guard match.numberOfRanges >= 2,
-                  let nameRange = Range(match.range(at: 1), in: content) else { return nil }
-            return String(content[nameRange])
-        }
+        ManifestParser.parse(source: content).productNames
     }
 
-    /// Extracts import statements from a Swift source string.
+    /// Extracts import statements from a Swift source string via AST.
     public static func extractImports(from source: String) -> [ImportStatement] {
-        let importPattern = #"(?m)^\s*(?:@\w+\s+)*import\s+(\w+)"#
-        let canImportPattern = #"(?m)^\s*#if\s+canImport\((\w+)\)"#
-
-        // silent: constant regex patterns
-        guard let importRegex = try? NSRegularExpression(pattern: importPattern, options: []),
-              let canImportRegex = try? NSRegularExpression(pattern: canImportPattern, options: []) else { // silent: constant regex
-
-            return []
-        }
-
-        let lines = source.components(separatedBy: .newlines)
-
-        // Collect canImport module names and their line numbers
-        var canImportGuards: [String: Set<Int>] = [:]
-        let fullRange = NSRange(source.startIndex..., in: source)
-        let canImportMatches = canImportRegex.matches(in: source, options: [], range: fullRange)
-        for match in canImportMatches {
-            guard match.numberOfRanges >= 2,
-                  let moduleRange = Range(match.range(at: 1), in: source) else { continue }
-            let moduleName = String(source[moduleRange])
-            guard let matchRange = Range(match.range(at: 0), in: source) else { continue }
-            let matchStart = matchRange.lowerBound
-            let lineNumber = source[source.startIndex..<matchStart].filter { $0 == "\n" }.count + 1
-            canImportGuards[moduleName, default: []].insert(lineNumber)
-        }
-
-        var imports: [ImportStatement] = []
-        var inMultilineString = false
-        for (index, line) in lines.enumerated() {
-            let lineNumber = index + 1
-            // Track multi-line string literal boundaries (""")
-            let tripleQuoteCount = countOccurrences(of: "\"\"\"", in: line)
-            if tripleQuoteCount > 0 {
-                if tripleQuoteCount % 2 != 0 {
-                    inMultilineString.toggle()
-                }
-                continue
-            }
-            guard !inMultilineString else { continue }
-
-            let lineNSRange = NSRange(line.startIndex..., in: line)
-            guard let match = importRegex.firstMatch(in: line, options: [], range: lineNSRange),
-                  match.numberOfRanges >= 2,
-                  let moduleRange = Range(match.range(at: 1), in: line) else { continue }
-
-            let moduleName = String(line[moduleRange])
-
-            // Check if guarded by canImport for the same module on a preceding line
-            let isGuarded: Bool
-            if let guardLines = canImportGuards[moduleName] {
-                isGuarded = guardLines.contains(where: { $0 < lineNumber })
-            } else {
-                isGuarded = false
-            }
-
-            imports.append(ImportStatement(
-                moduleName: moduleName,
-                line: lineNumber,
-                isCanImportGuarded: isGuarded
-            ))
-        }
-
-        return imports
+        let tree = Parser.parse(source: source)
+        let converter = SourceLocationConverter(fileName: "", tree: tree)
+        let visitor = ImportVisitor(converter: converter)
+        visitor.walk(tree)
+        return visitor.imports
     }
 
     /// Checks source files for imports of modules not in the known set.
@@ -763,17 +618,6 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         }
 
         return diagnostics
-    }
-
-    /// Counts non-overlapping occurrences of a substring.
-    private static func countOccurrences(of target: String, in string: String) -> Int {
-        var count = 0
-        var searchRange = string.startIndex..<string.endIndex
-        while let range = string.range(of: target, range: searchRange) {
-            count += 1
-            searchRange = range.upperBound..<string.endIndex
-        }
-        return count
     }
 
     /// Discovers all `Package.swift` files recursively, skipping build artifacts.
@@ -815,5 +659,57 @@ public struct DependencyAuditor: QualityChecker, Sendable {
             return .warning
         }
         return .passed
+    }
+}
+
+// MARK: - AST-based Import Extraction
+
+private final class ImportVisitor: SyntaxVisitor {
+    let converter: SourceLocationConverter
+    private(set) var imports: [DependencyAuditor.ImportStatement] = []
+    private var canImportGuards: [String: [Int]] = [:]
+
+    init(converter: SourceLocationConverter) {
+        self.converter = converter
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: IfConfigClauseSyntax) -> SyntaxVisitorContinueKind {
+        if let condition = node.condition {
+            for moduleName in findCanImportModules(in: Syntax(condition)) {
+                let line = node.startLocation(converter: converter).line
+                canImportGuards[moduleName, default: []].append(line)
+            }
+        }
+        return .visitChildren
+    }
+
+    override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard let firstComponent = node.path.first else { return .skipChildren }
+        let moduleName = firstComponent.name.text
+        let line = node.startLocation(converter: converter).line
+
+        let isGuarded = canImportGuards[moduleName]?.contains(where: { $0 < line }) ?? false
+
+        imports.append(DependencyAuditor.ImportStatement(
+            moduleName: moduleName,
+            line: line,
+            isCanImportGuarded: isGuarded
+        ))
+        return .skipChildren
+    }
+
+    private func findCanImportModules(in syntax: Syntax) -> [String] {
+        var modules: [String] = []
+        if let funcCall = syntax.as(FunctionCallExprSyntax.self),
+           let callee = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
+           callee.baseName.text == "canImport",
+           let firstArg = funcCall.arguments.first {
+            modules.append(firstArg.expression.trimmedDescription)
+        }
+        for child in syntax.children(viewMode: .sourceAccurate) {
+            modules.append(contentsOf: findCanImportModules(in: child))
+        }
+        return modules
     }
 }

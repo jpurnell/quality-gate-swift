@@ -5,11 +5,12 @@
 - ComplexityAnalyzer Pass 2: cross-module cognitive complexity amplification via IndexStoreDB call graph resolution, 3x loop multiplier, cycle-safe visited set
 - DocCoverageChecker Pass 2: inherited documentation detection from protocol requirements, usage-priority ranking by reference count, adjusted effective coverage reporting
 - MemoryLifecycleGuard Pass 2: cross-file task cancellation, delegate retention detection, stream termination analysis, stale exemption cleanup
+- DependencyAuditor: replaced all 6 NSRegularExpression patterns with SwiftSyntax AST parsing (ManifestParser + ImportVisitor); each manifest parsed once instead of 3x
 - XcodeReporter: Xcode Build Phase integration with `--format xcode` output
 - Configuration: DocCoverageConfig, MemoryLifecycleConfig.useIndexStore, ComplexityAnalyzerConfig cross-module fields
 - CrossModuleCallEdge model, FunctionComplexityRecord amplified complexity fields, ComplexityBasis cross-module case
 - All Pass 2 modules degrade gracefully when index store is unavailable
-- 1626 tests across 208 suites, quality gate 0/0
+- 1662 tests across 211 suites, quality gate 0/0
 
 ## 1.2.0
 

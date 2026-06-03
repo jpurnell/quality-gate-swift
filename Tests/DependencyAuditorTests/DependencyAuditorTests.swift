@@ -330,13 +330,18 @@ struct TargetNameExtractionTests {
     @Test("Handles all target factory variants")
     func handlesAllFactoryVariants() {
         let content = """
-        .target(name: "A"),
-        .executableTarget(name: "B"),
-        .testTarget(name: "C"),
-        .plugin(name: "D"),
-        .systemLibrary(name: "E"),
-        .binaryTarget(name: "F"),
-        .macro(name: "G"),
+        let package = Package(
+            name: "AllVariants",
+            targets: [
+                .target(name: "A"),
+                .executableTarget(name: "B"),
+                .testTarget(name: "C"),
+                .plugin(name: "D", capability: .buildTool()),
+                .systemLibrary(name: "E"),
+                .binaryTarget(name: "F", path: "F.xcframework"),
+                .macro(name: "G"),
+            ]
+        )
         """
         let names = DependencyAuditor.extractTargetNames(from: content)
         #expect(names.count == 7)
@@ -632,9 +637,14 @@ struct PackageDeclaredNamesTests {
     @Test("Extracts name: from .package(name:, url:) declarations")
     func extractsDeclaredNames() {
         let content = """
-        .package(name: "RxSwift", url: "https://github.com/ReactiveX/RxSwift.git", .exact("6.8.0")),
-        .package(name: "SwiftProtobuf", url: "https://github.com/apple/swift-protobuf.git", from: "1.6.0"),
-        .package(url: "https://github.com/marmelroy/Zip.git", from: "2.1.2"),
+        let package = Package(
+            name: "MyProject",
+            dependencies: [
+                .package(name: "RxSwift", url: "https://github.com/ReactiveX/RxSwift.git", .exact("6.8.0")),
+                .package(name: "SwiftProtobuf", url: "https://github.com/apple/swift-protobuf.git", from: "1.6.0"),
+                .package(url: "https://github.com/marmelroy/Zip.git", from: "2.1.2"),
+            ]
+        )
         """
         let names = DependencyAuditor.extractPackageDeclaredNames(from: content)
         #expect(names.contains("RxSwift"))
@@ -687,8 +697,13 @@ struct URLExtractionVariantsTests {
     @Test("Extracts URLs from .package(name:, url:) format")
     func extractsNamedURLs() {
         let content = """
-        .package(name: "RxSwift", url: "https://github.com/ReactiveX/RxSwift.git", .exact("6.8.0")),
-        .package(url: "https://github.com/marmelroy/Zip.git", from: "2.1.2"),
+        let package = Package(
+            name: "MyProject",
+            dependencies: [
+                .package(name: "RxSwift", url: "https://github.com/ReactiveX/RxSwift.git", .exact("6.8.0")),
+                .package(url: "https://github.com/marmelroy/Zip.git", from: "2.1.2"),
+            ]
+        )
         """
         let urls = DependencyAuditor.extractPackageURLs(from: content)
         #expect(urls.count == 2)
