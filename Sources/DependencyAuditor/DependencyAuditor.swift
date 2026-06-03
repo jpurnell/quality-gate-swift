@@ -370,11 +370,13 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
         // Scan .build/checkouts/ for dependency-vended products and targets
         let checkoutsDir = (projectRoot as NSString).appendingPathComponent(".build/checkouts")
+        // silent: missing .build/checkouts is expected when dependencies aren't resolved yet
         if let checkoutEntries = try? fm.contentsOfDirectory(atPath: checkoutsDir) { // SAFETY: CLI tool reads local .build/checkouts
             for entry in checkoutEntries {
                 let depManifest = (checkoutsDir as NSString)
                     .appendingPathComponent(entry)
                     .appending("/Package.swift")
+                // silent: unreadable checkout manifests skipped gracefully
                 guard let content = try? String(contentsOfFile: depManifest, encoding: .utf8) else { continue }
                 let info = ManifestParser.parse(source: content)
                 knownModules.formUnion(info.productNames)

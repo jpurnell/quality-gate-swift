@@ -27,7 +27,7 @@ final class LifecycleVisitor: SyntaxVisitor {
     /// Task property info collected for Pass 2 consumption.
     private(set) var taskPropertyInfos: [LifecycleIndexPass.TaskPropertyInfo] = []
     /// Delegate property info collected for Pass 2 consumption.
-    private(set) var delegatePropertyInfos: [LifecycleIndexPass.DelegatePropertyInfo] = []
+    private(set) var delegatePropertyInfos: [LifecycleIndexPass.DelegatePropertyInfo] = [] // lifecycle:exempt
     /// Stream creation sites collected for Pass 2 consumption.
     private(set) var streamCreationInfos: [LifecycleIndexPass.StreamCreationInfo] = []
 
