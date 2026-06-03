@@ -143,18 +143,18 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         callGraphMaxDepth: Int = 1,
         userCosts: [String: String] = [:]
     ) -> [FunctionComplexityRecord] {
-        if callGraphEnabled {
-            return CallGraphAmplifier.analyze(
+        guard callGraphEnabled else {
+            return CognitiveComplexityVisitor.analyze(
                 source: source,
+                filePath: filePath,
                 moduleName: moduleName,
-                maxDepth: callGraphMaxDepth,
                 userCosts: userCosts
             )
         }
-        return CognitiveComplexityVisitor.analyze(
+        return CallGraphAmplifier.analyze(
             source: source,
-            filePath: filePath,
             moduleName: moduleName,
+            maxDepth: callGraphMaxDepth,
             userCosts: userCosts
         )
     }

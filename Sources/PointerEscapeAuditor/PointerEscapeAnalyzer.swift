@@ -168,6 +168,7 @@ final class PointerEscapeVisitor: SyntaxVisitor {
     }
 
     private func walkBodyItems(_ items: CodeBlockItemListSyntax, tracked: inout Set<String>, locals: inout Set<String>) {
+        guard !items.isEmpty else { return }
         for item in items {
             processItem(item, tracked: &tracked, locals: &locals)
         }

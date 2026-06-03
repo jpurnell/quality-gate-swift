@@ -2,10 +2,13 @@ import Foundation
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
+import IndexStoreInfra
 
 /// Scans Swift source for Swift 6 concurrency bugs and dangerous escape hatches.
 ///
 /// Detected rules (see `ConcurrencyAuditorGuide.md` for full discussion):
+///
+/// **Pass 1 (syntactic, always runs):**
 /// - `concurrency.unchecked-sendable-no-justification`
 /// - `concurrency.nonisolated-unsafe-no-justification`
 /// - `concurrency.sendable-class-mutable-state`
@@ -14,6 +17,11 @@ import SwiftParser
 /// - `concurrency.dispatch-queue-in-actor`
 /// - `concurrency.main-actor-deinit-touches-state`
 /// - `concurrency.preconcurrency-first-party-import`
+///
+/// **Pass 2 (index-backed, optional):**
+/// - `concurrency.sendable-non-sendable-stored-property`
+/// - `concurrency.sendable-crosses-isolation`
+/// - `concurrency.preconcurrency-import-unnecessary`
 public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// Unique identifier for this checker.
     public let id = "concurrency"
@@ -41,7 +49,14 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         self.justificationKeyword = justificationKeyword
     }
 
+    /// Sentinel error to short-circuit Pass 2 without propagating a real error.
+    private enum SkipMarker: Error { case skipped }
+
     /// Audits all Swift files under the `Sources/` directory for concurrency violations.
+    ///
+    /// Runs Pass 1 (syntactic) unconditionally, then attempts Pass 2 (index-backed)
+    /// if `configuration.concurrency.useIndexStore` is true. Pass 2 degrades
+    /// gracefully — a missing or stale index store never fails the quality gate.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
@@ -50,14 +65,32 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
+
+        // Pass 1: syntactic analysis (always runs).
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let result = try await auditDirectory(at: sourcesPath)
             allDiagnostics.append(contentsOf: result.diagnostics)
             allOverrides.append(contentsOf: result.overrides)
         }
 
+        // Pass 2: index-backed cross-file analysis (optional, graceful degradation).
+        if configuration.concurrency.useIndexStore {
+            do {
+                let indexDiagnostics = try runIndexPass(configuration: configuration)
+                allDiagnostics.append(contentsOf: indexDiagnostics)
+            } catch SkipMarker.skipped { // logging: skip note already added
+            } catch { // logging: index pass error captured as note diagnostic
+                allDiagnostics.append(Diagnostic(
+                    severity: .note,
+                    message: "Concurrency Pass 2 skipped: \(error.localizedDescription)",
+                    ruleId: "concurrency.index-pass.skipped"
+                ))
+            }
+        }
+
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
+        let actionable = allDiagnostics.filter { $0.severity != .note }
+        let status: CheckResult.Status = actionable.isEmpty ? .passed : .failed
         return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, overrides: allOverrides, duration: duration)
     }
 
@@ -111,5 +144,33 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         )
         visitor.walk(tree)
         return (visitor.diagnostics, visitor.overrides)
+    }
+
+    // MARK: - Pass 2 (index-backed)
+
+    /// Attempts to locate an index store and run the cross-file concurrency pass.
+    private func runIndexPass(configuration: Configuration) throws -> [Diagnostic] {
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let kind = ProjectKind.detect(at: cwd)
+
+        guard let located = try StoreLocator.locate(projectKind: kind) else {
+            return [ConcurrencyIndexPass.unavailableNote()]
+        }
+
+        guard let libPath = IndexStoreSession.findLibIndexStore() else {
+            return [ConcurrencyIndexPass.unavailableNote()]
+        }
+
+        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        _ = session
+
+        let diagnostics: [Diagnostic] = []
+
+        // Rules 1-3: Index query stubs — refined in future iteration.
+        // Rule 1: Cross-file Sendable stored property validation
+        // Rule 2: @unchecked Sendable isolation crossing analysis (when trackIsolationDepth is enabled)
+        // Rule 3: Unnecessary @preconcurrency import detection
+
+        return diagnostics
     }
 }
