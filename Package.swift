@@ -402,7 +402,11 @@ let package = Package(
 
         .target(
             name: "DependencyAuditor",
-            dependencies: ["QualityGateCore"]
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
         ),
         .testTarget(
             name: "DependencyAuditorTests",
