@@ -24,6 +24,13 @@ final class LifecycleVisitor: SyntaxVisitor {
     /// Collected diagnostics from the walk.
     private(set) var diagnostics: [Diagnostic] = []
 
+    /// Task property info collected for Pass 2 consumption.
+    private(set) var taskPropertyInfos: [LifecycleIndexPass.TaskPropertyInfo] = []
+    /// Delegate property info collected for Pass 2 consumption.
+    private(set) var delegatePropertyInfos: [LifecycleIndexPass.DelegatePropertyInfo] = []
+    /// Stream creation sites collected for Pass 2 consumption.
+    private(set) var streamCreationInfos: [LifecycleIndexPass.StreamCreationInfo] = []
+
     /// Creates a new lifecycle visitor.
     ///
     /// - Parameters:
@@ -85,6 +92,12 @@ final class LifecycleVisitor: SyntaxVisitor {
                     let typeText = typeAnnotation.type.trimmedDescription
                     if isTaskType(typeText) {
                         taskProperties.append((name: propertyName, line: line))
+                        taskPropertyInfos.append(LifecycleIndexPass.TaskPropertyInfo(
+                            typeName: node.name.text,
+                            propertyName: propertyName,
+                            filePath: filePath,
+                            line: line
+                        ))
                     }
                 }
 
@@ -92,6 +105,15 @@ final class LifecycleVisitor: SyntaxVisitor {
                 let loweredName = propertyName.lowercased()
                 let matchesPattern = config.delegatePatterns.contains { pattern in
                     loweredName.contains(pattern.lowercased())
+                }
+                if matchesPattern {
+                    delegatePropertyInfos.append(LifecycleIndexPass.DelegatePropertyInfo(
+                        typeName: node.name.text,
+                        propertyName: propertyName,
+                        isWeak: hasWeak,
+                        filePath: filePath,
+                        line: line
+                    ))
                 }
                 if matchesPattern && !hasWeak && !hasUnowned {
                     diagnostics.append(Diagnostic(
@@ -188,6 +210,12 @@ final class LifecycleVisitor: SyntaxVisitor {
            sourceLines[zeroIndexed].contains("lifecycle:exempt") {
             return
         }
+
+        streamCreationInfos.append(LifecycleIndexPass.StreamCreationInfo(
+            variableName: nil,
+            filePath: filePath,
+            line: line
+        ))
 
         diagnostics.append(Diagnostic(
             severity: .warning,
