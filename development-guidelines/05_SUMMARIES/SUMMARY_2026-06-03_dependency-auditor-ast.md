@@ -66,9 +66,29 @@ structure.
 | CHANGELOG.md | Updated | test counts, AST entry |
 | README.md | Updated | test counts, descriptions |
 
+### 6. Quality Gate Warning Fixes
+
+Two follow-up commits to reach 0/0:
+- Added `// silent:` annotations for two `try?` calls in checkout scanning block
+- Added `// lifecycle:exempt` to `delegatePropertyInfos` (false positive on the
+  checker's own metadata property)
+- Fixed `// silent:` → `// logging:` on two catch blocks in MemoryLifecycleGuard
+  (catch block exemption uses `logging:` keyword, not `silent:`)
+
+## Commits
+
+| Hash | Description |
+|------|-------------|
+| `892d0a9` | Replace DependencyAuditor regex parsing with SwiftSyntax AST |
+| `13975aa` | Fix 5 quality-gate warnings: silent try?, catch annotations, lifecycle:exempt |
+| `d112784` | Fix catch block annotations: logging: not silent: |
+
 ## Verification
 
 - `swift build` passes with zero warnings
 - All 1,662 tests pass across 211 suites
 - Zero NSRegularExpression usage remaining in DependencyAuditor module
 - `grep -r NSRegularExpression Sources/DependencyAuditor/` returns empty
+- BusinessMath full gate: 28 checkers pass, 0 errors, 0 warnings
+- `import RealModule` false positives eliminated
+- Binary deployed to `/usr/local/custom/bin/quality-gate` (v2.0.0, codesigned)
