@@ -338,8 +338,8 @@ struct ContextAuditorTests {
         """
         let result = try await auditCode(code)
         let findings = result.diagnostics.filter { $0.ruleId == "context.missing-consent-guard" }
-        #expect(findings.allSatisfy { $0.filePath != nil })
-        #expect(findings.allSatisfy { $0.lineNumber != nil })
+        #expect(findings.allSatisfy { $0.filePath?.isEmpty == false })
+        #expect(findings.allSatisfy { $0.lineNumber ?? 0 > 0 })
     }
 
     @Test("Diagnostics include suggested fix")
@@ -353,7 +353,7 @@ struct ContextAuditorTests {
         """
         let result = try await auditCode(code)
         let findings = result.diagnostics.filter { $0.ruleId == "context.missing-consent-guard" }
-        #expect(findings.allSatisfy { $0.suggestedFix != nil })
+        #expect(findings.allSatisfy { $0.suggestedFix?.isEmpty == false })
     }
 
     // MARK: - Helpers

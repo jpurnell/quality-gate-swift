@@ -306,7 +306,7 @@ final class TestQualityAuditorTests: XCTestCase {
 
         @Test func testSomething() {
             let date = makeDate("2026-05-20")
-            #expect(date != nil)
+            #expect(date?.description.isEmpty == false)
         }
         """
 
@@ -325,7 +325,7 @@ final class TestQualityAuditorTests: XCTestCase {
 
         @Test func testFixture() {
             let date = helper()
-            #expect(date != nil)
+            #expect(date?.description.isEmpty == false)
         }
         """
 
@@ -360,7 +360,7 @@ final class TestQualityAuditorTests: XCTestCase {
 
         @Test func testSnapshot() {
             let date = helper()
-            #expect(date != nil)
+            #expect(date?.description.isEmpty == false)
         }
         """
 
