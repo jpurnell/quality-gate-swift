@@ -57,7 +57,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                     streamCreationSites: allStreamInfos
                 )
                 allDiagnostics = pass2Diagnostics
-            } catch { // silent: Pass 2 failure captured as diagnostic note
+            } catch { // logging: Pass 2 failure captured as diagnostic note
                 allDiagnostics.append(Diagnostic(
                     severity: .note,
                     message: "Memory Lifecycle Pass 2 skipped: \(error.localizedDescription)",
@@ -200,7 +200,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 taskInfos.append(contentsOf: visitor.taskPropertyInfos)
                 delegateInfos.append(contentsOf: visitor.delegatePropertyInfos)
                 streamInfos.append(contentsOf: visitor.streamCreationInfos)
-            } catch { // silent: unreadable source files skipped gracefully
+            } catch { // logging: unreadable source files skipped gracefully
                 continue
             }
         }
