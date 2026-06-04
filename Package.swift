@@ -166,6 +166,11 @@ let package = Package(
             name: "quality-gate",
             targets: ["QualityGateCLI"]
         ),
+        // IJS MCP Server
+        .executable(
+            name: "ijs-mcp-server",
+            targets: ["IJSMCPServer"]
+        ),
         // SPM Command Plugin
         .plugin(
             name: "QualityGatePlugin",
@@ -181,6 +186,7 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.0.1"),
+        .package(path: "../SwiftMCPServer"),
     ],
     targets: [
         // MARK: - Core Module
@@ -714,6 +720,19 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
             exclude: ["README.md"]
+        ),
+
+        // MARK: - IJS MCP Server
+        .executableTarget(
+            name: "IJSMCPServer",
+            dependencies: [
+                "IJSSensor",
+                "IJSAggregator",
+                "IJSRefiner",
+                "IJSPolicyDiscovery",
+                "IJSDashboardCore",
+                .product(name: "SwiftMCPServer", package: "SwiftMCPServer"),
+            ]
         ),
 
         // MARK: - Plugins
