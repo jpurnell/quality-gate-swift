@@ -151,7 +151,7 @@ graph TD
 - [x] IndexStoreInfra — Shared IndexStoreDB helpers for cross-file USR-based analysis
 - [x] AppIntentsAuditor — App Intents API usage patterns
 - [x] IJSMCPServer — MCP server with 4 tools (query pulse, record calibration, consistency, list overrides)
-- [x] XcodeReporter — `--format xcode` for Xcode Build Phase inline annotations
+- [ ] XcodeReporter — `--format xcode` for Xcode Build Phase inline annotations
 
 **Total: 1,662+ tests across 211+ suites, 29 checker modules + IJS MCP Server**
 

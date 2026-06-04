@@ -1,7 +1,10 @@
 import Foundation
+import os
 import SwiftMCPServer
 import IJSSensor
 import IJSAggregator
+
+private let logger = Logger(subsystem: "com.quality-gate.ijs-mcp", category: "ListOverridesTool")
 
 struct ListOverridesTool: MCPToolHandler, Sendable {
     let corpusPath: String
@@ -53,7 +56,9 @@ struct ListOverridesTool: MCPToolHandler, Sendable {
         do {
             calibrations = try await writer.readCalibrations(from: corpus, startDate: startDate, endDate: endDate)
         } catch {
-            return .success(text: "No calibrations found for project '\(projectID)' in the last \(sinceDays) days.")
+            logger.warning("Failed to read calibrations for \(projectID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            let msg = "No calibrations found for project '\(projectID)' in the last \(sinceDays) days."
+            return .success(text: msg)
         }
 
         var filtered = calibrations
