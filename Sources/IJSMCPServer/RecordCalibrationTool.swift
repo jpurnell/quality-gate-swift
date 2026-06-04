@@ -78,15 +78,18 @@ struct RecordCalibrationTool: MCPToolHandler, Sendable {
         let engineer = args.getStringOptional("engineer") ?? "unknown"
 
         guard rationale.count >= 20 else {
-            return .error(message: "override_rationale must be at least 20 characters (got \(rationale.count)).")
+            let msg = "override_rationale must be at least 20 characters (got \(rationale.count))."
+            return .error(message: msg)
         }
 
         guard let riskTier = RiskTier(rawValue: riskTierRaw) else {
-            return .error(message: "Invalid risk_tier: \(riskTierRaw). Must be 1-4.")
+            let msg = "Invalid risk_tier: \(riskTierRaw). Must be 1-4."
+            return .error(message: msg)
         }
 
         guard let failedStep = FiveStepStage(rawValue: failedStepRaw) else {
-            return .error(message: "Invalid failed_step: '\(failedStepRaw)'. Must be: goals, problems, diagnosis, design, doing.")
+            let msg = "Invalid failed_step: '\(failedStepRaw)'. Must be: goals, problems, diagnosis, design, doing."
+            return .error(message: msg)
         }
 
         let now = Date()
