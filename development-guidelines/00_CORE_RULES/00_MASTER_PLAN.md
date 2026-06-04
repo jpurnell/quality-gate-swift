@@ -16,10 +16,12 @@ Provide a production-quality Swift CLI tool that automates Zero Warnings/Errors 
 
 ### Key Differentiators
 - **Plugin-based architecture** — Each checker is modular and independently testable
-- **Multiple output formats** — Terminal, JSON, and SARIF for GitHub Code Scanning
+- **Multiple output formats** — Terminal, JSON, SARIF, and Xcode for inline annotations
 - **SPM Integration** — Both CommandPlugin and BuildToolPlugin support
 - **Configuration via YAML** — Project-specific settings via `.quality-gate.yml`
 - **Absorbs existing tools** — docc-lint and swift-doc-gaps capabilities built-in
+- **Institutional Judgment System** — Cross-project quality tracking with Pulse, calibrations, and consistency scoring
+- **MCP Server** — AI assistants can query telemetry and record calibrations in real time
 
 ---
 
@@ -27,9 +29,10 @@ Provide a production-quality Swift CLI tool that automates Zero Warnings/Errors 
 
 ### Technology Stack
 - **Language:** Swift 6.2 (strict concurrency enforced)
-- **Frameworks:** swift-argument-parser, Yams, SwiftSyntax
+- **Frameworks:** swift-argument-parser, Yams, SwiftSyntax, IndexStoreDB, SwiftMCPServer
 - **Build System:** Swift Package Manager
 - **Testing:** Swift Testing framework
+- **Deployment:** Local CLI + roseclub.org (Swift 6.3, macOS x86_64) for MCP server
 
 ### Module Structure
 
@@ -62,12 +65,15 @@ quality-gate-swift/
 │   ├── IJSPolicyDiscovery/       # IJS policy pattern discovery
 │   ├── IJSDashboardCore/         # IJS dashboard data layer (corpus reader, summaries, trends)
 │   ├── IJSDashboardCLI/          # IJS dashboard rendering (portfolio/project views)
+│   ├── IJSMCPServer/             # MCP server: query pulse, record calibrations, consistency
 │   ├── XcodeBuildChecker/        # xcodebuild wrapper (multi-destination, --full flag)
 │   ├── HIGAuditor/               # Apple HIG compliance checks
 │   ├── ComplexityAnalyzer/       # Cyclomatic/cognitive complexity, Big-O estimation
+│   ├── IndexStoreInfra/           # Shared IndexStoreDB helpers for cross-file analysis
+│   ├── AppIntentsAuditor/         # App Intents API usage patterns
 │   └── QualityGateCLI/           # Umbrella CLI (--fix, --dry-run, --bootstrap)
 ├── Tests/
-│   └── [Test targets for each module — 1,491 tests, 192 suites]
+│   └── [Test targets for each module — 1,662+ tests, 211+ suites]
 └── Package.swift
 ```
 
@@ -142,16 +148,21 @@ graph TD
 - [x] IJSDashboardCore — IJS dashboard data layer (corpus reader, summaries, trends)
 - [x] IJSDashboardCLI — IJS dashboard rendering (portfolio/project views, JSON output)
 - [x] QualityGatePlugin — SPM CommandPlugin
+- [x] IndexStoreInfra — Shared IndexStoreDB helpers for cross-file USR-based analysis
+- [x] AppIntentsAuditor — App Intents API usage patterns
+- [x] IJSMCPServer — MCP server with 4 tools (query pulse, record calibration, consistency, list overrides)
+- [x] XcodeReporter — `--format xcode` for Xcode Build Phase inline annotations
 
-**Total: 1,491 tests across 28 checker modules**
+**Total: 1,662+ tests across 211+ suites, 29 checker modules + IJS MCP Server**
 
 ### Known Issues
 - None currently
 
 ### Current Priorities
-1. Complete DocC catalogs for AccessibilityAuditor, DiskCleaner, MemoryBuilder, StatusAuditor, QualityGateCLI
-2. Security rule maintenance — WWDC annual review cycle
-3. Community engagement — swift-security-rules Semgrep YAML repo
+1. Deploy IJS MCP Server to roseclub.org:8083 (see deployment steps below)
+2. Complete DocC catalogs for AccessibilityAuditor, DiskCleaner, MemoryBuilder, StatusAuditor, QualityGateCLI
+3. Security rule maintenance — WWDC annual review cycle
+4. Community engagement — swift-security-rules Semgrep YAML repo
 
 ---
 
@@ -220,13 +231,115 @@ graph TD
 - [x] FixableChecker protocol — --fix/--dry-run/--bootstrap CLI flags
 - [x] MemoryBuilder validation pass — broken index links, malformed/empty files
 
-### Phase 4: Community & Polish (CURRENT)
+### Phase 4: IJS & Integration (COMPLETE)
+- [x] P2: Cross-Project Corpus — git-backed corpus with CorpusManager actor (in org-judgement-system)
+- [x] P3a: CI-Native Telemetry Push — reusable workflow with opt-in telemetry-enabled/corpus-repo inputs
+- [x] P3b: IJS MCP Server — ijs-mcp-server executable with 4 tools (query pulse, record calibration, consistency, list overrides)
+- [x] XcodeReporter — `--format xcode` output for Xcode Build Phase inline annotations
+- [x] IndexStoreDB Pass 2 — RecursionAuditor, ConcurrencyAuditor, ComplexityAnalyzer, DocCoverageChecker, MemoryLifecycleGuard upgraded to USR-based cross-file analysis
+- [x] DependencyAuditor AST migration — regex parsing replaced with SwiftSyntax
+
+### Phase 5: Community & Polish (CURRENT)
+- [ ] Deploy IJS MCP Server to roseclub.org:8083
 - [ ] DocC catalogs for remaining modules
 - [x] CONTRIBUTING.md and community guidelines
 - [ ] GitHub Action for easy CI integration
 - [ ] VS Code extension integration
-- [ ] Xcode integration via Build Phases
+- [x] Xcode integration via Build Phases (`--format xcode`)
 
 ---
 
-**Last Updated:** 2026-06-01
+## IJS MCP Server Deployment (roseclub.org)
+
+### Prerequisites
+- roseclub.org running Swift 6.3, macOS x86_64
+- Port 8083 open in firewall
+- org-judgement-corpus accessible on the server
+
+### Deployment Steps
+
+```bash
+# 1. SSH to roseclub and pull latest
+ssh roseclub.org
+cd /path/to/quality-gate-swift
+git pull
+
+# 2. Build release binary
+swift build -c release --target IJSMCPServer
+
+# 3. Install binary
+cp .build/release/ijs-mcp-server /usr/local/custom/bin/
+
+# 4. Open port 8083
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /usr/local/custom/bin/ijs-mcp-server
+# Or: sudo pfctl rule for port 8083
+
+# 5. Start the server
+IJS_CORPUS_PATH=/path/to/org-judgement-corpus ijs-mcp-server --http 8083
+```
+
+### Client Configuration
+
+Add to `~/.claude.json` on developer machines:
+
+```json
+{
+  "mcpServers": {
+    "ijs": {
+      "type": "http",
+      "url": "https://roseclub.org:8083"
+    }
+  }
+}
+```
+
+### Launchd (Optional — persistent service)
+
+Create `~/Library/LaunchAgents/com.jpurnell.ijs-mcp-server.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jpurnell.ijs-mcp-server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/custom/bin/ijs-mcp-server</string>
+        <string>--http</string>
+        <string>8083</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>IJS_CORPUS_PATH</key>
+        <string>/path/to/org-judgement-corpus</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ijs-mcp-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ijs-mcp-server.err</string>
+</dict>
+</plist>
+```
+
+Load with: `launchctl load ~/Library/LaunchAgents/com.jpurnell.ijs-mcp-server.plist`
+
+### Available MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `ijs_query_pulse` | Read latest Institutional Pulse (trends, clusters, anomalies) |
+| `ijs_record_calibration` | Record override justification with risk tier and root cause |
+| `ijs_query_consistency` | Check consistency score and findings against Pulse baseline |
+| `ijs_list_overrides` | List recent calibrations filtered by date, risk tier |
+
+---
+
+**Last Updated:** 2026-06-04
+**Version:** 2.0.0
