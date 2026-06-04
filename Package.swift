@@ -186,7 +186,7 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.0.1"),
-        .package(path: "../SwiftMCPServer"),
+        .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
     ],
     targets: [
         // MARK: - Core Module
