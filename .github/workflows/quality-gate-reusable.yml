@@ -16,6 +16,17 @@ name: Quality Gate (Reusable)
 #   jobs:
 #     quality-gate:
 #       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+#
+# With telemetry push to IJS corpus:
+#
+#   jobs:
+#     quality-gate:
+#       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+#       with:
+#         telemetry-enabled: true
+#         corpus-repo: jpurnell/org-judgement-corpus
+#       secrets:
+#         corpus-token: ${{ secrets.CORPUS_PUSH_TOKEN }}
 
 on:
   workflow_call:
@@ -35,6 +46,25 @@ on:
         type: string
         required: false
         default: ".quality-gate.yml"
+      telemetry-enabled:
+        description: "Push telemetry to IJS corpus after quality gate run"
+        type: boolean
+        required: false
+        default: false
+      corpus-repo:
+        description: "GitHub repository for the IJS corpus (e.g., jpurnell/org-judgement-corpus)"
+        type: string
+        required: false
+        default: ""
+      corpus-branch:
+        description: "Branch in the corpus repo to push telemetry to"
+        type: string
+        required: false
+        default: "main"
+    secrets:
+      corpus-token:
+        description: "PAT or deploy key with push access to corpus repo"
+        required: false
 
 permissions:
   contents: read
@@ -60,24 +90,68 @@ jobs:
 
       - name: Run quality gate
         run: |
-          ARGS=""
+          ARGS="--format json"
 
-          # Add specific checks if provided
           if [ -n "${{ inputs.checks }}" ]; then
             for check in ${{ inputs.checks }}; do
               ARGS="$ARGS --check $check"
             done
           fi
 
-          # Add config path
           if [ -f "${{ inputs.config }}" ]; then
             ARGS="$ARGS --config ${{ inputs.config }}"
           fi
 
-          # Add continue-on-failure
           if [ "${{ inputs.continue-on-failure }}" = "true" ]; then
             ARGS="$ARGS --continue-on-failure"
           fi
 
           echo "Running: quality-gate $ARGS"
-          quality-gate $ARGS
+          quality-gate $ARGS | tee /tmp/qg-results.json
+
+      - name: Checkout corpus
+        if: inputs.telemetry-enabled && inputs.corpus-repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.corpus-repo }}
+          ref: ${{ inputs.corpus-branch }}
+          token: ${{ secrets.corpus-token }}
+          path: _corpus
+
+      - name: Push telemetry to corpus
+        if: inputs.telemetry-enabled && inputs.corpus-repo != ''
+        env:
+          CORPUS_PATH: _corpus
+          PROJECT_ID: ${{ github.repository }}
+        run: |
+          quality-gate telemetry-push \
+            --corpus-path "$CORPUS_PATH" \
+            --project-id "$PROJECT_ID" \
+            --input /tmp/qg-results.json \
+            --verbose
+
+          cd "$CORPUS_PATH"
+          git config user.name "quality-gate[bot]"
+          git config user.email "quality-gate[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No telemetry changes to commit."
+            exit 0
+          fi
+
+          COMMIT_MSG="telemetry: ${{ github.repository }}@${{ github.sha }}"
+
+          MAX_RETRIES=3
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            git commit -m "$COMMIT_MSG" || true
+            if git push origin ${{ inputs.corpus-branch }}; then
+              echo "Telemetry pushed successfully (attempt $attempt)."
+              exit 0
+            fi
+            echo "Push conflict (attempt $attempt/$MAX_RETRIES), rebasing..."
+            git pull --rebase origin ${{ inputs.corpus-branch }}
+          done
+
+          echo "::warning::Telemetry push failed after $MAX_RETRIES attempts."
+          exit 0
