@@ -41,9 +41,9 @@ public enum DashboardApp: Sendable {
         var lastReloadTime = Date.now
 
         if let corpusReader {
-            let weeks = corpusReader.listAvailableWeeks()
-            state.setAvailableWeeks(weeks, selecting: initialWeek)
-            if let initialWeek, let loaded = corpusReader.loadPulse(weekLabel: initialWeek) {
+            let labels = corpusReader.listAvailableLabels()
+            state.setAvailableLabels(labels, selecting: initialWeek)
+            if let initialWeek, let loaded = corpusReader.loadPulse(label: initialWeek) {
                 currentPulse = loaded
             }
         }
@@ -169,10 +169,10 @@ public enum DashboardApp: Sendable {
                     }
                 }
 
-                if state.weekChanged, let corpusReader,
-                   let weekLabel = state.selectedWeekLabel {
-                    currentPulse = corpusReader.loadPulse(weekLabel: weekLabel)
-                    state.clearWeekChanged()
+                if state.labelChanged, let corpusReader,
+                   let selectedLabel = state.selectedLabel {
+                    currentPulse = corpusReader.loadPulse(label: selectedLabel)
+                    state.clearLabelChanged()
                     lastContent = ""
                     needsRedraw = true
                 }
@@ -232,12 +232,12 @@ public enum DashboardApp: Sendable {
         )
         state.updateProjectIDs(sortedIDs)
 
-        let currentWeek = state.selectedWeekLabel
-        let weeks = reader.listAvailableWeeks()
-        state.setAvailableWeeks(weeks, selecting: currentWeek)
+        let currentLabel = state.selectedLabel
+        let labels = reader.listAvailableLabels()
+        state.setAvailableLabels(labels, selecting: currentLabel)
 
-        if let weekLabel = state.selectedWeekLabel {
-            pulse = reader.loadPulse(weekLabel: weekLabel)
+        if let selectedLabel = state.selectedLabel {
+            pulse = reader.loadPulse(label: selectedLabel)
         } else {
             pulse = reader.loadLatestPulse()
         }

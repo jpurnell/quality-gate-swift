@@ -25,7 +25,8 @@ public enum DashboardRenderer: Sendable {
         if let pulse {
             let stats = pulse.statistics
             let passRateStr = stats.passRate.formatted(.number.precision(.fractionLength(1)))
-            lines.append("  Pulse \(pulse.weekLabel)   Gate Runs: \(stats.totalGateRuns)   Pass Rate: \(passRateStr)%   Overrides: \(stats.totalOverrides)   Calibrations: \(stats.totalCalibrations)\(stats.meanConsistencyScore.map { "   Consistency: \($0.formatted(.number.precision(.fractionLength(2))))" } ?? "")")
+            let displayLabel = pulse.label ?? pulse.weekLabel
+            lines.append("  Pulse \(displayLabel)   Gate Runs: \(stats.totalGateRuns)   Pass Rate: \(passRateStr)%   Overrides: \(stats.totalOverrides)   Calibrations: \(stats.totalCalibrations)\(stats.meanConsistencyScore.map { "   Consistency: \($0.formatted(.number.precision(.fractionLength(2))))" } ?? "")")
         }
 
         lines.append("")
@@ -66,6 +67,48 @@ public enum DashboardRenderer: Sendable {
 
         if let pulse {
             lines.append("  ─────────────────────────────────────────────────────")
+            lines.append("")
+
+            if let tiers = pulse.projectTiers, !tiers.isEmpty {
+                var tierCounts: [ProjectTier: Int] = [:]
+                for tier in tiers.values { tierCounts[tier, default: 0] += 1 }
+                let ordered: [ProjectTier] = [.active, .baseline, .firstContact, .atRisk, .dormant]
+                let parts = ordered.compactMap { tier -> String? in
+                    guard let count = tierCounts[tier], count > 0 else { return nil }
+                    return "\(count) \(tier.rawValue)"
+                }
+                lines.append("  Tiers: \(parts.joined(separator: "  "))")
+            }
+
+            if let ws = pulse.statistics.weightedScores, !ws.isEmpty {
+                let vals = ws.values.sorted()
+                let mean = vals.reduce(0, +) / Double(vals.count)
+                let meanStr = mean.formatted(.number.precision(.fractionLength(3)))
+                let minStr = (vals.first ?? 0).formatted(.number.precision(.fractionLength(3)))
+                let maxStr = (vals.last ?? 0).formatted(.number.precision(.fractionLength(3)))
+                lines.append("  Weighted Score: mean \(meanStr)  range \(minStr)–\(maxStr)")
+            }
+
+            if let trajs = pulse.projectTrajectories, !trajs.isEmpty {
+                var dirCounts: [String: Int] = [:]
+                for t in trajs { dirCounts[t.direction.rawValue, default: 0] += 1 }
+                let ordered = ["improving", "stable", "declining", "insufficient"]
+                let parts = ordered.compactMap { dir -> String? in
+                    guard let count = dirCounts[dir], count > 0 else { return nil }
+                    return "\(count) \(dir)"
+                }
+                lines.append("  Trajectories: \(parts.joined(separator: "  "))")
+            }
+
+            if let gs = pulse.groupSnapshots, !gs.isEmpty {
+                lines.append("  Groups:")
+                for group in gs.keys.sorted() {
+                    guard let snaps = gs[group], let latest = snaps.sorted(by: { $0.date < $1.date }).last else { continue }
+                    let pct = Int((latest.passRate * 100).rounded())
+                    lines.append("    \(group): \(pct)% (\(latest.gateRuns) runs)")
+                }
+            }
+
             lines.append("")
 
             if !pulse.violationClusters.isEmpty {

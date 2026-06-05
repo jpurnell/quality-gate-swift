@@ -45,10 +45,17 @@ public struct CorpusManifest: Sendable, Codable, Equatable {
     /// Per-project lifecycle entries keyed by project ID.
     public var projects: [String: CorpusManifestEntry]
 
+    /// Project group definitions keyed by group name.
+    /// Each value is an array of project IDs belonging to that group.
+    public var groups: [String: [String]]
+
     /// Creates a new manifest.
-    /// - Parameter projects: Per-project lifecycle entries keyed by project ID.
-    public init(projects: [String: CorpusManifestEntry] = [:]) {
+    /// - Parameters:
+    ///   - projects: Per-project lifecycle entries keyed by project ID.
+    ///   - groups: Project group definitions keyed by group name.
+    public init(projects: [String: CorpusManifestEntry] = [:], groups: [String: [String]] = [:]) {
         self.projects = projects
+        self.groups = groups
     }
 
     /// Returns the lifecycle state for a project, defaulting to ``ProjectLifecycle/active``.
@@ -56,6 +63,18 @@ public struct CorpusManifest: Sendable, Codable, Equatable {
     /// - Returns: The project's lifecycle state, or `.active` if not in the manifest.
     public func lifecycle(for projectID: String) -> ProjectLifecycle {
         projects[projectID]?.lifecycle ?? .active
+    }
+
+    /// Returns the group name for a project ID, or nil if ungrouped.
+    /// - Parameter projectID: The project identifier to look up.
+    /// - Returns: The group name containing this project, or `nil` if ungrouped.
+    public func group(for projectID: String) -> String? {
+        for (groupName, members) in groups {
+            if members.contains(projectID) {
+                return groupName
+            }
+        }
+        return nil
     }
 
     /// Loads a manifest from a YAML file at the given URL.
@@ -83,9 +102,21 @@ public struct CorpusManifest: Sendable, Codable, Equatable {
             throw IJSError.configurationError(reason: "Invalid YAML structure in manifest")
         }
 
+        // Parse groups section (may exist even without projects)
+        let parsedGroups: [String: [String]]
+        if let groupsSection = root["groups"] as? [String: [Any]] {
+            var groupMap: [String: [String]] = [:]
+            for (groupName, memberList) in groupsSection {
+                groupMap[groupName] = memberList.compactMap { $0 as? String }
+            }
+            parsedGroups = groupMap
+        } else {
+            parsedGroups = [:]
+        }
+
         guard let projectsSection = root["projects"] as? [String: Any] else {
             // Empty or missing projects section is valid — all projects are active
-            return CorpusManifest()
+            return CorpusManifest(groups: parsedGroups)
         }
 
         let decoder = JSONDecoder()
@@ -120,6 +151,6 @@ public struct CorpusManifest: Sendable, Codable, Equatable {
             )
         }
 
-        return CorpusManifest(projects: entries)
+        return CorpusManifest(projects: entries, groups: parsedGroups)
     }
 }

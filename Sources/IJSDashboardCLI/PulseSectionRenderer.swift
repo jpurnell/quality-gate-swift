@@ -13,17 +13,17 @@ public enum PulseSectionRenderer: Sendable {
     ///
     /// - Parameters:
     ///   - stats: The pulse statistics to render.
-    ///   - weekLabel: ISO week label for the header.
+    ///   - label: Pulse label (date or week) for the header.
     ///   - width: Terminal width for formatting.
     /// - Returns: Formatted lines for the statistics section.
     public static func renderStatistics(
         _ stats: PulseStatistics,
-        weekLabel: String,
+        label: String,
         width: Int
     ) -> [String] {
         var lines: [String] = []
 
-        lines.append(boxRow("  Pulse \(weekLabel)", width: width))
+        lines.append(boxRow("  Pulse \(label)", width: width))
         lines.append(boxRow("", width: width))
 
         let passRateStr = stats.passRate.formatted(.number.precision(.fractionLength(1)))
@@ -209,6 +209,114 @@ public enum PulseSectionRenderer: Sendable {
 
         var lines: [String] = []
         lines.append(boxRow("  Corpus Trend (\(snapshots.count)d): \(sparkline)", width: width))
+        lines.append(boxRow("", width: width))
+        return lines
+    }
+
+    /// Renders project tier stratification showing count per tier.
+    ///
+    /// - Parameters:
+    ///   - tiers: Project tier classifications keyed by project ID.
+    ///   - width: Terminal width for formatting.
+    /// - Returns: Formatted lines, or empty array if no tiers.
+    public static func renderStratification(
+        _ tiers: [String: ProjectTier],
+        width: Int
+    ) -> [String] {
+        guard !tiers.isEmpty else { return [] }
+
+        var counts: [ProjectTier: Int] = [:]
+        for tier in tiers.values {
+            counts[tier, default: 0] += 1
+        }
+
+        let ordered: [ProjectTier] = [.active, .baseline, .firstContact, .atRisk, .dormant]
+        let parts = ordered.compactMap { tier -> String? in
+            guard let count = counts[tier], count > 0 else { return nil }
+            return "\(count) \(tier.rawValue)"
+        }
+
+        var lines: [String] = []
+        lines.append(boxRow("  Tiers: \(parts.joined(separator: "  "))", width: width))
+        lines.append(boxRow("", width: width))
+        return lines
+    }
+
+    /// Renders project trajectory summary with direction counts and top movers.
+    ///
+    /// - Parameters:
+    ///   - trajectories: Per-project trajectory analyses.
+    ///   - width: Terminal width for formatting.
+    /// - Returns: Formatted lines, or empty array if no trajectories.
+    public static func renderTrajectories(
+        _ trajectories: [ProjectTrajectory],
+        width: Int
+    ) -> [String] {
+        guard !trajectories.isEmpty else { return [] }
+
+        var directionCounts: [TrajectoryDirection: Int] = [:]
+        for traj in trajectories {
+            directionCounts[traj.direction, default: 0] += 1
+        }
+
+        let directionOrder: [TrajectoryDirection] = [.improving, .stable, .declining, .insufficient]
+        let arrows: [TrajectoryDirection: String] = [
+            .improving: "\u{2191}",
+            .stable: "\u{2192}",
+            .declining: "\u{2193}",
+            .insufficient: "?",
+        ]
+        let parts = directionOrder.compactMap { dir -> String? in
+            guard let count = directionCounts[dir], count > 0 else { return nil }
+            return "\(arrows[dir] ?? "") \(count) \(dir.rawValue)"
+        }
+
+        var lines: [String] = []
+        lines.append(boxRow("  Trajectories: \(parts.joined(separator: "  "))", width: width))
+
+        // Show top movers (largest absolute slope among valid trajectories)
+        let validTrajectories = trajectories
+            .filter { $0.direction != .insufficient }
+            .sorted { abs($0.slope) > abs($1.slope) }
+        let topMovers = Array(validTrajectories.prefix(3))
+        if !topMovers.isEmpty {
+            let moverParts = topMovers.map { traj in
+                let arrow = traj.slope >= 0 ? "\u{2191}" : "\u{2193}"
+                let slopeStr = abs(traj.slope).formatted(.number.precision(.fractionLength(3)))
+                return "\(traj.projectID) \(arrow)\(slopeStr)"
+            }
+            lines.append(boxRow("    Top movers: \(moverParts.joined(separator: "  "))", width: width))
+        }
+
+        lines.append(boxRow("", width: width))
+        return lines
+    }
+
+    /// Renders group summary showing each group with its latest day's pass rate.
+    ///
+    /// - Parameters:
+    ///   - groupSnapshots: Group-level snapshots keyed by group ID.
+    ///   - width: Terminal width for formatting.
+    /// - Returns: Formatted lines, or empty array if no groups.
+    public static func renderGroupSummary(
+        _ groupSnapshots: [String: [DailySnapshot]],
+        width: Int
+    ) -> [String] {
+        guard !groupSnapshots.isEmpty else { return [] }
+
+        var lines: [String] = []
+        lines.append(boxRow("  Groups:", width: width))
+
+        let sortedGroups = groupSnapshots.keys.sorted()
+        for group in sortedGroups {
+            guard let snapshots = groupSnapshots[group], !snapshots.isEmpty else { continue }
+            guard let latest = snapshots.sorted(by: { $0.date < $1.date }).last else { continue }
+            let pct = Int((latest.passRate * 100).rounded())
+            let color: ANSIColor = pct >= 70 ? .green : (pct >= 50 ? .yellow : .red)
+            let coloredPct = ANSICodes.fg(color) + "\(pct)%" + ANSICodes.reset
+            lines.append(boxRow("    \(group): \(coloredPct) (\(latest.gateRuns) runs)", width: width))
+        }
+
         lines.append(boxRow("", width: width))
         return lines
     }

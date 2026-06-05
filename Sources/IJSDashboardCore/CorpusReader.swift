@@ -91,8 +91,9 @@ public struct CorpusReader: Sendable {
 
     /// Loads the most recent InstitutionalPulse from the corpus pulse directory.
     ///
-    /// Scans `<corpusPath>/pulse/` for week-label directories sorted descending,
-    /// then tries to decode `PULSE_<weekLabel>.json` in each until one succeeds.
+    /// Scans `<corpusPath>/pulse/` for labeled directories (both `YYYY-WNN`
+    /// week labels and `YYYY-MM-DD` date labels), sorts chronologically,
+    /// then returns the pulse from the latest one.
     /// Returns nil if no pulse directory exists or all files are malformed.
     public func loadLatestPulse() -> InstitutionalPulse? {
         let pulsePath = "\(corpusPath)/pulse" // SAFETY: corpusPath is from configuration
@@ -102,18 +103,20 @@ public struct CorpusReader: Sendable {
         // SAFETY: pulsePath derived from validated configuration, read-only listing
         guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return nil } // silent: empty pulse dir returns nil
 
-        let weekDirs = contents
+        let labelDirs = contents
             .filter { name in
                 var isDir: ObjCBool = false
                 return fm.fileExists(atPath: "\(pulsePath)/\(name)", isDirectory: &isDir) && isDir.boolValue // SAFETY: reads subdir of configured path
             }
-            .sorted(by: >)
+            .sorted { lhs, rhs in
+                Self.chronologicalDescending(lhs, rhs)
+            }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        for weekLabel in weekDirs {
-            let filePath = "\(pulsePath)/\(weekLabel)/PULSE_\(weekLabel).json" // SAFETY: child of configured pulse path
+        for dirLabel in labelDirs {
+            let filePath = "\(pulsePath)/\(dirLabel)/PULSE_\(dirLabel).json" // SAFETY: child of configured pulse path
             guard let data = fm.contents(atPath: filePath) else { continue } // SAFETY: reads pulse JSON
             do {
                 return try decoder.decode(InstitutionalPulse.self, from: data)
@@ -127,7 +130,15 @@ public struct CorpusReader: Sendable {
     }
 
     /// Lists all week labels that have a valid pulse JSON file, sorted ascending.
+    ///
+    /// Delegates to ``listAvailableLabels()`` for backward compatibility.
     public func listAvailableWeeks() -> [String] {
+        listAvailableLabels()
+    }
+
+    /// Lists all pulse labels (both `YYYY-WNN` and `YYYY-MM-DD` formats) that
+    /// have a valid pulse JSON file, sorted chronologically ascending.
+    public func listAvailableLabels() -> [String] {
         let pulsePath = "\(corpusPath)/pulse" // SAFETY: corpusPath from configuration
         let fm = FileManager.default
         guard fm.fileExists(atPath: pulsePath) else { return [] } // SAFETY: read-only check on configured path
@@ -145,16 +156,18 @@ public struct CorpusReader: Sendable {
                 guard let data = fm.contents(atPath: filePath) else { return false } // SAFETY: reads pulse JSON
                 return (try? decoder.decode(InstitutionalPulse.self, from: data)) != nil // silent: malformed JSON treated as absent
             }
-            .sorted()
+            .sorted { lhs, rhs in
+                Self.chronologicalAscending(lhs, rhs)
+            }
     }
 
-    /// Loads a specific pulse by week label.
+    /// Loads a specific pulse by label (date or week format).
     ///
-    /// - Parameter weekLabel: ISO week label (e.g., "2026-W20").
+    /// - Parameter label: Pulse label (e.g., "2026-W20" or "2026-06-05").
     /// - Returns: The decoded pulse, or nil if not found or malformed.
-    public func loadPulse(weekLabel: String) -> InstitutionalPulse? {
+    public func loadPulse(label: String) -> InstitutionalPulse? {
         let baseURL = URL(fileURLWithPath: corpusPath).standardized
-        let fileURL = baseURL.appendingPathComponent("pulse/\(weekLabel)/PULSE_\(weekLabel).json").standardized
+        let fileURL = baseURL.appendingPathComponent("pulse/\(label)/PULSE_\(label).json").standardized
         guard fileURL.path.hasPrefix(baseURL.path) else { return nil } // SAFETY: reject path traversal
         let fm = FileManager.default
         guard let data = fm.contents(atPath: fileURL.path) else { return nil } // SAFETY: reads validated pulse file
@@ -165,8 +178,92 @@ public struct CorpusReader: Sendable {
         do {
             return try decoder.decode(InstitutionalPulse.self, from: data)
         } catch {
-            Self.logger.warning("Failed to decode pulse \(weekLabel, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Self.logger.warning("Failed to decode pulse \(label, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
+        }
+    }
+
+    /// Loads a specific pulse by week label.
+    ///
+    /// Delegates to ``loadPulse(label:)`` for backward compatibility.
+    ///
+    /// - Parameter weekLabel: ISO week label (e.g., "2026-W20").
+    /// - Returns: The decoded pulse, or nil if not found or malformed.
+    public func loadPulse(weekLabel: String) -> InstitutionalPulse? {
+        loadPulse(label: weekLabel)
+    }
+
+    // MARK: - Label Date Parsing
+
+    /// Parses a pulse label into a `Date` for chronological sorting.
+    ///
+    /// Supports two formats:
+    /// - `YYYY-MM-DD` (daily date labels) — parsed directly
+    /// - `YYYY-WNN` (ISO week labels) — resolved to Monday of that week
+    ///
+    /// - Returns: The parsed date, or `nil` if the label is not in a recognized format.
+    static func parseLabelDate(_ label: String) -> Date? {
+        // Try YYYY-MM-DD first
+        if label.count == 10, label.dropFirst(4).first == "-", label.dropFirst(7).first == "-" {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            fmt.timeZone = TimeZone(identifier: "UTC")
+            fmt.locale = Locale(identifier: "en_US_POSIX")
+            if let date = fmt.date(from: label) {
+                return date
+            }
+        }
+
+        // Try YYYY-WNN
+        if label.count == 8, label.dropFirst(4).hasPrefix("-W") {
+            // silent: invalid week format returns nil
+            guard let year = Int(label.prefix(4)),
+                  let week = Int(label.suffix(2)),
+                  week >= 1, week <= 53 else {
+                return nil
+            }
+            var components = DateComponents()
+            components.yearForWeekOfYear = year
+            components.weekOfYear = week
+            components.weekday = 2 // Monday (1=Sunday in Gregorian)
+            components.timeZone = TimeZone(identifier: "UTC")
+            var calendar = Calendar(identifier: .iso8601)
+            calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+            return calendar.date(from: components)
+        }
+
+        return nil
+    }
+
+    /// Sorts two labels chronologically descending (latest first).
+    private static func chronologicalDescending(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsDate = parseLabelDate(lhs)
+        let rhsDate = parseLabelDate(rhs)
+        switch (lhsDate, rhsDate) {
+        case let (.some(l), .some(r)):
+            return l > r
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return lhs > rhs
+        }
+    }
+
+    /// Sorts two labels chronologically ascending (earliest first).
+    private static func chronologicalAscending(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsDate = parseLabelDate(lhs)
+        let rhsDate = parseLabelDate(rhs)
+        switch (lhsDate, rhsDate) {
+        case let (.some(l), .some(r)):
+            return l < r
+        case (.some, .none):
+            return false
+        case (.none, .some):
+            return true
+        case (.none, .none):
+            return lhs < rhs
         }
     }
 }

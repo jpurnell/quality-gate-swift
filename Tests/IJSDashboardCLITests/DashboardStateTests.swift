@@ -277,75 +277,75 @@ struct DashboardStateTests {
         #expect(state.sortAscending)
     }
 
-    // MARK: - Week Navigation
+    // MARK: - Label Navigation
 
-    @Test("Arrow left in portfolio decrements week index")
-    func arrowLeftPreviousWeek() {
+    @Test("Arrow left in portfolio decrements label index")
+    func arrowLeftPreviousLabel() {
         var state = DashboardState(projectIDs: ["a"])
-        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"])
-        #expect(state.selectedWeekIndex == 2)
+        state.setAvailableLabels(["2026-W18", "2026-W19", "2026-W20"])
+        #expect(state.selectedLabelIndex == 2)
         state.handleInput(.arrowLeft)
-        #expect(state.selectedWeekIndex == 1)
-        #expect(state.selectedWeekLabel == "2026-W19")
+        #expect(state.selectedLabelIndex == 1)
+        #expect(state.selectedLabel == "2026-W19")
     }
 
-    @Test("Arrow right in portfolio increments week index")
-    func arrowRightNextWeek() {
+    @Test("Arrow right in portfolio increments label index")
+    func arrowRightNextLabel() {
         var state = DashboardState(projectIDs: ["a"])
-        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"])
+        state.setAvailableLabels(["2026-W18", "2026-W19", "2026-W20"])
         state.handleInput(.arrowLeft)
         state.handleInput(.arrowRight)
-        #expect(state.selectedWeekIndex == 2)
-        #expect(state.selectedWeekLabel == "2026-W20")
+        #expect(state.selectedLabelIndex == 2)
+        #expect(state.selectedLabel == "2026-W20")
     }
 
-    @Test("Arrow left clamps at first week")
+    @Test("Arrow left clamps at first label")
     func arrowLeftClampsAtFirst() {
         var state = DashboardState(projectIDs: ["a"])
-        state.setAvailableWeeks(["2026-W18", "2026-W19"])
+        state.setAvailableLabels(["2026-W18", "2026-W19"])
         state.handleInput(.arrowLeft)
         state.handleInput(.arrowLeft)
         state.handleInput(.arrowLeft)
-        #expect(state.selectedWeekIndex == 0)
-        #expect(state.selectedWeekLabel == "2026-W18")
+        #expect(state.selectedLabelIndex == 0)
+        #expect(state.selectedLabel == "2026-W18")
     }
 
-    @Test("Arrow right clamps at latest week")
+    @Test("Arrow right clamps at latest label")
     func arrowRightClampsAtLatest() {
         var state = DashboardState(projectIDs: ["a"])
-        state.setAvailableWeeks(["2026-W18", "2026-W19"])
+        state.setAvailableLabels(["2026-W18", "2026-W19"])
         state.handleInput(.arrowRight)
         state.handleInput(.arrowRight)
-        #expect(state.selectedWeekIndex == 1)
-        #expect(state.selectedWeekLabel == "2026-W19")
+        #expect(state.selectedLabelIndex == 1)
+        #expect(state.selectedLabel == "2026-W19")
     }
 
-    @Test("Arrow left/right no-ops when no weeks available")
-    func arrowLeftRightNoWeeks() {
+    @Test("Arrow left/right no-ops when no labels available")
+    func arrowLeftRightNoLabels() {
         var state = DashboardState(projectIDs: ["a"])
         state.handleInput(.arrowLeft)
         state.handleInput(.arrowRight)
-        #expect(state.selectedWeekIndex == nil)
-        #expect(state.selectedWeekLabel == nil)
+        #expect(state.selectedLabelIndex == nil)
+        #expect(state.selectedLabel == nil)
     }
 
-    @Test("setAvailableWeeks selects specific week by label")
-    func setAvailableWeeksWithInitialWeek() {
+    @Test("setAvailableLabels selects specific label")
+    func setAvailableLabelsWithInitialLabel() {
         var state = DashboardState(projectIDs: ["a"])
-        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"], selecting: "2026-W19")
-        #expect(state.selectedWeekIndex == 1)
-        #expect(state.selectedWeekLabel == "2026-W19")
+        state.setAvailableLabels(["2026-W18", "2026-W19", "2026-W20"], selecting: "2026-W19")
+        #expect(state.selectedLabelIndex == 1)
+        #expect(state.selectedLabel == "2026-W19")
     }
 
-    @Test("weekChanged flag set on navigation and cleared on read")
-    func weekChangedFlag() {
+    @Test("labelChanged flag set on navigation and cleared on read")
+    func labelChangedFlag() {
         var state = DashboardState(projectIDs: ["a"])
-        state.setAvailableWeeks(["2026-W18", "2026-W19", "2026-W20"])
-        #expect(!state.weekChanged)
+        state.setAvailableLabels(["2026-W18", "2026-W19", "2026-W20"])
+        #expect(!state.labelChanged)
         state.handleInput(.arrowLeft)
-        #expect(state.weekChanged)
-        state.clearWeekChanged()
-        #expect(!state.weekChanged)
+        #expect(state.labelChanged)
+        state.clearLabelChanged()
+        #expect(!state.labelChanged)
     }
 
     @Test("cycleSort on the same key already active toggles sortAscending")

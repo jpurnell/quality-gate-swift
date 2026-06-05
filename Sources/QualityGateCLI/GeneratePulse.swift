@@ -4,6 +4,7 @@ import QualityGateCore
 import IJSSensor
 import IJSAggregator
 import IJSRefiner
+import IJSDashboardCore
 
 struct GeneratePulse: AsyncParsableCommand {
 
@@ -23,6 +24,9 @@ struct GeneratePulse: AsyncParsableCommand {
 
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
+
+    @Flag(name: .long, help: "Use ISO week label (e.g. 2026-W22) instead of daily date label")
+    var weekly: Bool = false
 
     @Flag(name: .shortAndLong, help: "Verbose output")
     var verbose: Bool = false
@@ -70,6 +74,20 @@ struct GeneratePulse: AsyncParsableCommand {
             throw ExitCode(1)
         }
 
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.timeZone = TimeZone(identifier: "UTC")
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        let dateLabel: String? = weekly ? nil : dateFormatter.string(from: windowEnd)
+
+        let reader = CorpusReader(corpusPath: effectiveCorpusPath)
+        let manifest: CorpusManifest
+        do {
+            manifest = try reader.loadManifest()
+        } catch { // logging: manifest is optional; missing treated as all-active
+            manifest = CorpusManifest()
+        }
+
         print("[ijs] Generating pulse for \(projectDirs.count) project(s)") // logging: CLI user-facing output
         if verbose {
             print("[ijs] Projects: \(projectDirs.joined(separator: ", "))") // logging: CLI verbose progress output
@@ -87,13 +105,16 @@ struct GeneratePulse: AsyncParsableCommand {
             windowStart: windowStart,
             windowEnd: windowEnd,
             previousPulse: previousPulse,
-            lookbackDays: lookbackDays
+            lookbackDays: lookbackDays,
+            manifest: manifest,
+            label: dateLabel
         )
 
         try await writer.writePulse(pulse, to: corpusPaths[0])
 
-        let pulsePath = corpusPaths[0].pulsePath(weekLabel: pulse.weekLabel)
-        print("[ijs] Pulse generated: \(pulse.weekLabel)") // logging: CLI user-facing output
+        let effectiveLabel = pulse.label ?? pulse.weekLabel
+        let pulsePath = corpusPaths[0].pulsePath(label: effectiveLabel) // SAFETY: effectiveLabel from pulse model
+        print("[ijs] Pulse generated: \(effectiveLabel)") // logging: CLI user-facing output
         print("[ijs]   Gate runs: \(pulse.statistics.totalGateRuns) (\(pulse.statistics.passedRuns) passed, \(pulse.statistics.failedRuns) failed)") // logging: CLI user-facing output
         print("[ijs]   Overrides: \(pulse.statistics.totalOverrides)") // logging: CLI user-facing output
         print("[ijs]   Violation clusters: \(pulse.violationClusters.count)") // logging: CLI user-facing output

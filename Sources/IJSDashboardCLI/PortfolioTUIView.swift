@@ -46,8 +46,9 @@ public enum PortfolioTUIView: Sendable {
                 let scoreStr = score.formatted(.number.precision(.fractionLength(2)))
                 compactParts.append("Consistency: \(scoreStr)")
             }
-            let weekNav = renderWeekNavigator(state: state, weekLabel: pulse.weekLabel)
-            buf.appendLine(boxRow("  " + weekNav + "  " + compactParts.joined(separator: "  "), width: width))
+            let displayLabel = pulse.label ?? pulse.weekLabel
+            let labelNav = renderLabelNavigator(state: state, label: displayLabel)
+            buf.appendLine(boxRow("  " + labelNav + "  " + compactParts.joined(separator: "  "), width: width))
         }
 
         buf.appendLine(boxRow("", width: width))
@@ -121,6 +122,21 @@ public enum PortfolioTUIView: Sendable {
             for line in PulseSectionRenderer.renderCorpusTrend(stats.corpusSnapshots, width: width) {
                 buf.appendLine(line)
             }
+            if let tiers = pulse.projectTiers {
+                for line in PulseSectionRenderer.renderStratification(tiers, width: width) {
+                    buf.appendLine(line)
+                }
+            }
+            if let trajectories = pulse.projectTrajectories {
+                for line in PulseSectionRenderer.renderTrajectories(trajectories, width: width) {
+                    buf.appendLine(line)
+                }
+            }
+            if let groupSnapshots = pulse.groupSnapshots {
+                for line in PulseSectionRenderer.renderGroupSummary(groupSnapshots, width: width) {
+                    buf.appendLine(line)
+                }
+            }
             for line in PulseSectionRenderer.renderClusters(pulse.violationClusters, width: width) {
                 buf.appendLine(line)
             }
@@ -134,7 +150,7 @@ public enum PortfolioTUIView: Sendable {
 
         buf.appendLine(box.bottomBorder(width: width))
 
-        let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  \u{2190}\u{2192} Week  Scroll/PgUp/PgDn Viewport  Enter Select  s Sort  q Quit" + ANSICodes.reset
+        let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  \u{2190}\u{2192} Pulse  Scroll/PgUp/PgDn Viewport  Enter Select  s Sort  q Quit" + ANSICodes.reset
         buf.appendLine(helpLine)
 
         return buf.raw
@@ -220,18 +236,18 @@ public enum PortfolioTUIView: Sendable {
         return sorted.map(\.projectID)
     }
 
-    private static func renderWeekNavigator(state: DashboardState, weekLabel: String) -> String {
-        guard !state.availableWeeks.isEmpty, let idx = state.selectedWeekIndex else {
-            return "Pulse \(weekLabel):"
+    private static func renderLabelNavigator(state: DashboardState, label: String) -> String {
+        guard !state.availableLabels.isEmpty, let idx = state.selectedLabelIndex else {
+            return "Pulse \(label):"
         }
         let left = idx > 0
             ? ANSICodes.bold + "\u{25C0}" + ANSICodes.reset
             : ANSICodes.dim + "\u{25C0}" + ANSICodes.reset
-        let right = idx < state.availableWeeks.count - 1
+        let right = idx < state.availableLabels.count - 1
             ? ANSICodes.bold + "\u{25B6}" + ANSICodes.reset
             : ANSICodes.dim + "\u{25B6}" + ANSICodes.reset
-        let position = "\(idx + 1)/\(state.availableWeeks.count)"
-        return "\(left) Pulse \(weekLabel) \(right)  (\(position))"
+        let position = "\(idx + 1)/\(state.availableLabels.count)"
+        return "\(left) Pulse \(label) \(right)  (\(position))"
     }
 
     private static func formatPercent(_ value: Double) -> String {

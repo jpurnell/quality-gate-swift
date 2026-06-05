@@ -60,14 +60,24 @@ public struct CorpusPath: Sendable, Equatable {
         "\(snapshotDirectory(scope: scope))/\(Self.dayFormatter.string(from: date)).json"
     }
 
+    /// Pulse directory for a label: `<basePath>/pulse/<label>`
+    public func pulseDirectory(label: String) -> String {
+        "\(basePath)/pulse/\(label)"
+    }
+
+    /// Pulse file path: `<basePath>/pulse/<label>/PULSE_<label>.json`
+    public func pulsePath(label: String) -> String {
+        "\(pulseDirectory(label: label))/PULSE_\(label).json"
+    }
+
     /// Pulse directory for a week: `<basePath>/pulse/<weekLabel>`
     public func pulseDirectory(weekLabel: String) -> String {
-        "\(basePath)/pulse/\(weekLabel)"
+        pulseDirectory(label: weekLabel)
     }
 
     /// Pulse file path: `<basePath>/pulse/<weekLabel>/PULSE_<weekLabel>.json`
     public func pulsePath(weekLabel: String) -> String {
-        "\(pulseDirectory(weekLabel: weekLabel))/PULSE_\(weekLabel).json"
+        pulsePath(label: weekLabel)
     }
 
     /// Pulse root directory: `<basePath>/pulse`

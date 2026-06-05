@@ -64,12 +64,12 @@ public struct DashboardState: Sendable {
     public var terminalHeight: Int = 24
     /// Sorted project identifiers for the portfolio list.
     public private(set) var projectIDs: [String]
-    /// Available pulse week labels, sorted ascending.
-    public private(set) var availableWeeks: [String] = []
-    /// Index into `availableWeeks` for the currently displayed pulse.
-    public private(set) var selectedWeekIndex: Int?
-    /// Set when the user navigates to a different week; cleared by `clearWeekChanged()`.
-    public private(set) var weekChanged: Bool = false
+    /// Available pulse labels (date or week), sorted chronologically ascending.
+    public private(set) var availableLabels: [String] = []
+    /// Index into `availableLabels` for the currently displayed pulse.
+    public private(set) var selectedLabelIndex: Int?
+    /// Set when the user navigates to a different label; cleared by `clearLabelChanged()`.
+    public private(set) var labelChanged: Bool = false
 
     /// The project ID at the current selection index, or nil if the list is empty.
     public var selectedProjectID: String? {
@@ -77,10 +77,10 @@ public struct DashboardState: Sendable {
         return projectIDs[selectedIndex]
     }
 
-    /// The week label currently selected, or nil if no weeks are loaded.
-    public var selectedWeekLabel: String? {
-        guard let idx = selectedWeekIndex, idx >= 0, idx < availableWeeks.count else { return nil }
-        return availableWeeks[idx]
+    /// The label currently selected, or nil if no labels are loaded.
+    public var selectedLabel: String? {
+        guard let idx = selectedLabelIndex, idx >= 0, idx < availableLabels.count else { return nil }
+        return availableLabels[idx]
     }
 
     /// Creates a dashboard state for the given project list.
@@ -88,21 +88,21 @@ public struct DashboardState: Sendable {
         self.projectIDs = projectIDs
     }
 
-    /// Sets the list of available pulse weeks and selects the given label (or latest).
-    public mutating func setAvailableWeeks(_ weeks: [String], selecting weekLabel: String? = nil) {
-        availableWeeks = weeks
-        if let weekLabel, let idx = weeks.firstIndex(of: weekLabel) {
-            selectedWeekIndex = idx
-        } else if !weeks.isEmpty {
-            selectedWeekIndex = weeks.count - 1
+    /// Sets the list of available pulse labels and selects the given label (or latest).
+    public mutating func setAvailableLabels(_ labels: [String], selecting label: String? = nil) {
+        availableLabels = labels
+        if let label, let idx = labels.firstIndex(of: label) {
+            selectedLabelIndex = idx
+        } else if !labels.isEmpty {
+            selectedLabelIndex = labels.count - 1
         } else {
-            selectedWeekIndex = nil
+            selectedLabelIndex = nil
         }
     }
 
-    /// Clears the week-changed flag after the caller has reacted to the change.
-    public mutating func clearWeekChanged() {
-        weekChanged = false
+    /// Clears the label-changed flag after the caller has reacted to the change.
+    public mutating func clearLabelChanged() {
+        labelChanged = false
     }
 
     /// Updates the project list, preserving the current selection when possible.
@@ -143,14 +143,14 @@ public struct DashboardState: Sendable {
             selectedIndex = max(selectedIndex - 1, 0)
             ensureSelectionVisible()
         case .arrowLeft:
-            guard let idx = selectedWeekIndex, idx > 0 else { return }
-            selectedWeekIndex = idx - 1
-            weekChanged = true
+            guard let idx = selectedLabelIndex, idx > 0 else { return }
+            selectedLabelIndex = idx - 1
+            labelChanged = true
             scrollOffset = 0
         case .arrowRight:
-            guard let idx = selectedWeekIndex, idx < availableWeeks.count - 1 else { return }
-            selectedWeekIndex = idx + 1
-            weekChanged = true
+            guard let idx = selectedLabelIndex, idx < availableLabels.count - 1 else { return }
+            selectedLabelIndex = idx + 1
+            labelChanged = true
             scrollOffset = 0
         case .scrollDown:
             scrollOffset += 3

@@ -157,7 +157,7 @@ struct Dashboard: AsyncParsableCommand {
 
         let pulse: InstitutionalPulse?
         if let week {
-            pulse = reader.loadPulse(weekLabel: week)
+            pulse = reader.loadPulse(label: week)
         } else {
             pulse = reader.loadLatestPulse()
         }
@@ -169,13 +169,13 @@ struct Dashboard: AsyncParsableCommand {
             if let output {
                 outputPath = output
             } else {
-                let weekLabel = pulse?.weekLabel ?? isoWeekLabel(for: Date())
-                let pulseDir = "\(effectiveCorpusPath)/pulse/\(weekLabel)" // SAFETY: corpusPath from config; weekLabel computed from date
+                let pulseLabel = pulse?.label ?? pulse?.weekLabel ?? isoWeekLabel(for: Date())
+                let pulseDir = "\(effectiveCorpusPath)/pulse/\(pulseLabel)" // SAFETY: corpusPath from config; label computed from date
                 let fm = FileManager.default
-                if !fm.fileExists(atPath: pulseDir) { // SAFETY: pulseDir constructed from config corpus path + date-derived week label
+                if !fm.fileExists(atPath: pulseDir) { // SAFETY: pulseDir constructed from config corpus path + date-derived label
                     try fm.createDirectory(atPath: pulseDir, withIntermediateDirectories: true) // SAFETY: creates subdirectory within configured corpus
                 }
-                outputPath = "\(pulseDir)/REPORT_\(weekLabel).html" // SAFETY: child of configured corpus path
+                outputPath = "\(pulseDir)/REPORT_\(pulseLabel).html" // SAFETY: child of configured corpus path
             }
             try Data(html.utf8).write(to: URL(fileURLWithPath: outputPath)) // SAFETY: writes to configured corpus or user-specified path
             print("[dashboard] HTML report written to \(outputPath)") // logging: CLI user-facing output
