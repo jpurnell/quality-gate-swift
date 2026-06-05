@@ -13,7 +13,7 @@ struct PulseSectionRendererTests {
     @Test("renders gate run count and pass rate")
     func statisticsGateRuns() {
         let stats = makeStats(totalGateRuns: 100, passedRuns: 60, failedRuns: 40)
-        let lines = PulseSectionRenderer.renderStatistics(stats, weekLabel: "2026-W20", width: 80)
+        let lines = PulseSectionRenderer.renderStatistics(stats, label: "2026-W20", width: 80)
         let joined = lines.joined(separator: "\n")
         #expect(joined.contains("100"))
         #expect(joined.contains("60"))
@@ -22,16 +22,16 @@ struct PulseSectionRendererTests {
     @Test("renders override and calibration counts")
     func statisticsOverridesCalibrations() {
         let stats = makeStats(overrides: 5, calibrations: 2)
-        let lines = PulseSectionRenderer.renderStatistics(stats, weekLabel: "2026-W20", width: 80)
+        let lines = PulseSectionRenderer.renderStatistics(stats, label: "2026-W20", width: 80)
         let joined = lines.joined(separator: "\n")
         #expect(joined.contains("5"))
         #expect(joined.contains("2"))
     }
 
-    @Test("renders week label")
-    func statisticsWeekLabel() {
+    @Test("renders pulse label")
+    func statisticsPulseLabel() {
         let stats = makeStats()
-        let lines = PulseSectionRenderer.renderStatistics(stats, weekLabel: "2026-W20", width: 80)
+        let lines = PulseSectionRenderer.renderStatistics(stats, label: "2026-W20", width: 80)
         let joined = lines.joined(separator: "\n")
         #expect(joined.contains("2026-W20"))
     }
@@ -39,7 +39,7 @@ struct PulseSectionRendererTests {
     @Test("renders consistency score when present")
     func statisticsConsistencyScore() {
         let stats = makeStats(consistencyScore: 0.85)
-        let lines = PulseSectionRenderer.renderStatistics(stats, weekLabel: "2026-W20", width: 80)
+        let lines = PulseSectionRenderer.renderStatistics(stats, label: "2026-W20", width: 80)
         let joined = lines.joined(separator: "\n")
         #expect(joined.lowercased().contains("consistency") || joined.contains("0.85"))
     }
@@ -188,7 +188,7 @@ struct PulseSectionRendererTests {
             ),
         ]
         let width = 80
-        let allLines = PulseSectionRenderer.renderStatistics(stats, weekLabel: "2026-W20", width: width)
+        let allLines = PulseSectionRenderer.renderStatistics(stats, label: "2026-W20", width: width)
             + PulseSectionRenderer.renderClusters(clusters, width: width)
             + PulseSectionRenderer.renderAnomalies(anomalies, width: width)
             + PulseSectionRenderer.renderNarrative("A short narrative.", width: width)

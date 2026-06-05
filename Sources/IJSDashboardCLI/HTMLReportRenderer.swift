@@ -81,6 +81,12 @@ public enum HTMLReportRenderer: Sendable {
         html += renderPulseSidebar(pulse, worstCheckers: portfolio.worstCheckers)
         html += "</div>"
 
+        if let pulse {
+            html += renderStratificationSection(pulse.projectTiers)
+            html += renderTrajectorySection(pulse.projectTrajectories)
+            html += renderGroupSection(pulse.groupSnapshots)
+        }
+
         if let pulse, let narrative = pulse.narrative, !narrative.isEmpty {
             html += renderNarrativeSection(narrative)
         }
@@ -108,7 +114,7 @@ public enum HTMLReportRenderer: Sendable {
         _ portfolio: PortfolioSummary,
         pulse: InstitutionalPulse?
     ) -> String {
-        let weekLabel = pulse.map { escapeHTML($0.weekLabel) } ?? ""
+        let weekLabel = pulse.map { escapeHTML($0.label ?? $0.weekLabel) } ?? ""
         let weekSuffix = weekLabel.isEmpty ? "" : "<span class=\"week-label\">\(weekLabel)</span>"
         return """
         <header>
@@ -217,9 +223,10 @@ public enum HTMLReportRenderer: Sendable {
             return "<aside class=\"pulse-sidebar\"></aside>"
         }
 
+        let displayLabel = pulse.label ?? pulse.weekLabel
         var section = """
         <aside class="pulse-sidebar">
-        <h2>Pulse \(escapeHTML(pulse.weekLabel))</h2>
+        <h2>Pulse \(escapeHTML(displayLabel))</h2>
         """
 
         section += renderPulseStatistics(pulse.statistics)
@@ -376,6 +383,148 @@ public enum HTMLReportRenderer: Sendable {
         </tbody>
         </table>
         </details>
+        """
+    }
+
+    private static func renderStratificationSection(
+        _ tiers: [String: ProjectTier]?
+    ) -> String {
+        guard let tiers, !tiers.isEmpty else { return "" }
+
+        var counts: [ProjectTier: Int] = [:]
+        for tier in tiers.values {
+            counts[tier, default: 0] += 1
+        }
+
+        let ordered: [ProjectTier] = [.active, .baseline, .firstContact, .atRisk, .dormant]
+        let tierColors: [ProjectTier: String] = [
+            .active: "var(--green)",
+            .baseline: "var(--cyan)",
+            .firstContact: "var(--yellow)",
+            .atRisk: "var(--red)",
+            .dormant: "var(--text-dim)",
+        ]
+
+        var cards = ""
+        for tier in ordered {
+            guard let count = counts[tier], count > 0 else { continue }
+            let color = tierColors[tier] ?? "var(--text)"
+            cards += """
+            <div class="tier-card" style="border-left: 3px solid \(color);">
+            <span class="tier-count" style="color: \(color);">\(count)</span>
+            <span class="tier-name">\(tier.rawValue)</span>
+            </div>
+            """
+        }
+
+        return """
+        <section class="stratification">
+        <h2>Project Tiers</h2>
+        <div class="tier-cards">
+        \(cards)
+        </div>
+        </section>
+        """
+    }
+
+    private static func renderTrajectorySection(
+        _ trajectories: [ProjectTrajectory]?
+    ) -> String {
+        guard let trajectories, !trajectories.isEmpty else { return "" }
+
+        var directionCounts: [TrajectoryDirection: Int] = [:]
+        for traj in trajectories {
+            directionCounts[traj.direction, default: 0] += 1
+        }
+
+        let arrows: [TrajectoryDirection: String] = [
+            .improving: "&#x2191;",
+            .stable: "&#x2192;",
+            .declining: "&#x2193;",
+            .insufficient: "?",
+        ]
+        let colors: [TrajectoryDirection: String] = [
+            .improving: "var(--green)",
+            .stable: "var(--cyan)",
+            .declining: "var(--red)",
+            .insufficient: "var(--text-dim)",
+        ]
+        let directionOrder: [TrajectoryDirection] = [.improving, .stable, .declining, .insufficient]
+
+        var summaryItems = ""
+        for dir in directionOrder {
+            guard let count = directionCounts[dir], count > 0 else { continue }
+            let arrow = arrows[dir] ?? ""
+            let color = colors[dir] ?? "var(--text)"
+            summaryItems += "<span style=\"color: \(color);\">\(arrow) \(count) \(dir.rawValue)</span> "
+        }
+
+        var topMovers = ""
+        let validTrajectories = trajectories
+            .filter { $0.direction != .insufficient }
+            .sorted { abs($0.slope) > abs($1.slope) }
+        let top = Array(validTrajectories.prefix(5))
+        if !top.isEmpty {
+            var rows = ""
+            for traj in top {
+                let arrow = traj.slope >= 0 ? "&#x2191;" : "&#x2193;"
+                let color = traj.slope >= 0 ? "var(--green)" : "var(--red)"
+                let slopeStr = abs(traj.slope).formatted(.number.precision(.fractionLength(3)))
+                rows += """
+                <tr>
+                <td>\(escapeHTML(traj.projectID))</td>
+                <td style="color: \(color);">\(arrow) \(slopeStr)</td>
+                <td>\(traj.direction.rawValue)</td>
+                </tr>
+                """
+            }
+            topMovers = """
+            <h3>Top Movers</h3>
+            <table>
+            <thead><tr><th>Project</th><th>Slope</th><th>Direction</th></tr></thead>
+            <tbody>\(rows)</tbody>
+            </table>
+            """
+        }
+
+        return """
+        <section class="trajectories">
+        <h2>Trajectories</h2>
+        <div class="trajectory-summary">\(summaryItems)</div>
+        \(topMovers)
+        </section>
+        """
+    }
+
+    private static func renderGroupSection(
+        _ groupSnapshots: [String: [DailySnapshot]]?
+    ) -> String {
+        guard let groupSnapshots, !groupSnapshots.isEmpty else { return "" }
+
+        var rows = ""
+        let sortedGroups = groupSnapshots.keys.sorted()
+        for group in sortedGroups {
+            guard let snapshots = groupSnapshots[group], !snapshots.isEmpty else { continue }
+            guard let latest = snapshots.sorted(by: { $0.date < $1.date }).last else { continue }
+            let pct = Int((latest.passRate * 100).rounded())
+            let color = pct >= 70 ? "var(--green)" : (pct >= 50 ? "var(--yellow)" : "var(--red)")
+            rows += """
+            <tr>
+            <td>\(escapeHTML(group))</td>
+            <td style="color: \(color);">\(pct)%</td>
+            <td>\(latest.gateRuns)</td>
+            </tr>
+            """
+        }
+
+        return """
+        <section class="group-summary">
+        <h2>Groups</h2>
+        <table>
+        <thead><tr><th>Group</th><th>Pass Rate</th><th>Runs</th></tr></thead>
+        <tbody>\(rows)</tbody>
+        </table>
+        </section>
         """
     }
 
@@ -582,6 +731,53 @@ public enum HTMLReportRenderer: Sendable {
       list-style: revert;
     }
     .sunset-section table { margin-top: 0.75rem; }
+
+    /* Stratification */
+    .stratification {
+      margin-top: 1.5rem;
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+    .tier-cards {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .tier-card {
+      padding: 0.5rem 1rem;
+      background: var(--surface-alt);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .tier-count { font-size: 1.3rem; font-weight: 700; }
+    .tier-name { font-size: 0.85rem; color: var(--text-dim); text-transform: uppercase; }
+
+    /* Trajectories */
+    .trajectories {
+      margin-top: 1.5rem;
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
+    .trajectory-summary {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    /* Groups */
+    .group-summary {
+      margin-top: 1.5rem;
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 1.25rem;
+    }
 
     /* Clusters */
     .clusters table { font-size: 0.9rem; }

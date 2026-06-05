@@ -23,7 +23,9 @@ public actor PulseRefiner {
         windowStart: Date,
         windowEnd: Date,
         previousPulse: InstitutionalPulse?,
-        lookbackDays: Int = 90
+        lookbackDays: Int = 90,
+        manifest: CorpusManifest? = nil,
+        label: String? = nil
     ) async throws -> InstitutionalPulse {
         let lookbackStart = Calendar.current.date(
             byAdding: .day, value: -lookbackDays, to: windowStart
@@ -141,6 +143,36 @@ public actor PulseRefiner {
             complexityTrends = trends
         }
 
+        // Build per-project metadata dict for weighted scoring
+        let projectMetadataByProject = Dictionary(grouping: allWindowMetadata, by: \.projectID)
+
+        // Tier classification
+        let tiers = classifyProjects(projectSnapshots: projectSnapshots, windowEnd: windowEnd)
+
+        // Weighted scores
+        let weightedScores = computeWeightedScores(projectMetadata: projectMetadataByProject)
+
+        // Trajectories
+        let trajectories = computeTrajectories(
+            projectWeightedScores: weightedScores,
+            projectSnapshots: projectSnapshots,
+            projectMetadata: projectMetadataByProject
+        )
+
+        // Anomaly gating
+        let gatedAnomalies = allAnomalies.map { anomaly in
+            AnomalyGate.evaluate(
+                anomaly: anomaly,
+                baselineValidity: anomaly.baselineValidity
+            )
+        }
+
+        // Group snapshots
+        let groupSnaps = computeGroupSnapshots(
+            projectSnapshots: projectSnapshots,
+            groups: manifest?.groups ?? [:]
+        )
+
         let statistics = buildStatistics(
             windowMetadata: allWindowMetadata,
             calibrations: allWindowCalibrations,
@@ -149,7 +181,9 @@ public actor PulseRefiner {
             anomalies: allAnomalies,
             corpusSnapshots: windowCorpusSnapshots,
             projectSnapshots: projectSnapshots,
-            complexityTrends: complexityTrends
+            complexityTrends: complexityTrends,
+            weightedScores: weightedScores.isEmpty ? nil : weightedScores,
+            gatedAnomalies: gatedAnomalies.isEmpty ? nil : gatedAnomalies
         )
 
         let weekLabel = isoWeekLabel(for: windowStart)
@@ -158,13 +192,17 @@ public actor PulseRefiner {
             windowStart: windowStart,
             windowEnd: windowEnd,
             weekLabel: weekLabel,
+            label: label,
             projects: corpusPaths.map(\.projectID),
             statistics: statistics,
             violationClusters: clusters,
             proposedPolicyUpdates: allWindowCalibrations.compactMap(\.proposedPolicyUpdate),
             calibrationSummaries: allWindowCalibrations.map(\.pulseContribution),
             narrative: nil,
-            generatedAt: Date()
+            generatedAt: Date(),
+            projectTiers: tiers.isEmpty ? nil : tiers,
+            projectTrajectories: trajectories.isEmpty ? nil : trajectories,
+            groupSnapshots: groupSnaps.isEmpty ? nil : groupSnaps
         )
     }
 
@@ -365,7 +403,9 @@ public actor PulseRefiner {
         anomalies: [StatisticalAnomaly],
         corpusSnapshots: [DailySnapshot],
         projectSnapshots: [String: [DailySnapshot]],
-        complexityTrends: [ComplexityTrend]? = nil
+        complexityTrends: [ComplexityTrend]? = nil,
+        weightedScores: [String: Double]? = nil,
+        gatedAnomalies: [AnomalyGate]? = nil
     ) -> PulseStatistics {
         let totalGateRuns = windowMetadata.count
         let passedRuns = windowMetadata.filter { meta in
@@ -416,7 +456,9 @@ public actor PulseRefiner {
             anomalies: anomalies,
             corpusSnapshots: corpusSnapshots,
             projectSnapshots: projectSnapshots,
-            complexityTrends: complexityTrends
+            complexityTrends: complexityTrends,
+            weightedScores: weightedScores,
+            gatedAnomalies: gatedAnomalies
         )
     }
 

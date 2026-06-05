@@ -124,21 +124,23 @@ public actor TelemetryWriter {
 
     /// Writes an InstitutionalPulse to the corpus pulse directory.
     ///
-    /// Creates the week directory if needed. Overwrites existing pulse for the same week.
+    /// Uses `pulse.label` when present, falling back to `pulse.weekLabel` for directory naming.
+    /// Creates the label directory if needed. Overwrites existing pulse for the same label.
     ///
     /// - Throws: `IJSError.telemetryWriteFailed` if directory creation or write fails.
     public func writePulse(
         _ pulse: InstitutionalPulse,
         to corpusPath: CorpusPath
     ) async throws {
-        let weekDir = try sanitizedURL(
-            corpusPath.pulseDirectory(weekLabel: pulse.weekLabel),
+        let effectiveLabel = pulse.label ?? pulse.weekLabel
+        let labelDir = try sanitizedURL(
+            corpusPath.pulseDirectory(weekLabel: effectiveLabel),
             within: corpusPath.basePath
         )
-        try createDirectoryIfNeeded(at: weekDir)
+        try createDirectoryIfNeeded(at: labelDir)
 
         let fileURL = try sanitizedURL(
-            corpusPath.pulsePath(weekLabel: pulse.weekLabel),
+            corpusPath.pulsePath(weekLabel: effectiveLabel),
             within: corpusPath.basePath
         )
         try writeJSON(pulse, to: fileURL)
@@ -146,8 +148,9 @@ public actor TelemetryWriter {
 
     /// Reads the most recent InstitutionalPulse from the corpus.
     ///
-    /// Scans the pulse root directory for week-labeled subdirectories and
-    /// returns the pulse from the lexicographically latest one.
+    /// Scans the pulse root directory for labeled subdirectories (both
+    /// `YYYY-WNN` week labels and `YYYY-MM-DD` date labels) and returns
+    /// the pulse from the chronologically latest one.
     ///
     /// - Returns: The latest pulse, or `nil` if no pulses exist.
     /// - Throws: `IJSError.telemetryReadFailed` if deserialization fails.
@@ -171,7 +174,7 @@ public actor TelemetryWriter {
             return nil
         }
 
-        let weekDirs = contents
+        let labelDirs = contents
             .filter { url in
                 let resolved = url.resolvingSymlinksInPath()
                 guard resolved.path.hasPrefix(baseURL.path) else { return false }
@@ -179,11 +182,24 @@ public actor TelemetryWriter {
                 // SAFETY: Path validated against base via hasPrefix above
                 return FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isDir) && isDir.boolValue
             }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .sorted { lhs, rhs in
+                let lhsDate = Self.parseLabelDate(lhs.lastPathComponent)
+                let rhsDate = Self.parseLabelDate(rhs.lastPathComponent)
+                switch (lhsDate, rhsDate) {
+                case let (.some(l), .some(r)):
+                    return l > r
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                case (.none, .none):
+                    return lhs.lastPathComponent > rhs.lastPathComponent
+                }
+            }
 
-        for weekDir in weekDirs {
-            let weekLabel = weekDir.lastPathComponent
-            let filePath = corpusPath.pulsePath(weekLabel: weekLabel)
+        for labelDir in labelDirs {
+            let dirLabel = labelDir.lastPathComponent
+            let filePath = corpusPath.pulsePath(weekLabel: dirLabel)
             let fileURL = URL(fileURLWithPath: filePath).standardized.resolvingSymlinksInPath()
             guard fileURL.path.hasPrefix(baseURL.path) else { continue }
             // SAFETY: Path validated against base via hasPrefix above
@@ -197,6 +213,48 @@ public actor TelemetryWriter {
                     reason: "Cannot read \(fileURL.path): \(error.localizedDescription)"
                 )
             }
+        }
+
+        return nil
+    }
+
+    // MARK: - Label Date Parsing
+
+    /// Parses a pulse label into a `Date` for chronological sorting.
+    ///
+    /// Supports two formats:
+    /// - `YYYY-MM-DD` (daily date labels) — parsed directly
+    /// - `YYYY-WNN` (ISO week labels) — resolved to Monday of that week
+    ///
+    /// - Returns: The parsed date, or `nil` if the label is not in a recognized format.
+    static func parseLabelDate(_ label: String) -> Date? {
+        // Try YYYY-MM-DD first
+        if label.count == 10, label.dropFirst(4).first == "-", label.dropFirst(7).first == "-" {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            fmt.timeZone = TimeZone(identifier: "UTC")
+            fmt.locale = Locale(identifier: "en_US_POSIX")
+            if let date = fmt.date(from: label) {
+                return date
+            }
+        }
+
+        // Try YYYY-WNN
+        if label.count == 8, label.dropFirst(4).hasPrefix("-W") {
+            // silent: invalid week format returns nil
+            guard let year = Int(label.prefix(4)),
+                  let week = Int(label.suffix(2)),
+                  week >= 1, week <= 53 else {
+                return nil
+            }
+            var components = DateComponents()
+            components.yearForWeekOfYear = year
+            components.weekOfYear = week
+            components.weekday = 2 // Monday (1=Sunday in Gregorian)
+            components.timeZone = TimeZone(identifier: "UTC")
+            var calendar = Calendar(identifier: .iso8601)
+            calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+            return calendar.date(from: components)
         }
 
         return nil

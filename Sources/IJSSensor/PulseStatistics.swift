@@ -37,6 +37,10 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
     public let projectSnapshots: [String: [DailySnapshot]]
     /// Complexity trend analyses (nil if no complexity data in corpus).
     public let complexityTrends: [ComplexityTrend]?
+    /// Severity-weighted scores per project, keyed by project ID.
+    public let weightedScores: [String: Double]?
+    /// Gated anomaly assessments combining anomaly + validity + tier context.
+    public let gatedAnomalies: [AnomalyGate]?
 
     /// Pass rate as a percentage (0.0-100.0).
     public var passRate: Double {
@@ -48,6 +52,17 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
     public var overrideRate: Double {
         guard totalGateRuns > 0 else { return 0.0 }
         return Double(totalOverrides) / Double(totalGateRuns)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case totalGateRuns, passedRuns, failedRuns, totalOverrides, totalCalibrations
+        case overridesByRiskTier, failuresByChecker
+        case rootCauseDistribution, failedStepDistribution
+        case meanConsistencyScore
+        case corpusTrends, projectTrends, anomalies
+        case corpusSnapshots, projectSnapshots
+        case complexityTrends
+        case weightedScores, gatedAnomalies
     }
 
     /// Creates new pulse statistics.
@@ -67,7 +82,9 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
         anomalies: [StatisticalAnomaly],
         corpusSnapshots: [DailySnapshot],
         projectSnapshots: [String: [DailySnapshot]],
-        complexityTrends: [ComplexityTrend]? = nil
+        complexityTrends: [ComplexityTrend]? = nil,
+        weightedScores: [String: Double]? = nil,
+        gatedAnomalies: [AnomalyGate]? = nil
     ) {
         self.totalGateRuns = totalGateRuns
         self.passedRuns = passedRuns
@@ -85,5 +102,53 @@ public struct PulseStatistics: Sendable, Codable, Equatable {
         self.corpusSnapshots = corpusSnapshots
         self.projectSnapshots = projectSnapshots
         self.complexityTrends = complexityTrends
+        self.weightedScores = weightedScores
+        self.gatedAnomalies = gatedAnomalies
+    }
+
+    /// Decodes pulse statistics, tolerating missing optional fields.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        totalGateRuns = try container.decode(Int.self, forKey: .totalGateRuns)
+        passedRuns = try container.decode(Int.self, forKey: .passedRuns)
+        failedRuns = try container.decode(Int.self, forKey: .failedRuns)
+        totalOverrides = try container.decode(Int.self, forKey: .totalOverrides)
+        totalCalibrations = try container.decode(Int.self, forKey: .totalCalibrations)
+        overridesByRiskTier = try container.decode([RiskTier: Int].self, forKey: .overridesByRiskTier)
+        failuresByChecker = try container.decode([String: Int].self, forKey: .failuresByChecker)
+        rootCauseDistribution = try container.decode([String: Int].self, forKey: .rootCauseDistribution)
+        failedStepDistribution = try container.decode([FiveStepStage: Int].self, forKey: .failedStepDistribution)
+        meanConsistencyScore = try container.decodeIfPresent(Double.self, forKey: .meanConsistencyScore)
+        corpusTrends = try container.decode([TrendAnalysis].self, forKey: .corpusTrends)
+        projectTrends = try container.decode([String: [TrendAnalysis]].self, forKey: .projectTrends)
+        anomalies = try container.decode([StatisticalAnomaly].self, forKey: .anomalies)
+        corpusSnapshots = try container.decode([DailySnapshot].self, forKey: .corpusSnapshots)
+        projectSnapshots = try container.decode([String: [DailySnapshot]].self, forKey: .projectSnapshots)
+        complexityTrends = try container.decodeIfPresent([ComplexityTrend].self, forKey: .complexityTrends)
+        weightedScores = try container.decodeIfPresent([String: Double].self, forKey: .weightedScores)
+        gatedAnomalies = try container.decodeIfPresent([AnomalyGate].self, forKey: .gatedAnomalies)
+    }
+
+    /// Encodes all statistics fields, omitting nil optional properties.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(totalGateRuns, forKey: .totalGateRuns)
+        try container.encode(passedRuns, forKey: .passedRuns)
+        try container.encode(failedRuns, forKey: .failedRuns)
+        try container.encode(totalOverrides, forKey: .totalOverrides)
+        try container.encode(totalCalibrations, forKey: .totalCalibrations)
+        try container.encode(overridesByRiskTier, forKey: .overridesByRiskTier)
+        try container.encode(failuresByChecker, forKey: .failuresByChecker)
+        try container.encode(rootCauseDistribution, forKey: .rootCauseDistribution)
+        try container.encode(failedStepDistribution, forKey: .failedStepDistribution)
+        try container.encodeIfPresent(meanConsistencyScore, forKey: .meanConsistencyScore)
+        try container.encode(corpusTrends, forKey: .corpusTrends)
+        try container.encode(projectTrends, forKey: .projectTrends)
+        try container.encode(anomalies, forKey: .anomalies)
+        try container.encode(corpusSnapshots, forKey: .corpusSnapshots)
+        try container.encode(projectSnapshots, forKey: .projectSnapshots)
+        try container.encodeIfPresent(complexityTrends, forKey: .complexityTrends)
+        try container.encodeIfPresent(weightedScores, forKey: .weightedScores)
+        try container.encodeIfPresent(gatedAnomalies, forKey: .gatedAnomalies)
     }
 }
