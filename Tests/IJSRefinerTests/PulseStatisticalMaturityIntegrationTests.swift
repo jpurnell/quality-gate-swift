@@ -30,30 +30,35 @@ struct PulseStatisticalMaturityIntegrationTests {
 
     // MARK: - Metadata Factory
 
+    private static let baseCheckerIds = [
+        "build", "test", "safety", "doc-coverage", "unreachable",
+        "recursion", "concurrency", "pointer-escape", "logging", "fp-safety",
+    ]
+
     private func makeMetadata(
         projectID: String,
         timestamp: Date,
         passed: Bool = true,
         failedCheckerIds: [String] = []
     ) -> CheckResultMetadata {
+        let failedSet = Set(failedCheckerIds)
         var results: [CheckResult] = []
-        if passed && failedCheckerIds.isEmpty {
+        for checkerId in Self.baseCheckerIds {
+            let failed = failedSet.contains(checkerId)
             results.append(CheckResult(
-                checkerId: "build",
-                status: .passed,
-                diagnostics: [],
-                duration: .zero
-            ))
-        } else {
-            // Add a passing build result so weighted scoring has multiple checkers
-            results.append(CheckResult(
-                checkerId: "build",
-                status: .passed,
-                diagnostics: [],
+                checkerId: checkerId,
+                status: failed ? .failed : .passed,
+                diagnostics: failed ? [Diagnostic(
+                    severity: .error,
+                    message: "Test failure in \(checkerId)",
+                    filePath: "Source.swift",
+                    lineNumber: 1,
+                    ruleId: "\(checkerId.lowercased()).rule"
+                )] : [],
                 duration: .zero
             ))
         }
-        for checkerId in failedCheckerIds {
+        for checkerId in failedCheckerIds where !Self.baseCheckerIds.contains(checkerId) {
             results.append(CheckResult(
                 checkerId: checkerId,
                 status: .failed,

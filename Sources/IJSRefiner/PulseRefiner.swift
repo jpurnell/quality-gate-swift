@@ -143,8 +143,11 @@ public actor PulseRefiner {
             complexityTrends = trends
         }
 
-        // Build per-project metadata dict for weighted scoring
-        let projectMetadataByProject = Dictionary(grouping: allWindowMetadata, by: \.projectID)
+        // Build per-project metadata dict for weighted scoring, filtering out
+        // partial runs and deduplicating to one run per calendar day
+        let projectMetadataByProject = filterMetadataForScoring(
+            Dictionary(grouping: allWindowMetadata, by: \.projectID)
+        )
 
         // Tier classification
         let tiers = classifyProjects(projectSnapshots: projectSnapshots, windowEnd: windowEnd)
