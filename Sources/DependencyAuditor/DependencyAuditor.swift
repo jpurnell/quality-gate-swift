@@ -196,12 +196,12 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     ///
     /// - Parameter content: The raw text of `Package.swift`.
     /// - Returns: An array of declared package names.
-    static func extractPackageDeclaredNames(from content: String) -> [String] {
+    static func extractPackageDeclaredNames(from content: String) -> [String] { // LIVE: called from DependencyAuditorTests
         ManifestParser.parse(source: content).declaredNames
     }
 
     /// Extracts target `exclude:` paths from a `Package.swift` content string via AST.
-    static func extractExcludePaths(from content: String) -> [String] {
+    static func extractExcludePaths(from content: String) -> [String] { // LIVE: called from DependencyAuditorTests
         ManifestParser.parse(source: content).excludePaths
     }
 
