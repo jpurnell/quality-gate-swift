@@ -80,13 +80,16 @@ public enum DashboardRenderer: Sendable {
                 lines.append("  Tiers: \(parts.joined(separator: "  "))")
             }
 
-            if let ws = pulse.statistics.weightedScores, !ws.isEmpty {
+            if let ws = pulse.statistics.weightedScores {
                 let vals = ws.values.sorted()
-                let mean = vals.reduce(0, +) / Double(vals.count)
+                let count = Double(vals.count)
+                if count > 0 {
+                let mean = vals.reduce(0, +) / count
                 let meanStr = mean.formatted(.number.precision(.fractionLength(3)))
                 let minStr = (vals.first ?? 0).formatted(.number.precision(.fractionLength(3)))
                 let maxStr = (vals.last ?? 0).formatted(.number.precision(.fractionLength(3)))
                 lines.append("  Weighted Score: mean \(meanStr)  range \(minStr)–\(maxStr)")
+                }
             }
 
             if let trajs = pulse.projectTrajectories, !trajs.isEmpty {
