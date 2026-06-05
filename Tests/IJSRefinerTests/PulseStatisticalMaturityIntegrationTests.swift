@@ -201,9 +201,11 @@ struct PulseStatisticalMaturityIntegrationTests {
         // --- Step 8: Verify weighted scores ---
         let weightedScores = try #require(pulse.statistics.weightedScores)
         // ProjectActive has runs in the window => should have a weighted score
-        #expect(weightedScores["ProjectActive"] != nil)
+        let activeScore = try #require(weightedScores["ProjectActive"])
+        #expect(activeScore >= 0.0 && activeScore <= 1.0)
         // ProjectFirstContact has runs in the window => should have a weighted score
-        #expect(weightedScores["ProjectFirstContact"] != nil)
+        let fcScore = try #require(weightedScores["ProjectFirstContact"])
+        #expect(fcScore >= 0.0 && fcScore <= 1.0)
         // ProjectDormant's single run is outside the window => no window metadata => no score
         #expect(weightedScores["ProjectDormant"] == nil)
 
@@ -215,16 +217,14 @@ struct PulseStatisticalMaturityIntegrationTests {
         // --- Step 9: Verify project trajectories ---
         let trajectories = try #require(pulse.projectTrajectories)
         // ProjectActive has 10 runs => enough for trajectory analysis
-        let activeTrajectory = trajectories.first { $0.projectID == "ProjectActive" }
-        #expect(activeTrajectory != nil)
-        #expect(activeTrajectory?.sampleSize == 10)
-        #expect(activeTrajectory?.direction != .insufficient)
+        let activeTrajectory = try #require(trajectories.first { $0.projectID == "ProjectActive" })
+        #expect(activeTrajectory.sampleSize == 10)
+        #expect(activeTrajectory.direction != .insufficient)
 
         // ProjectFirstContact has only 2 runs in window => trajectory with insufficient direction
-        let fcTrajectory = trajectories.first { $0.projectID == "ProjectFirstContact" }
-        #expect(fcTrajectory != nil)
-        #expect(fcTrajectory?.sampleSize == 2)
-        #expect(fcTrajectory?.direction == .insufficient)
+        let fcTrajectory = try #require(trajectories.first { $0.projectID == "ProjectFirstContact" })
+        #expect(fcTrajectory.sampleSize == 2)
+        #expect(fcTrajectory.direction == .insufficient)
 
         // --- Step 10: Verify group snapshots ---
         let groupSnaps = try #require(pulse.groupSnapshots)
@@ -406,7 +406,7 @@ struct PulseStatisticalMaturityIntegrationTests {
         let mixedScore = try #require(scores["MixedProject"])
 
         // All-pass => score should be 1.0
-        #expect(perfectScore == 1.0)
+        #expect(abs(perfectScore - 1.0) < 1e-10)
         // Mixed (build passes, safety fails) => score < 1.0
         #expect(mixedScore < 1.0)
         #expect(mixedScore > 0.0)

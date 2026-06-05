@@ -15,7 +15,7 @@ struct SeverityWeightTests {
             ("doc-coverage", true),
         ]
         let score = SeverityWeight.weightedScore(checkerResults: results)
-        #expect(score == 1.0)
+        #expect(abs(score - 1.0) < 1e-10)
     }
 
     @Test("All checkers fail yields 0.0")
@@ -26,27 +26,27 @@ struct SeverityWeightTests {
             ("doc-coverage", false),
         ]
         let score = SeverityWeight.weightedScore(checkerResults: results)
-        #expect(score == 0.0)
+        #expect(abs(score) < 1e-10)
     }
 
     @Test("Empty checkers yields 1.0")
     func emptyCheckers() {
         let score = SeverityWeight.weightedScore(checkerResults: [])
-        #expect(score == 1.0)
+        #expect(abs(score - 1.0) < 1e-10)
     }
 
     @Test("Single checker pass yields 1.0")
     func singlePass() {
         let results: [(checkerID: String, passed: Bool)] = [("safety", true)]
         let score = SeverityWeight.weightedScore(checkerResults: results)
-        #expect(score == 1.0)
+        #expect(abs(score - 1.0) < 1e-10)
     }
 
     @Test("Single checker fail yields 0.0")
     func singleFail() {
         let results: [(checkerID: String, passed: Bool)] = [("safety", false)]
         let score = SeverityWeight.weightedScore(checkerResults: results)
-        #expect(score == 0.0)
+        #expect(abs(score) < 1e-10)
     }
 
     @Test("Mixed results: only doc-coverage fails out of safety, concurrency, doc-coverage")

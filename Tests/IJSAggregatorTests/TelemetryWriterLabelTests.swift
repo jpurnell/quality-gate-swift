@@ -127,28 +127,26 @@ struct TelemetryWriterLabelTests {
     // MARK: - parseLabelDate
 
     @Test("parseLabelDate parses YYYY-MM-DD format")
-    func parseDateFormat() {
-        let date = TelemetryWriter.parseLabelDate("2026-06-05")
-        #expect(date != nil)
+    func parseDateFormat() throws {
+        let date = try #require(TelemetryWriter.parseLabelDate("2026-06-05"))
 
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        #expect(fmt.string(from: date!) == "2026-06-05")
+        #expect(fmt.string(from: date) == "2026-06-05")
     }
 
     @Test("parseLabelDate parses YYYY-WNN format to Monday")
-    func parseWeekFormat() {
-        let date = TelemetryWriter.parseLabelDate("2026-W22")
-        #expect(date != nil)
+    func parseWeekFormat() throws {
+        let date = try #require(TelemetryWriter.parseLabelDate("2026-W22"))
 
         // W22 of 2026 starts Monday 2026-05-25
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        #expect(fmt.string(from: date!) == "2026-05-25")
+        #expect(fmt.string(from: date) == "2026-05-25")
     }
 
     @Test("parseLabelDate returns nil for unrecognized format")

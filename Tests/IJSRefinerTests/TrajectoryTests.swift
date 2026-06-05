@@ -57,7 +57,7 @@ struct TrajectoryTests {
     }
 
     @Test("Improving trend produces positive slope")
-    func improvingTrend() async {
+    func improvingTrend() async throws {
         let refiner = PulseRefiner(writer: writer)
         // Early runs fail safety, later runs pass everything
         let metadata: [CheckResultMetadata] = [
@@ -77,14 +77,13 @@ struct TrajectoryTests {
             projectSnapshots: [:],
             projectMetadata: projectMetadata
         )
-        let trajectory = trajectories.first { $0.projectID == "test-project" }
-        #expect(trajectory != nil)
-        #expect(trajectory!.slope > 0)
-        #expect(trajectory!.direction == .improving)
+        let trajectory = try #require(trajectories.first { $0.projectID == "test-project" })
+        #expect(trajectory.slope > 0)
+        #expect(trajectory.direction == .improving)
     }
 
     @Test("Declining trend produces negative slope")
-    func decliningTrend() async {
+    func decliningTrend() async throws {
         let refiner = PulseRefiner(writer: writer)
         // Start with all passing, end with failures
         let metadata: [CheckResultMetadata] = [
@@ -104,14 +103,13 @@ struct TrajectoryTests {
             projectSnapshots: [:],
             projectMetadata: projectMetadata
         )
-        let trajectory = trajectories.first { $0.projectID == "test-project" }
-        #expect(trajectory != nil)
-        #expect(trajectory!.slope < 0)
-        #expect(trajectory!.direction == .declining)
+        let trajectory = try #require(trajectories.first { $0.projectID == "test-project" })
+        #expect(trajectory.slope < 0)
+        #expect(trajectory.direction == .declining)
     }
 
     @Test("Insufficient data with fewer than 2 runs")
-    func insufficientData() async {
+    func insufficientData() async throws {
         let refiner = PulseRefiner(writer: writer)
         let metadata: [CheckResultMetadata] = [
             makeMetadata(timestamp: makeDate("2026-05-01T10:00:00"),
@@ -124,14 +122,13 @@ struct TrajectoryTests {
             projectSnapshots: [:],
             projectMetadata: projectMetadata
         )
-        let trajectory = trajectories.first { $0.projectID == "test-project" }
-        #expect(trajectory != nil)
-        #expect(trajectory!.direction == .insufficient)
-        #expect(trajectory!.sampleSize == 1)
+        let trajectory = try #require(trajectories.first { $0.projectID == "test-project" })
+        #expect(trajectory.direction == .insufficient)
+        #expect(trajectory.sampleSize == 1)
     }
 
     @Test("Inflection detected with 6+ data points and direction change")
-    func inflectionDetection() async {
+    func inflectionDetection() async throws {
         let refiner = PulseRefiner(writer: writer)
         // First half improving (fail -> pass), second half declining (pass -> fail)
         let metadata: [CheckResultMetadata] = [
@@ -162,11 +159,10 @@ struct TrajectoryTests {
             projectSnapshots: [:],
             projectMetadata: projectMetadata
         )
-        let trajectory = trajectories.first { $0.projectID == "test-project" }
-        #expect(trajectory != nil)
-        #expect(trajectory!.sampleSize == 6)
-        #expect(trajectory!.recentSlope != nil)
+        let trajectory = try #require(trajectories.first { $0.projectID == "test-project" })
+        #expect(trajectory.sampleSize == 6)
+        let recentSlope = try #require(trajectory.recentSlope)
         // The recent half is declining, so recentSlope should be negative
-        #expect(trajectory!.recentSlope! < 0)
+        #expect(recentSlope < 0)
     }
 }

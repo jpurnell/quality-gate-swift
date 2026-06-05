@@ -97,14 +97,14 @@ struct ProjectTrajectoryTests {
         )
 
         #expect(trajectory.projectID == "proj-1")
-        #expect(trajectory.slope == 0.02)
-        #expect(trajectory.intercept == 0.5)
-        #expect(trajectory.rSquared == 0.85)
+        #expect(abs(trajectory.slope - 0.02) < 1e-10)
+        #expect(abs(trajectory.intercept - 0.5) < 1e-10)
+        #expect(abs(trajectory.rSquared - 0.85) < 1e-10)
         #expect(trajectory.sampleSize == 30)
         #expect(trajectory.validity == .valid)
         #expect(trajectory.direction == .improving)
         #expect(trajectory.inflectionDetected == true)
-        #expect(trajectory.recentSlope == 0.03)
+        #expect(abs(trajectory.recentSlope! - 0.03) < 1e-10)
     }
 
     @Test("Init defaults: inflectionDetected=false, recentSlope=nil")
