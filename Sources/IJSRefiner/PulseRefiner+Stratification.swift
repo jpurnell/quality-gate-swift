@@ -28,6 +28,39 @@ extension PulseRefiner {
         return tiers
     }
 
+    /// Minimum number of checker results for a run to be considered a full suite run.
+    static let minimumCheckerCount = 5
+
+    /// Filters per-project metadata to exclude partial runs and deduplicate to one run per day.
+    ///
+    /// Partial runs (fewer than ``minimumCheckerCount`` checkers) are single-checker debug
+    /// invocations that would score 0.0 and distort the weighted average. When multiple
+    /// full-suite runs exist on the same calendar day, only the latest is kept — earlier
+    /// runs represent iteration, not separate assessments.
+    func filterMetadataForScoring(
+        _ projectMetadata: [String: [CheckResultMetadata]]
+    ) -> [String: [CheckResultMetadata]] {
+        var utcCalendar = Calendar(identifier: .iso8601)
+        utcCalendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+
+        var filtered: [String: [CheckResultMetadata]] = [:]
+        for (projectID, metadata) in projectMetadata {
+            let fullRuns = metadata.filter { $0.results.count >= Self.minimumCheckerCount }
+
+            let byDay = Dictionary(grouping: fullRuns) { meta -> DateComponents in
+                utcCalendar.dateComponents([.year, .month, .day], from: meta.timestamp)
+            }
+            let deduped = byDay.compactMap { (_, dayRuns) -> CheckResultMetadata? in
+                dayRuns.max(by: { $0.timestamp < $1.timestamp })
+            }.sorted(by: { $0.timestamp < $1.timestamp })
+
+            if !deduped.isEmpty {
+                filtered[projectID] = deduped
+            }
+        }
+        return filtered
+    }
+
     /// Computes weighted quality scores for each project from its metadata.
     func computeWeightedScores(
         projectMetadata: [String: [CheckResultMetadata]]
