@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Cleans up build artifacts and optimizes git repository.
@@ -15,6 +16,8 @@ import QualityGateCore
 /// let result = try await cleaner.check(configuration: config)
 /// ```
 public struct DiskCleaner: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DiskCleaner")
+
     /// Unique identifier for this checker.
     public let id = "disk-clean"
 
@@ -119,17 +122,25 @@ public struct DiskCleaner: QualityChecker, Sendable {
         let size = directorySize(at: path)
 
         // Try removing contents first (works better with Dropbox sync)
-        // silent: best-effort cleanup of build artifacts
-        if let contents = try? fileManager.contentsOfDirectory(atPath: path) { // SAFETY: enumerates build artifacts in project directory
+        do {
+            let contents = try fileManager.contentsOfDirectory(atPath: path) // SAFETY: enumerates build artifacts in project directory
             for item in contents {
                 let itemPath = (path as NSString).appendingPathComponent(item)
-                // silent: best-effort removal of build artifact
-                try? fileManager.removeItem(atPath: itemPath) // SAFETY: removes build artifacts under project .build/
+                do {
+                    try fileManager.removeItem(atPath: itemPath) // SAFETY: removes build artifacts under project .build/
+                } catch {
+                    Self.logger.warning("Failed to remove build artifact: \(itemPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
             }
+        } catch {
+            Self.logger.warning("Failed to list build directory contents: \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         // Then try removing the directory itself
-        // silent: best-effort removal of build directory
-        try? fileManager.removeItem(atPath: path) // SAFETY: removes build artifact directory in project
+        do {
+            try fileManager.removeItem(atPath: path) // SAFETY: removes build artifact directory in project
+        } catch {
+            Self.logger.warning("Failed to remove build directory: \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
         return size
     }
 
@@ -172,8 +183,12 @@ public struct DiskCleaner: QualityChecker, Sendable {
         }
 
         while let url = enumerator.nextObject() as? URL {
-            if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize { // silent: file size unavailable is non-fatal
-                size += Int64(fileSize)
+            do {
+                if let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                    size += Int64(fileSize)
+                }
+            } catch {
+                Self.logger.warning("Could not read file size for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 
@@ -194,7 +209,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
                 let errorString = result.stderr.isEmpty ? "Unknown error" : result.stderr
                 return (false, errorString.trimmingCharacters(in: .whitespacesAndNewlines))
             }
-        } catch { // logging: error returned to caller as result
+        } catch {
             return (false, error.localizedDescription)
         }
     }

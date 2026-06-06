@@ -27,24 +27,26 @@ struct WorkspaceDetectionTests {
         }
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Workspace wins over project when both present")
     func workspaceWinsOverProject() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
+        let ws = dir.appendingPathComponent("Test.xcworkspace")
         try FileManager.default.createDirectory(
-            at: dir.appendingPathComponent("Test.xcworkspace"),
+            at: ws,
             withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: dir.appendingPathComponent("Test.xcodeproj"),
             withIntermediateDirectories: true)
         let kind = ProjectKind.detect(at: dir)
-        if case .xcworkspace = kind {} else {
+        if case .xcworkspace(let f, let r) = kind {
+            #expect(f.standardizedFileURL == ws.standardizedFileURL)
+            #expect(r.standardizedFileURL == dir.standardizedFileURL)
+        } else {
             Issue.record("expected .xcworkspace (wins over project), got \(kind)")
         }
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("SwiftPM still wins over workspace")
     func swiftPMWinsOverWorkspace() throws {
         let dir = try makeTempDir()
@@ -55,7 +57,9 @@ struct WorkspaceDetectionTests {
             at: dir.appendingPathComponent("Test.xcworkspace"),
             withIntermediateDirectories: true)
         let kind = ProjectKind.detect(at: dir)
-        if case .swiftPM = kind {} else {
+        if case .swiftPM(let root) = kind {
+            #expect(root.standardizedFileURL == dir.standardizedFileURL)
+        } else {
             Issue.record("expected .swiftPM (still wins over workspace), got \(kind)")
         }
     }

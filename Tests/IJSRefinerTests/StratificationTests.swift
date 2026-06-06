@@ -102,6 +102,53 @@ struct StratificationTests {
         #expect(tiers["proj-d"] == .firstContact)
     }
 
+    @Test("classifyProjects respects tierOverride from manifest")
+    func tierOverrideRespected() async {
+        let refiner = PulseRefiner(writer: writer)
+        let windowEnd = makeDayDate("2026-06-05")
+        let snapshots: [String: [DailySnapshot]] = [
+            "stale-project": [
+                makeSnapshot(date: makeDayDate("2026-05-01"), scope: "stale-project"),
+            ]
+        ]
+        let manifestWithOverride = CorpusManifest(
+            projects: [
+                "stale-project": CorpusManifestEntry(
+                    lifecycle: .active,
+                    changedAt: makeDayDate("2026-05-01"),
+                    tierOverride: .baseline
+                ),
+            ]
+        )
+        let tiers = await refiner.classifyProjects(
+            projectSnapshots: snapshots, windowEnd: windowEnd, manifest: manifestWithOverride
+        )
+        #expect(tiers["stale-project"] == .baseline)
+    }
+
+    @Test("classifyProjects uses computed tier when no override")
+    func noOverrideUsesComputed() async {
+        let refiner = PulseRefiner(writer: writer)
+        let windowEnd = makeDayDate("2026-06-05")
+        let snapshots: [String: [DailySnapshot]] = [
+            "stale-project": [
+                makeSnapshot(date: makeDayDate("2026-05-01"), scope: "stale-project"),
+            ]
+        ]
+        let manifestNoOverride = CorpusManifest(
+            projects: [
+                "stale-project": CorpusManifestEntry(
+                    lifecycle: .active,
+                    changedAt: makeDayDate("2026-05-01")
+                ),
+            ]
+        )
+        let tiers = await refiner.classifyProjects(
+            projectSnapshots: snapshots, windowEnd: windowEnd, manifest: manifestNoOverride
+        )
+        #expect(tiers["stale-project"] == .dormant)
+    }
+
     @Test("Group snapshots merge member project data by date")
     func groupSnapshotsMerge() async {
         let refiner = PulseRefiner(writer: writer)

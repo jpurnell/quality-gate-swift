@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -24,6 +25,8 @@ import SwiftParser
 /// NavigationStack { UtilityView() }
 /// ```
 public struct HIGAuditor: FixableChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "HIGAuditor")
+
     /// Unique identifier for this checker.
     public let id = "hig-auditor"
     /// Human-readable display name for this checker.
@@ -93,7 +96,11 @@ public struct HIGAuditor: FixableChecker, Sendable {
                 continue
             }
 
-            guard var source = try? String(contentsOfFile: filePath, encoding: .utf8) else { // silent: file unreadable during fix pass — already diagnosed
+            var source: String
+            do {
+                source = try String(contentsOfFile: filePath, encoding: .utf8)
+            } catch {
+                Self.logger.warning("File unreadable during fix pass: \(filePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 unfixed.append(contentsOf: fileDiagnostics)
                 continue
             }
@@ -217,7 +224,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
                 let result = auditSource(source, fileName: fullPath, activePlatforms: activePlatforms)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch { // logging: unreadable source file skipped during audit sweep
+            } catch {
                 continue
             }
         }

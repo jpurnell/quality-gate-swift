@@ -1,4 +1,6 @@
 import Foundation
+import IJSSensor
+import os
 import Yams
 
 /// The lifecycle state of a project within the corpus.
@@ -24,16 +26,20 @@ public struct CorpusManifestEntry: Sendable, Codable, Equatable {
     public let reason: String?
     /// When the lifecycle state was last changed.
     public let changedAt: Date
+    /// Optional tier override. When set, the pulse refiner uses this instead of auto-classification.
+    public let tierOverride: ProjectTier?
 
     /// Creates a new manifest entry.
     /// - Parameters:
     ///   - lifecycle: The lifecycle state of the project.
     ///   - reason: Optional reason for the lifecycle state.
     ///   - changedAt: When the lifecycle state was last changed.
-    public init(lifecycle: ProjectLifecycle, reason: String? = nil, changedAt: Date) {
+    ///   - tierOverride: Optional tier override for manual classification.
+    public init(lifecycle: ProjectLifecycle, reason: String? = nil, changedAt: Date, tierOverride: ProjectTier? = nil) {
         self.lifecycle = lifecycle
         self.reason = reason
         self.changedAt = changedAt
+        self.tierOverride = tierOverride
     }
 }
 
@@ -42,6 +48,7 @@ public struct CorpusManifestEntry: Sendable, Codable, Equatable {
 /// Stored as `manifest.yml` in the corpus root. Projects not present
 /// in the manifest are assumed to be ``ProjectLifecycle/active``.
 public struct CorpusManifest: Sendable, Codable, Equatable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "CorpusManifest")
     /// Per-project lifecycle entries keyed by project ID.
     public var projects: [String: CorpusManifestEntry]
 
@@ -98,8 +105,17 @@ public struct CorpusManifest: Sendable, Codable, Equatable {
             throw IJSError.configurationError(reason: "Cannot read manifest: \(error.localizedDescription)")
         }
 
-        guard let root = try? Yams.load(yaml: yamlString) as? [String: Any] else { // silent: guard-else provides descriptive error
-            throw IJSError.configurationError(reason: "Invalid YAML structure in manifest")
+        let root: [String: Any]
+        do {
+            guard let parsed = try Yams.load(yaml: yamlString) as? [String: Any] else {
+                throw IJSError.configurationError(reason: "Invalid YAML structure in manifest")
+            }
+            root = parsed
+        } catch let ijsError as IJSError {
+            throw ijsError
+        } catch {
+            logger.warning("Failed to parse manifest YAML: \(error.localizedDescription, privacy: .public)")
+            throw IJSError.configurationError(reason: "Invalid YAML structure in manifest: \(error.localizedDescription)")
         }
 
         // Parse groups section (may exist even without projects)
@@ -127,30 +143,88 @@ public struct CorpusManifest: Sendable, Codable, Equatable {
             guard let entryDict = value as? [String: Any] else { continue }
             guard let lifecycleRaw = entryDict["lifecycle"] as? String,
                   let lifecycle = ProjectLifecycle(rawValue: lifecycleRaw) else { continue }
-            guard let changedAtString = entryDict["changedAt"] as? String else { continue }
-
             let changedAt: Date
-            let iso8601Formatter = ISO8601DateFormatter()
-            iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let parsed = iso8601Formatter.date(from: changedAtString) {
-                changedAt = parsed
-            } else {
-                let fallbackFormatter = ISO8601DateFormatter()
-                fallbackFormatter.formatOptions = [.withInternetDateTime]
-                guard let fallbackParsed = fallbackFormatter.date(from: changedAtString) else {
-                    continue
+            if let changedAtDate = entryDict["changedAt"] as? Date {
+                changedAt = changedAtDate
+            } else if let changedAtString = entryDict["changedAt"] as? String {
+                let iso8601Formatter = ISO8601DateFormatter()
+                iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let parsed = iso8601Formatter.date(from: changedAtString) {
+                    changedAt = parsed
+                } else {
+                    let fallbackFormatter = ISO8601DateFormatter()
+                    fallbackFormatter.formatOptions = [.withInternetDateTime]
+                    guard let fallbackParsed = fallbackFormatter.date(from: changedAtString) else {
+                        continue
+                    }
+                    changedAt = fallbackParsed
                 }
-                changedAt = fallbackParsed
+            } else {
+                continue
             }
 
             let reason = entryDict["reason"] as? String
+            let tierOverride: ProjectTier?
+            if let tierRaw = entryDict["tierOverride"] as? String {
+                tierOverride = ProjectTier(rawValue: tierRaw)
+            } else {
+                tierOverride = nil
+            }
             entries[projectID] = CorpusManifestEntry(
                 lifecycle: lifecycle,
                 reason: reason,
-                changedAt: changedAt
+                changedAt: changedAt,
+                tierOverride: tierOverride
             )
         }
 
         return CorpusManifest(projects: entries, groups: parsedGroups)
+    }
+
+    /// Saves the manifest to a YAML file, preserving the expected format.
+    ///
+    /// - Parameter url: The file URL to write the manifest to.
+    /// - Throws: An error if the file cannot be written.
+    public func save(to url: URL) throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+
+        var lines: [String] = []
+        lines.append("# Generated by quality-gate")
+        lines.append("# Re-run generate-manifest to pick up new projects. Groups are preserved.")
+        lines.append("")
+        lines.append("projects:")
+
+        for projectID in projects.keys.sorted() {
+            guard let entry = projects[projectID] else { continue }
+            lines.append("  \(projectID):")
+            lines.append("    lifecycle: \(entry.lifecycle.rawValue)")
+            lines.append("    changedAt: \"\(formatter.string(from: entry.changedAt))\"")
+            if let reason = entry.reason {
+                lines.append("    reason: \"\(reason)\"")
+            }
+            if let tierOverride = entry.tierOverride {
+                lines.append("    tierOverride: \(tierOverride.rawValue)")
+            }
+        }
+
+        lines.append("")
+        lines.append("groups:")
+
+        if groups.isEmpty {
+            lines.append("  # No groups defined")
+        } else {
+            for groupName in groups.keys.sorted() {
+                let members = groups[groupName] ?? []
+                lines.append("  \(groupName):")
+                for member in members.sorted() {
+                    lines.append("    - \(member)")
+                }
+            }
+        }
+
+        lines.append("")
+        let yaml = lines.joined(separator: "\n")
+        try yaml.write(to: url, atomically: true, encoding: .utf8)
     }
 }

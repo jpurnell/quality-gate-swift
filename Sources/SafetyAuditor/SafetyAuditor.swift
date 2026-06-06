@@ -131,7 +131,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                 )
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// What kind of Swift project lives at a given root directory.
 ///
@@ -10,6 +11,7 @@ import Foundation
 ///   `~/Library/Developer/Xcode/DerivedData/`. No auto-build.
 /// - `.plain` — syntactic pass only; cross-module is skipped with a `.note`.
 public enum ProjectKind: Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ProjectKind")
     case swiftPM(packageRoot: URL)
     case xcworkspace(workspaceFile: URL, root: URL)
     case xcode(projectFile: URL, root: URL)
@@ -23,7 +25,11 @@ public enum ProjectKind: Sendable {
         if fm.fileExists(atPath: root.appendingPathComponent("Package.swift").path) { // SAFETY: CLI tool detects local project type
             return .swiftPM(packageRoot: root)
         }
-        guard let entries = try? fm.contentsOfDirectory(atPath: root.path) else { // SAFETY: CLI tool detects local project type // silent: directory may not be listable; falls back to .plain
+        let entries: [String]
+        do {
+            entries = try fm.contentsOfDirectory(atPath: root.path) // SAFETY: CLI tool detects local project type
+        } catch {
+            logger.warning("Could not list directory \(root.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return .plain(root: root)
         }
         for entry in entries.sorted() where entry.hasSuffix(".xcworkspace") {

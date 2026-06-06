@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftParser
 import SwiftSyntax
@@ -58,6 +59,8 @@ struct PinState: Sendable, Codable {
 /// ```
 public struct DependencyAuditor: QualityChecker, Sendable {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DependencyAuditor")
+
     /// Unique identifier for this checker.
     public let id = "dependency-audit"
 
@@ -83,10 +86,17 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         let hasRootManifest = FileManager.default.fileExists(atPath: packageSwiftPath) // SAFETY: CLI reads Package.swift from cwd
 
         var diagnostics: [Diagnostic] = []
-        let packageSwiftContent = hasRootManifest
-            // silent: missing Package.swift handled by empty string fallback
-            ? ((try? String(contentsOfFile: packageSwiftPath, encoding: .utf8)) ?? "")
-            : ""
+        let packageSwiftContent: String
+        if hasRootManifest {
+            do {
+                packageSwiftContent = try String(contentsOfFile: packageSwiftPath, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Failed to read Package.swift: \(error.localizedDescription, privacy: .public)")
+                packageSwiftContent = ""
+            }
+        } else {
+            packageSwiftContent = ""
+        }
         var pins: [ResolvedPin] = []
 
         // --- SPM-specific rules (require root Package.swift) ---
@@ -99,10 +109,14 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
             if resolvedExists {
                 if let data = FileManager.default.contents(atPath: resolvedPath), // SAFETY: reads local project file
-                   let json = String(data: data, encoding: .utf8),
-                   let resolved = try? Self.parsePackageResolved(json) { // silent: malformed Package.resolved handled gracefully
-                    resolvedPinCount = resolved.pins.count
-                    pins = resolved.pins
+                   let json = String(data: data, encoding: .utf8) {
+                    do {
+                        let resolved = try Self.parsePackageResolved(json)
+                        resolvedPinCount = resolved.pins.count
+                        pins = resolved.pins
+                    } catch {
+                        Self.logger.warning("Failed to parse Package.resolved: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             }
 
@@ -340,8 +354,13 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         let manifests = discoverPackageManifests(in: projectRoot)
         var manifestInfos: [(path: String, info: ManifestParser.ManifestInfo)] = []
         for manifestPath in manifests {
-            // silent: unreadable manifest files skipped gracefully
-            guard let content = try? String(contentsOfFile: manifestPath, encoding: .utf8) else { continue }
+            let content: String
+            do {
+                content = try String(contentsOfFile: manifestPath, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable manifest: \(manifestPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let info = ManifestParser.parse(source: content)
             manifestInfos.append((path: manifestPath, info: info))
             knownModules.formUnion(info.targetNames)
@@ -370,18 +389,25 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
         // Scan .build/checkouts/ for dependency-vended products and targets
         let checkoutsDir = (projectRoot as NSString).appendingPathComponent(".build/checkouts")
-        // silent: missing .build/checkouts is expected when dependencies aren't resolved yet
-        if let checkoutEntries = try? fm.contentsOfDirectory(atPath: checkoutsDir) { // SAFETY: CLI tool reads local .build/checkouts
+        do {
+            let checkoutEntries = try fm.contentsOfDirectory(atPath: checkoutsDir) // SAFETY: CLI tool reads local .build/checkouts
             for entry in checkoutEntries {
                 let depManifest = (checkoutsDir as NSString)
                     .appendingPathComponent(entry)
                     .appending("/Package.swift")
-                // silent: unreadable checkout manifests skipped gracefully
-                guard let content = try? String(contentsOfFile: depManifest, encoding: .utf8) else { continue }
+                let content: String
+                do {
+                    content = try String(contentsOfFile: depManifest, encoding: .utf8)
+                } catch {
+                    logger.warning("Skipping unreadable checkout manifest: \(depManifest, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    continue
+                }
                 let info = ManifestParser.parse(source: content)
                 knownModules.formUnion(info.productNames)
                 knownModules.formUnion(info.targetNames)
             }
+        } catch {
+            logger.warning("Could not list .build/checkouts directory: \(error.localizedDescription, privacy: .public)")
         }
 
         // Add user-configured additional modules
@@ -416,8 +442,13 @@ public struct DependencyAuditor: QualityChecker, Sendable {
                     guard !shouldExclude else { continue }
 
                     let fullPath = (dirPath as NSString).appendingPathComponent(relativePath)
-                    // silent: unreadable files skipped gracefully
-                    guard let content = try? String(contentsOfFile: fullPath, encoding: .utf8) else { continue }
+                    let content: String
+                    do {
+                        content = try String(contentsOfFile: fullPath, encoding: .utf8)
+                    } catch {
+                        logger.warning("Skipping unreadable source file: \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        continue
+                    }
                     let relativeToRoot = fullPath.hasPrefix(projectRoot)
                         ? String(fullPath.dropFirst(projectRoot.count + 1))
                         : fullPath
@@ -470,9 +501,11 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
     /// Parses resolved pins from JSON, handling both v1 and v2/v3 formats.
     static func parseResolvedPins(from json: String) -> [ResolvedPin] {
-        // silent: v2/v3 decode failure falls through to v1 parser
-        if let resolved = try? parsePackageResolved(json) {
+        do {
+            let resolved = try parsePackageResolved(json)
             return resolved.pins
+        } catch {
+            logger.warning("v2/v3 Package.resolved decode failed, trying v1: \(error.localizedDescription, privacy: .public)")
         }
         // Try v1 format: {"object": {"pins": [...]}, "version": 1}
         if let v1 = parsePackageResolvedV1(json) {
@@ -484,8 +517,14 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     /// Parses a v1 format Package.resolved into ResolvedPin array.
     static func parsePackageResolvedV1(_ json: String) -> [ResolvedPin]? {
         let data = Data(json.utf8)
-        // silent: JSON decoding of local file
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let obj: [String: Any]?
+        do {
+            obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        } catch {
+            logger.warning("Failed to parse v1 Package.resolved JSON: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let obj,
               let objectDict = obj["object"] as? [String: Any],
               let pinsArray = objectDict["pins"] as? [[String: Any]] else {
             return nil

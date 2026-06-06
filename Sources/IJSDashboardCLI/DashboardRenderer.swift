@@ -2,9 +2,11 @@ import Foundation
 import IJSAggregator
 import IJSDashboardCore
 import IJSSensor
+import os
 
 /// Renders dashboard summaries as formatted text or JSON.
 public enum DashboardRenderer: Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DashboardRenderer")
 
     // MARK: - Portfolio View
 
@@ -204,10 +206,14 @@ public enum DashboardRenderer: Sendable {
         }
         dict["projects"] = projectDicts
 
-        guard let data = try? JSONSerialization.data( // silent: JSON serialization of known-valid dictionary types cannot fail
-            withJSONObject: dict,
-            options: [.prettyPrinted, .sortedKeys]
-        ) else {
+        let data: Data
+        do {
+            data = try JSONSerialization.data(
+                withJSONObject: dict,
+                options: [.prettyPrinted, .sortedKeys]
+            )
+        } catch {
+            logger.warning("Failed to serialize portfolio JSON: \(error.localizedDescription, privacy: .public)")
             return "{}"
         }
         return String(data: data, encoding: .utf8) ?? "{}"

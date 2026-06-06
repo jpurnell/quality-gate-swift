@@ -123,7 +123,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let diags = auditSourceCode(source, fileName: fullPath, config: config)
                 diagnostics.append(contentsOf: diags)
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

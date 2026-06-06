@@ -482,6 +482,140 @@ struct TUIViewTests {
         #expect(state.selectedProjectID == "beta")
         #expect(state.currentView == .projectDetail)
     }
+    // MARK: - Status Tab
+
+    @Test("Detail view shows Status tab in tab bar")
+    func statusTabInTabBar() {
+        let project = makeProjectSummary(id: "test", passRate: 0.8)
+        var state = DashboardState(projectIDs: ["test"])
+        state.handleInput(.enter)
+        let output = ProjectDetailTUIView.render(
+            project: project,
+            trends: makeTrends(),
+            runs: [],
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("Status"))
+    }
+
+    @Test("Status tab renders current tier and quality score labels")
+    func statusTabRendersContent() {
+        let project = makeProjectSummary(id: "test", passRate: 0.8)
+        var state = DashboardState(projectIDs: ["test"])
+        state.handleInput(.enter)
+        // Navigate to status tab
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        let output = ProjectDetailTUIView.render(
+            project: project,
+            trends: makeTrends(),
+            runs: [],
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("Tier:"))
+        #expect(output.contains("Quality Score:"))
+        #expect(output.contains("Override Tier:"))
+    }
+
+    // MARK: - Group Rendering
+
+    @Test("Portfolio view renders group header with disclosure arrow")
+    func portfolioGroupHeaderDisclosureArrow() {
+        let projects = [
+            makeProjectSummary(id: "appA", passRate: 0.8),
+            makeProjectSummary(id: "appB", passRate: 0.6),
+            makeProjectSummary(id: "solo", passRate: 1.0),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["appA", "appB", "solo"])
+        state.updateGroups(["MyGroup": ["appA", "appB"]])
+        let allRuns: [String: [TimestampedRun]] = [:]
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: allRuns,
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("\u{25B6}") || output.contains("\u{25BC}"))
+        #expect(output.contains("MyGroup"))
+    }
+
+    @Test("Portfolio view shows expanded group members indented")
+    func portfolioExpandedGroupIndented() {
+        let projects = [
+            makeProjectSummary(id: "appA", passRate: 0.8),
+            makeProjectSummary(id: "appB", passRate: 0.6),
+            makeProjectSummary(id: "solo", passRate: 1.0),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["appA", "appB", "solo"])
+        state.updateGroups(["MyGroup": ["appA", "appB"]])
+        state.toggleGroup("MyGroup")
+        let allRuns: [String: [TimestampedRun]] = [:]
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: allRuns,
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("\u{25BC}"))
+        #expect(output.contains("appA"))
+        #expect(output.contains("appB"))
+    }
+
+    @Test("Portfolio view collapsed group hides members")
+    func portfolioCollapsedGroupHidesMembers() {
+        let projects = [
+            makeProjectSummary(id: "appA", passRate: 0.8),
+            makeProjectSummary(id: "appB", passRate: 0.6),
+            makeProjectSummary(id: "solo", passRate: 1.0),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["appA", "appB", "solo"])
+        state.updateGroups(["MyGroup": ["appA", "appB"]])
+        let allRuns: [String: [TimestampedRun]] = [:]
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: allRuns,
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("MyGroup"))
+        // Members should not appear as individual rows when collapsed
+        let lines = output.split(separator: "\n")
+        let projectLines = lines.filter { $0.contains("appA") || $0.contains("appB") }
+        #expect(projectLines.isEmpty)
+    }
+
+    @Test("Portfolio view ungrouped projects render without indent")
+    func portfolioUngroupedNoIndent() {
+        let projects = [
+            makeProjectSummary(id: "appA", passRate: 0.8),
+            makeProjectSummary(id: "solo", passRate: 1.0),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["appA", "solo"])
+        state.updateGroups(["G": ["appA"]])
+        let allRuns: [String: [TimestampedRun]] = [:]
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio,
+            projects: projects,
+            allRuns: allRuns,
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("solo"))
+    }
 }
 
 // MARK: - Test Helpers

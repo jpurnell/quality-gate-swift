@@ -1,4 +1,4 @@
-import ArgumentParser // logging: CLI tool — print() is appropriate for user-facing output
+import ArgumentParser
 import Foundation
 import QualityGateCore
 import IJSSensor
@@ -55,7 +55,7 @@ struct Dashboard: AsyncParsableCommand {
             let rebaseApply = "\(gitDir)/rebase-apply"
             // SAFETY: paths derived from configured corpus gitDir — no user-controlled traversal
             if fm.fileExists(atPath: rebaseMerge) || fm.fileExists(atPath: rebaseApply) {
-                print("[dashboard] Recovering from interrupted rebase…") // logging: CLI user-facing output
+                print("[dashboard] Recovering from interrupted rebase…")
                 _ = try git(["rebase", "--abort"])
             }
 
@@ -70,20 +70,20 @@ struct Dashboard: AsyncParsableCommand {
             if pull.exitCode != 0 {
                 // Rebase conflict — abort and retry with merge, accepting remote for telemetry data
                 _ = try git(["rebase", "--abort"])
-                print("[dashboard] Rebase conflict detected — retrying with merge strategy") // logging: CLI user-facing output
+                print("[dashboard] Rebase conflict detected — retrying with merge strategy")
                 let mergePull = try git(["pull", "--no-rebase", "--strategy-option", "theirs", "--quiet"])
                 if mergePull.exitCode != 0 {
-                    print("[dashboard] Warning: corpus pull failed (exit \(mergePull.exitCode)) — using local data") // logging: CLI user-facing output
+                    print("[dashboard] Warning: corpus pull failed (exit \(mergePull.exitCode)) — using local data")
                     return
                 }
             }
 
             let push = try git(["push", "--quiet"])
             if push.exitCode != 0 {
-                print("[dashboard] Warning: corpus push failed (exit \(push.exitCode)) — local commit preserved") // logging: CLI user-facing output
+                print("[dashboard] Warning: corpus push failed (exit \(push.exitCode)) — local commit preserved")
             }
-        } catch { // logging: non-fatal sync failure — fall back to local corpus data
-            print("[dashboard] Warning: corpus sync failed (\(error.localizedDescription)) — using local data") // logging: CLI user-facing output
+        } catch {
+            print("[dashboard] Warning: corpus sync failed (\(error.localizedDescription)) — using local data")
         }
     }
 
@@ -100,14 +100,14 @@ struct Dashboard: AsyncParsableCommand {
         var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
-        } catch { // logging: falling back to default configuration
+        } catch {
             configuration = Configuration()
         }
 
         let effectiveCorpusPath = corpusPath ?? configuration.consistency.corpusPath
         guard let effectiveCorpusPath else {
-            print("[dashboard] Error: No corpus path configured.") // logging: CLI user-facing output
-            print("[dashboard] Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.") // logging: CLI user-facing output
+            print("[dashboard] Error: No corpus path configured.")
+            print("[dashboard] Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")
             throw ExitCode(1)
         }
 
@@ -118,21 +118,21 @@ struct Dashboard: AsyncParsableCommand {
         do {
             allRuns = try reader.loadAll()
         } catch {
-            print("[dashboard] Error: Failed to read corpus: \(error.localizedDescription)") // logging: CLI user-facing output
+            print("[dashboard] Error: Failed to read corpus: \(error.localizedDescription)")
             throw ExitCode(1)
         }
 
         let manifest: CorpusManifest
         do {
             manifest = try reader.loadManifest()
-        } catch { // logging: manifest is optional; missing file treated as all-active
+        } catch {
             manifest = CorpusManifest()
         }
 
         if let projectID = project {
             let runs = allRuns[projectID] ?? []
             guard !runs.isEmpty else {
-                print("[dashboard] No data found for project: \(projectID)") // logging: CLI user-facing output
+                print("[dashboard] No data found for project: \(projectID)")
                 throw ExitCode(1)
             }
             let lifecycle = manifest.lifecycle(for: projectID)
@@ -141,9 +141,9 @@ struct Dashboard: AsyncParsableCommand {
 
             if outputFormat == "json" {
                 let portfolio = PortfolioSummary.compute(from: [projectSummary])
-                print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: [projectSummary])) // logging: CLI user-facing output
+                print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: [projectSummary]))
             } else {
-                print(DashboardRenderer.renderProjectDetail(projectSummary, trends: trends)) // logging: CLI user-facing output
+                print(DashboardRenderer.renderProjectDetail(projectSummary, trends: trends))
             }
             return
         }
@@ -178,16 +178,16 @@ struct Dashboard: AsyncParsableCommand {
                 outputPath = "\(pulseDir)/REPORT_\(pulseLabel).html" // SAFETY: child of configured corpus path
             }
             try Data(html.utf8).write(to: URL(fileURLWithPath: outputPath)) // SAFETY: writes to configured corpus or user-specified path
-            print("[dashboard] HTML report written to \(outputPath)") // logging: CLI user-facing output
+            print("[dashboard] HTML report written to \(outputPath)")
             return
         }
 
         if outputFormat == "json" {
-            print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: projects)) // logging: CLI user-facing output
+            print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: projects))
         } else if summary {
-            print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse)) // logging: CLI user-facing output
+            print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse))
         } else {
-            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, initialWeek: week)
+            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }
     }
 }

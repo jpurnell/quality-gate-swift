@@ -1,6 +1,7 @@
 import Foundation
-import QualityGateCore
 import IndexStoreDB
+import os
+import QualityGateCore
 
 /// Cross-module dead-code analysis backed by IndexStoreDB (v3).
 ///
@@ -10,6 +11,7 @@ import IndexStoreDB
 /// top-level statements in `main.swift`), and reports any checkable
 /// symbol that the walk does not reach.
 struct IndexStorePass {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "IndexStorePass")
 
     struct Inputs {
         /// Root of the project being audited (for source enumeration).
@@ -48,7 +50,13 @@ struct IndexStorePass {
         let dbPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("quality-gate-indexdb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dbPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dbPath) } // silent: best-effort cleanup of temp index DB
+        defer {
+            do {
+                try FileManager.default.removeItem(at: dbPath)
+            } catch {
+                logger.warning("Failed to clean up temp index DB at \(dbPath.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
 
         let db = try IndexStoreDB(
             storePath: inputs.indexStorePath.path,
@@ -68,7 +76,13 @@ struct IndexStorePass {
         let swiftFiles = rawSwiftFiles.map { canonicalize($0) }
         for (idx, file) in swiftFiles.enumerated() {
             let rawFile = rawSwiftFiles[idx]
-            guard let src = try? String(contentsOfFile: rawFile, encoding: .utf8) else { continue } // silent: unreadable source file skipped
+            let src: String
+            do {
+                src = try String(contentsOfFile: rawFile, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable source file \(rawFile, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             liveness.ingest(file: file, source: src)
         }
 

@@ -1,5 +1,6 @@
 import Foundation
 import IndexStoreDB
+import os
 
 /// Wraps IndexStoreDB initialization into a reusable session.
 ///
@@ -9,6 +10,7 @@ import IndexStoreDB
 /// instance via `db`.
 // Justification: IndexStoreDB is not Sendable but the session is created once and queried read-only from a single task.
 public final class IndexStoreSession: @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "IndexStoreSession")
 
     /// The ready-to-query IndexStoreDB instance opened by this session.
     public let db: IndexStoreDB
@@ -38,7 +40,11 @@ public final class IndexStoreSession: @unchecked Sendable {
     }
 
     deinit {
-        try? FileManager.default.removeItem(at: tempDir) // silent: best-effort temp directory cleanup in deinit
+        do {
+            try FileManager.default.removeItem(at: tempDir)
+        } catch {
+            Self.logger.warning("Failed to clean up temp directory \(self.tempDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Locates `libIndexStore.dylib` from the active Xcode toolchain.
@@ -65,7 +71,7 @@ public final class IndexStoreSession: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-        } catch { // logging: xcrun failure is expected when Xcode is not installed; caller falls back to nil
+        } catch {
             return nil
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()

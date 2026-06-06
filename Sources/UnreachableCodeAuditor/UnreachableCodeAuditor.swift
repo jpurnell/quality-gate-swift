@@ -1,8 +1,9 @@
 import Foundation
-import QualityGateCore
 import IndexStoreInfra
-import SwiftSyntax
+import os
+import QualityGateCore
 import SwiftParser
+import SwiftSyntax
 
 /// Scans Swift source files for syntactically unreachable code.
 ///
@@ -21,6 +22,7 @@ import SwiftParser
 /// let result = try await auditor.check(configuration: config)
 /// ```
 public struct UnreachableCodeAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "UnreachableCodeAuditor")
 
     /// Unique identifier for this checker.
     public let id = "unreachable"
@@ -73,7 +75,13 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             under: kind.rootURL,
             excludePatterns: configuration.excludePatterns)
         for file in swiftFiles {
-            guard let src = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable source file skipped
+            let src: String
+            do {
+                src = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Skipping unreadable source file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             diagnostics.append(contentsOf: analyze(source: src, fileName: file))
         }
 
@@ -112,8 +120,12 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             let targetTypeByModule: [String: String]
             switch kind {
             case .swiftPM(let pkgRoot):
-                // silent: SPM describe failure falls back to empty type map
-                targetTypeByModule = (try? Self.describeTargetTypes(packageRoot: pkgRoot)) ?? [:]
+                do {
+                    targetTypeByModule = try Self.describeTargetTypes(packageRoot: pkgRoot)
+                } catch {
+                    Self.logger.warning("SPM describe failed, falling back to empty type map: \(error.localizedDescription, privacy: .public)")
+                    targetTypeByModule = [:]
+                }
             case .xcode, .xcworkspace, .plain:
                 targetTypeByModule = [:]   // synthesized via heuristic
             }
@@ -125,9 +137,9 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 targetTypeByModule: targetTypeByModule
             )
             diagnostics.append(contentsOf: try IndexStorePass.run(inputs: inputs))
-        } catch SkipMarker.skipped { // logging: skip note already added above
+        } catch SkipMarker.skipped {
             // Already added a .note above.
-        } catch { // logging: error captured as Diagnostic
+        } catch {
             diagnostics.append(Diagnostic(
                 severity: .note,
                 message: "Cross-module pass skipped: \(error.localizedDescription)",

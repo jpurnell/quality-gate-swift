@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Executes `swift test` with parallel workers and reports results.
@@ -23,6 +24,8 @@ import QualityGateCore
 /// test_filter: "MyTests" # Run only matching tests
 /// ```
 public struct TestRunner: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "TestRunner")
+
     /// Unique identifier for this checker.
     public let id = "test"
 
@@ -87,7 +90,8 @@ public struct TestRunner: QualityChecker, Sendable {
         // Test "name" recorded an issue at File.swift:line:column: message
         let swiftTestingPattern = #"Test \"[^\"]+\" recorded an issue at ([^:]+):(\d+):(\d+): (.+)$"#
 
-        if let regex = try? NSRegularExpression(pattern: swiftTestingPattern, options: .anchorsMatchLines) { // silent: constant regex pattern
+        do {
+            let regex = try NSRegularExpression(pattern: swiftTestingPattern, options: .anchorsMatchLines)
             let range = NSRange(output.startIndex..., in: output)
             let matches = regex.matches(in: output, options: [], range: range)
 
@@ -115,13 +119,16 @@ public struct TestRunner: QualityChecker, Sendable {
                     ruleId: "test-failure"
                 ))
             }
+        } catch {
+            logger.warning("Failed to compile Swift Testing regex: \(error.localizedDescription, privacy: .public)")
         }
 
         // Parse XCTest format:
         // /path/to/File.swift:line: error: -[TestClass testMethod] : message
         let xcTestPattern = #"^(.+?):(\d+): error: -\[[^\]]+\] : (.+)$"#
 
-        if let regex = try? NSRegularExpression(pattern: xcTestPattern, options: .anchorsMatchLines) { // silent: constant regex pattern
+        do {
+            let regex = try NSRegularExpression(pattern: xcTestPattern, options: .anchorsMatchLines)
             let range = NSRange(output.startIndex..., in: output)
             let matches = regex.matches(in: output, options: [], range: range)
 
@@ -146,6 +153,8 @@ public struct TestRunner: QualityChecker, Sendable {
                     ruleId: "test-failure"
                 ))
             }
+        } catch {
+            logger.warning("Failed to compile XCTest regex: \(error.localizedDescription, privacy: .public)")
         }
 
         return diagnostics
@@ -164,32 +173,44 @@ public struct TestRunner: QualityChecker, Sendable {
         let failedNoCountPattern = #"Test run with (\d+) tests.*failed"#
 
         // Try failed with issue count first
-        if let regex = try? NSRegularExpression(pattern: failedPattern), // silent: constant regex pattern
-           let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
-            if let totalRange = Range(match.range(at: 1), in: output),
-               let failedRange = Range(match.range(at: 2), in: output),
-               let total = Int(output[totalRange]),
-               let failed = Int(output[failedRange]) {
-                return TestSummary(totalTests: total, failedTests: failed)
+        do {
+            let regex = try NSRegularExpression(pattern: failedPattern)
+            if let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
+                if let totalRange = Range(match.range(at: 1), in: output),
+                   let failedRange = Range(match.range(at: 2), in: output),
+                   let total = Int(output[totalRange]),
+                   let failed = Int(output[failedRange]) {
+                    return TestSummary(totalTests: total, failedTests: failed)
+                }
             }
+        } catch {
+            logger.warning("Failed to compile test summary failed-pattern regex: \(error.localizedDescription, privacy: .public)")
         }
 
         // Try failed without issue count
-        if let regex = try? NSRegularExpression(pattern: failedNoCountPattern), // silent: constant regex pattern
-           let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
-            if let totalRange = Range(match.range(at: 1), in: output),
-               let total = Int(output[totalRange]) {
-                return TestSummary(totalTests: total, failedTests: 1)
+        do {
+            let regex = try NSRegularExpression(pattern: failedNoCountPattern)
+            if let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
+                if let totalRange = Range(match.range(at: 1), in: output),
+                   let total = Int(output[totalRange]) {
+                    return TestSummary(totalTests: total, failedTests: 1)
+                }
             }
+        } catch {
+            logger.warning("Failed to compile test summary failed-no-count regex: \(error.localizedDescription, privacy: .public)")
         }
 
         // Try passed
-        if let regex = try? NSRegularExpression(pattern: passedPattern), // silent: constant regex pattern
-           let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
-            if let totalRange = Range(match.range(at: 1), in: output),
-               let total = Int(output[totalRange]) {
-                return TestSummary(totalTests: total, failedTests: 0)
+        do {
+            let regex = try NSRegularExpression(pattern: passedPattern)
+            if let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)) {
+                if let totalRange = Range(match.range(at: 1), in: output),
+                   let total = Int(output[totalRange]) {
+                    return TestSummary(totalTests: total, failedTests: 0)
+                }
             }
+        } catch {
+            logger.warning("Failed to compile test summary passed-pattern regex: \(error.localizedDescription, privacy: .public)")
         }
 
         return nil

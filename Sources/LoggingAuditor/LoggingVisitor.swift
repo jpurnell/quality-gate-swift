@@ -19,6 +19,7 @@ final class LoggingVisitor: SyntaxVisitor {
     let silentTryKeyword: String
     let allowedSilentTryFunctions: Set<String>
     let loggerNames: Set<String>
+    let isCLI: Bool
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
 
@@ -32,13 +33,15 @@ final class LoggingVisitor: SyntaxVisitor {
         sourceLines: [String],
         silentTryKeyword: String,
         allowedSilentTryFunctions: Set<String>,
-        customLoggerNames: [String]
+        customLoggerNames: [String],
+        isCLI: Bool = false
     ) {
         self.fileName = fileName
         self.converter = converter
         self.sourceLines = sourceLines
         self.silentTryKeyword = silentTryKeyword
         self.allowedSilentTryFunctions = allowedSilentTryFunctions
+        self.isCLI = isCLI
 
         // Built-in logger names + custom ones
         var names: Set<String> = [
@@ -110,18 +113,20 @@ final class LoggingVisitor: SyntaxVisitor {
             let name = declRef.baseName.text
             if name == "print" || name == "debugPrint" {
                 hasPrintOrNSLog = true
-                let line = startLine(of: Syntax(node))
-                if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.print-statement") {
-                    overrides.append(override)
-                } else {
-                    diagnostics.append(Diagnostic(
-                        severity: .error,
-                        message: "print() should not be used in production code; use os.Logger instead",
-                        filePath: fileName,
-                        lineNumber: line,
-                        ruleId: "logging.print-statement",
-                        suggestedFix: "Replace print() with os.Logger"
-                    ))
+                if !isCLI {
+                    let line = startLine(of: Syntax(node))
+                    if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.print-statement") {
+                        overrides.append(override)
+                    } else {
+                        diagnostics.append(Diagnostic(
+                            severity: .error,
+                            message: "print() should not be used in production code; use os.Logger instead",
+                            filePath: fileName,
+                            lineNumber: line,
+                            ruleId: "logging.print-statement",
+                            suggestedFix: "Replace print() with os.Logger"
+                        ))
+                    }
                 }
             } else if name == "NSLog" {
                 hasPrintOrNSLog = true
@@ -312,7 +317,7 @@ final class LoggingVisitor: SyntaxVisitor {
     // MARK: - Rule 3: no-os-logger-import (end of file)
 
     override func visitPost(_ node: SourceFileSyntax) {
-        if hasPrintOrNSLog && !hasOSImport {
+        if hasPrintOrNSLog && !hasOSImport && !isCLI {
             if let exempt = overrideIfExempted(line: 1, keyword: "logging:", ruleId: "logging.no-os-logger-import") {
                 overrides.append(exempt)
             } else {

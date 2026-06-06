@@ -1,11 +1,13 @@
 import Foundation
 import IJSSensor
+import os
 import Yams
 
 /// Configuration for IJS telemetry aggregation.
 ///
 /// Loaded from the `ijs:` section of `.quality-gate.yml` in the project root.
 public struct TelemetryConfiguration: Sendable, Codable, Equatable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "TelemetryConfiguration")
     /// Repository or project identifier.
     public let projectID: String
     /// Absolute path to the telemetry corpus root directory.
@@ -52,8 +54,17 @@ public struct TelemetryConfiguration: Sendable, Codable, Equatable {
             throw IJSError.configurationError(reason: "Cannot read file: \(error.localizedDescription)")
         }
 
-        guard let root = try? Yams.load(yaml: yamlString) as? [String: Any] else { // silent: guard-else handles parse failure with descriptive error
-            throw IJSError.configurationError(reason: "Invalid YAML structure")
+        let root: [String: Any]
+        do {
+            guard let parsed = try Yams.load(yaml: yamlString) as? [String: Any] else {
+                throw IJSError.configurationError(reason: "Invalid YAML structure")
+            }
+            root = parsed
+        } catch let ijsError as IJSError {
+            throw ijsError
+        } catch {
+            logger.warning("Failed to parse configuration YAML: \(error.localizedDescription, privacy: .public)")
+            throw IJSError.configurationError(reason: "Invalid YAML structure: \(error.localizedDescription)")
         }
 
         guard let ijsSection = root["ijs"] as? [String: Any] else {

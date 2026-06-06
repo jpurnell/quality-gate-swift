@@ -1,5 +1,6 @@
 import Foundation
 import IJSSensor
+import os
 
 /// Writes and reads IJS telemetry artifacts as JSON files in the corpus.
 ///
@@ -8,6 +9,7 @@ import IJSSensor
 /// same daily directory are safe because filenames include HHmmss timestamps.
 public actor TelemetryWriter {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "TelemetryWriter")
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -165,12 +167,15 @@ public actor TelemetryWriter {
         let baseURL = URL(fileURLWithPath: corpusPath.basePath)
             .standardized.resolvingSymlinksInPath()
 
-        // silent: best-effort directory listing, returns nil/empty on failure
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: pulseRootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: .skipsHiddenFiles
-        ) else {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: pulseRootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            Self.logger.warning("Failed to list pulse directory \(pulseRootURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
 
@@ -241,7 +246,6 @@ public actor TelemetryWriter {
 
         // Try YYYY-WNN
         if label.count == 8, label.dropFirst(4).hasPrefix("-W") {
-            // silent: invalid week format returns nil
             guard let year = Int(label.prefix(4)),
                   let week = Int(label.suffix(2)),
                   week >= 1, week <= 53 else {
@@ -309,12 +313,15 @@ public actor TelemetryWriter {
         let startDay = dayFormatter.string(from: startDate)
         let endDay = dayFormatter.string(from: endDate)
 
-        // silent: best-effort directory listing, returns nil/empty on failure
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: scopeDir,
-            includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles
-        ) else {
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: scopeDir,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            Self.logger.warning("Failed to list snapshot directory \(scopeDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
 
@@ -491,12 +498,15 @@ public actor TelemetryWriter {
         let startDay = dayFormatter.string(from: startDate)
         let endDay = dayFormatter.string(from: endDate)
 
-        // silent: best-effort directory listing, returns nil/empty on failure
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: projectURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: .skipsHiddenFiles
-        ) else {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: projectURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            Self.logger.warning("Failed to list project directory \(projectURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
 
@@ -520,12 +530,15 @@ public actor TelemetryWriter {
         in directory: URL,
         decoder: JSONDecoder
     ) throws -> [CheckResultMetadata] {
-        // silent: best-effort directory listing, returns nil/empty on failure
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles
-        ) else {
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            logger.warning("Failed to list metadata directory \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
         return try files
@@ -546,12 +559,15 @@ public actor TelemetryWriter {
         in directory: URL,
         decoder: JSONDecoder
     ) throws -> [JudgmentCalibration] {
-        // silent: best-effort directory listing, returns nil/empty on failure
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles
-        ) else {
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            logger.warning("Failed to list calibration directory \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
         return try files
@@ -572,12 +588,15 @@ public actor TelemetryWriter {
         in directory: URL,
         decoder: JSONDecoder
     ) throws -> [ComplexityReport] {
-        // silent: best-effort directory listing, returns nil/empty on failure
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: .skipsHiddenFiles
-        ) else {
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            logger.warning("Failed to list complexity directory \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
         return try files

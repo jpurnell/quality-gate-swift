@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Checks release readiness by scanning for changelog entries, README markers, and source TODOs.
@@ -10,6 +11,8 @@ import QualityGateCore
 ///
 /// This auditor is file-based and does not require SwiftSyntax.
 public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ReleaseReadinessAuditor")
 
     /// Unique identifier used to tag diagnostics from this checker.
     public let id = "release-readiness"
@@ -44,7 +47,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 diagnostics.append(
                     contentsOf: Self.checkChangelog(content: content, version: version)
                 )
-            } catch { // logging: error captured as Diagnostic
+            } catch {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Could not read CHANGELOG at \(config.changelogPath): \(error.localizedDescription)",
@@ -75,7 +78,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         filePath: readmeFullPath
                     )
                 )
-            } catch { // logging: error captured as Diagnostic
+            } catch {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Could not read README at \(config.readmePath): \(error.localizedDescription)",
@@ -184,9 +187,13 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         let markerPatterns: [(String, Regex<AnyRegexOutput>)] = markers.compactMap { marker in
             let escaped = NSRegularExpression.escapedPattern(for: marker)
-            // silent: NSRegularExpression.escapedPattern guarantees valid regex input
-            guard let pattern = try? Regex("(?i)\\b\(escaped)\\b") else { return nil }
-            return (marker.uppercased(), pattern)
+            do {
+                let pattern = try Regex("(?i)\\b\(escaped)\\b")
+                return (marker.uppercased(), pattern)
+            } catch {
+                logger.warning("Failed to compile regex for marker '\(marker, privacy: .public)': \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
         }
 
         for (index, line) in lines.enumerated() {
@@ -293,7 +300,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 return String(trimmed.dropFirst())
             }
             return trimmed.isEmpty ? nil : trimmed
-        } catch { // logging: git describe failure is expected when no tags exist
+        } catch {
             return nil
         }
     }
@@ -327,7 +334,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         return String(match.1)
                     }
                 }
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }
@@ -374,7 +381,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         requireIssueReference: requireIssueReference
                     )
                 )
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

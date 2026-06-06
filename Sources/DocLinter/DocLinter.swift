@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Lints DocC documentation for errors and warnings.
@@ -14,6 +15,8 @@ import QualityGateCore
 /// let result = try await linter.check(configuration: config)
 /// ```
 public struct DocLinter: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DocLinter")
+
     /// Unique identifier for this checker.
     public let id = "doc-lint"
 
@@ -51,7 +54,13 @@ public struct DocLinter: QualityChecker, Sendable {
         // Build the command arguments
         var arguments = ["package", "generate-documentation"]
 
-        let packageContent = (try? String(contentsOfFile: packagePath, encoding: .utf8)) ?? "" // silent: missing Package.swift handled by empty fallback
+        let packageContent: String
+        do {
+            packageContent = try String(contentsOfFile: packagePath, encoding: .utf8)
+        } catch {
+            Self.logger.warning("Failed to read Package.swift: \(error.localizedDescription, privacy: .public)")
+            packageContent = ""
+        }
 
         if let target = Self.resolveDocTarget(
             configured: configuration.docTarget,
@@ -70,7 +79,7 @@ public struct DocLinter: QualityChecker, Sendable {
                 arguments: arguments,
                 currentDirectory: FileManager.default.currentDirectoryPath
             )
-        } catch { // logging: error captured as Diagnostic
+        } catch {
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,
@@ -137,12 +146,24 @@ public struct DocLinter: QualityChecker, Sendable {
         // Pattern for file:line:column: severity: message
         // Example: /path/to/Sources/Module/File.swift:10:5: warning: No documentation for 'myFunc'
         let fileLocationPattern = #"^(.+?):(\d+):(\d+):\s*(warning|error|note):\s*(.+)$"#
-        let fileLocationRegex = try? NSRegularExpression(pattern: fileLocationPattern, options: []) // silent: constant regex pattern
+        let fileLocationRegex: NSRegularExpression?
+        do {
+            fileLocationRegex = try NSRegularExpression(pattern: fileLocationPattern, options: [])
+        } catch {
+            logger.warning("Failed to compile file-location regex: \(error.localizedDescription, privacy: .public)")
+            fileLocationRegex = nil
+        }
 
         // Pattern for simple severity: message
         // Example: warning: 'MyType' doesn't exist at '/MyModule/MyType'
         let simplePattern = #"^(warning|error|note):\s*(.+)$"#
-        let simpleRegex = try? NSRegularExpression(pattern: simplePattern, options: []) // silent: constant regex pattern
+        let simpleRegex: NSRegularExpression?
+        do {
+            simpleRegex = try NSRegularExpression(pattern: simplePattern, options: [])
+        } catch {
+            logger.warning("Failed to compile simple-severity regex: \(error.localizedDescription, privacy: .public)")
+            simpleRegex = nil
+        }
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -235,10 +256,16 @@ public struct DocLinter: QualityChecker, Sendable {
     public static func parseLibraryTarget(from packageContent: String) -> String? {
         guard !packageContent.isEmpty else { return nil }
         let pattern = #"\.library\s*\([\s\S]*?targets:\s*\[\s*"([^"]+)""#
-        guard let regex = try? NSRegularExpression( // silent: invalid regex returns nil handled by guard
-            pattern: pattern,
-            options: [.dotMatchesLineSeparators]
-        ) else { return nil }
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(
+                pattern: pattern,
+                options: [.dotMatchesLineSeparators]
+            )
+        } catch {
+            logger.warning("Failed to compile library-target regex: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
         let range = NSRange(packageContent.startIndex..., in: packageContent)
         guard let match = regex.firstMatch(in: packageContent, range: range),
               let targetRange = Range(match.range(at: 1), in: packageContent) else {
@@ -368,7 +395,13 @@ public struct DocLinter: QualityChecker, Sendable {
         var locations: [SourceLocation] = []
 
         for file in files {
-            guard let content = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable file skipped
+            let content: String
+            do {
+                content = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let lines = content.components(separatedBy: .newlines)
 
             for (lineIndex, line) in lines.enumerated() {
@@ -431,7 +464,13 @@ public struct DocLinter: QualityChecker, Sendable {
         var locations: [SourceLocation] = []
 
         for file in files {
-            guard let content = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable file skipped
+            let content: String
+            do {
+                content = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let lines = content.components(separatedBy: .newlines)
             let isMarkdown = file.hasSuffix(".md")
 
@@ -459,8 +498,14 @@ public struct DocLinter: QualityChecker, Sendable {
     /// - Returns: The parameter name, or nil if the message doesn't reference a parameter.
     public static func extractParameterName(from message: String) -> String? {
         let pattern = #"Parameter '(\w+)'"#
-        guard let regex = try? NSRegularExpression(pattern: pattern), // silent: constant regex pattern
-              let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.warning("Failed to compile parameter-name regex: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
               let nameRange = Range(match.range(at: 1), in: message) else {
             return nil
         }
@@ -473,8 +518,14 @@ public struct DocLinter: QualityChecker, Sendable {
     /// - Returns: The symbol name and context path, or nil.
     public static func extractSymbolReference(from message: String) -> SymbolReference? {
         let pattern = #"'(\w+)' doesn't exist at '(/[^']+)'"#
-        guard let regex = try? NSRegularExpression(pattern: pattern), // silent: constant regex pattern
-              let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.warning("Failed to compile symbol-reference regex: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let match = regex.firstMatch(in: message, range: NSRange(message.startIndex..., in: message)),
               let symbolRange = Range(match.range(at: 1), in: message),
               let pathRange = Range(match.range(at: 2), in: message) else {
             return nil
@@ -508,10 +559,22 @@ public struct DocLinter: QualityChecker, Sendable {
     ) -> [SourceLocation] {
         let escapedName = NSRegularExpression.escapedPattern(for: paramName)
         let paramPattern = #"(?:^|[(,])\s*"# + escapedName + #"\s*:"#
-        guard let paramRegex = try? NSRegularExpression(pattern: paramPattern) else { return [] } // silent: constant regex pattern
+        let paramRegex: NSRegularExpression
+        do {
+            paramRegex = try NSRegularExpression(pattern: paramPattern)
+        } catch {
+            logger.warning("Failed to compile parameter regex: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
 
         return files.flatMap { file -> [SourceLocation] in
-            guard let content = try? String(contentsOfFile: file, encoding: .utf8) else { return [] } // silent: unreadable file skipped
+            let content: String
+            do {
+                content = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return []
+            }
             return scanFileForParameter(content, file: file, paramRegex: paramRegex)
         }
     }
@@ -570,7 +633,13 @@ public struct DocLinter: QualityChecker, Sendable {
         var locations: [SourceLocation] = []
 
         for file in files {
-            guard let content = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: unreadable file skipped
+            let content: String
+            do {
+                content = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let lines = content.components(separatedBy: .newlines)
 
             for (lineIndex, line) in lines.enumerated() {

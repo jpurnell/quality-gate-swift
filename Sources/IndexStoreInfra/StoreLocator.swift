@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Locates and ensures freshness of compiler index stores for Swift projects.
@@ -6,6 +7,7 @@ import QualityGateCore
 /// Supports SwiftPM (auto-build), Xcode (DerivedData lookup), and
 /// xcworkspace project types. Plain directories return `nil`.
 public enum StoreLocator {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "StoreLocator")
 
     /// Errors thrown during index-store location or build operations.
     public enum Error: LocalizedError {
@@ -177,7 +179,11 @@ public enum StoreLocator {
     ) -> URL? {
         let fm = FileManager.default
         let sanitized = projectName.replacingOccurrences(of: " ", with: "_")
-        guard let entries = try? fm.contentsOfDirectory(atPath: derivedDataRoot.path) else { // SAFETY: CLI tool scans local DerivedData // silent: DerivedData directory may not exist
+        let entries: [String]
+        do {
+            entries = try fm.contentsOfDirectory(atPath: derivedDataRoot.path) // SAFETY: CLI tool scans local DerivedData
+        } catch {
+            logger.warning("Could not list DerivedData at \(derivedDataRoot.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
         var matches: [(URL, Date)] = []
@@ -191,16 +197,33 @@ public enum StoreLocator {
             guard fm.fileExists(atPath: store.path) else { continue } // SAFETY: CLI tool checks local index store path
 
             let infoPlist = entryDir.appendingPathComponent("info.plist")
-            if let data = try? Data(contentsOf: infoPlist), // silent: info.plist may not exist or be unreadable
-               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil), // silent: plist may be malformed
-               let dict = plist as? [String: Any],
-               let ws = dict["WorkspacePath"] as? String {
-                let canonicalWS = URL(fileURLWithPath: ws).resolvingSymlinksInPath().path
-                let canonicalProj = projectPath.resolvingSymlinksInPath().path
-                if canonicalWS != canonicalProj { continue }
+            do {
+                let data = try Data(contentsOf: infoPlist)
+                let plist: Any
+                do {
+                    plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+                } catch {
+                    logger.warning("Malformed plist at \(infoPlist.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    plist = [:] as [String: Any]
+                }
+                if let dict = plist as? [String: Any],
+                   let ws = dict["WorkspacePath"] as? String {
+                    let canonicalWS = URL(fileURLWithPath: ws).resolvingSymlinksInPath().path
+                    let canonicalProj = projectPath.resolvingSymlinksInPath().path
+                    if canonicalWS != canonicalProj { continue }
+                }
+            } catch {
+                logger.warning("Could not read info.plist at \(infoPlist.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
 
-            let mtime = (try? fm.attributesOfItem(atPath: store.path)[.modificationDate] as? Date) ?? .distantPast // SAFETY: CLI tool reads local index store attributes // silent: falls back to .distantPast if attributes unreadable
+            let mtime: Date
+            do {
+                let attrs = try fm.attributesOfItem(atPath: store.path) // SAFETY: CLI tool reads local index store attributes
+                mtime = (attrs[.modificationDate] as? Date) ?? .distantPast
+            } catch {
+                logger.warning("Could not read attributes for \(store.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                mtime = .distantPast
+            }
             matches.append((store, mtime))
         }
         return matches.max(by: { $0.1 < $1.1 })?.0
@@ -245,8 +268,13 @@ public enum StoreLocator {
 
     /// Returns the modification date of the file at `url`, or nil if unavailable.
     public static func mtime(of url: URL) -> Date? {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) // SAFETY: CLI tool reads local file attributes // silent: returns nil if file attributes unavailable
-        return attrs?[.modificationDate] as? Date
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path) // SAFETY: CLI tool reads local file attributes
+            return attrs[.modificationDate] as? Date
+        } catch {
+            logger.warning("Could not read file attributes for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Returns the most recent modification date among all `.swift` files under `root`.
@@ -257,8 +285,13 @@ public enum StoreLocator {
         while let rel = enumerator.nextObject() as? String {
             guard rel.hasSuffix(".swift") else { continue }
             let p = root.appendingPathComponent(rel).path
-            if let m = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date { // SAFETY: CLI tool reads local source file attributes // silent: skips files whose attributes are unreadable
-                if newest.map({ m > $0 }) ?? true { newest = m }
+            do {
+                let attrs = try fm.attributesOfItem(atPath: p) // SAFETY: CLI tool reads local source file attributes
+                if let m = attrs[.modificationDate] as? Date {
+                    if newest.map({ m > $0 }) ?? true { newest = m }
+                }
+            } catch {
+                logger.warning("Skipping unreadable file attributes for \(p, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
         return newest

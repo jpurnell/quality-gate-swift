@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import IndexStoreInfra
 
@@ -241,6 +242,8 @@ final class Mutex<T>: @unchecked Sendable {
 /// witness table cycles that Pass 1 (syntactic) cannot see.
 enum RecursionIndexPass {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "RecursionIndexPass")
+
     /// Generates diagnostics from a pre-built USR call graph.
     static func generateDiagnostics(from graph: USRCallGraph) -> [Diagnostic] {
         let sccs = graph.findStronglyConnectedComponents()
@@ -383,7 +386,13 @@ enum RecursionIndexPass {
 
         func contents(of path: String) -> String? {
             if let cached = fileContentsCache[path] { return cached }
-            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { return nil } // silent: unreadable source files skipped
+            let source: String
+            do {
+                source = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable source file: \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
             fileContentsCache[path] = source
             return source
         }

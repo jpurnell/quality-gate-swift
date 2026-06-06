@@ -1,4 +1,4 @@
-import ArgumentParser // logging: CLI tool — print() is appropriate for user-facing output
+import ArgumentParser
 import Foundation
 import IJSAggregator
 
@@ -21,7 +21,7 @@ struct GenerateManifest: AsyncParsableCommand {
         let telemetryDir = "\(corpusPath)/telemetry" // SAFETY: configured corpus path
 
         guard fm.fileExists(atPath: telemetryDir) else { // SAFETY: read-only check on configured path
-            print("[generate-manifest] Error: No telemetry directory found at \(telemetryDir)") // logging: CLI user-facing output
+            print("[generate-manifest] Error: No telemetry directory found at \(telemetryDir)")
             throw ExitCode(1)
         }
 
@@ -42,18 +42,18 @@ struct GenerateManifest: AsyncParsableCommand {
                     ) && isDir.boolValue
                 }
                 .sorted()
-        } catch { // logging: error reported to user via print
-            print("[generate-manifest] Error: Cannot read telemetry directory: \(error.localizedDescription)") // logging: CLI user-facing output
+        } catch {
+            print("[generate-manifest] Error: Cannot read telemetry directory: \(error.localizedDescription)")
             throw ExitCode(1)
         }
 
         guard !projectDirs.isEmpty else {
-            print("[generate-manifest] Error: No project directories found in \(telemetryDir)") // logging: CLI user-facing output
+            print("[generate-manifest] Error: No project directories found in \(telemetryDir)")
             throw ExitCode(1)
         }
 
         if verbose {
-            print("[generate-manifest] Found \(projectDirs.count) project(s): \(projectDirs.joined(separator: ", "))") // logging: CLI verbose progress output
+            print("[generate-manifest] Found \(projectDirs.count) project(s): \(projectDirs.joined(separator: ", "))")
         }
 
         // Load existing manifest if present
@@ -63,16 +63,16 @@ struct GenerateManifest: AsyncParsableCommand {
             do {
                 existingManifest = try CorpusManifest.load(from: manifestURL)
                 if verbose {
-                    print("[generate-manifest] Loaded existing manifest with \(existingManifest?.projects.count ?? 0) project(s) and \(existingManifest?.groups.count ?? 0) group(s)") // logging: CLI verbose progress output
+                    print("[generate-manifest] Loaded existing manifest with \(existingManifest?.projects.count ?? 0) project(s) and \(existingManifest?.groups.count ?? 0) group(s)")
                 }
-            } catch { // logging: error reported to user via print
-                print("[generate-manifest] Warning: Cannot parse existing manifest, starting fresh: \(error.localizedDescription)") // logging: CLI user-facing output
+            } catch {
+                print("[generate-manifest] Warning: Cannot parse existing manifest, starting fresh: \(error.localizedDescription)")
                 existingManifest = nil
             }
         } else {
             existingManifest = nil
             if verbose {
-                print("[generate-manifest] No existing manifest found, creating new one") // logging: CLI verbose progress output
+                print("[generate-manifest] No existing manifest found, creating new one")
             }
         }
 
@@ -85,15 +85,15 @@ struct GenerateManifest: AsyncParsableCommand {
         // Write manifest
         do {
             try yaml.write(toFile: manifestURL.path, atomically: true, encoding: .utf8)
-        } catch { // logging: error reported to user via print
-            print("[generate-manifest] Error: Cannot write manifest: \(error.localizedDescription)") // logging: CLI user-facing output
+        } catch {
+            print("[generate-manifest] Error: Cannot write manifest: \(error.localizedDescription)")
             throw ExitCode(1)
         }
 
-        print("[generate-manifest] Wrote manifest to \(manifestURL.path)") // logging: CLI user-facing output
-        print("[generate-manifest]   \(projectDirs.count) project(s)") // logging: CLI user-facing output
+        print("[generate-manifest] Wrote manifest to \(manifestURL.path)")
+        print("[generate-manifest]   \(projectDirs.count) project(s)")
         let groupCount = existingManifest?.groups.count ?? 0
-        print("[generate-manifest]   \(groupCount) group(s) preserved") // logging: CLI user-facing output
+        print("[generate-manifest]   \(groupCount) group(s) preserved")
     }
 
     /// Builds a human-readable YAML string for the manifest.
@@ -118,6 +118,9 @@ struct GenerateManifest: AsyncParsableCommand {
             lines.append("    changedAt: \(iso8601String(changedAt))")
             if let reason = entry?.reason {
                 lines.append("    reason: \"\(reason)\"")
+            }
+            if let tierOverride = entry?.tierOverride {
+                lines.append("    tierOverride: \(tierOverride.rawValue)")
             }
         }
 

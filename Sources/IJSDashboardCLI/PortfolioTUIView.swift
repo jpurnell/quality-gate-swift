@@ -53,7 +53,8 @@ public enum PortfolioTUIView: Sendable {
 
         buf.appendLine(boxRow("", width: width))
 
-        if !active.isEmpty {
+        let visibleRows = state.visibleRows
+        if !visibleRows.isEmpty {
             let nameWidth = min(max(width - 40, 16), 30)
             let sortIndicator = state.sortAscending ? "\u{25B2}" : "\u{25BC}"
             let nameLabel = state.sortKey == .name
@@ -70,23 +71,57 @@ public enum PortfolioTUIView: Sendable {
             buf.appendLine(box.midBorder(width: width))
 
             let activeMap = Dictionary(uniqueKeysWithValues: active.map { ($0.projectID, $0) })
-            let sorted = state.projectIDs.compactMap { activeMap[$0] }
-            for (idx, project) in sorted.enumerated() {
+
+            for (idx, row) in visibleRows.enumerated() {
                 let isSelected = idx == state.selectedIndex
-                let status = project.latestPassed ? "\u{2713}" : "\u{2717}"
-                let pct = formatPercent(project.passRate)
-                let name = String(project.projectID.prefix(nameWidth))
-                    .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
 
-                let runs = allRuns[project.projectID] ?? []
-                let timeline = renderHealthTimeline(runs: runs)
+                switch row {
+                case .group(let groupID):
+                    let isExpanded = state.expandedGroups.contains(groupID)
+                    let arrow = isExpanded ? "\u{25BC}" : "\u{25B6}"
+                    let members = state.groups[groupID] ?? []
+                    let memberProjects = members.compactMap { activeMap[$0] }
+                    let memberCount = memberProjects.count
+                    let groupPassRate: Double
+                    if memberProjects.isEmpty {
+                        groupPassRate = 0
+                    } else {
+                        groupPassRate = memberProjects.reduce(0.0) { $0 + $1.passRate } / Double(memberCount) // fp-safety:disable guarded by isEmpty
+                    }
+                    let allPassing = memberProjects.allSatisfy(\.latestPassed)
+                    let status = allPassing ? "\u{2713}" : "\u{2717}"
+                    let pct = formatPercent(groupPassRate)
+                    let label = "\(arrow) \(groupID) (\(memberCount))"
+                    let name = String(label.prefix(nameWidth))
+                        .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+                    let groupRow = "  \(name)  \(status)              \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))"
 
-                let row = "  \(name)  \(status)     \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(project.runCount)"
+                    if isSelected {
+                        buf.appendLine(boxRow(ANSICodes.reverse + groupRow + ANSICodes.reset, width: width))
+                    } else {
+                        buf.appendLine(boxRow(ANSICodes.bold + groupRow + ANSICodes.reset, width: width))
+                    }
 
-                if isSelected {
-                    buf.appendLine(boxRow(ANSICodes.reverse + row + ANSICodes.reset, width: width))
-                } else {
-                    buf.appendLine(boxRow(row, width: width))
+                case .project(let projectID):
+                    guard let project = activeMap[projectID] else { continue }
+                    let isGroupMember = state.groups.values.contains { $0.contains(projectID) }
+                    let indent = isGroupMember ? "    " : "  "
+                    let effectiveNameWidth = isGroupMember ? nameWidth - 2 : nameWidth
+                    let status = project.latestPassed ? "\u{2713}" : "\u{2717}"
+                    let pct = formatPercent(project.passRate)
+                    let name = String(project.projectID.prefix(effectiveNameWidth))
+                        .padding(toLength: effectiveNameWidth, withPad: " ", startingAt: 0)
+
+                    let runs = allRuns[project.projectID] ?? []
+                    let timeline = renderHealthTimeline(runs: runs)
+
+                    let projectRow = "\(indent)\(name)  \(status)     \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(project.runCount)"
+
+                    if isSelected {
+                        buf.appendLine(boxRow(ANSICodes.reverse + projectRow + ANSICodes.reset, width: width))
+                    } else {
+                        buf.appendLine(boxRow(projectRow, width: width))
+                    }
                 }
             }
             buf.appendLine(boxRow("", width: width))
@@ -150,7 +185,7 @@ public enum PortfolioTUIView: Sendable {
 
         buf.appendLine(box.bottomBorder(width: width))
 
-        let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  \u{2190}\u{2192} Pulse  Scroll/PgUp/PgDn Viewport  Enter Select  s Sort  q Quit" + ANSICodes.reset
+        let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  \u{2190}\u{2192} Expand/Pulse  Enter Select  Scroll/PgUp/PgDn Viewport  s Sort  q Quit" + ANSICodes.reset
         buf.appendLine(helpLine)
 
         return buf.raw

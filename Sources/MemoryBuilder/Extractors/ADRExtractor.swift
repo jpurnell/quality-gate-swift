@@ -1,8 +1,10 @@
 import Foundation
+import os
 import Yams
 
 /// Extracts ADR summary from the architecture decisions log.
 public struct ADRExtractor: MemoryExtractor, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ADRExtractor")
     /// Unique identifier for this extractor.
     public let id = "adrSummary"
 
@@ -64,7 +66,14 @@ public struct ADRExtractor: MemoryExtractor, Sendable {
             guard let endIndex = part.range(of: "```")?.lowerBound else { continue }
             let yamlBlock = String(part[..<endIndex])
 
-            guard let parsed = try? Yams.load(yaml: yamlBlock) as? [String: Any] else { continue } // silent: unparseable ADR block skipped gracefully
+            let parsed: [String: Any]
+            do {
+                guard let loaded = try Yams.load(yaml: yamlBlock) as? [String: Any] else { continue }
+                parsed = loaded
+            } catch {
+                Self.logger.warning("Skipping unparseable ADR YAML block: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
 
             guard let id = parsed["id"] as? String,
                   let status = parsed["status"] as? String,

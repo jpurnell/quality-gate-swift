@@ -42,7 +42,6 @@ struct ProjectKindTests {
         }
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Both → swiftPM wins")
     func bothPrefersSwiftPM() throws {
         let dir = try makeTempDir()
@@ -53,18 +52,21 @@ struct ProjectKindTests {
             at: dir.appendingPathComponent("Test.xcodeproj"),
             withIntermediateDirectories: true)
         let kind = ProjectKind.detect(at: dir)
-        if case .swiftPM = kind {} else {
+        if case .swiftPM(let root) = kind {
+            #expect(root.standardizedFileURL == dir.standardizedFileURL)
+        } else {
             Issue.record("expected .swiftPM (SwiftPM wins), got \(kind)")
         }
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Empty directory → plain")
     func detectsPlain() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let kind = ProjectKind.detect(at: dir)
-        if case .plain = kind {} else {
+        if case .plain(let root) = kind {
+            #expect(root.standardizedFileURL == dir.standardizedFileURL)
+        } else {
             Issue.record("expected .plain, got \(kind)")
         }
     }

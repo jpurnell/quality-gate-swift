@@ -403,7 +403,7 @@ extension MemoryBuilderConfig: Codable {
 ///   customLoggerNames: ["NarbisLog", "WatchLog"]
 /// ```
 public struct LoggingAuditorConfig: Sendable, Equatable {
-    /// Project type: "application" enables all rules, "library" skips the auditor entirely.
+    /// Project type: "application" enables all rules, "cli" skips print-statement and no-os-logger-import, "library" skips the auditor entirely.
     public let projectType: String
 
     /// Comment keyword that suppresses silent-try warnings.

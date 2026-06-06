@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Used by Pulse Statistical Maturity to determine whether a project has
 /// sufficient recent activity to produce meaningful trend analysis.
-public enum ProjectTier: String, Sendable, Codable, Comparable {
+public enum ProjectTier: String, Sendable, Codable, Comparable, CaseIterable {
     case dormant
     case atRisk
     case firstContact

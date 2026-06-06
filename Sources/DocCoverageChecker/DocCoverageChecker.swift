@@ -68,8 +68,8 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
                 )
                 allDiagnostics.append(contentsOf: indexDiagnostics)
                 inheritedDocCount = inherited
-            } catch SkipMarker.skipped { // logging: skip note already added
-            } catch { // logging: index pass error captured as note diagnostic
+            } catch SkipMarker.skipped {
+            } catch {
                 allDiagnostics.append(Diagnostic(
                     severity: .note,
                     message: "DocCoverage Pass 2 skipped: \(error.localizedDescription)",
@@ -320,7 +320,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: fileDiagnostics)
                 totalAPIs += total
                 documentedAPIs += documented
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

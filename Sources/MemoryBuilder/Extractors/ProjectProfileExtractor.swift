@@ -1,7 +1,9 @@
 import Foundation
+import os
 
 /// Extracts project profile from Package.swift.
 public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ProjectProfileExtractor")
     /// Unique identifier for this extractor.
     public let id = "projectProfile"
 
@@ -97,7 +99,13 @@ public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
     private func extractDependencies(from source: String) -> [String] {
         var deps: [String] = []
         let pattern = #"\.package\s*\(\s*url:\s*"([^"]+)""#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] } // silent: constant regex pattern
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            Self.logger.warning("Failed to compile dependency regex: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         let nsSource = source as NSString
         let matches = regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
         for match in matches {
@@ -114,7 +122,13 @@ public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
     /// Generic helper to extract name parameters from SPM target declarations.
     private func extractNamedEntries(from source: String, pattern: String) -> [String] {
         var results: [String] = []
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] } // silent: caller-provided regex pattern
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            Self.logger.warning("Failed to compile named-entries regex: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         let nsSource = source as NSString
         let matches = regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
         for match in matches {

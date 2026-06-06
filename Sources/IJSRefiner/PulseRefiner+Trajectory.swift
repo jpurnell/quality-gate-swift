@@ -2,6 +2,7 @@ import Foundation
 import BusinessMath
 import IJSSensor
 import IJSAggregator
+import os
 
 extension PulseRefiner {
     /// Computes per-project trajectories using OLS regression on weighted quality scores.
@@ -46,13 +47,16 @@ extension PulseRefiner {
                     let halfPoint = sampleSize / 2
                     let recentX = Array(xValues[halfPoint...])
                     let recentY = Array(yValues[halfPoint...])
-                    if let rs = try? slope(recentX, recentY) { // silent: inflection detection is best-effort
+                    do {
+                        let rs = try slope(recentX, recentY)
                         recentSlopeVal = rs
                         let fullDirection = slopeVal > 0
                         let recentDirection = rs > 0
                         if fullDirection != recentDirection && abs(rs) > 0.005 {
                             inflection = true
                         }
+                    } catch {
+                        Self.logger.warning("Inflection detection failed for \(projectID, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
 
@@ -67,7 +71,7 @@ extension PulseRefiner {
                     inflectionDetected: inflection,
                     recentSlope: recentSlopeVal
                 ))
-            } catch { // logging: regression failure falls back to insufficient
+            } catch {
                 trajectories.append(ProjectTrajectory(
                     projectID: projectID,
                     slope: 0, intercept: 0, rSquared: 0,

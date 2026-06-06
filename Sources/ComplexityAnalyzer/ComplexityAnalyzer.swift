@@ -1,4 +1,5 @@
 import Foundation
+import os
 import IndexStoreInfra
 import QualityGateCore
 import SwiftSyntax
@@ -10,6 +11,8 @@ import SwiftParser
 /// threshold as informational notes, and produces structured complexity data
 /// for corpus integration.
 public struct ComplexityAnalyzer: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ComplexityAnalyzer")
+
     /// Unique identifier for this checker.
     public let id = "complexity"
     /// Human-readable name shown in quality-gate output.
@@ -89,7 +92,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
                 let output = ComplexityIndexPass.run(inputs: inputs)
                 records = output.records
                 diagnostics.append(contentsOf: output.diagnostics)
-            } catch { // logging: Pass 2 failure captured as note diagnostic; analysis continues with Pass 1 results
+            } catch {
                 diagnostics.append(ComplexityIndexPass.unavailableNote())
             }
         }
@@ -122,7 +125,13 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
             let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
-            guard let source = try? String(contentsOfFile: fullPath, encoding: .utf8) else { continue } // silent: unreadable file skipped
+            let source: String
+            do {
+                source = try String(contentsOfFile: fullPath, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Skipping unreadable file: \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
 
             let moduleName = extractModuleName(from: relativePath)
 

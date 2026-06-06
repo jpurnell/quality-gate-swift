@@ -1,5 +1,7 @@
 import Foundation
+import IJSAggregator
 import IJSDashboardCore
+import IJSSensor
 import SwiftCLIKit
 
 /// Renders the project detail view with tabbed content as a box-drawn terminal frame.
@@ -11,7 +13,9 @@ public enum ProjectDetailTUIView: Sendable {
         trends: [TrendPoint],
         runs: [TimestampedRun],
         state: DashboardState,
-        width: Int
+        width: Int,
+        pulse: InstitutionalPulse? = nil,
+        manifest: CorpusManifest = CorpusManifest()
     ) -> String {
         let box = BoxDrawing.unicode
         var buf = ScreenBuffer(width: width)
@@ -30,6 +34,8 @@ public enum ProjectDetailTUIView: Sendable {
             renderCheckers(into: &buf, project: project, runs: runs, width: width)
         case .trends:
             renderTrends(into: &buf, trends: trends, width: width)
+        case .status:
+            renderStatus(into: &buf, project: project, state: state, width: width, pulse: pulse, manifest: manifest)
         }
 
         buf.appendLine(box.bottomBorder(width: width))
@@ -47,6 +53,7 @@ public enum ProjectDetailTUIView: Sendable {
             (.overview, "Overview"),
             (.checkers, "Checkers"),
             (.trends, "Trends"),
+            (.status, "Status"),
         ]
 
         var tabLine = "  "
@@ -164,6 +171,83 @@ public enum ProjectDetailTUIView: Sendable {
                 }
                 buf.appendLine(boxRow("  Direction: \(direction)  (\(trends.count) data points)", width: width))
             }
+        }
+        buf.appendLine(boxRow("", width: width))
+    }
+
+    // MARK: - Status Tab
+
+    private static func renderStatus(
+        into buf: inout ScreenBuffer,
+        project: ProjectSummary,
+        state: DashboardState,
+        width: Int,
+        pulse: InstitutionalPulse?,
+        manifest: CorpusManifest
+    ) {
+        buf.appendLine(boxRow("", width: width))
+
+        let manifestOverride = manifest.projects[project.projectID]?.tierOverride
+        let pulseTier = pulse?.projectTiers?[project.projectID]
+        let tierLabel: String
+        if let override = manifestOverride {
+            tierLabel = "\(override.rawValue) (override)"
+        } else if let auto = pulseTier {
+            tierLabel = "\(auto.rawValue) (auto)"
+        } else {
+            tierLabel = "unknown"
+        }
+        buf.appendLine(boxRow("  Tier:          \(tierLabel)", width: width))
+
+        if let score = pulse?.statistics.weightedScores?[project.projectID] {
+            let scoreStr = score.formatted(.number.precision(.fractionLength(3)))
+            buf.appendLine(boxRow("  Quality Score: \(scoreStr)", width: width))
+        } else {
+            buf.appendLine(boxRow("  Quality Score: N/A", width: width))
+        }
+
+        if let trajectories = pulse?.projectTrajectories,
+           let traj = trajectories.first(where: { $0.projectID == project.projectID }) {
+            let arrow = traj.slope >= 0 ? "\u{2191}" : "\u{2193}"
+            let slopeStr = abs(traj.slope).formatted(.number.precision(.fractionLength(3)))
+            let r2Str = traj.rSquared.formatted(.number.precision(.fractionLength(2)))
+            buf.appendLine(boxRow("  Trajectory:    \(traj.direction.rawValue) \(arrow) slope=\(slopeStr) r\u{00B2}=\(r2Str)", width: width))
+            buf.appendLine(boxRow("  Validity:      \(traj.validity.rawValue) (\(traj.sampleSize) samples)", width: width))
+            if traj.inflectionDetected {
+                buf.appendLine(boxRow("  Inflection:    detected", width: width))
+            }
+        } else {
+            buf.appendLine(boxRow("  Trajectory:    insufficient data", width: width))
+        }
+
+        buf.appendLine(boxRow("", width: width))
+
+        let box = BoxDrawing.unicode
+        buf.appendLine(box.midBorder(width: width))
+        buf.appendLine(boxRow("  Override Tier:", width: width))
+        buf.appendLine(boxRow("", width: width))
+
+        let allTiers = ProjectTier.allCases
+        for (idx, tierCase) in allTiers.enumerated() {
+            let isCurrent = (manifestOverride ?? pulseTier) == tierCase
+            let isPickerSelected = state.tierPickerActive && idx == state.tierPickerIndex
+
+            var label = "  "
+            if isPickerSelected {
+                label += ANSICodes.reverse + " \(tierCase.rawValue) " + ANSICodes.reset
+            } else if isCurrent {
+                label += ANSICodes.bold + "[\(tierCase.rawValue)]" + ANSICodes.reset
+            } else {
+                label += " \(tierCase.rawValue) "
+            }
+            buf.appendLine(boxRow(label, width: width))
+        }
+
+        buf.appendLine(boxRow("", width: width))
+        if state.tierPickerActive {
+            buf.appendLine(boxRow(ANSICodes.dim + "  \u{2191}\u{2193} Select  Enter Confirm  Esc Cancel" + ANSICodes.reset, width: width))
+        } else {
+            buf.appendLine(boxRow(ANSICodes.dim + "  Enter to edit tier override" + ANSICodes.reset, width: width))
         }
         buf.appendLine(boxRow("", width: width))
     }

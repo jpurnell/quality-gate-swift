@@ -107,6 +107,8 @@ struct DashboardStateTests {
         state.handleInput(.tab)
         #expect(state.selectedTab == .trends)
         state.handleInput(.tab)
+        #expect(state.selectedTab == .status)
+        state.handleInput(.tab)
         #expect(state.selectedTab == .overview)
     }
 
@@ -116,7 +118,7 @@ struct DashboardStateTests {
         state.handleInput(.enter)
         #expect(state.selectedTab == .overview)
         state.handleInput(.backtab)
-        #expect(state.selectedTab == .trends)
+        #expect(state.selectedTab == .status)
     }
 
     // MARK: - Scroll
@@ -365,5 +367,184 @@ struct DashboardStateTests {
         state.handleInput(.cycleSort) // → .name     direction toggled → true
         #expect(state.sortKey == .name)
         #expect(state.sortAscending == true)
+    }
+
+    // MARK: - Group Navigation
+
+    @Test("Right arrow on group row expands it")
+    func rightArrowExpandsGroup() {
+        var state = DashboardState(projectIDs: ["a", "b", "c"])
+        state.updateGroups(["G": ["a", "b"]])
+        // Row 0 is group "G", row 1 is ungrouped "c"
+        #expect(state.visibleRows.count == 2)
+        state.handleInput(.arrowRight)
+        #expect(state.expandedGroups.contains("G"))
+        // Now visible: group header + a + b + c
+        #expect(state.visibleRows.count == 4)
+    }
+
+    @Test("Left arrow on expanded group row collapses it")
+    func leftArrowCollapsesGroup() {
+        var state = DashboardState(projectIDs: ["a", "b", "c"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.arrowRight) // expand
+        #expect(state.expandedGroups.contains("G"))
+        state.handleInput(.arrowLeft) // collapse
+        #expect(!state.expandedGroups.contains("G"))
+        #expect(state.visibleRows.count == 2)
+    }
+
+    @Test("Left/right on project row navigates labels, not groups")
+    func leftRightOnProjectNavigatesLabels() {
+        var state = DashboardState(projectIDs: ["a", "b", "c"])
+        state.updateGroups(["G": ["a"]])
+        state.setAvailableLabels(["2026-W18", "2026-W19", "2026-W20"])
+        // Move to ungrouped project row (index 1 = "b")
+        state.handleInput(.arrowDown)
+        #expect(state.selectedGroupID == nil)
+        let labelBefore = state.selectedLabelIndex
+        state.handleInput(.arrowLeft)
+        #expect(state.selectedLabelIndex != labelBefore)
+    }
+
+    @Test("Enter on group row switches to groupDetail view")
+    func enterOnGroupGoesToGroupDetail() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a"]])
+        // Row 0 is group "G"
+        state.handleInput(.enter)
+        #expect(state.currentView == .groupDetail)
+        #expect(state.selectedGroupID == "G")
+    }
+
+    @Test("Enter on project row switches to projectDetail")
+    func enterOnProjectGoesToProjectDetail() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a"]])
+        state.handleInput(.arrowDown) // move to ungrouped "b"
+        state.handleInput(.enter)
+        #expect(state.currentView == .projectDetail)
+    }
+
+    @Test("Escape from groupDetail returns to portfolio")
+    func escapeFromGroupDetailReturnsToPortfolio() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a"]])
+        state.handleInput(.enter) // go to groupDetail
+        #expect(state.currentView == .groupDetail)
+        state.handleInput(.escape)
+        #expect(state.currentView == .portfolio)
+    }
+
+    @Test("selectedGroupID is nil when selection is on a project row")
+    func selectedGroupIDNilOnProjectRow() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a"]])
+        state.handleInput(.arrowDown) // move to project row
+        #expect(state.selectedGroupID == nil)
+    }
+
+    @Test("Arrow down navigates through visible rows including groups")
+    func arrowDownNavigatesVisibleRows() {
+        var state = DashboardState(projectIDs: ["a", "b", "c"])
+        state.updateGroups(["G": ["a", "b"]])
+        // Collapsed: row 0 = group "G", row 1 = project "c"
+        #expect(state.selectedIndex == 0)
+        #expect(state.selectedGroupID == "G")
+        state.handleInput(.arrowDown)
+        #expect(state.selectedIndex == 1)
+        #expect(state.selectedGroupID == nil)
+    }
+
+    // MARK: - Status Tab + Tier Picker
+
+    @Test("Tab cycles through 4 tabs including status")
+    func tabCyclesIncludingStatus() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter) // go to projectDetail
+        #expect(state.selectedTab == .overview)
+        state.handleInput(.tab)
+        #expect(state.selectedTab == .checkers)
+        state.handleInput(.tab)
+        #expect(state.selectedTab == .trends)
+        state.handleInput(.tab)
+        #expect(state.selectedTab == .status)
+        state.handleInput(.tab)
+        #expect(state.selectedTab == .overview)
+    }
+
+    @Test("Enter on status tab activates tier picker")
+    func enterActivatesTierPicker() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter) // go to projectDetail
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.tab) // now on status tab
+        #expect(state.selectedTab == .status)
+        #expect(!state.tierPickerActive)
+        state.handleInput(.enter)
+        #expect(state.tierPickerActive)
+    }
+
+    @Test("Tier picker navigates with arrow keys")
+    func tierPickerNavigation() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter) // projectDetail
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.tab) // status
+        state.handleInput(.enter) // activate picker
+        #expect(state.tierPickerIndex == 0)
+        state.handleInput(.arrowDown)
+        #expect(state.tierPickerIndex == 1)
+        state.handleInput(.arrowDown)
+        #expect(state.tierPickerIndex == 2)
+        state.handleInput(.arrowUp)
+        #expect(state.tierPickerIndex == 1)
+    }
+
+    @Test("Tier picker confirm sets pendingTierOverride")
+    func tierPickerConfirm() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter) // projectDetail
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.tab) // status
+        state.handleInput(.enter) // activate picker
+        state.handleInput(.arrowDown)
+        state.handleInput(.arrowDown)
+        state.handleInput(.arrowDown) // index 3 = baseline
+        state.handleInput(.enter) // confirm
+        #expect(!state.tierPickerActive)
+        #expect(state.pendingTierOverride?.projectID == "a")
+        #expect(state.pendingTierOverride?.tier == .baseline)
+    }
+
+    @Test("Tier picker escape cancels without setting override")
+    func tierPickerEscapeCancels() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter)
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.enter) // activate picker
+        state.handleInput(.arrowDown)
+        state.handleInput(.escape) // cancel
+        #expect(!state.tierPickerActive)
+        #expect(state.pendingTierOverride == nil)
+    }
+
+    @Test("clearPendingTierOverride resets to nil")
+    func clearPendingTierOverride() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter)
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.tab)
+        state.handleInput(.enter)
+        state.handleInput(.enter) // confirm with default tier (dormant, index 0)
+        #expect(state.pendingTierOverride?.tier == .dormant)
+        state.clearPendingTierOverride()
+        #expect(state.pendingTierOverride == nil)
     }
 }

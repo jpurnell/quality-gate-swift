@@ -1,8 +1,10 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Extracts active work from implementation checklists and git log.
 public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ActiveWorkExtractor")
     /// Unique identifier for this extractor.
     public let id = "activeWork"
 
@@ -70,15 +72,20 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
             )
             guard result.exitCode == 0 else { return nil }
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch { // logging: error returned as nil to caller
+        } catch {
             return nil
         }
     }
 
     private func findCurrentChecklists(in directory: String) -> [String] {
         let fm = FileManager.default
-        // silent: missing checklist directory is expected
-        guard let items = try? fm.contentsOfDirectory(atPath: directory) else { return [] } // SAFETY: lists checklist files in project guidelines dir
+        let items: [String]
+        do {
+            items = try fm.contentsOfDirectory(atPath: directory) // SAFETY: lists checklist files in project guidelines dir
+        } catch {
+            Self.logger.warning("Could not list checklist directory \(directory, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         return items
             .filter { $0.hasPrefix("CURRENT_") && $0.hasSuffix(".md") }
             .sorted()

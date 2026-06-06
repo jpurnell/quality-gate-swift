@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Executes `swift build` and reports results.
@@ -23,6 +24,8 @@ import QualityGateCore
 ///   solverExpressionTimeThreshold: 500  # ms per-expression type-check limit
 /// ```
 public struct BuildChecker: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "BuildChecker")
+
     /// Unique identifier for this checker.
     public let id = "build"
 
@@ -61,8 +64,11 @@ public struct BuildChecker: QualityChecker, Sendable {
         // The path can contain spaces, so we match until the line:column:severity pattern
         let pattern = #"^(.+?):(\d+):(\d+): (error|warning|note): (.+)$"#
 
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern, options: .anchorsMatchLines)
+        } catch {
+            logger.warning("Failed to compile build output regex: \(error.localizedDescription, privacy: .public)")
             return []
         }
 
