@@ -1,8 +1,10 @@
 import Foundation
+import os
 
 /// Recursively enumerates `.swift` files under a project root, skipping
 /// build outputs, dependency directories, and Xcode container packages.
 public enum SourceWalker {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "SourceWalker")
 
     static let defaultSkipDirectories: Set<String> = [
         ".git", ".build", ".swiftpm", ".bundle",
@@ -24,7 +26,13 @@ public enum SourceWalker {
         var out: [String] = []
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false // silent: treats unreadable entries as files
+            let isDirectory: Bool
+            do {
+                isDirectory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory ?? false
+            } catch {
+                logger.warning("Could not read resource values for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                isDirectory = false
+            }
             if isDirectory {
                 if defaultSkipDirectories.contains(name)
                     || name.hasSuffix(".xcodeproj")

@@ -1,8 +1,10 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Generates and applies surgical patches to Master Plan based on diagnostics.
 public enum StatusRemediator {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "StatusRemediator")
 
     /// Apply fixes from diagnostics to the Master Plan file.
     ///
@@ -19,7 +21,11 @@ public enum StatusRemediator {
         masterPlanPath: String,
         configuration: Configuration
     ) throws -> FixResult {
-        guard let content = try? String(contentsOfFile: masterPlanPath, encoding: .utf8) else { // silent: missing Master Plan returns unfixed diagnostics
+        let content: String
+        do {
+            content = try String(contentsOfFile: masterPlanPath, encoding: .utf8)
+        } catch {
+            logger.warning("Could not read Master Plan at \(masterPlanPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return FixResult(modifications: [], unfixed: diagnostics)
         }
 
@@ -71,9 +77,15 @@ public enum StatusRemediator {
                     let original = lines[line - 1]
                     // Extract new count from suggestedFix: "Update test count to (N tests)"
                     let pattern = #"\((\d+)\s+tests?\)"#
-                    // silent: constant regex pattern
-                    if let regex = try? NSRegularExpression(pattern: pattern),
-                       let range = regex.firstMatch(
+                    let regex: NSRegularExpression
+                    do {
+                        regex = try NSRegularExpression(pattern: pattern)
+                    } catch {
+                        logger.warning("Failed to compile test-count regex: \(error.localizedDescription, privacy: .public)")
+                        unfixed.append(diag)
+                        continue
+                    }
+                    if let range = regex.firstMatch(
                         in: original,
                         range: NSRange(original.startIndex..., in: original)
                        ) {
@@ -116,9 +128,15 @@ public enum StatusRemediator {
                     formatter.formatOptions = [.withFullDate]
                     let today = formatter.string(from: Date.now)
                     let datePattern = #"\d{4}-\d{2}-\d{2}"#
-                    // silent: constant regex pattern
-                    if let regex = try? NSRegularExpression(pattern: datePattern),
-                       let match = regex.firstMatch(
+                    let dateRegex: NSRegularExpression
+                    do {
+                        dateRegex = try NSRegularExpression(pattern: datePattern)
+                    } catch {
+                        logger.warning("Failed to compile date regex: \(error.localizedDescription, privacy: .public)")
+                        unfixed.append(diag)
+                        continue
+                    }
+                    if let match = dateRegex.firstMatch(
                         in: original,
                         range: NSRange(original.startIndex..., in: original)
                        ),

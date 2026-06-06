@@ -32,8 +32,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        // Libraries skip logging checks entirely
-        guard config.projectType == "application" else {
+        guard config.projectType == "application" || config.projectType == "cli" else {
             return CheckResult(
                 checkerId: id,
                 status: .skipped,
@@ -85,14 +84,14 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        guard config.projectType == "application" else {
+        guard config.projectType == "application" || config.projectType == "cli" else {
             return CheckResult(
                 checkerId: id,
                 status: .skipped,
                 diagnostics: [],
                 duration: ContinuousClock.now - startTime
             )
-        }
+}
 
         let result = auditSourceCode(source, fileName: fileName)
         let duration = ContinuousClock.now - startTime
@@ -147,7 +146,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(source, fileName: fullPath)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }
@@ -164,7 +163,8 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             sourceLines: sourceLines,
             silentTryKeyword: config.silentTryKeyword,
             allowedSilentTryFunctions: Set(config.allowedSilentTryFunctions),
-            customLoggerNames: config.customLoggerNames
+            customLoggerNames: config.customLoggerNames,
+            isCLI: config.projectType == "cli"
         )
         visitor.walk(tree)
         return (visitor.diagnostics, visitor.overrides)

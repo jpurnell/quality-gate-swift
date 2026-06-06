@@ -2,6 +2,7 @@ import Foundation
 import IJSAggregator
 import IJSDashboardCore
 import IJSSensor
+import os
 import SwiftCLIKit
 
 #if canImport(Darwin)
@@ -16,6 +17,7 @@ nonisolated(unsafe) private var dashboardShouldExit = false
 /// Interactive TUI event loop for the IJS dashboard.
 public enum DashboardApp: Sendable {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DashboardApp")
     private static let mouseEnableSequence = MouseMode.enable
     private static let mouseDisableSequence = MouseMode.disable
 
@@ -30,14 +32,18 @@ public enum DashboardApp: Sendable {
         allRuns: [String: [TimestampedRun]],
         corpusReader: CorpusReader? = nil,
         pulse: InstitutionalPulse? = nil,
+        manifest: CorpusManifest = CorpusManifest(),
+        corpusPath: String? = nil,
         initialWeek: String? = nil
     ) {
         var currentPortfolio = portfolio
         var sortedProjects = projects.sorted { $0.projectID < $1.projectID }
         var currentAllRuns = allRuns
         var currentPulse = pulse
+        var currentManifest = manifest
         let activeIDs = sortedProjects.filter { $0.lifecycle == .active }.map(\.projectID)
         var state = DashboardState(projectIDs: activeIDs)
+        state.updateGroups(currentManifest.groups)
         var lastReloadTime = Date.now
 
         if let corpusReader {
@@ -101,6 +107,22 @@ public enum DashboardApp: Sendable {
                             width: cols,
                             pulse: currentPulse
                         )
+                    case .groupDetail:
+                        guard let groupID = state.selectedGroupID else {
+                            frame = ""
+                            break
+                        }
+                        let memberIDs = currentManifest.groups[groupID] ?? []
+                        let memberProjects = sortedProjects.filter { memberIDs.contains($0.projectID) }
+                        let snapshots = currentPulse?.groupSnapshots?[groupID]
+                        frame = GroupDetailTUIView.render(
+                            groupID: groupID,
+                            memberProjects: memberProjects,
+                            groupSnapshots: snapshots,
+                            pulse: currentPulse,
+                            state: state,
+                            width: cols
+                        )
                     case .projectDetail:
                         guard let projectID = state.selectedProjectID,
                               let project = sortedProjects.first(where: { $0.projectID == projectID }) else {
@@ -114,7 +136,9 @@ public enum DashboardApp: Sendable {
                             trends: trends,
                             runs: runs,
                             state: state,
-                            width: cols
+                            width: cols,
+                            pulse: currentPulse,
+                            manifest: currentManifest
                         )
                     }
 
@@ -169,6 +193,26 @@ public enum DashboardApp: Sendable {
                     }
                 }
 
+                if let override = state.pendingTierOverride {
+                    let existing = currentManifest.projects[override.projectID]
+                    currentManifest.projects[override.projectID] = CorpusManifestEntry(
+                        lifecycle: existing?.lifecycle ?? .active,
+                        reason: existing?.reason,
+                        changedAt: existing?.changedAt ?? Date(),
+                        tierOverride: override.tier
+                    )
+                    if let corpusPath {
+                        let manifestURL = URL(fileURLWithPath: "\(corpusPath)/manifest.yml") // SAFETY: writes to configured corpus path
+                        do {
+                            try currentManifest.save(to: manifestURL)
+                        } catch {
+                            logger.warning("Failed to save manifest to \(manifestURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
+                    state.clearPendingTierOverride()
+                    needsRedraw = true
+                }
+
                 if state.labelChanged, let corpusReader,
                    let selectedLabel = state.selectedLabel {
                     currentPulse = corpusReader.loadPulse(label: selectedLabel)
@@ -185,7 +229,8 @@ public enum DashboardApp: Sendable {
                         projects: &sortedProjects,
                         allRuns: &currentAllRuns,
                         state: &state,
-                        pulse: &currentPulse
+                        pulse: &currentPulse,
+                        manifest: &currentManifest
                     )
                     lastReloadTime = Date.now
                     lastContent = ""
@@ -214,11 +259,23 @@ public enum DashboardApp: Sendable {
         projects: inout [ProjectSummary],
         allRuns: inout [String: [TimestampedRun]],
         state: inout DashboardState,
-        pulse: inout InstitutionalPulse?
+        pulse: inout InstitutionalPulse?,
+        manifest: inout CorpusManifest
     ) {
-        guard let freshRuns = try? reader.loadAll() else { return } // silent: reload failure is non-fatal; dashboard continues with stale data
+        let freshRuns: [String: [TimestampedRun]]
+        do {
+            freshRuns = try reader.loadAll()
+        } catch {
+            logger.warning("Failed to reload corpus data: \(error.localizedDescription, privacy: .public)")
+            return
+        }
         allRuns = freshRuns
-        let manifest = (try? reader.loadManifest()) ?? CorpusManifest() // silent: manifest is optional; missing file treated as all-active
+        do {
+            manifest = try reader.loadManifest()
+        } catch {
+            logger.warning("Failed to reload manifest: \(error.localizedDescription, privacy: .public)")
+            manifest = CorpusManifest()
+        }
         let freshProjects = freshRuns.map { (projectID, runs) in
             let lifecycle = manifest.lifecycle(for: projectID)
             return ProjectSummary.compute(projectID: projectID, from: runs, lifecycle: lifecycle)
@@ -231,6 +288,7 @@ public enum DashboardApp: Sendable {
             sortAscending: state.sortAscending
         )
         state.updateProjectIDs(sortedIDs)
+        state.updateGroups(manifest.groups)
 
         let currentLabel = state.selectedLabel
         let labels = reader.listAvailableLabels()

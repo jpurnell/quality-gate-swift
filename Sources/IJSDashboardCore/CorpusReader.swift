@@ -87,6 +87,13 @@ public struct CorpusReader: Sendable {
         return try CorpusManifest.load(from: manifestURL)
     }
 
+    /// Saves the manifest back to the corpus directory.
+    /// - Parameter manifest: The manifest to save.
+    public func saveManifest(_ manifest: CorpusManifest) throws {
+        let manifestURL = URL(fileURLWithPath: "\(corpusPath)/manifest.yml") // SAFETY: corpusPath from configuration
+        try manifest.save(to: manifestURL)
+    }
+
     // MARK: - Pulse Loading
 
     /// Loads the most recent InstitutionalPulse from the corpus pulse directory.
@@ -101,7 +108,13 @@ public struct CorpusReader: Sendable {
         guard fm.fileExists(atPath: pulsePath) else { return nil } // SAFETY: read-only check on configured path
 
         // SAFETY: pulsePath derived from validated configuration, read-only listing
-        guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return nil } // silent: empty pulse dir returns nil
+        let contents: [String]
+        do {
+            contents = try fm.contentsOfDirectory(atPath: pulsePath)
+        } catch {
+            Self.logger.warning("Failed to list pulse directory \(pulsePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
 
         let labelDirs = contents
             .filter { name in
@@ -142,7 +155,13 @@ public struct CorpusReader: Sendable {
         let pulsePath = "\(corpusPath)/pulse" // SAFETY: corpusPath from configuration
         let fm = FileManager.default
         guard fm.fileExists(atPath: pulsePath) else { return [] } // SAFETY: read-only check on configured path
-        guard let contents = try? fm.contentsOfDirectory(atPath: pulsePath) else { return [] } // silent: empty pulse dir returns []
+        let contents: [String]
+        do {
+            contents = try fm.contentsOfDirectory(atPath: pulsePath)
+        } catch {
+            Self.logger.warning("Failed to list pulse directory \(pulsePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return []
+        }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -154,7 +173,13 @@ public struct CorpusReader: Sendable {
                       isDir.boolValue else { return false }
                 let filePath = "\(pulsePath)/\(name)/PULSE_\(name).json" // SAFETY: child of configured pulse path
                 guard let data = fm.contents(atPath: filePath) else { return false } // SAFETY: reads pulse JSON
-                return (try? decoder.decode(InstitutionalPulse.self, from: data)) != nil // silent: malformed JSON treated as absent
+                do {
+                    _ = try decoder.decode(InstitutionalPulse.self, from: data)
+                    return true
+                } catch {
+                    Self.logger.warning("Skipping malformed pulse at \(filePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    return false
+                }
             }
             .sorted { lhs, rhs in
                 Self.chronologicalAscending(lhs, rhs)
@@ -216,7 +241,6 @@ public struct CorpusReader: Sendable {
 
         // Try YYYY-WNN
         if label.count == 8, label.dropFirst(4).hasPrefix("-W") {
-            // silent: invalid week format returns nil
             guard let year = Int(label.prefix(4)),
                   let week = Int(label.suffix(2)),
                   week >= 1, week <= 53 else {

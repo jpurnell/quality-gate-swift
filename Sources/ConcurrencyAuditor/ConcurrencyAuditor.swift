@@ -78,8 +78,8 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
             do {
                 let indexDiagnostics = try runIndexPass(configuration: configuration)
                 allDiagnostics.append(contentsOf: indexDiagnostics)
-            } catch SkipMarker.skipped { // logging: skip note already added
-            } catch { // logging: index pass error captured as note diagnostic
+            } catch SkipMarker.skipped {
+            } catch {
                 allDiagnostics.append(Diagnostic(
                     severity: .note,
                     message: "Concurrency Pass 2 skipped: \(error.localizedDescription)",
@@ -123,7 +123,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(source, fileName: fullPath)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

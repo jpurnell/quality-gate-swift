@@ -9,7 +9,6 @@ import Testing
 @Suite("ConcurrencyAuditor: edge-case robustness")
 struct RobustnessTests {
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on generic class with Sendable constraint")
     func genericConstraintDoesNotCrash() async throws {
         let code = """
@@ -18,10 +17,12 @@ struct RobustnessTests {
             init(_ v: T) { self.value = v }
         }
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "concurrency")
+        #expect(result.diagnostics.isEmpty)
+        #expect(result.status == .passed)
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on conditional compilation branches")
     func conditionalCompilationDoesNotCrash() async throws {
         let code = """
@@ -33,20 +34,23 @@ struct RobustnessTests {
         }
         #endif
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "concurrency")
+        // Both branches are parsed; the DEBUG branch contains @unchecked Sendable
+        // without justification, so the auditor should produce at least one diagnostic.
+        #expect(!result.diagnostics.isEmpty)
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on syntactically malformed input")
     func malformedSourceDoesNotCrash() async throws {
         let code = """
         actor A {
             func f(
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "concurrency")
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on macro-expanded code")
     func macroDoesNotCrash() async throws {
         let code = """
@@ -55,10 +59,12 @@ struct RobustnessTests {
             var x = 0
         }
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "concurrency")
+        // @Observable class without Sendable conformance: no concurrency diagnostics expected.
+        #expect(result.diagnostics.isEmpty)
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on multiline declaration spanning many lines")
     func multilineDeclarationDoesNotCrash() async throws {
         let code = """
@@ -71,6 +77,9 @@ struct RobustnessTests {
             var x = 0
         }
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "concurrency")
+        // Sendable class with mutable var → should flag mutable state.
+        #expect(result.diagnostics.contains { $0.ruleId == "concurrency.sendable-class-mutable-state" })
     }
 }

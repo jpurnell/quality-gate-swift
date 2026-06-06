@@ -1,7 +1,9 @@
 import Foundation
+import os
 
 /// Extracts module architecture from Package.swift dependency graph.
 public struct ArchitectureExtractor: MemoryExtractor, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ArchitectureExtractor")
     /// Unique identifier for this extractor.
     public let id = "architecture"
 
@@ -56,8 +58,11 @@ public struct ArchitectureExtractor: MemoryExtractor, Sendable {
 
         // Match .target(name: "X", dependencies: [...]) and .executableTarget(...)
         let targetPattern = #"\.(target|executableTarget|testTarget)\s*\(\s*name:\s*"([^"]+)"([^)]*)\)"#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: targetPattern, options: .dotMatchesLineSeparators) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: targetPattern, options: .dotMatchesLineSeparators)
+        } catch {
+            Self.logger.warning("Failed to compile target regex: \(error.localizedDescription, privacy: .public)")
             return []
         }
 
@@ -76,17 +81,22 @@ public struct ArchitectureExtractor: MemoryExtractor, Sendable {
                     let afterDeps = rest[depsRange.upperBound...]
                     // Find simple string deps like "CoreModule"
                     let depPattern = #""([^"]+)""#
-                    if let depRegex = try? NSRegularExpression(pattern: depPattern) { // silent: constant regex pattern
-                        let nsRest = String(afterDeps) as NSString
-                        let depMatches = depRegex.matches(
-                            in: String(afterDeps),
-                            range: NSRange(location: 0, length: nsRest.length)
-                        )
-                        for depMatch in depMatches {
-                            guard depMatch.numberOfRanges >= 2 else { continue }
-                            let dep = nsRest.substring(with: depMatch.range(at: 1))
-                            deps.append(dep)
-                        }
+                    let depRegex: NSRegularExpression
+                    do {
+                        depRegex = try NSRegularExpression(pattern: depPattern)
+                    } catch {
+                        Self.logger.warning("Failed to compile dependency regex: \(error.localizedDescription, privacy: .public)")
+                        continue
+                    }
+                    let nsRest = String(afterDeps) as NSString
+                    let depMatches = depRegex.matches(
+                        in: String(afterDeps),
+                        range: NSRange(location: 0, length: nsRest.length)
+                    )
+                    for depMatch in depMatches {
+                        guard depMatch.numberOfRanges >= 2 else { continue }
+                        let dep = nsRest.substring(with: depMatch.range(at: 1))
+                        deps.append(dep)
                     }
                 }
             }

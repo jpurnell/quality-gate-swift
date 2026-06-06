@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Generates and updates `.claude/memory/` files by analyzing project state.
@@ -7,6 +8,8 @@ import QualityGateCore
 /// ADR summaries, and environment info from the codebase and writes them as
 /// tagged memory files that Claude Code loads at session start.
 public struct MemoryBuilder: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "MemoryBuilder")
+
     /// Unique checker identifier used in diagnostics and CLI filtering.
     public let id = "memory-builder"
     /// Human-readable name shown in check results.
@@ -30,7 +33,13 @@ public struct MemoryBuilder: QualityChecker, Sendable {
 
         // Load global CLAUDE.md for deduplication
         let globalClaudePath = NSHomeDirectory() + "/.claude/CLAUDE.md"
-        let globalClaudeMD = try? String(contentsOfFile: globalClaudePath, encoding: .utf8) // silent: global CLAUDE.md is optional
+        let globalClaudeMD: String?
+        do {
+            globalClaudeMD = try String(contentsOfFile: globalClaudePath, encoding: .utf8)
+        } catch {
+            Self.logger.warning("Could not read global CLAUDE.md at \(globalClaudePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            globalClaudeMD = nil
+        }
 
         // Auto-detect memory output path
         let memoryDir = detectMemoryDir(projectRoot: projectRoot)
@@ -55,7 +64,7 @@ public struct MemoryBuilder: QualityChecker, Sendable {
                     globalClaudeMD: globalClaudeMD
                 )
                 allEntries.append(contentsOf: entries)
-            } catch { // logging: error captured as Diagnostic
+            } catch {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Extractor '\(extractor.id)' failed: \(error.localizedDescription)",
@@ -98,7 +107,13 @@ public struct MemoryBuilder: QualityChecker, Sendable {
 
             // Update MEMORY.md index
             let indexPath = (memoryDir as NSString).appendingPathComponent("MEMORY.md")
-            let existingIndex = (try? String(contentsOfFile: indexPath, encoding: .utf8)) ?? "" // silent: missing index file means fresh start
+            let existingIndex: String
+            do {
+                existingIndex = try String(contentsOfFile: indexPath, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Could not read existing MEMORY.md index at \(indexPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                existingIndex = ""
+            }
             let newIndex = MemoryWriter.mergeIndex(existing: existingIndex, entries: allEntries)
             try newIndex.write(toFile: indexPath, atomically: true, encoding: .utf8)
             // Post-extraction validation

@@ -4,14 +4,21 @@ import IJSAggregator
 
 extension PulseRefiner {
     /// Classifies each project into a tier based on run recency and volume.
+    ///
+    /// When `manifest` is provided, projects with a `tierOverride` use that instead of auto-classification.
     func classifyProjects(
         projectSnapshots: [String: [DailySnapshot]],
-        windowEnd: Date
+        windowEnd: Date,
+        manifest: CorpusManifest? = nil
     ) -> [String: ProjectTier] {
         var tiers: [String: ProjectTier] = [:]
         let calendar = Calendar.current
 
         for (projectID, snapshots) in projectSnapshots {
+            if let override = manifest?.projects[projectID]?.tierOverride {
+                tiers[projectID] = override
+                continue
+            }
             let runCount = snapshots.reduce(0) { $0 + $1.gateRuns }
             let lastRunDate = snapshots.last?.date
             let daysSinceLastRun: Int

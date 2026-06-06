@@ -1,4 +1,4 @@
-import ArgumentParser // logging: CLI tool — print() is appropriate for user-facing output
+import ArgumentParser
 import Foundation
 import QualityGateCore
 import IJSSensor
@@ -35,20 +35,20 @@ struct GeneratePulse: AsyncParsableCommand {
         var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
-        } catch { // logging: falling back to default configuration
+        } catch {
             configuration = Configuration()
         }
 
         let effectiveCorpusPath = corpusPath ?? configuration.consistency.corpusPath
         guard let effectiveCorpusPath else {
-            print("[ijs] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.") // logging: CLI user-facing output
+            print("[ijs] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")
             throw ExitCode(1)
         }
 
         let fm = FileManager.default
         let telemetryDir = "\(effectiveCorpusPath)/telemetry" // SAFETY: configured corpus path
         guard fm.fileExists(atPath: telemetryDir) else { // SAFETY: read-only check on configured path
-            print("[ijs] Error: No telemetry directory found at \(telemetryDir)") // logging: CLI user-facing output
+            print("[ijs] Error: No telemetry directory found at \(telemetryDir)")
             throw ExitCode(1)
         }
 
@@ -59,7 +59,7 @@ struct GeneratePulse: AsyncParsableCommand {
             }
 
         guard !projectDirs.isEmpty else {
-            print("[ijs] Error: No projects found in corpus at \(effectiveCorpusPath)") // logging: CLI user-facing output
+            print("[ijs] Error: No projects found in corpus at \(effectiveCorpusPath)")
             throw ExitCode(1)
         }
 
@@ -70,7 +70,7 @@ struct GeneratePulse: AsyncParsableCommand {
 
         let windowEnd = Date()
         guard let windowStart = calendar.date(byAdding: .day, value: -windowDays, to: windowEnd) else {
-            print("[ijs] Error: Cannot compute window start date") // logging: CLI user-facing output
+            print("[ijs] Error: Cannot compute window start date")
             throw ExitCode(1)
         }
 
@@ -84,15 +84,15 @@ struct GeneratePulse: AsyncParsableCommand {
         let manifest: CorpusManifest
         do {
             manifest = try reader.loadManifest()
-        } catch { // logging: manifest is optional; missing treated as all-active
+        } catch {
             manifest = CorpusManifest()
         }
 
-        print("[ijs] Generating pulse for \(projectDirs.count) project(s)") // logging: CLI user-facing output
+        print("[ijs] Generating pulse for \(projectDirs.count) project(s)")
         if verbose {
-            print("[ijs] Projects: \(projectDirs.joined(separator: ", "))") // logging: CLI verbose progress output
-            print("[ijs] Window: \(windowStart) – \(windowEnd)") // logging: CLI verbose progress output
-            print("[ijs] Lookback: \(lookbackDays) days") // logging: CLI verbose progress output
+            print("[ijs] Projects: \(projectDirs.joined(separator: ", "))")
+            print("[ijs] Window: \(windowStart) – \(windowEnd)")
+            print("[ijs] Lookback: \(lookbackDays) days")
         }
 
         let writer = TelemetryWriter()
@@ -114,11 +114,11 @@ struct GeneratePulse: AsyncParsableCommand {
 
         let effectiveLabel = pulse.label ?? pulse.weekLabel
         let pulsePath = corpusPaths[0].pulsePath(label: effectiveLabel) // SAFETY: effectiveLabel from pulse model
-        print("[ijs] Pulse generated: \(effectiveLabel)") // logging: CLI user-facing output
-        print("[ijs]   Gate runs: \(pulse.statistics.totalGateRuns) (\(pulse.statistics.passedRuns) passed, \(pulse.statistics.failedRuns) failed)") // logging: CLI user-facing output
-        print("[ijs]   Overrides: \(pulse.statistics.totalOverrides)") // logging: CLI user-facing output
-        print("[ijs]   Violation clusters: \(pulse.violationClusters.count)") // logging: CLI user-facing output
-        print("[ijs]   Anomalies: \(pulse.statistics.anomalies.count)") // logging: CLI user-facing output
-        print("[ijs]   Written to: \(pulsePath)") // logging: CLI user-facing output
+        print("[ijs] Pulse generated: \(effectiveLabel)")
+        print("[ijs]   Gate runs: \(pulse.statistics.totalGateRuns) (\(pulse.statistics.passedRuns) passed, \(pulse.statistics.failedRuns) failed)")
+        print("[ijs]   Overrides: \(pulse.statistics.totalOverrides)")
+        print("[ijs]   Violation clusters: \(pulse.violationClusters.count)")
+        print("[ijs]   Anomalies: \(pulse.statistics.anomalies.count)")
+        print("[ijs]   Written to: \(pulsePath)")
     }
 }

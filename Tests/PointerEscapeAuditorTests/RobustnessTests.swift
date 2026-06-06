@@ -7,7 +7,6 @@ import Testing
 @Suite("PointerEscapeAuditor: edge-case robustness")
 struct RobustnessTests {
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on conditional compilation")
     func conditionalCompilationDoesNotCrash() async throws {
         let code = """
@@ -21,10 +20,12 @@ struct RobustnessTests {
         }
         #endif
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "pointer-escape")
+        // The DEBUG branch leaks a pointer via implicit return — should flag.
+        #expect(!result.diagnostics.isEmpty)
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on macro-expanded code")
     func macroDoesNotCrash() async throws {
         let code = """
@@ -33,20 +34,22 @@ struct RobustnessTests {
             var x = 0
         }
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "pointer-escape")
+        // No pointer operations → no diagnostics expected.
+        #expect(result.diagnostics.isEmpty)
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on malformed input")
     func malformedDoesNotCrash() async throws {
         let code = """
         func leak(_ x: Int) {
             withUnsafePointer(to: x) {
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "pointer-escape")
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on switch return inside with-block")
     func switchReturnDoesNotCrash() async throws {
         let code = """
@@ -59,10 +62,12 @@ struct RobustnessTests {
             }
         }
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "pointer-escape")
+        // Returning ptr from switch inside withUnsafePointer is a pointer escape.
+        #expect(result.diagnostics.contains { $0.ruleId == "pointer-escape.return-from-with-block" })
     }
 
-    // TEST-QUALITY: robustness test — crash absence is the assertion
     @Test("Does not crash on guard-let return")
     func guardReturnDoesNotCrash() async throws {
         let code = """
@@ -73,6 +78,9 @@ struct RobustnessTests {
             }
         }
         """
-        _ = try await TestHelpers.audit(code)
+        let result = try await TestHelpers.audit(code)
+        #expect(result.checkerId == "pointer-escape")
+        // ptr.pointee is a safe dereference (Int), not a pointer escape.
+        #expect(result.diagnostics.isEmpty)
     }
 }

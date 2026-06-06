@@ -2,6 +2,7 @@ import Foundation
 import BusinessMath
 import IJSSensor
 import IJSAggregator
+import os
 
 /// Orchestrates Pulse generation from corpus telemetry with statistical analysis.
 ///
@@ -9,6 +10,7 @@ import IJSAggregator
 /// and produces model objects. It performs no file I/O directly.
 public actor PulseRefiner {
 
+    static let logger = Logger(subsystem: "com.quality-gate", category: "PulseRefiner")
     private let writer: TelemetryWriter
 
     /// Creates a new pulse refiner.
@@ -93,9 +95,15 @@ public actor PulseRefiner {
         var allComplexityReports: [ComplexityReport] = []
         var projectComplexityReports: [String: [ComplexityReport]] = [:]
         for corpus in corpusPaths {
-            let reports = (try? await writer.readComplexityReports( // silent: complexity reports may not exist yet
-                from: corpus, startDate: lookbackStart, endDate: windowEnd
-            )) ?? []
+            let reports: [ComplexityReport]
+            do {
+                reports = try await writer.readComplexityReports(
+                    from: corpus, startDate: lookbackStart, endDate: windowEnd
+                )
+            } catch {
+                Self.logger.warning("Failed to read complexity reports for \(corpus.projectID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                reports = []
+            }
             allComplexityReports.append(contentsOf: reports)
             if !reports.isEmpty {
                 projectComplexityReports[corpus.projectID] = reports
@@ -150,7 +158,7 @@ public actor PulseRefiner {
         )
 
         // Tier classification
-        let tiers = classifyProjects(projectSnapshots: projectSnapshots, windowEnd: windowEnd)
+        let tiers = classifyProjects(projectSnapshots: projectSnapshots, windowEnd: windowEnd, manifest: manifest)
 
         // Weighted scores
         let weightedScores = computeWeightedScores(projectMetadata: projectMetadataByProject)
@@ -232,20 +240,23 @@ public actor PulseRefiner {
                 meta.results.allSatisfy { $0.status == .passed }
             }.count
             let failedRuns = gateRuns - passedRuns
-            let overrides = records.reduce(0) { $0 + $1.overrides.count }
+            var uniqueOverrideKeys: Set<String> = []
+            var overridesByRiskTier: [RiskTier: Int] = [:]
+            for meta in records {
+                for override in meta.overrides {
+                    let key = "\(override.diagnosticOverride.ruleId):\(override.diagnosticOverride.filePath ?? ""):\(override.diagnosticOverride.lineNumber ?? 0)"
+                    if uniqueOverrideKeys.insert(key).inserted {
+                        overridesByRiskTier[override.riskTier, default: 0] += 1
+                    }
+                }
+            }
+            let overrides = uniqueOverrideKeys.count
             let calibrationCount = 0
 
             var failuresByChecker: [String: Int] = [:]
             for meta in records {
                 for result in meta.results where result.status == .failed {
                     failuresByChecker[result.checkerId, default: 0] += 1
-                }
-            }
-
-            var overridesByRiskTier: [RiskTier: Int] = [:]
-            for meta in records {
-                for override in meta.overrides {
-                    overridesByRiskTier[override.riskTier, default: 0] += 1
                 }
             }
 
@@ -415,14 +426,17 @@ public actor PulseRefiner {
             meta.results.allSatisfy { $0.status == .passed }
         }.count
         let failedRuns = totalGateRuns - passedRuns
-        let totalOverrides = windowMetadata.reduce(0) { $0 + $1.overrides.count }
-
+        var uniqueOverrideKeys: Set<String> = []
         var overridesByRiskTier: [RiskTier: Int] = [:]
         for meta in windowMetadata {
             for override in meta.overrides {
-                overridesByRiskTier[override.riskTier, default: 0] += 1
+                let key = "\(override.diagnosticOverride.ruleId):\(override.diagnosticOverride.filePath ?? ""):\(override.diagnosticOverride.lineNumber ?? 0)"
+                if uniqueOverrideKeys.insert(key).inserted {
+                    overridesByRiskTier[override.riskTier, default: 0] += 1
+                }
             }
         }
+        let totalOverrides = uniqueOverrideKeys.count
 
         var failuresByChecker: [String: Int] = [:]
         for meta in windowMetadata {

@@ -75,7 +75,7 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(source, fileName: fullPath)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

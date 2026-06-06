@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Result of a trial build to verify whether the project can be upgraded.
@@ -35,6 +36,8 @@ public enum VerificationResult: Sendable, Equatable {
 ///   checkCompiler: true
 /// ```
 public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "SwiftVersionChecker")
+
     /// Unique identifier for this checker.
     public let id = "swift-version"
 
@@ -151,8 +154,11 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
             // Build failed — revert
             try content.write(toFile: packagePath, atomically: true, encoding: .utf8)
             // Clean up backup since we reverted
-            // silent: best-effort cleanup of backup file
-            try? FileManager.default.removeItem(atPath: backupPath) // SAFETY: CLI removes its own backup
+            do {
+                try FileManager.default.removeItem(atPath: backupPath) // SAFETY: CLI removes its own backup
+            } catch {
+                Self.logger.warning("Failed to clean up backup file: \(backupPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
 
             return FixResult(
                 modifications: [],
@@ -179,9 +185,14 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: The version string, or nil if not found.
     public static func parseToolsVersion(from content: String) -> String? {
         let pattern = #"//\s*swift-tools-version:\s*(\d+(?:\.\d+)*)"#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.warning("Failed to compile tools-version regex: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let match = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
               let versionRange = Range(match.range(at: 1), in: content) else {
             return nil
         }
@@ -197,9 +208,14 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: The version string, or nil if not parseable.
     public static func parseCompilerVersion(from output: String) -> String? {
         let pattern = #"(?:Apple )?Swift version (\d+\.\d+(?:\.\d+)?)"#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.warning("Failed to compile compiler-version regex: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let match = regex.firstMatch(in: output, range: NSRange(output.startIndex..., in: output)),
               let versionRange = Range(match.range(at: 1), in: output) else {
             return nil
         }
@@ -327,8 +343,11 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: The rewritten content, or nil if no tools-version line found.
     public static func rewriteToolsVersion(in content: String, to version: String) -> String? {
         let pattern = #"//\s*swift-tools-version:\s*\d+(?:\.\d+)*"#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.warning("Failed to compile tools-version rewrite regex: \(error.localizedDescription, privacy: .public)")
             return nil
         }
         let range = NSRange(content.startIndex..., in: content)
@@ -375,8 +394,11 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
 
         defer {
             // Always restore original
-            // silent: best-effort restore of original Package.swift
-            try? original.write(toFile: packagePath, atomically: true, encoding: .utf8)
+            do {
+                try original.write(toFile: packagePath, atomically: true, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Failed to restore original Package.swift: \(packagePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         let (output, exitCode) = try await runSwiftBuild()
@@ -416,8 +438,11 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         let pattern = #"^(.+?):(\d+):(\d+): error: (.+)$"#
 
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern, options: .anchorsMatchLines)
+        } catch {
+            Self.logger.warning("Failed to compile build error regex: \(error.localizedDescription, privacy: .public)")
             return []
         }
 

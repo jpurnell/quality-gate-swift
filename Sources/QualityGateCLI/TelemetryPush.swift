@@ -1,4 +1,4 @@
-import ArgumentParser // logging: CLI tool — print() is appropriate for user-facing output
+import ArgumentParser
 import Foundation
 import QualityGateCore
 import IJSSensor
@@ -30,13 +30,13 @@ struct TelemetryPush: AsyncParsableCommand {
         var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
-        } catch { // logging: falling back to default configuration
+        } catch {
             configuration = Configuration()
         }
 
         let effectiveCorpusPath = corpusPath ?? configuration.consistency.corpusPath
         guard let effectiveCorpusPath else {
-            print("[ijs] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.") // logging: CLI user-facing output
+            print("[ijs] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")
             throw ExitCode(1)
         }
 
@@ -52,7 +52,7 @@ struct TelemetryPush: AsyncParsableCommand {
 
         if let inputPath = input {
             guard FileManager.default.fileExists(atPath: inputPath) else { // SAFETY: CLI argument, validated before read
-                print("[ijs] Error: Input file not found: \(inputPath)") // logging: CLI user-facing output
+                print("[ijs] Error: Input file not found: \(inputPath)")
                 throw ExitCode(1)
             }
             let data = try Data(contentsOf: URL(fileURLWithPath: inputPath))
@@ -75,13 +75,13 @@ struct TelemetryPush: AsyncParsableCommand {
         }
 
         try await writer.write(metadata: metadata, calibrations: [], to: corpus)
-        print("[ijs] Telemetry written to \(corpus.projectDirectory)") // logging: CLI user-facing output
+        print("[ijs] Telemetry written to \(corpus.projectDirectory)")
 
         if verbose {
-            print("[ijs] Project: \(effectiveProjectID)") // logging: CLI verbose progress output
-            print("[ijs] Corpus: \(effectiveCorpusPath)") // logging: CLI verbose progress output
-            print("[ijs] Timestamp: \(metadata.timestamp)") // logging: CLI verbose progress output
-            print("[ijs] Results: \(metadata.results.count) checker(s)") // logging: CLI verbose progress output
+            print("[ijs] Project: \(effectiveProjectID)")
+            print("[ijs] Corpus: \(effectiveCorpusPath)")
+            print("[ijs] Timestamp: \(metadata.timestamp)")
+            print("[ijs] Results: \(metadata.results.count) checker(s)")
         }
     }
 }

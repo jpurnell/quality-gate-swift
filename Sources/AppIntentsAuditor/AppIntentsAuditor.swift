@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import IndexStoreInfra
 
@@ -9,6 +10,8 @@ import IndexStoreInfra
 /// - **Pass 1:** Per-file SwiftSyntax AST analysis (always runs)
 /// - **Pass 2:** IndexStoreDB cross-file analysis (when index store is available)
 public struct AppIntentsAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "AppIntentsAuditor")
+
     /// Unique identifier for this auditor.
     public let id = "appintents-readiness"
     /// Human-readable display name for this auditor.
@@ -38,8 +41,13 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
         )
 
         let appIntentFiles = swiftFiles.filter { path in
-            guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return false } // silent: skip unreadable files during filtering
-            return contents.contains("import AppIntents")
+            do {
+                let contents = try String(contentsOfFile: path, encoding: .utf8)
+                return contents.contains("import AppIntents")
+            } catch {
+                Self.logger.warning("Failed to read file during filtering: \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return false
+            }
         }
 
         guard !appIntentFiles.isEmpty else {
@@ -54,7 +62,13 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
 
         for file in appIntentFiles {
-            guard let source = try? String(contentsOfFile: file, encoding: .utf8) else { continue } // silent: skip unreadable files during analysis
+            let source: String
+            do {
+                source = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Failed to read file during analysis: \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             diagnostics.append(contentsOf: AppIntentVisitor.analyze(source: source, fileName: file))
         }
 

@@ -67,7 +67,7 @@ public struct EnvironmentExtractor: MemoryExtractor, Sendable {
             )
             guard result.exitCode == 0 else { return nil }
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch { // logging: error returned as nil to caller
+        } catch {
             return nil
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import BuildChecker
 
@@ -22,6 +23,8 @@ import BuildChecker
 ///     - "platform=iOS Simulator,name=iPhone 17 Pro"
 /// ```
 public struct XcodeBuildChecker: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "XcodeBuildChecker")
+
     /// Unique identifier for this checker.
     public let id = "xcode-build"
 
@@ -154,9 +157,21 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             )
         }
 
-        guard let data = result.stdout.data(using: .utf8),
-              // silent: malformed JSON from xcodebuild handled by throwing configurationError
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let data = result.stdout.data(using: .utf8) else {
+            throw QualityGateError.configurationError(
+                "Failed to parse xcodebuild -list output"
+            )
+        }
+        let json: [String: Any]
+        do {
+            guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw QualityGateError.configurationError(
+                    "Failed to parse xcodebuild -list output"
+                )
+            }
+            json = parsed
+        } catch {
+            Self.logger.warning("Failed to parse xcodebuild -list JSON: \(error.localizedDescription, privacy: .public)")
             throw QualityGateError.configurationError(
                 "Failed to parse xcodebuild -list output"
             )

@@ -14,7 +14,6 @@ extension SafetyAuditor: SourceAuditable {}
 @Suite("AuditHelpers Integration Tests")
 struct AuditHelpersTests {
 
-    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("auditSource with force unwrap code returns diagnostics")
     func auditSourceWithViolation() async throws {
         let code = """
@@ -28,9 +27,10 @@ struct AuditHelpersTests {
 
         expectStatus(result, .failed)
         expectDiagnostic(in: result, ruleId: "force-unwrap")
+        #expect(result.status == .failed)
+        #expect(result.diagnostics.contains { $0.ruleId == "force-unwrap" })
     }
 
-    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("auditSource with clean code returns empty diagnostics")
     func auditSourceClean() async throws {
         let code = """
@@ -46,9 +46,10 @@ struct AuditHelpersTests {
 
         expectClean(result)
         expectStatus(result, .passed)
+        #expect(result.diagnostics.isEmpty)
+        #expect(result.status == .passed)
     }
 
-    // TEST-QUALITY: assertions delegated to QualityGateTestKit helpers
     @Test("auditSource with custom fileName works")
     func auditSourceCustomFileName() async throws {
         let code = """
@@ -66,5 +67,7 @@ struct AuditHelpersTests {
         // The audit should still detect the violation regardless of file name.
         expectStatus(result, .failed)
         expectDiagnostic(in: result, ruleId: "force-unwrap")
+        #expect(result.status == .failed)
+        #expect(result.diagnostics.contains { $0.ruleId == "force-unwrap" })
     }
 }

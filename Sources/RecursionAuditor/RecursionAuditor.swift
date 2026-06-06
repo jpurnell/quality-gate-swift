@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -10,6 +11,8 @@ import IndexStoreInfra
 /// `development-guidelines/02_IMPLEMENTATION_PLANS/UPCOMING/RECURSION_AUDITOR_design.md`
 /// for the full rule list and rationale.
 public struct RecursionAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "RecursionAuditor")
+
     /// Unique identifier for this checker.
     public let id = "recursion"
     /// Human-readable name shown in quality-gate output.
@@ -33,8 +36,11 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             while let relativePath = enumerator.nextObject() as? String {
                 guard relativePath.hasSuffix(".swift") else { continue }
                 let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
-                if let source = try? String(contentsOfFile: fullPath, encoding: .utf8) { // silent: unreadable source file skipped
+                do {
+                    let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                     sources.append((fullPath, source))
+                } catch {
+                    Self.logger.warning("Skipping unreadable source file: \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -98,7 +104,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                 for diag in nameBasedCycleDiagnostics {
                     allDiagnostics.append(RecursionIndexPass.demoteToNote(diag))
                 }
-            } catch { // logging: Pass 2 failure captured as note diagnostic
+            } catch {
                 allDiagnostics.append(contentsOf: nameBasedCycleDiagnostics)
                 allDiagnostics.append(contentsOf: RecursionIndexPass.runWithoutIndex())
             }

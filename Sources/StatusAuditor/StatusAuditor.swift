@@ -92,7 +92,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
         let masterPlanContent: String
         do {
             masterPlanContent = try String(contentsOfFile: masterPlanPath, encoding: .utf8)
-        } catch { // logging: error captured as Diagnostic
+        } catch {
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,

@@ -9,6 +9,22 @@ docTarget: QualityGateCore
 build:
   solverExpressionTimeThreshold: 500
 
+logging:
+  projectType: cli
+
+security:
+  # CLI tool operates on configured paths (not user input) and spawns
+  # hardcoded system processes — path-traversal, command-injection, and
+  # insecure-transport are false positives in this context.
+  enabledRules:
+    - security.hardcoded-secret
+    - security.weak-crypto
+    - security.eval-js
+    - security.sql-injection
+    - security.insecure-keychain
+    - security.tls-disabled
+    - security.ssrf
+
 dependencyAudit:
   allowBranchPins:
     - indexstore-db

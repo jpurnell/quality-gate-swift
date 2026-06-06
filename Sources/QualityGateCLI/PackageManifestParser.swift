@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftSyntax
 import SwiftParser
 
@@ -15,6 +16,7 @@ import SwiftParser
 /// caller can then choose whether to skip rules that depend on first-party
 /// detection.
 enum PackageManifestParser {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PackageManifestParser")
     private static let targetFactoryNames: Set<String> = [
         "target",
         "executableTarget",
@@ -28,8 +30,11 @@ enum PackageManifestParser {
     /// Reads `<projectRoot>/Package.swift` and returns first-party target names.
     static func firstPartyTargets(at projectRoot: String) -> Set<String> {
         let manifestPath = (projectRoot as NSString).appendingPathComponent("Package.swift")
-        // silent: missing Package.swift means no first-party targets
-        guard let source = try? String(contentsOfFile: manifestPath, encoding: .utf8) else {
+        let source: String
+        do {
+            source = try String(contentsOfFile: manifestPath, encoding: .utf8)
+        } catch {
+            logger.warning("Cannot read Package.swift at \(manifestPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
         return firstPartyTargets(in: source)

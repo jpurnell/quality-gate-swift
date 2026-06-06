@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Generates a complete Master Plan from actual project state.
@@ -10,6 +11,7 @@ import QualityGateCore
 /// Generated content includes `<!-- TODO -->` placeholders where human-authored
 /// prose should be added.
 public enum StatusBootstrapper {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "StatusBootstrapper")
 
     /// Generate a Master Plan from actual project state.
     ///
@@ -123,14 +125,23 @@ public enum StatusBootstrapper {
     // MARK: - Private Helpers
 
     private static func parsePackageName(at path: String) -> String {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { // silent: missing Package.swift defaults to "Project"
+        let content: String
+        do {
+            content = try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            logger.warning("Could not read Package.swift at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return "Project"
         }
 
         let pattern = #"name:\s*"([^"]+)""#
-        // silent: constant regex pattern
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.warning("Failed to compile package-name regex: \(error.localizedDescription, privacy: .public)")
+            return "Project"
+        }
+        guard let match = regex.firstMatch(
                 in: content,
                 range: NSRange(content.startIndex..., in: content)
               ),

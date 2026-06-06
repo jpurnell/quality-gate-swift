@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Actual state of a module from the file system.
 public struct ActualModuleState: Sendable, Equatable {
@@ -23,6 +24,7 @@ public struct ActualModuleState: Sendable, Equatable {
 
 /// Collects actual module state from the file system and Package.swift.
 public enum ProjectStateCollector {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ProjectStateCollector")
 
     /// Collect state for all modules found in Sources/ and Package.swift.
     ///
@@ -50,14 +52,18 @@ public enum ProjectStateCollector {
             .appending("/Plugins")]
 
         for searchPath in searchPaths {
-            // silent: missing directory is expected for projects without Plugins/
-            if let dirs = try? fileManager.contentsOfDirectory(atPath: searchPath) { // SAFETY: CLI tool enumerates local project modules
-                for dir in dirs {
-                    let dirPath = (searchPath as NSString).appendingPathComponent(dir)
-                    var isDir: ObjCBool = false
-                    if fileManager.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue { // SAFETY: CLI tool checks local directory type
-                        moduleNames.insert(dir)
-                    }
+            let dirs: [String]
+            do {
+                dirs = try fileManager.contentsOfDirectory(atPath: searchPath) // SAFETY: CLI tool enumerates local project modules
+            } catch {
+                logger.warning("Could not list directory \(searchPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+            for dir in dirs {
+                let dirPath = (searchPath as NSString).appendingPathComponent(dir)
+                var isDir: ObjCBool = false
+                if fileManager.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue { // SAFETY: CLI tool checks local directory type
+                    moduleNames.insert(dir)
                 }
             }
         }
@@ -99,7 +105,11 @@ public enum ProjectStateCollector {
 
     /// Parse target names from Package.swift.
     static func parsePackageTargets(at path: String) -> Set<String> {
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { // silent: missing Package.swift returns empty set
+        let content: String
+        do {
+            content = try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            logger.warning("Could not read Package.swift at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
 
@@ -111,7 +121,13 @@ public enum ProjectStateCollector {
         ]
 
         for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue } // silent: constant regex pattern
+            let regex: NSRegularExpression
+            do {
+                regex = try NSRegularExpression(pattern: pattern)
+            } catch {
+                logger.warning("Failed to compile target regex pattern: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let range = NSRange(content.startIndex..., in: content)
             let matches = regex.matches(in: content, range: range)
 
@@ -141,8 +157,11 @@ public enum ProjectStateCollector {
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
             fileCount += 1
 
-            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) { // silent: unreadable source file skipped
+            do {
+                let content = try String(contentsOfFile: fullPath, encoding: .utf8)
                 lineCount += content.components(separatedBy: .newlines).count
+            } catch {
+                logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 
@@ -162,23 +181,32 @@ public enum ProjectStateCollector {
             guard relativePath.hasSuffix(".swift") else { continue }
 
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
-            guard let content = try? String(contentsOfFile: fullPath, encoding: .utf8) else { // silent: unreadable test file skipped
+            let content: String
+            do {
+                content = try String(contentsOfFile: fullPath, encoding: .utf8)
+            } catch {
+                logger.warning("Skipping unreadable test file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
 
             // Count @Test attributes (Swift Testing)
             let testAttrPattern = #"@Test\b"#
-            // silent: constant regex pattern
-            if let regex = try? NSRegularExpression(pattern: testAttrPattern) {
+            do {
+                let regex = try NSRegularExpression(pattern: testAttrPattern)
                 let range = NSRange(content.startIndex..., in: content)
                 count += regex.numberOfMatches(in: content, range: range)
+            } catch {
+                logger.warning("Failed to compile @Test regex: \(error.localizedDescription, privacy: .public)")
             }
 
             // Count func test* methods (XCTest)
             let funcTestPattern = #"func\s+test[A-Z]\w*\s*\("#
-            if let regex = try? NSRegularExpression(pattern: funcTestPattern) { // silent: constant regex pattern
+            do {
+                let regex = try NSRegularExpression(pattern: funcTestPattern)
                 let range = NSRange(content.startIndex..., in: content)
                 count += regex.numberOfMatches(in: content, range: range)
+            } catch {
+                logger.warning("Failed to compile func-test regex: \(error.localizedDescription, privacy: .public)")
             }
         }
 

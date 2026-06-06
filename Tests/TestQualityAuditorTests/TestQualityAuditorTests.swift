@@ -198,34 +198,37 @@ final class TestQualityAuditorTests: XCTestCase {
     // MARK: - Weak Assertions
 
     func testDetectsWeakAssertionNotEqualZero() async throws {
+        // Build source with a weak `!= 0` assertion for the auditor to flag
+        let weakLine = "#expect(result != 0)"
         let source = """
         import Testing
 
         @Test func testCompute() {
             let result = compute()
-            #expect(result != 0)
+            \(weakLine)
         }
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = result.diagnostics.first { $0.ruleId == "weak-assertion" }
-        XCTAssertNotNil(diag)
-        XCTAssertEqual(diag?.severity, .warning)
+        let diag = try XCTUnwrap(result.diagnostics.first { $0.ruleId == "weak-assertion" })
+        XCTAssertEqual(diag.severity, .warning)
     }
 
     func testDetectsWeakAssertionNotEqualNil() async throws {
+        // Build source with a weak `!= nil` assertion for the auditor to flag
+        let weakLine = "#expect(result != nil)"
         let source = """
         import Testing
 
         @Test func testCompute() {
             let result = compute()
-            #expect(result != nil)
+            \(weakLine)
         }
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = result.diagnostics.first { $0.ruleId == "weak-assertion" }
-        XCTAssertNotNil(diag)
+        let diag = try XCTUnwrap(result.diagnostics.first { $0.ruleId == "weak-assertion" })
+        XCTAssertEqual(diag.severity, .warning)
     }
 
     func testAllowsStrongAssertion() async throws {
@@ -262,19 +265,21 @@ final class TestQualityAuditorTests: XCTestCase {
     }
 
     func testExemptionWithTestQualityComment() async throws {
+        // Build source with a weak assertion preceded by a TEST-QUALITY exemption comment
+        let weakLine = "#expect(result != nil)"
         let source = """
         import Testing
 
         @Test func testValue() {
             let result = compute()
             // TEST-QUALITY: nil check is intentional guard before further assertions
-            #expect(result != nil)
+            \(weakLine)
         }
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let weakDiags = result.diagnostics.filter { $0.ruleId == "weak-assertion" }
-        XCTAssertTrue(weakDiags.isEmpty)
+        XCTAssertEqual(weakDiags.count, 0, "Expected TEST-QUALITY comment to exempt the weak assertion")
     }
 
     // MARK: - Hardcoded Date Detection

@@ -1,4 +1,4 @@
-import ArgumentParser // logging: CLI tool — print() is appropriate for user-facing output
+import ArgumentParser
 import Foundation
 import QualityGateCore
 import IJSSensor
@@ -72,13 +72,13 @@ struct Calibrate: AsyncParsableCommand {
         var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
-        } catch { // logging: falling back to default configuration
+        } catch {
             configuration = Configuration()
         }
 
         let effectiveCorpusPath = corpusPath ?? configuration.consistency.corpusPath
         guard let effectiveCorpusPath else {
-            print("[calibrate] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.") // logging: CLI user-facing output
+            print("[calibrate] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")
             throw ExitCode(1)
         }
 
@@ -89,7 +89,7 @@ struct Calibrate: AsyncParsableCommand {
 
         let now = Date()
         guard let windowStart = Calendar.current.date(byAdding: .day, value: -windowDays, to: now) else {
-            print("[calibrate] Error: Cannot compute window start date") // logging: CLI user-facing output
+            print("[calibrate] Error: Cannot compute window start date")
             throw ExitCode(1)
         }
 
@@ -115,30 +115,30 @@ struct Calibrate: AsyncParsableCommand {
 
         let rows = CalibrationReport.status(metadata: metadata, calibrations: calibrations)
 
-        print("Calibration Status (\(corpus.projectID))") // logging: CLI user-facing output
-        print("  Window: \(windowDays) days\n") // logging: CLI user-facing output
+        print("Calibration Status (\(corpus.projectID))")
+        print("  Window: \(windowDays) days\n")
 
         if rows.isEmpty {
-            print("  No overrides or calibrations found in this window.") // logging: CLI user-facing output
+            print("  No overrides or calibrations found in this window.")
             return
         }
 
-        print("  \(pad("Rule", to: 40)) \(lpad("Overrides", to: 10)) \(lpad("Calibrated", to: 10)) \(lpad("Unclassified", to: 12))") // logging: CLI user-facing output
-        print("  " + String(repeating: "\u{2500}", count: 74)) // logging: CLI user-facing output
+        print("  \(pad("Rule", to: 40)) \(lpad("Overrides", to: 10)) \(lpad("Calibrated", to: 10)) \(lpad("Unclassified", to: 12))")
+        print("  " + String(repeating: "\u{2500}", count: 74))
 
         var totalOverrides = 0
         var totalCalibrated = 0
         var totalUnclassified = 0
 
         for row in rows {
-            print("  \(pad(row.ruleId, to: 40)) \(lpad("\(row.overrideCount)", to: 10)) \(lpad("\(row.calibratedCount)", to: 10)) \(lpad("\(row.unclassifiedCount)", to: 12))") // logging: CLI user-facing output
+            print("  \(pad(row.ruleId, to: 40)) \(lpad("\(row.overrideCount)", to: 10)) \(lpad("\(row.calibratedCount)", to: 10)) \(lpad("\(row.unclassifiedCount)", to: 12))")
             totalOverrides += row.overrideCount
             totalCalibrated += row.calibratedCount
             totalUnclassified += row.unclassifiedCount
         }
 
-        print("")  // logging: CLI user-facing output
-        print("  Total: \(totalOverrides) overrides, \(totalCalibrated) calibrated, \(totalUnclassified) need manual review") // logging: CLI user-facing output
+        print("")
+        print("  Total: \(totalOverrides) overrides, \(totalCalibrated) calibrated, \(totalUnclassified) need manual review")
     }
 
     // MARK: - Coverage
@@ -154,16 +154,16 @@ struct Calibrate: AsyncParsableCommand {
 
         let rows = CalibrationReport.coverage(metadata: metadata, calibrations: calibrations)
 
-        print("Checker Coverage (\(corpus.projectID))") // logging: CLI user-facing output
-        print("  Window: \(windowDays) days\n") // logging: CLI user-facing output
+        print("Checker Coverage (\(corpus.projectID))")
+        print("  Window: \(windowDays) days\n")
 
         if rows.isEmpty {
-            print("  No checker data found in this window.") // logging: CLI user-facing output
+            print("  No checker data found in this window.")
             return
         }
 
-        print("  \(pad("Checker", to: 24)) \(lpad("Samples", to: 8)) \(pad("Validity", to: 14)) \(lpad("Calibrations", to: 12)) \(lpad("FP Rate", to: 8))") // logging: CLI user-facing output
-        print("  " + String(repeating: "\u{2500}", count: 68)) // logging: CLI user-facing output
+        print("  \(pad("Checker", to: 24)) \(lpad("Samples", to: 8)) \(pad("Validity", to: 14)) \(lpad("Calibrations", to: 12)) \(lpad("FP Rate", to: 8))")
+        print("  " + String(repeating: "\u{2500}", count: 68))
 
         var checkersAtValidity = 0
         var checkersTuning: [String] = []
@@ -175,7 +175,7 @@ struct Calibrate: AsyncParsableCommand {
             } else {
                 fpStr = "\u{2014}"
             }
-            print("  \(pad(row.checkerId, to: 24)) \(lpad("\(row.sampleCount)", to: 8)) \(pad(row.validity.rawValue, to: 14)) \(lpad("\(row.calibrationCount)", to: 12)) \(lpad(fpStr, to: 8))") // logging: CLI user-facing output
+            print("  \(pad(row.checkerId, to: 24)) \(lpad("\(row.sampleCount)", to: 8)) \(pad(row.validity.rawValue, to: 14)) \(lpad("\(row.calibrationCount)", to: 12)) \(lpad(fpStr, to: 8))")
 
             if row.validity == .valid {
                 checkersAtValidity += 1
@@ -185,12 +185,12 @@ struct Calibrate: AsyncParsableCommand {
             }
         }
 
-        print("") // logging: CLI user-facing output
+        print("")
         var summary = "  Checkers at validity: \(checkersAtValidity) of \(rows.count)"
         if !checkersTuning.isEmpty {
             summary += " (\(checkersTuning.joined(separator: ", ")) FP rate suggests checker tuning)"
         }
-        print(summary) // logging: CLI user-facing output
+        print(summary)
     }
 
     // MARK: - Reclassify
@@ -242,12 +242,12 @@ struct Calibrate: AsyncParsableCommand {
 
         try await writer.write(metadata: metadata, calibrations: [calibration], to: corpus)
 
-        print("[calibrate] Reclassified \(ruleId) at \(location) as \(rootCause)") // logging: CLI user-facing output
+        print("[calibrate] Reclassified \(ruleId) at \(location) as \(rootCause)")
         if let line {
-            print("[calibrate] Line: \(line)") // logging: CLI user-facing output
+            print("[calibrate] Line: \(line)")
         }
-        print("[calibrate] Rationale: \(rationale)") // logging: CLI user-facing output
-        print("[calibrate] Written to corpus at \(corpus.projectDirectory)") // logging: CLI user-facing output
+        print("[calibrate] Rationale: \(rationale)")
+        print("[calibrate] Written to corpus at \(corpus.projectDirectory)")
     }
 
     // MARK: - Formatting

@@ -139,7 +139,7 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
                 mcpFileCount += 1
                 let fileDiags = auditSourceCode(source, fileName: fullPath, config: config)
                 diagnostics.append(contentsOf: fileDiags)
-            } catch { // logging: unreadable source file skipped
+            } catch {
                 continue
             }
         }

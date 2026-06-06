@@ -1,14 +1,21 @@
 import Foundation
+import os
 
 /// Detects target platforms from Package.swift and source file conditionals.
 public struct PlatformDetector: Sendable {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PlatformDetector")
 
     /// Detect platforms declared in a Package.swift file.
     ///
     /// Parses the `platforms:` array for entries like `.macOS(.v15)`, `.iOS(.v17)`, etc.
     public static func detectFromPackageManifest(at projectPath: String) -> HIGPlatform {
         let manifestPath = (projectPath as NSString).appendingPathComponent("Package.swift")
-        guard let contents = try? String(contentsOfFile: manifestPath, encoding: .utf8) else { // silent: missing Package.swift falls back to all platforms
+        let contents: String
+        do {
+            contents = try String(contentsOfFile: manifestPath, encoding: .utf8)
+        } catch {
+            logger.warning("Could not read Package.swift for platform detection, defaulting to all platforms: \(error.localizedDescription, privacy: .public)")
             return .all
         }
         return detectFromManifestContents(contents)
