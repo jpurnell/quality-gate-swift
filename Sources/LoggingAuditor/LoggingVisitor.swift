@@ -115,8 +115,8 @@ final class LoggingVisitor: SyntaxVisitor {
                 hasPrintOrNSLog = true
                 if !isCLI {
                     let line = startLine(of: Syntax(node))
-                    if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.print-statement") {
-                        overrides.append(override)
+                    if isExempted(line: line, keyword: "logging:") {
+    
                     } else {
                         diagnostics.append(Diagnostic(
                             severity: .error,
@@ -171,8 +171,8 @@ final class LoggingVisitor: SyntaxVisitor {
             return
         }
 
-        if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.missing-privacy") {
-            overrides.append(override)
+        if isExempted(line: line, keyword: "logging:") {
+
             return
         }
 
@@ -220,8 +220,8 @@ final class LoggingVisitor: SyntaxVisitor {
               node.arguments.isEmpty else { return }
 
         let line = startLine(of: Syntax(node))
-        if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.bare-logger-init") {
-            overrides.append(override)
+        if isExempted(line: line, keyword: "logging:") {
+
             return
         }
 
@@ -256,8 +256,8 @@ final class LoggingVisitor: SyntaxVisitor {
         }
 
         let line = startLine(of: Syntax(node))
-        if let override = overrideIfExempted(line: line, keyword: "logging:", ruleId: "logging.catch-without-logging") {
-            overrides.append(override)
+        if isExempted(line: line, keyword: "logging:") {
+
             return .visitChildren
         }
 
@@ -292,8 +292,8 @@ final class LoggingVisitor: SyntaxVisitor {
         }
 
         // Check for suppression comment
-        if let override = overrideIfExempted(line: line, keyword: silentTryKeyword, ruleId: "logging.silent-try") {
-            overrides.append(override)
+        if isExempted(line: line, keyword: silentTryKeyword) {
+
             return .visitChildren
         }
 
@@ -318,8 +318,8 @@ final class LoggingVisitor: SyntaxVisitor {
 
     override func visitPost(_ node: SourceFileSyntax) {
         if hasPrintOrNSLog && !hasOSImport && !isCLI {
-            if let exempt = overrideIfExempted(line: 1, keyword: "logging:", ruleId: "logging.no-os-logger-import") {
-                overrides.append(exempt)
+            if isExempted(line: 1, keyword: "logging:") {
+                // Exempted — suppress without override record
             } else {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
@@ -340,32 +340,18 @@ final class LoggingVisitor: SyntaxVisitor {
         return location.line
     }
 
-    /// Checks if the given line (1-based) or the previous line contains an exemption comment.
-    /// Returns a DiagnosticOverride if exempted, nil otherwise.
-    private func overrideIfExempted(line: Int, keyword: String, ruleId: String) -> DiagnosticOverride? {
+    private func isExempted(line: Int, keyword: String) -> Bool {
         let index0 = line - 1
-        // Check same line
         if index0 >= 0, index0 < sourceLines.count,
            sourceLines[index0].contains("// \(keyword)") {
-            return DiagnosticOverride(
-                ruleId: ruleId,
-                justification: sourceLines[index0].trimmingCharacters(in: .whitespaces),
-                filePath: fileName,
-                lineNumber: line
-            )
+            return true
         }
-        // Check previous line
         let prev = index0 - 1
         if prev >= 0, prev < sourceLines.count,
            sourceLines[prev].contains("// \(keyword)") {
-            return DiagnosticOverride(
-                ruleId: ruleId,
-                justification: sourceLines[prev].trimmingCharacters(in: .whitespaces),
-                filePath: fileName,
-                lineNumber: line
-            )
+            return true
         }
-        return nil
+        return false
     }
 
     /// Checks if any line within +/- 2 lines contains a logging call.

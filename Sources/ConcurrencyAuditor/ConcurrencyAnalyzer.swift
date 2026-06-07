@@ -176,8 +176,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         // Rule: nonisolated(unsafe)
         if hasNonisolatedUnsafeModifier(node.modifiers) {
             let line = startLine(of: Syntax(node))
-            if let override = overrideIfJustified(line: line, ruleId: "concurrency.nonisolated-unsafe-no-justification") {
-                overrides.append(override)
+            if isJustified(line: line) {
+                // Justification present — suppress without override record
             } else {
                 diagnostics.append(Diagnostic(
                     severity: .error,
@@ -258,8 +258,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         for inherited in clause.inheritedTypes {
             let text = inherited.type.trimmedDescription
             if text.contains("@unchecked") && text.contains("Sendable") {
-                if let override = overrideIfJustified(line: declStartLine, ruleId: "concurrency.unchecked-sendable-no-justification") {
-                    overrides.append(override)
+                if isJustified(line: declStartLine) {
+                    // Justification present — suppress without override record
                 } else {
                     diagnostics.append(Diagnostic(
                         severity: .error,
@@ -473,9 +473,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         node.startLocation(converter: converter).line
     }
 
-    private func overrideIfJustified(line: Int, ruleId: String) -> DiagnosticOverride? {
+    private func isJustified(line: Int) -> Bool {
         let zeroIndexed = line - 1
-        // Same-line trailing comment
         if zeroIndexed >= 0 && zeroIndexed < sourceLines.count {
             let lineText = sourceLines[zeroIndexed]
             if let commentRange = lineText.range(of: "//") {
@@ -483,30 +482,19 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                 if commentText.contains(justificationKeyword) {
                     let trimmed = commentText.trimmingCharacters(in: .whitespaces)
                     emitQualityDiagnosticsIfNeeded(justificationText: trimmed, line: line)
-                    return DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: trimmed,
-                        filePath: fileName,
-                        lineNumber: line
-                    )
+                    return true
                 }
             }
         }
-        // Line directly above (no blank line between)
         let aboveIndex = zeroIndexed - 1
         if aboveIndex >= 0 && aboveIndex < sourceLines.count {
             let prev = sourceLines[aboveIndex].trimmingCharacters(in: .whitespaces)
             if prev.hasPrefix("//") && prev.contains(justificationKeyword) {
                 emitQualityDiagnosticsIfNeeded(justificationText: prev, line: line)
-                return DiagnosticOverride(
-                    ruleId: ruleId,
-                    justification: prev,
-                    filePath: fileName,
-                    lineNumber: line
-                )
+                return true
             }
         }
-        return nil
+        return false
     }
 
     private func emitQualityDiagnosticsIfNeeded(justificationText: String, line: Int) {
