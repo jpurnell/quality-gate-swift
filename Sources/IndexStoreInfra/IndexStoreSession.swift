@@ -2,14 +2,15 @@ import Foundation
 import IndexStoreDB
 import os
 
+extension IndexStoreDB: @retroactive @unchecked Sendable {}
+
 /// Wraps IndexStoreDB initialization into a reusable session.
 ///
 /// Handles the boilerplate of creating a temporary database directory,
 /// loading the `libIndexStore` dylib, opening the index store, and
 /// polling for changes. Checkers receive a ready-to-query `IndexStoreDB`
 /// instance via `db`.
-// Justification: IndexStoreDB is not Sendable but the session is created once and queried read-only from a single task.
-public final class IndexStoreSession: @unchecked Sendable {
+public final class IndexStoreSession: Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "IndexStoreSession")
 
     /// The ready-to-query IndexStoreDB instance opened by this session.
