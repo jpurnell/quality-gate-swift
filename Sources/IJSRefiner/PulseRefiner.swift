@@ -240,17 +240,15 @@ public actor PulseRefiner {
                 meta.results.allSatisfy { $0.status == .passed }
             }.count
             let failedRuns = gateRuns - passedRuns
-            var uniqueOverrideKeys: Set<String> = []
+            // Use only the latest run's overrides — they're point-in-time, not cumulative.
+            let latestRecord = records.max(by: { $0.timestamp < $1.timestamp })
             var overridesByRiskTier: [RiskTier: Int] = [:]
-            for meta in records {
-                for override in meta.overrides {
-                    let key = "\(override.diagnosticOverride.ruleId):\(override.diagnosticOverride.filePath ?? ""):\(override.diagnosticOverride.lineNumber ?? 0)"
-                    if uniqueOverrideKeys.insert(key).inserted {
-                        overridesByRiskTier[override.riskTier, default: 0] += 1
-                    }
+            if let latest = latestRecord {
+                for override in latest.overrides {
+                    overridesByRiskTier[override.riskTier, default: 0] += 1
                 }
             }
-            let overrides = uniqueOverrideKeys.count
+            let overrides = latestRecord?.overrides.count ?? 0
             let calibrationCount = 0
 
             var failuresByChecker: [String: Int] = [:]
@@ -426,9 +424,22 @@ public actor PulseRefiner {
             meta.results.allSatisfy { $0.status == .passed }
         }.count
         let failedRuns = totalGateRuns - passedRuns
+        // Count overrides from the latest run per project only.
+        // Overrides are point-in-time annotations — accumulating across
+        // all runs inflates the count when line numbers shift between commits.
+        var latestByProject: [String: CheckResultMetadata] = [:]
+        for meta in windowMetadata {
+            if let existing = latestByProject[meta.projectID] {
+                if meta.timestamp > existing.timestamp {
+                    latestByProject[meta.projectID] = meta
+                }
+            } else {
+                latestByProject[meta.projectID] = meta
+            }
+        }
         var uniqueOverrideKeys: Set<String> = []
         var overridesByRiskTier: [RiskTier: Int] = [:]
-        for meta in windowMetadata {
+        for meta in latestByProject.values {
             for override in meta.overrides {
                 let key = "\(override.diagnosticOverride.ruleId):\(override.diagnosticOverride.filePath ?? ""):\(override.diagnosticOverride.lineNumber ?? 0)"
                 if uniqueOverrideKeys.insert(key).inserted {
