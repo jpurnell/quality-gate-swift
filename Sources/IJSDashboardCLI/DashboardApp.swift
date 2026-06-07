@@ -4,6 +4,7 @@ import IJSDashboardCore
 import IJSSensor
 import os
 import SwiftCLIKit
+import Synchronization
 
 #if canImport(Darwin)
 import Darwin
@@ -11,8 +12,7 @@ import Darwin
 import Glibc
 #endif
 
-// Justification: signal handlers cannot capture context; single-writer (signal handler) / single-reader (main thread) pattern is safe
-nonisolated(unsafe) private var dashboardShouldExit = false
+private let dashboardShouldExit = Atomic<Bool>(false)
 
 /// Interactive TUI event loop for the IJS dashboard.
 public enum DashboardApp: Sendable {
@@ -55,7 +55,7 @@ public enum DashboardApp: Sendable {
         }
 
         setvbuf(stdout, nil, _IONBF, 0)
-        dashboardShouldExit = false
+        dashboardShouldExit.store(false, ordering: .relaxed)
 
         signal(SIGINT) { _ in
             let restore = CursorControl.show + MouseMode.disable
@@ -64,7 +64,7 @@ public enum DashboardApp: Sendable {
                 guard let ptr = buffer.baseAddress else { return }
                 _ = write(1, ptr, buffer.count)
             }
-            dashboardShouldExit = true
+            dashboardShouldExit.store(true, ordering: .releasing)
         }
 
         let screen = AlternateScreen()
@@ -80,7 +80,7 @@ public enum DashboardApp: Sendable {
         var needsRedraw = true
         var eofReached = false
 
-        while !dashboardShouldExit && !state.shouldQuit && !eofReached {
+        while !dashboardShouldExit.load(ordering: .acquiring) && !state.shouldQuit && !eofReached {
             autoreleasepool {
                 let size = TerminalSize.current()
                 let cols = max(size.columns, 20)
