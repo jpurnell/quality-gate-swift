@@ -4,12 +4,9 @@ name: Quality Gate (Self)
 # against its own codebase before it can propagate to consuming projects.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: '0 6 * * *'
+  # Daily audit and push-time checks run locally via launchd and pre-push hook.
+  # CI is disabled to conserve GitHub Actions minutes.
+  workflow_dispatch:
 
 permissions:
   contents: read

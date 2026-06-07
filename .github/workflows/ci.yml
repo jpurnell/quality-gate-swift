@@ -1,10 +1,9 @@
 name: CI — Build, Test, Version Check, and Memory Validation
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Build and test run locally via pre-push hook.
+  # CI is disabled to conserve GitHub Actions minutes.
+  workflow_dispatch:
 
 permissions:
   contents: read
