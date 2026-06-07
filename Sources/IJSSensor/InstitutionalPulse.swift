@@ -76,6 +76,26 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
         self.groupSnapshots = groupSnapshots
     }
 
+    /// Returns a copy of this pulse with the narrative field set.
+    public func withNarrative(_ text: String) -> InstitutionalPulse {
+        InstitutionalPulse(
+            windowStart: windowStart,
+            windowEnd: windowEnd,
+            weekLabel: weekLabel,
+            label: label,
+            projects: projects,
+            statistics: statistics,
+            violationClusters: violationClusters,
+            proposedPolicyUpdates: proposedPolicyUpdates,
+            calibrationSummaries: calibrationSummaries,
+            narrative: text,
+            generatedAt: generatedAt,
+            projectTiers: projectTiers,
+            projectTrajectories: projectTrajectories,
+            groupSnapshots: groupSnapshots
+        )
+    }
+
     /// Decodes an institutional pulse, tolerating missing optional fields.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

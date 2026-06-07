@@ -1,29 +1,28 @@
 name: Quality Gate (Reusable)
 
-# Reusable workflow for any project using development-guidelines.
+# Reusable workflow for any project using quality-gate-swift.
 # Always builds from latest main — improvements propagate automatically.
 #
-# Usage in consuming project:
+# Basic usage (run default checkers):
+#
+#   jobs:
+#     quality-gate:
+#       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+#
+# Daily audit with telemetry (run all checkers, push to corpus):
+#
+#   on:
+#     schedule:
+#       - cron: '0 6 * * *'
+#     push:
+#       branches: [main]
 #
 #   jobs:
 #     quality-gate:
 #       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
 #       with:
-#         checks: "status"
-#
-# Or run all default checks:
-#
-#   jobs:
-#     quality-gate:
-#       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
-#
-# With telemetry push to IJS corpus:
-#
-#   jobs:
-#     quality-gate:
-#       uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
-#       with:
-#         telemetry-enabled: true
+#         checks: "all"
+#         continue-on-failure: true
 #         corpus-repo: jpurnell/org-judgement-corpus
 #       secrets:
 #         corpus-token: ${{ secrets.CORPUS_PUSH_TOKEN }}
@@ -32,7 +31,12 @@ on:
   workflow_call:
     inputs:
       checks:
-        description: "Space-separated checker IDs to run (empty = all defaults)"
+        description: "Space-separated checker IDs to run ('all' for every checker)"
+        type: string
+        required: false
+        default: ""
+      exclude:
+        description: "Space-separated checker IDs to skip (used with checks: 'all')"
         type: string
         required: false
         default: ""
@@ -41,16 +45,16 @@ on:
         type: boolean
         required: false
         default: false
+      strict:
+        description: "Treat warnings as failures (exit code 1)"
+        type: boolean
+        required: false
+        default: false
       config:
         description: "Path to .quality-gate.yml (relative to project root)"
         type: string
         required: false
         default: ".quality-gate.yml"
-      telemetry-enabled:
-        description: "Push telemetry to IJS corpus after quality gate run"
-        type: boolean
-        required: false
-        default: false
       corpus-repo:
         description: "GitHub repository for the IJS corpus (e.g., jpurnell/org-judgement-corpus)"
         type: string
@@ -63,7 +67,7 @@ on:
         default: "main"
     secrets:
       corpus-token:
-        description: "PAT or deploy key with push access to corpus repo"
+        description: "PAT with push access to corpus repo"
         required: false
 
 permissions:
@@ -72,6 +76,8 @@ permissions:
 jobs:
   quality-gate:
     runs-on: macos-latest
+    env:
+      CI: "true"
     steps:
       - name: Checkout project
         uses: actions/checkout@v4
@@ -80,21 +86,45 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Cache quality-gate binary
+        id: qg-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/quality-gate
+          key: quality-gate-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+
       - name: Build quality-gate from latest main
+        if: steps.qg-cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
           cd /tmp/quality-gate-swift
-          swift build -c release 2>&1 | tail -3
+          swift build -c release 2>&1 | tail -5
           cp .build/release/quality-gate /usr/local/bin/
           echo "quality-gate built from $(git rev-parse --short HEAD)"
 
+      - name: Checkout corpus
+        if: inputs.corpus-repo != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.corpus-repo }}
+          ref: ${{ inputs.corpus-branch }}
+          token: ${{ secrets.corpus-token }}
+          path: _corpus
+
       - name: Run quality gate
+        id: qg-run
         run: |
-          ARGS="--format json"
+          ARGS=""
 
           if [ -n "${{ inputs.checks }}" ]; then
             for check in ${{ inputs.checks }}; do
               ARGS="$ARGS --check $check"
+            done
+          fi
+
+          if [ -n "${{ inputs.exclude }}" ]; then
+            for exc in ${{ inputs.exclude }}; do
+              ARGS="$ARGS --exclude $exc"
             done
           fi
 
@@ -106,31 +136,22 @@ jobs:
             ARGS="$ARGS --continue-on-failure"
           fi
 
-          echo "Running: quality-gate $ARGS"
-          quality-gate $ARGS | tee /tmp/qg-results.json
+          if [ "${{ inputs.strict }}" = "true" ]; then
+            ARGS="$ARGS --strict"
+          fi
 
-      - name: Checkout corpus
-        if: inputs.telemetry-enabled && inputs.corpus-repo != ''
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.corpus-repo }}
-          ref: ${{ inputs.corpus-branch }}
-          token: ${{ secrets.corpus-token }}
-          path: _corpus
+          # Write telemetry directly to corpus checkout if available
+          if [ -d "_corpus" ]; then
+            ARGS="$ARGS --corpus-path $(pwd)/_corpus"
+          fi
+
+          echo "Running: quality-gate $ARGS"
+          quality-gate $ARGS || echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Push telemetry to corpus
-        if: inputs.telemetry-enabled && inputs.corpus-repo != ''
-        env:
-          CORPUS_PATH: _corpus
-          PROJECT_ID: ${{ github.repository }}
+        if: inputs.corpus-repo != '' && always()
+        working-directory: _corpus
         run: |
-          quality-gate telemetry-push \
-            --corpus-path "$CORPUS_PATH" \
-            --project-id "$PROJECT_ID" \
-            --input /tmp/qg-results.json \
-            --verbose
-
-          cd "$CORPUS_PATH"
           git config user.name "quality-gate[bot]"
           git config user.email "quality-gate[bot]@users.noreply.github.com"
           git add -A
@@ -140,7 +161,7 @@ jobs:
             exit 0
           fi
 
-          COMMIT_MSG="telemetry: ${{ github.repository }}@${{ github.sha }}"
+          COMMIT_MSG="telemetry: ${{ github.repository }}@$(echo ${{ github.sha }} | cut -c1-7)"
 
           MAX_RETRIES=3
           for attempt in $(seq 1 $MAX_RETRIES); do

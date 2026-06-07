@@ -119,9 +119,15 @@ struct GenerateNarrative: AsyncParsableCommand {
         try FileManager.default.createDirectory(atPath: narrativeDir, withIntermediateDirectories: true)
         try fullNarrative.write(toFile: narrativePath, atomically: true, encoding: .utf8)
 
-        print("[ijs] Narrative written: \(narrativePath)")
-        print("[ijs]   Model: \(model)")
-        print("[ijs]   Size: \(fullNarrative.utf8.count) bytes")
+        let updatedPulse = pulse.withNarrative(narrativeBody)
+        let writer = TelemetryWriter()
+        let corpusPath = CorpusPath(basePath: effectivePath, projectID: pulse.projects.first ?? "corpus")
+        try await writer.writePulse(updatedPulse, to: corpusPath)
+
+        print("[ijs] Narrative written: \(narrativePath)") // logging: CLI user-facing output
+        print("[ijs] Pulse JSON updated with narrative") // logging: CLI user-facing output
+        print("[ijs]   Model: \(model)") // logging: CLI user-facing output
+        print("[ijs]   Size: \(fullNarrative.utf8.count) bytes") // logging: CLI user-facing output
     }
 
     private static func decimal(_ value: Double, _ places: Int) -> String {
