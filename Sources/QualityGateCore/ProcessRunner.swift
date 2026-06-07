@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Runs a child process and captures its output without pipe-buffer deadlocks.
 ///
@@ -60,14 +61,14 @@ public enum ProcessRunner: Sendable {
         // Read stdout and stderr concurrently to prevent pipe-buffer deadlock.
         // If either pipe's buffer fills (~64 KB) while the other is being read
         // sequentially, the child blocks on write and the caller blocks on read.
-        // Justification: single-writer (dispatch queue) completes before single-reader (after group.wait)
-        let stderrBox = DataBox()
+        let stderrBox = Mutex(Data())
         let stderrGroup = DispatchGroup()
 
         if let stderrPipe {
             stderrGroup.enter()
             DispatchQueue(label: "quality-gate.stderr-reader").async {
-                stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                stderrBox.withLock { $0 = data }
                 stderrGroup.leave()
             }
         }
@@ -77,15 +78,11 @@ public enum ProcessRunner: Sendable {
 
         process.waitUntilExit()
 
+        let stderrData = stderrBox.withLock { $0 }
         return Output(
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: stderrBox.value, encoding: .utf8) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8) ?? "",
             exitCode: process.terminationStatus
         )
     }
-}
-
-// Justification: single-writer (dispatch queue) completes before single-reader (after group.wait)
-private final class DataBox: @unchecked Sendable {
-    var value = Data()
 }

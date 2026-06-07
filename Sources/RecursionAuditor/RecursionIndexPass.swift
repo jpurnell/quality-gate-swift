@@ -2,6 +2,7 @@ import Foundation
 import os
 import QualityGateCore
 import IndexStoreInfra
+import Synchronization
 
 // MARK: - USR-based call graph
 
@@ -211,26 +212,6 @@ final class USRCallGraph: Sendable {
     }
 }
 
-// MARK: - Mutex (simple lock wrapper for Sendable conformance)
-
-/// A simple mutex wrapper for thread-safe access to a value.
-// Justification: Mutex<T> uses NSLock for exclusive access; all reads and writes go through withLock.
-final class Mutex<T>: @unchecked Sendable {
-    private var _value: T
-    private let _lock = NSLock()
-
-    /// Creates a mutex wrapping the given value.
-    init(_ value: T) {
-        self._value = value
-    }
-
-    /// Executes a closure with exclusive access to the wrapped value.
-    func withLock<R>(_ body: (inout T) -> R) -> R {
-        _lock.lock()
-        defer { _lock.unlock() }
-        return body(&_value)
-    }
-}
 
 // MARK: - RecursionIndexPass
 
