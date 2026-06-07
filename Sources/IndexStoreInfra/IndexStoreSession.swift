@@ -2,6 +2,7 @@ import Foundation
 import IndexStoreDB
 import os
 
+// Justification: IndexStoreDB is immutable after init; all queries are read-only.
 extension IndexStoreDB: @retroactive @unchecked Sendable {}
 
 /// Wraps IndexStoreDB initialization into a reusable session.
