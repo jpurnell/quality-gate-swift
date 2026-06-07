@@ -399,7 +399,7 @@ extension MemoryBuilderConfig: Codable {
 /// logging:
 ///   projectType: application
 ///   silentTryKeyword: "silent:"
-///   allowedSilentTryFunctions: ["Task.sleep", "JSONEncoder", "JSONDecoder"]
+///   allowedSilentTryFunctions: ["Task.sleep", "JSONEncoder", "JSONDecoder", "checkResourceIsReachable", ...]
 ///   customLoggerNames: ["NarbisLog", "WatchLog"]
 /// ```
 public struct LoggingAuditorConfig: Sendable, Equatable {
@@ -419,7 +419,13 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
     public init(
         projectType: String = "application",
         silentTryKeyword: String = "silent:",
-        allowedSilentTryFunctions: [String] = ["Task.sleep", "JSONEncoder", "JSONDecoder"],
+        allowedSilentTryFunctions: [String] = [
+            "Task.sleep", "JSONEncoder", "JSONDecoder",
+            "checkResourceIsReachable", "resourceValues(forKeys:",
+            "container.decode(", "singleValueContainer()",
+            "removeItem(at", "removeItem(atPath",
+            ".close()",
+        ],
         customLoggerNames: [String] = []
     ) {
         self.projectType = projectType

@@ -9,7 +9,7 @@ enum TestHelpers {
         _ code: String,
         projectType: String = "application",
         silentTryKeyword: String = "silent:",
-        allowedSilentTryFunctions: [String] = ["Task.sleep", "JSONEncoder", "JSONDecoder"],
+        allowedSilentTryFunctions: [String] = LoggingAuditorConfig.default.allowedSilentTryFunctions,
         customLoggerNames: [String] = []
     ) async throws -> CheckResult {
         let config = LoggingAuditorConfig(

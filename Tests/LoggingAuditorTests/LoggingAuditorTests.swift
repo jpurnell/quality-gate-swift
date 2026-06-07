@@ -243,6 +243,79 @@ struct SilentTryTests {
         let result = try await TestHelpers.audit(code, silentTryKeyword: "safe:")
         #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
     }
+
+    @Test("Does not flag try? checkResourceIsReachable (existence check)")
+    func ignoresExistenceCheck() async throws {
+        let code = """
+        import os
+        let exists = try? url.checkResourceIsReachable()
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag try? resourceValues (resource query)")
+    func ignoresResourceValues() async throws {
+        let code = """
+        import os
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag try? container.decode in Codable (type fallthrough)")
+    func ignoresCodableTypeFallthrough() async throws {
+        let code = """
+        import os
+        let intVal = try? container.decode(Int.self, forKey: .value)
+        let strVal = try? container.decode(String.self, forKey: .value)
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag try? singleValueContainer().decode (Codable)")
+    func ignoresSingleValueContainerDecode() async throws {
+        let code = """
+        import os
+        let val = try? decoder.singleValueContainer().decode(Int.self)
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag try? FileManager.default.removeItem (cleanup)")
+    func ignoresFileManagerCleanup() async throws {
+        let code = """
+        import os
+        try? FileManager.default.removeItem(at: tempURL)
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag try? channel.close (best-effort teardown)")
+    func ignoresBestEffortClose() async throws {
+        let code = """
+        import os
+        try? channel.close()
+        try? connection.close()
+        try? handle.close()
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Still flags try? on network/database calls")
+    func stillFlagsRealErrors() async throws {
+        let code = """
+        import os
+        let data = try? URLSession.shared.data(from: url)
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
 }
 
 // MARK: - Rule 3: no-os-logger-import

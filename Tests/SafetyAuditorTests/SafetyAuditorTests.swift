@@ -208,6 +208,18 @@ struct SafetyAuditorTests {
         #expect(result.diagnostics.filter { $0.ruleId == "force-unwrap" }.isEmpty)
     }
 
+    @Test("SAFETY exemption does not create override record")
+    func safetyExemptionNoOverride() async throws {
+        let code = """
+        let value = optional! // SAFETY: Guaranteed non-nil by initialization
+        """
+
+        let result = try await auditCode(code)
+
+        #expect(result.diagnostics.filter { $0.ruleId == "force-unwrap" }.isEmpty)
+        #expect(result.overrides.isEmpty)
+    }
+
     @Test("Respects SAFETY exemption comment on previous line")
     func respectsSafetyExemptionPreviousLine() async throws {
         let code = """
@@ -218,6 +230,18 @@ struct SafetyAuditorTests {
         let result = try await auditCode(code)
 
         #expect(result.diagnostics.filter { $0.ruleId == "force-cast" }.isEmpty)
+    }
+
+    @Test("SAFETY exemption on previous line does not create override record")
+    func safetyExemptionPreviousLineNoOverride() async throws {
+        let code = """
+        // SAFETY: Required for UIKit callback
+        let view = sender as! UIButton
+        """
+
+        let result = try await auditCode(code)
+
+        #expect(result.overrides.isEmpty)
     }
 
     @Test("Does not exempt without SAFETY comment")

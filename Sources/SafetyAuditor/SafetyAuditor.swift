@@ -214,8 +214,7 @@ private final class SafetyVisitor: SyntaxVisitor {
         let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
         let line = location.line
 
-        if let override = overrideIfExempted(line: line, ruleId: "force-unwrap") {
-            overrides.append(override)
+        if isExempted(line: line) {
             return .visitChildren
         }
 
@@ -242,8 +241,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            if let override = overrideIfExempted(line: line, ruleId: "force-cast") {
-                overrides.append(override)
+            if isExempted(line: line) {
                 return .visitChildren
             }
 
@@ -269,8 +267,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            if let override = overrideIfExempted(line: line, ruleId: "force-try") {
-                overrides.append(override)
+            if isExempted(line: line) {
                 return .visitChildren
             }
 
@@ -296,8 +293,8 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            if let override = overrideIfExempted(line: line, ruleId: "c-style-format-string") {
-                overrides.append(override)
+            if isExempted(line: line) {
+                // SAFETY comment suppresses without creating override
             } else {
                 diagnostics.append(Diagnostic(
                     severity: .error,
@@ -346,8 +343,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
-        if let override = overrideIfExempted(line: line, ruleId: ruleId) {
-            overrides.append(override)
+        if isExempted(line: line) {
             return .visitChildren
         }
 
@@ -372,8 +368,7 @@ private final class SafetyVisitor: SyntaxVisitor {
                 let location = modifier.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
                 let line = location.line
 
-                if let override = overrideIfExempted(line: line, ruleId: "unowned") {
-                    overrides.append(override)
+                if isExempted(line: line) {
                     return .visitChildren
                 }
 
@@ -402,8 +397,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
             let line = location.line
 
-            if let override = overrideIfExempted(line: line, ruleId: "while-true") {
-                overrides.append(override)
+            if isExempted(line: line) {
                 return .visitChildren
             }
 
@@ -447,22 +441,17 @@ private final class SafetyVisitor: SyntaxVisitor {
 
     // MARK: - Exemption Checking
 
-    private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
+    private func isExempted(line: Int) -> Bool {
         let linesToCheck = [line - 1, line]
             .filter { $0 >= 1 && $0 <= sourceLines.count }
         for lineNum in linesToCheck {
             let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns {
                 if lineContent.contains(pattern) {
-                    return DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: lineContent.trimmingCharacters(in: .whitespaces),
-                        filePath: fileName,
-                        lineNumber: line
-                    )
+                    return true
                 }
             }
         }
-        return nil
+        return false
     }
 }
