@@ -73,6 +73,7 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
             guard result.exitCode == 0 else { return nil }
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
+            Self.logger.warning("Git command failed in \(directory, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

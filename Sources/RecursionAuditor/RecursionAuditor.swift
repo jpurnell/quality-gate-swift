@@ -105,6 +105,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                     allDiagnostics.append(RecursionIndexPass.demoteToNote(diag))
                 }
             } catch {
+                Self.logger.warning("IndexStore pass failed, falling back to name-based cycle detection: \(error.localizedDescription, privacy: .public)")
                 allDiagnostics.append(contentsOf: nameBasedCycleDiagnostics)
                 allDiagnostics.append(contentsOf: RecursionIndexPass.runWithoutIndex())
             }

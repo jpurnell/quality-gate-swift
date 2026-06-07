@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import os
 import QualityGateCore
 import IJSSensor
 import IJSAggregator
@@ -7,6 +8,7 @@ import IJSDashboardCore
 import IJSDashboardCLI
 
 struct Dashboard: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "Dashboard")
 
     static let configuration = CommandConfiguration(
         commandName: "dashboard",
@@ -83,6 +85,7 @@ struct Dashboard: AsyncParsableCommand {
                 print("[dashboard] Warning: corpus push failed (exit \(push.exitCode)) — local commit preserved")
             }
         } catch {
+            Self.logger.warning("Corpus sync failed: \(error.localizedDescription, privacy: .public)")
             print("[dashboard] Warning: corpus sync failed (\(error.localizedDescription)) — using local data")
         }
     }
@@ -101,6 +104,7 @@ struct Dashboard: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration from \(config, privacy: .public): \(error.localizedDescription, privacy: .public)")
             configuration = Configuration()
         }
 
@@ -126,6 +130,7 @@ struct Dashboard: AsyncParsableCommand {
         do {
             manifest = try reader.loadManifest()
         } catch {
+            Self.logger.warning("Failed to load corpus manifest: \(error.localizedDescription, privacy: .public)")
             manifest = CorpusManifest()
         }
 

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -25,6 +26,8 @@ import SwiftParser
 /// Add `// fp-safety:disable` on a source line to suppress all FP diagnostics
 /// on that line.
 public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "FloatingPointSafetyAuditor")
+
     /// Unique identifier for this checker.
     public let id = "fp-safety"
     /// Human-readable display name for this checker.
@@ -119,6 +122,7 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
                 let diags = auditSourceCode(source, fileName: fullPath, config: config)
                 diagnostics.append(contentsOf: diags)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

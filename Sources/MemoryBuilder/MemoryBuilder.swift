@@ -65,6 +65,7 @@ public struct MemoryBuilder: QualityChecker, Sendable {
                 )
                 allEntries.append(contentsOf: entries)
             } catch {
+                Self.logger.warning("Extractor '\(extractor.id, privacy: .public)' failed: \(error.localizedDescription, privacy: .public)")
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Extractor '\(extractor.id)' failed: \(error.localizedDescription)",

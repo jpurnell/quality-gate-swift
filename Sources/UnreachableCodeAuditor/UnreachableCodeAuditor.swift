@@ -138,8 +138,9 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             )
             diagnostics.append(contentsOf: try IndexStorePass.run(inputs: inputs))
         } catch SkipMarker.skipped {
-            // Already added a .note above.
+            Self.logger.info("Cross-module pass skipped: no index store available")
         } catch {
+            Self.logger.warning("Cross-module pass failed: \(error.localizedDescription, privacy: .public)")
             diagnostics.append(Diagnostic(
                 severity: .note,
                 message: "Cross-module pass skipped: \(error.localizedDescription)",

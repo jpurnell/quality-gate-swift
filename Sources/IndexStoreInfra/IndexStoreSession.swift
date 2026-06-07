@@ -74,6 +74,7 @@ public final class IndexStoreSession: Sendable {
         do {
             try process.run()
         } catch {
+            logger.warning("Failed to run xcrun to locate libIndexStore: \(error.localizedDescription, privacy: .public)")
             return nil
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()

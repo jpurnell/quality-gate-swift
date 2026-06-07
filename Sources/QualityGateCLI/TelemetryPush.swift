@@ -1,10 +1,13 @@
 import ArgumentParser
 import Foundation
+import os
 import QualityGateCore
 import IJSSensor
 import IJSAggregator
 
 struct TelemetryPush: AsyncParsableCommand {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "TelemetryPush")
 
     static let configuration = CommandConfiguration(
         commandName: "telemetry-push",
@@ -31,6 +34,7 @@ struct TelemetryPush: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration from \(self.config, privacy: .public): \(error.localizedDescription, privacy: .public). Using defaults.")
             configuration = Configuration()
         }
 

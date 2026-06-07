@@ -1,9 +1,11 @@
 import ArgumentParser
 import Foundation
+import os
 import IJSAggregator
 
 /// Generate or update a corpus manifest from telemetry project directories.
 struct GenerateManifest: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "GenerateManifest")
 
     static let configuration = CommandConfiguration(
         commandName: "generate-manifest",
@@ -66,6 +68,7 @@ struct GenerateManifest: AsyncParsableCommand {
                     print("[generate-manifest] Loaded existing manifest with \(existingManifest?.projects.count ?? 0) project(s) and \(existingManifest?.groups.count ?? 0) group(s)")
                 }
             } catch {
+                Self.logger.warning("Cannot parse existing manifest, starting fresh: \(error.localizedDescription, privacy: .public)")
                 print("[generate-manifest] Warning: Cannot parse existing manifest, starting fresh: \(error.localizedDescription)")
                 existingManifest = nil
             }

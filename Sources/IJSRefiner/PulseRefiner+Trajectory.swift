@@ -72,6 +72,7 @@ extension PulseRefiner {
                     recentSlope: recentSlopeVal
                 ))
             } catch {
+                Self.logger.warning("Trajectory computation failed for \(projectID, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 trajectories.append(ProjectTrajectory(
                     projectID: projectID,
                     slope: 0, intercept: 0, rSquared: 0,

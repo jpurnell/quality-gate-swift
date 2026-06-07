@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -23,6 +24,8 @@ import IndexStoreInfra
 /// - `concurrency.sendable-crosses-isolation`
 /// - `concurrency.preconcurrency-import-unnecessary`
 public struct ConcurrencyAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ConcurrencyAuditor")
+
     /// Unique identifier for this checker.
     public let id = "concurrency"
     /// Human-readable display name for this checker.
@@ -79,7 +82,9 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
                 let indexDiagnostics = try runIndexPass(configuration: configuration)
                 allDiagnostics.append(contentsOf: indexDiagnostics)
             } catch SkipMarker.skipped {
+                Self.logger.info("Concurrency index pass skipped by marker")
             } catch {
+                Self.logger.warning("Concurrency index pass failed: \(error.localizedDescription, privacy: .public)")
                 allDiagnostics.append(Diagnostic(
                     severity: .note,
                     message: "Concurrency Pass 2 skipped: \(error.localizedDescription)",
@@ -124,6 +129,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

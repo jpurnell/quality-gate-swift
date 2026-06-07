@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -14,6 +15,7 @@ import SwiftParser
 /// `"library"`, the auditor returns `.skipped` immediately — libraries
 /// intentionally strip logging, and consumers decide what to log.
 public struct LoggingAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "LoggingAuditor")
     /// Unique identifier used to tag diagnostics from this checker.
     public let id = "logging"
     /// Human-readable display name for reports.
@@ -147,6 +149,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

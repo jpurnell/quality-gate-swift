@@ -1,6 +1,7 @@
 
 import ArgumentParser
 import Foundation
+import os
 import QualityGateCore
 import SafetyAuditor
 import BuildChecker
@@ -44,6 +45,8 @@ struct StandardOutputStream: TextOutputStream {
 /// Quality Gate CLI - Automated quality checks for Swift projects.
 @main
 struct QualityGateCLI: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "QualityGateCLI")
+
     static let configuration = CommandConfiguration(
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
@@ -111,6 +114,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration from \(self.config, privacy: .public): \(error.localizedDescription, privacy: .public). Using defaults.")
             configuration = Configuration()
             if verbose {
                 print("Warning: failed to load \(config): \(error). Using defaults.")
@@ -311,6 +315,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                     }
                 }
             } catch {
+                Self.logger.error("Checker '\(checker.id, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
                 let errorResult = CheckResult(
                     checkerId: checker.id,
                     status: .failed,
@@ -475,6 +480,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                     }
                 }
             } catch {
+                Self.logger.warning("Telemetry write failed: \(error.localizedDescription, privacy: .public)")
                 if verbose {
                     print("\n[ijs] Telemetry write failed: \(error.localizedDescription)")
                 }
@@ -503,6 +509,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration for skip recording: \(error.localizedDescription, privacy: .public). Using defaults.")
             configuration = Configuration()
         }
 
@@ -529,6 +536,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             try await writer.writeSkip(record, to: corpus)
             print("[ijs] Skip recorded to corpus for \(projectID)")
         } catch {
+            Self.logger.warning("Skip recording failed for project \(projectID, privacy: .public): \(error.localizedDescription, privacy: .public)")
             print("[ijs] Skip recording failed: \(error.localizedDescription)")
         }
     }
