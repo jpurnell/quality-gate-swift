@@ -23,7 +23,12 @@ echo "Installing to $INSTALL_DIR (requires sudo)..."
 sudo cp "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
 sudo codesign --force -s - "$INSTALL_DIR/$BINARY_NAME"
 
+STAMP_FILE="$INSTALL_DIR/.quality-gate-stamp"
+DEPLOY_COMMIT="$(git -C "$REPO_DIR" rev-parse HEAD)"
+echo "$DEPLOY_COMMIT" | sudo tee "$STAMP_FILE" > /dev/null
+
 echo ""
 echo "=== Deployed ==="
 echo "  Binary: $INSTALL_DIR/$BINARY_NAME"
+echo "  Stamp:  $DEPLOY_COMMIT"
 "$INSTALL_DIR/$BINARY_NAME" --help 2>&1 | head -1 || echo "WARNING: binary failed to run"
