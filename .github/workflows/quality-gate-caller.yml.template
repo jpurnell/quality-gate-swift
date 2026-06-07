@@ -1,0 +1,27 @@
+# Quality Gate — daily audit + push-triggered checks
+# Copy this file to your project's .github/workflows/quality-gate.yml
+#
+# Prerequisites:
+#   1. Repository secret CORPUS_PUSH_TOKEN — a PAT with push access to jpurnell/org-judgement-corpus
+#   2. A .quality-gate.yml in your project root
+
+name: Quality Gate
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'  # daily at 6am UTC
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+    with:
+      checks: "all"
+      continue-on-failure: true
+      corpus-repo: jpurnell/org-judgement-corpus
+    secrets:
+      corpus-token: ${{ secrets.CORPUS_PUSH_TOKEN }}

@@ -90,6 +90,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
 
+    @Option(name: .long, help: "Override corpus path for telemetry (useful for CI)")
+    var corpusPath: String?
+
     func run() async throws {
         if let skipRef = ProcessInfo.processInfo.environment["QG_SKIP"] {
             guard skipRef != "1", skipRef != "true",
@@ -156,6 +159,47 @@ struct QualityGateCLI: AsyncParsableCommand {
                 callGraphEnabled: configuration.complexity.callGraphEnabled,
                 callGraphMaxDepth: configuration.complexity.callGraphMaxDepth,
                 knownCosts: configuration.complexity.knownCosts
+            )
+        }
+
+        if let corpusPathOverride = corpusPath {
+            let c = configuration.consistency
+            configuration = Configuration(
+                parallelWorkers: configuration.parallelWorkers,
+                excludePatterns: configuration.excludePatterns,
+                safetyExemptions: configuration.safetyExemptions,
+                enabledCheckers: configuration.enabledCheckers,
+                buildConfiguration: configuration.buildConfiguration,
+                testFilter: configuration.testFilter,
+                docTarget: configuration.docTarget,
+                docCoverageThreshold: configuration.docCoverageThreshold,
+                unreachableAutoBuildXcode: configuration.unreachableAutoBuildXcode,
+                xcodeScheme: configuration.xcodeScheme,
+                xcodeDestination: configuration.xcodeDestination,
+                concurrency: configuration.concurrency,
+                pointerEscape: configuration.pointerEscape,
+                security: configuration.security,
+                status: configuration.status,
+                swiftVersion: configuration.swiftVersion,
+                memoryBuilder: configuration.memoryBuilder,
+                logging: configuration.logging,
+                dependencyAudit: configuration.dependencyAudit,
+                releaseReadiness: configuration.releaseReadiness,
+                fpSafety: configuration.fpSafety,
+                stochasticDeterminism: configuration.stochasticDeterminism,
+                memoryLifecycle: configuration.memoryLifecycle,
+                mcpReadiness: configuration.mcpReadiness,
+                build: configuration.build,
+                xcodeBuild: configuration.xcodeBuild,
+                consistency: ConsistencyCheckerConfig(
+                    corpusPath: corpusPathOverride,
+                    projectID: c.projectID,
+                    consistencyThreshold: c.consistencyThreshold,
+                    defaultRiskTier: c.defaultRiskTier,
+                    scorerWeights: c.scorerWeights,
+                    exemptions: c.exemptions
+                ),
+                overrides: configuration.overrides
             )
         }
 
