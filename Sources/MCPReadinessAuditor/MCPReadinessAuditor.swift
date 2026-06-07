@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -26,6 +27,7 @@ import SwiftParser
 /// ### Agent-Friendliness
 /// - `mcp-description-too-short` — Description under minimum character length
 public struct MCPReadinessAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "MCPReadinessAuditor")
     /// Unique identifier for this checker.
     public let id = "mcp-readiness"
     /// Human-readable display name for this checker.
@@ -140,6 +142,7 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
                 let fileDiags = auditSourceCode(source, fileName: fullPath, config: config)
                 diagnostics.append(contentsOf: fileDiags)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

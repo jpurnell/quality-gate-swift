@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -19,6 +20,8 @@ import SwiftParser
 /// let result = try await auditor.check(configuration: config)
 /// ```
 public struct TestQualityAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "TestQualityAuditor")
+
     /// Unique identifier for this checker.
     public let id = "test-quality"
 
@@ -125,6 +128,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
+                Self.logger.warning("Skipping unreadable test file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

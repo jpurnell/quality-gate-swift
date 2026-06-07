@@ -80,6 +80,7 @@ public struct DocLinter: QualityChecker, Sendable {
                 currentDirectory: FileManager.default.currentDirectoryPath
             )
         } catch {
+            Self.logger.error("Failed to run documentation generator: \(error.localizedDescription, privacy: .public)")
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,

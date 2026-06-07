@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -29,6 +30,8 @@ import SwiftParser
 /// - `missing-accessibility-hint`: Interactive views without `.accessibilityHint()`
 /// - `hardcoded-color-string`: Hardcoded color literals instead of asset catalog / adaptive colors
 public struct AccessibilityAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "AccessibilityAuditor")
+
     /// Unique identifier for this checker.
     public let id = "accessibility"
 
@@ -128,6 +131,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

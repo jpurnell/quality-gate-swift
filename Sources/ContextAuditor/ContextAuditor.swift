@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import QualityGateTypes
 import SwiftParser
@@ -16,6 +17,8 @@ import SwiftSyntax
 /// - `context.automated-decision-without-review` — Automated user-affecting decision
 /// - `context.surveillance-pattern` — Background tracking without disclosure
 public struct ContextAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ContextAuditor")
+
     /// Unique identifier for this checker.
     public let id = "context"
 
@@ -104,6 +107,7 @@ public struct ContextAuditor: QualityChecker, Sendable {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 diagnostics.append(contentsOf: auditSourceCode(source, fileName: fullPath))
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

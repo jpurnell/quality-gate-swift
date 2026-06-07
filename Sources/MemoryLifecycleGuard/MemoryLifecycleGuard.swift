@@ -1,5 +1,6 @@
 import Foundation
 import IndexStoreInfra
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -12,6 +13,7 @@ import SwiftParser
 /// - `lifecycle-strong-delegate` — Stored property matching a delegate pattern is not `weak`/`unowned`
 /// - `lifecycle-unbounded-stream` — `AsyncStream.makeStream()` without explicit `bufferingPolicy`
 public struct MemoryLifecycleGuard: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "MemoryLifecycleGuard")
     /// Unique identifier for this checker.
     public let id = "memory-lifecycle"
     /// Human-readable display name for this checker.
@@ -58,6 +60,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 )
                 allDiagnostics = pass2Diagnostics
             } catch {
+                Self.logger.warning("Memory Lifecycle Pass 2 skipped: \(error.localizedDescription, privacy: .public)")
                 allDiagnostics.append(Diagnostic(
                     severity: .note,
                     message: "Memory Lifecycle Pass 2 skipped: \(error.localizedDescription)",
@@ -201,6 +204,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 delegateInfos.append(contentsOf: visitor.delegatePropertyInfos)
                 streamInfos.append(contentsOf: visitor.streamCreationInfos)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

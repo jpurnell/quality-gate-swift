@@ -210,6 +210,7 @@ public struct DiskCleaner: QualityChecker, Sendable {
                 return (false, errorString.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         } catch {
+            Self.logger.warning("Git gc failed: \(error.localizedDescription, privacy: .public)")
             return (false, error.localizedDescription)
         }
     }

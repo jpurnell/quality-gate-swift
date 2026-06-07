@@ -1,4 +1,5 @@
 import Foundation
+import os
 import IndexStoreInfra
 import QualityGateCore
 import SwiftSyntax
@@ -16,6 +17,8 @@ import SwiftParser
 /// let result = try await checker.check(configuration: config)
 /// ```
 public struct DocCoverageChecker: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DocCoverageChecker")
+
     /// Unique identifier for this checker.
     public let id = "doc-coverage"
 
@@ -69,7 +72,9 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
                 allDiagnostics.append(contentsOf: indexDiagnostics)
                 inheritedDocCount = inherited
             } catch SkipMarker.skipped {
+                Self.logger.info("DocCoverage index pass skipped by marker")
             } catch {
+                Self.logger.warning("DocCoverage index pass failed: \(error.localizedDescription, privacy: .public)")
                 allDiagnostics.append(Diagnostic(
                     severity: .note,
                     message: "DocCoverage Pass 2 skipped: \(error.localizedDescription)",
@@ -321,6 +326,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
                 totalAPIs += total
                 documentedAPIs += documented
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

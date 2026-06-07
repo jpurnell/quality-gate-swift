@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -9,6 +10,7 @@ import SwiftParser
 /// See `PointerEscapeAuditorGuide.md` for the full rule list and the
 /// canonical Accelerate FFT incident that motivated each rule.
 public struct PointerEscapeAuditor: QualityChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PointerEscapeAuditor")
     /// Unique identifier for this checker, used in diagnostics and configuration.
     public let id = "pointer-escape"
     /// Human-readable display name for this checker.
@@ -76,6 +78,7 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
+                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

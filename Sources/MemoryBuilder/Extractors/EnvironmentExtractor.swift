@@ -1,8 +1,10 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Extracts environment info (Swift version, platform).
 public struct EnvironmentExtractor: MemoryExtractor, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "EnvironmentExtractor")
     /// Unique identifier for this extractor.
     public let id = "environment"
 
@@ -68,6 +70,7 @@ public struct EnvironmentExtractor: MemoryExtractor, Sendable {
             guard result.exitCode == 0 else { return nil }
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
+            Self.logger.warning("Command \(executable, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

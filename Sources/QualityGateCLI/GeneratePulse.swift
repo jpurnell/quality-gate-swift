@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import os
 import QualityGateCore
 import IJSSensor
 import IJSAggregator
@@ -7,6 +8,7 @@ import IJSRefiner
 import IJSDashboardCore
 
 struct GeneratePulse: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "GeneratePulse")
 
     static let configuration = CommandConfiguration(
         commandName: "generate-pulse",
@@ -36,6 +38,7 @@ struct GeneratePulse: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration from \(config, privacy: .public): \(error.localizedDescription, privacy: .public)")
             configuration = Configuration()
         }
 
@@ -85,6 +88,7 @@ struct GeneratePulse: AsyncParsableCommand {
         do {
             manifest = try reader.loadManifest()
         } catch {
+            Self.logger.warning("Failed to load corpus manifest: \(error.localizedDescription, privacy: .public)")
             manifest = CorpusManifest()
         }
 

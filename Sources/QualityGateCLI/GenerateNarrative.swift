@@ -1,11 +1,13 @@
 import ArgumentParser
 import Foundation
+import os
 import QualityGateCore
 import IJSSensor
 import IJSAggregator
 import IJSDashboardCore
 
 struct GenerateNarrative: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "GenerateNarrative")
 
     static let configuration = CommandConfiguration(
         commandName: "generate-narrative",
@@ -38,6 +40,7 @@ struct GenerateNarrative: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration from \(config, privacy: .public): \(error.localizedDescription, privacy: .public)")
             configuration = Configuration()
         }
 

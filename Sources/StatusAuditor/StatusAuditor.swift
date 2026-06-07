@@ -1,4 +1,5 @@
 import Foundation
+import os
 import QualityGateCore
 
 /// Validates that project status documents match actual code state.
@@ -37,6 +38,8 @@ import QualityGateCore
 /// quality-gate --check status --bootstrap
 /// ```
 public struct StatusAuditor: FixableChecker, Sendable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "StatusAuditor")
+
     /// Unique identifier for this checker.
     public let id = "status"
 
@@ -93,6 +96,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
         do {
             masterPlanContent = try String(contentsOfFile: masterPlanPath, encoding: .utf8)
         } catch {
+            Self.logger.warning("Could not read Master Plan at \(masterPlanPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,

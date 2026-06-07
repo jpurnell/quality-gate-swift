@@ -79,6 +79,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                     )
                 )
             } catch {
+                Self.logger.warning("Could not read README at \(config.readmePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Could not read README at \(config.readmePath): \(error.localizedDescription)",
@@ -301,6 +302,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             }
             return trimmed.isEmpty ? nil : trimmed
         } catch {
+            Self.logger.warning("git describe failed in \(directory, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -335,6 +337,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                     }
                 }
             } catch {
+                Self.logger.warning("Skipping unreadable source file during version scan \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
@@ -382,6 +385,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                     )
                 )
             } catch {
+                Self.logger.warning("Skipping unreadable source file during TODO scan \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

@@ -1,11 +1,13 @@
 import ArgumentParser
 import Foundation
+import os
 import QualityGateCore
 import IJSSensor
 import IJSAggregator
 
 /// Review and manage auto-generated calibrations from diagnostic overrides.
 struct Calibrate: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "Calibrate")
 
     static let configuration = CommandConfiguration(
         commandName: "calibrate",
@@ -73,6 +75,7 @@ struct Calibrate: AsyncParsableCommand {
         do {
             configuration = try Configuration.load(from: config)
         } catch {
+            Self.logger.warning("Failed to load configuration from \(config, privacy: .public): \(error.localizedDescription, privacy: .public)")
             configuration = Configuration()
         }
 

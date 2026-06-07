@@ -93,6 +93,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
                 records = output.records
                 diagnostics.append(contentsOf: output.diagnostics)
             } catch {
+                Self.logger.warning("Complexity index pass failed: \(error.localizedDescription, privacy: .public)")
                 diagnostics.append(ComplexityIndexPass.unavailableNote())
             }
         }
