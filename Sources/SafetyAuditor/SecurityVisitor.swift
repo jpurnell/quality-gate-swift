@@ -74,8 +74,8 @@ final class SecurityVisitor: SyntaxVisitor {
             let location = node.startLocation(
                 converter: SourceLocationConverter(fileName: fileName, tree: node.root)
             )
-            if let override = overrideIfExempted(line: location.line, ruleId: "security.hardcoded-secret") {
-                overrides.append(override)
+            if isExempted(line: location.line) {
+    
                 continue
             }
 
@@ -133,8 +133,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.insecure-transport") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return .visitChildren
         }
 
@@ -190,8 +190,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.command-injection") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -249,8 +249,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.weak-crypto") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -289,8 +289,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.eval-js") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -363,8 +363,8 @@ final class SecurityVisitor: SyntaxVisitor {
             let location = node.startLocation(
                 converter: SourceLocationConverter(fileName: fileName, tree: node.root)
             )
-            if let override = overrideIfExempted(line: location.line, ruleId: "security.sql-injection") {
-                overrides.append(override)
+            if isExempted(line: location.line) {
+    
                 return
             }
 
@@ -406,8 +406,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.ssrf") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -456,8 +456,8 @@ final class SecurityVisitor: SyntaxVisitor {
             let location = node.startLocation(
                 converter: SourceLocationConverter(fileName: fileName, tree: node.root)
             )
-            if let override = overrideIfExempted(line: location.line, ruleId: "security.path-traversal") {
-                overrides.append(override)
+            if isExempted(line: location.line) {
+    
                 return
             }
 
@@ -490,8 +490,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.insecure-keychain") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -518,8 +518,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.tls-disabled") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -558,8 +558,8 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: SourceLocationConverter(fileName: fileName, tree: node.root)
         )
-        if let override = overrideIfExempted(line: location.line, ruleId: "security.tls-disabled") {
-            overrides.append(override)
+        if isExempted(line: location.line) {
+
             return
         }
 
@@ -584,22 +584,17 @@ final class SecurityVisitor: SyntaxVisitor {
         literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
     }
 
-    private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
+    private func isExempted(line: Int) -> Bool {
         let linesToCheck = [line - 1, line]
             .filter { $0 >= 1 && $0 <= sourceLines.count }
         for lineNum in linesToCheck {
             let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns {
                 if lineContent.contains(pattern) {
-                    return DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: lineContent.trimmingCharacters(in: .whitespaces),
-                        filePath: fileName,
-                        lineNumber: line
-                    )
+                    return true
                 }
             }
         }
-        return nil
+        return false
     }
 }
