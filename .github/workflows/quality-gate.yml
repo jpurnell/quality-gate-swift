@@ -8,6 +8,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 6 * * *'
 
 permissions:
   contents: read
@@ -15,6 +17,8 @@ permissions:
 jobs:
   quality-gate:
     runs-on: macos-latest
+    env:
+      CI: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +28,15 @@ jobs:
 
       - name: Build quality-gate
         run: swift build -c release
+
+      - name: Checkout corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          repository: jpurnell/org-judgement-corpus
+          ref: main
+          token: ${{ secrets.CORPUS_PUSH_TOKEN }}
+          path: _corpus
 
       - name: Run quality gate against self
         run: >-
@@ -37,4 +50,32 @@ jobs:
           --exclude memory-builder
           --strict --continue-on-failure
           --verbose
+          ${{ github.event_name != 'pull_request' && '--corpus-path _corpus' || '' }}
         timeout-minutes: 10
+
+      - name: Push telemetry to corpus
+        if: github.event_name != 'pull_request'
+        working-directory: _corpus
+        run: |
+          git config user.name "quality-gate[bot]"
+          git config user.email "quality-gate[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No telemetry changes to commit."
+            exit 0
+          fi
+
+          COMMIT_MSG="telemetry: quality-gate-swift@$(echo ${{ github.sha }} | cut -c1-7)"
+
+          for attempt in 1 2 3; do
+            git commit -m "$COMMIT_MSG" || true
+            if git push origin main; then
+              echo "Telemetry pushed (attempt $attempt)."
+              exit 0
+            fi
+            echo "Conflict (attempt $attempt/3), rebasing..."
+            git pull --rebase origin main
+          done
+
+          echo "::warning::Telemetry push failed after 3 attempts."
