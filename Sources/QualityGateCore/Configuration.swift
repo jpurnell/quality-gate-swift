@@ -1147,6 +1147,8 @@ public enum SeverityOverride: String, Sendable, Codable, Equatable {
 /// excludePatterns:
 ///   - "**/Generated/**"
 ///   - "**/Vendor/**"
+/// vendorPaths:
+///   - polar-ble-sdk
 /// safetyExemptions:
 ///   - "// SAFETY:"
 /// enabledCheckers:
@@ -1173,6 +1175,12 @@ public struct Configuration: Sendable, Codable, Equatable {
 
     /// Glob patterns for files/directories to exclude from checks.
     public let excludePatterns: [String]
+
+    /// Path prefixes for vendor/third-party code.
+    ///
+    /// Diagnostics in these paths are demoted to `.note` severity so they
+    /// remain visible for tracking without failing the gate.
+    public let vendorPaths: [String]
 
     /// Comment patterns that suppress safety warnings.
     public let safetyExemptions: [String]
@@ -1278,6 +1286,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     public init(
         parallelWorkers: Int? = nil,
         excludePatterns: [String] = [],
+        vendorPaths: [String] = [],
         safetyExemptions: [String] = ["// SAFETY:"],
         enabledCheckers: [String] = [],
         buildConfiguration: String? = nil,
@@ -1311,6 +1320,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     ) {
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
+        self.vendorPaths = vendorPaths
         self.safetyExemptions = safetyExemptions
         self.enabledCheckers = enabledCheckers
         self.buildConfiguration = buildConfiguration
@@ -1405,6 +1415,7 @@ extension Configuration {
     private enum CodingKeys: String, CodingKey {
         case parallelWorkers
         case excludePatterns
+        case vendorPaths
         case safetyExemptions
         case enabledCheckers
         case buildConfiguration
@@ -1443,6 +1454,7 @@ extension Configuration {
 
         parallelWorkers = try container.decodeIfPresent(Int.self, forKey: .parallelWorkers)
         excludePatterns = try container.decodeIfPresent([String].self, forKey: .excludePatterns) ?? []
+        vendorPaths = try container.decodeIfPresent([String].self, forKey: .vendorPaths) ?? []
         safetyExemptions = try container.decodeIfPresent([String].self, forKey: .safetyExemptions) ?? ["// SAFETY:"]
         enabledCheckers = try container.decodeIfPresent([String].self, forKey: .enabledCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)

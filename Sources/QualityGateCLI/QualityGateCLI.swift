@@ -208,7 +208,10 @@ struct QualityGateCLI: AsyncParsableCommand {
         }
 
         // Create override processor from configuration.
-        let overrideProcessor = OverrideProcessor(overrides: configuration.overrides)
+        let overrideProcessor = OverrideProcessor(
+            overrides: configuration.overrides,
+            vendorPaths: configuration.vendorPaths
+        )
 
         // Build the full checker registry (order matters for output)
         let allCheckers: [any QualityChecker] = [

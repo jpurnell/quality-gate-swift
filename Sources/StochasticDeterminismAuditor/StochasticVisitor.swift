@@ -138,11 +138,13 @@ final class StochasticVisitor: SyntaxVisitor {
             }
         }
 
-        // Check for .shuffled() / .shuffle() without using: parameter
+        // Check for .shuffled() / .shuffle() without using: parameter.
+        // Skip rng.shuffle(&collection) — the inout argument means the receiver is an RNG, not a collection.
         if flagCollectionShuffle && (memberName == "shuffled" || memberName == "shuffle") {
             if let parent = node.parent, parent.is(FunctionCallExprSyntax.self) {
                 if let call = parent.as(FunctionCallExprSyntax.self),
-                   !callHasUsingArgument(call) {
+                   !callHasUsingArgument(call),
+                   !callHasInoutArgument(call) {
                     if !functionHasRNGParameter && !isExemptFunction() {
                         emitDiagnostic(
                             ruleId: "stochastic-collection-shuffle",
@@ -242,6 +244,12 @@ final class StochasticVisitor: SyntaxVisitor {
     private func callHasUsingArgument(_ call: FunctionCallExprSyntax) -> Bool {
         call.arguments.contains { arg in
             arg.label?.text == "using"
+        }
+    }
+
+    private func callHasInoutArgument(_ call: FunctionCallExprSyntax) -> Bool {
+        call.arguments.contains { arg in
+            arg.expression.is(InOutExprSyntax.self)
         }
     }
 
