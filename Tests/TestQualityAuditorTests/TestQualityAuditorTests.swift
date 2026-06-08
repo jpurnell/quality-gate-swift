@@ -123,7 +123,7 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
-        // SystemRandomNumberGenerator reference + .random call
+        // SystemRandomNumberGenerator reference flagged; .random(using:) is not flagged
         XCTAssertGreaterThanOrEqual(diags.count, 1)
     }
 
@@ -139,12 +139,57 @@ final class TestQualityAuditorTests: XCTestCase {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        // SeededGenerator is fine, but .random will still flag.
-        // The key is that SystemRandomNumberGenerator is not used.
-        let sysRngDiags = result.diagnostics.filter {
-            $0.ruleId == "unseeded-random" && $0.message.contains("SystemRandomNumberGenerator")
+        // .random(using: &rng) is seeded, so no unseeded-random diagnostics at all.
+        let randomDiags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
+        XCTAssertTrue(randomDiags.isEmpty, ".random(using:) with seeded generator should not be flagged")
+    }
+
+    func testAllowsEnumCaseNamedRandom() async throws {
+        let source = """
+        import Testing
+
+        enum PlayerType { case human, random, greedy }
+
+        @Test func testPlayerTypes() {
+            let type = PlayerType.random
+            #expect(type == .random)
         }
-        XCTAssertTrue(sysRngDiags.isEmpty)
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let randomDiags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
+        XCTAssertTrue(randomDiags.isEmpty, "Enum case .random should not be flagged as unseeded randomness")
+    }
+
+    func testStillDetectsRandomMethodCall() async throws {
+        let source = """
+        import Testing
+
+        @Test func testRandom() {
+            let value = Int.random(in: 1...10)
+            #expect(value >= 1)
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let diag = result.diagnostics.first { $0.ruleId == "unseeded-random" }
+        XCTAssertNotNil(diag, ".random() method call should still be flagged")
+    }
+
+    func testAllowsRandomWithUsingParameter() async throws {
+        let source = """
+        import Testing
+
+        @Test func testDeterministicRandom() {
+            var rng = DeterministicRNG(seed: 42)
+            let config = StrategicConfig.random(using: &rng)
+            #expect(config.attackThreshold >= 0.8)
+        }
+        """
+
+        let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
+        let randomDiags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
+        XCTAssertTrue(randomDiags.isEmpty, ".random(using: &rng) with seeded generator should not be flagged")
     }
 
     // MARK: - Missing Assertions
