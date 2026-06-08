@@ -160,6 +160,67 @@ struct HIGAuditorTests {
         #expect(navDiag.isEmpty, "NavigationSplitView should not trigger warning")
     }
 
+    @Test("NavigationStack in non-body property is not flagged")
+    func navigationStackInSheetHelper() {
+        let source = """
+        import SwiftUI
+        struct LobbyView: View {
+            var body: some View {
+                Text("Lobby")
+            }
+            private var createRoomSheet: some View {
+                NavigationStack {
+                    Form { Text("Room settings") }
+                }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "LobbyView.swift", activePlatforms: .macOS)
+        let navDiag = result.diagnostics.filter { $0.ruleId == "hig.navigation-pattern" }
+        #expect(navDiag.isEmpty, "NavigationStack in non-body property should not be flagged")
+    }
+
+    @Test("NavigationStack inside conditional branch is not flagged")
+    func navigationStackInConditionalBranch() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State private var showSetup = true
+            var body: some View {
+                Group {
+                    if showSetup {
+                        NavigationStack {
+                            Text("Setup")
+                        }
+                    } else {
+                        Text("Game")
+                    }
+                }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
+        let navDiag = result.diagnostics.filter { $0.ruleId == "hig.navigation-pattern" }
+        #expect(navDiag.isEmpty, "NavigationStack inside if/else branch should not be flagged")
+    }
+
+    @Test("NavigationStack as sole body content is still flagged")
+    func navigationStackAsSoleBodyContent() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View {
+                NavigationStack {
+                    List { Text("Item") }
+                }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
+        let navDiag = result.diagnostics.filter { $0.ruleId == "hig.navigation-pattern" }
+        #expect(!navDiag.isEmpty, "NavigationStack as sole body content should still be flagged")
+    }
+
     // MARK: - Exemptions
 
     @Test("HIG-EXEMPT comment suppresses diagnostic")

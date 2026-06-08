@@ -323,7 +323,21 @@ private final class TestQualityVisitor: SyntaxVisitor {
     // MARK: - Unseeded Randomness Detection
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        if node.declName.baseName.text == "random" {
+        if node.declName.baseName.text == "random" || node.declName.baseName.text == "shuffled" {
+            // Skip enum case access (e.g., PlayerType.random, AIDifficulty.random).
+            // Only flag when .random/.shuffled is actually called as a function/method,
+            // meaning the MemberAccessExprSyntax is the callee of a FunctionCallExprSyntax.
+            guard let callExpr = node.parent?.as(FunctionCallExprSyntax.self) else {
+                return .visitChildren
+            }
+
+            // Skip calls that pass a seeded generator via `using:` parameter,
+            // e.g., .random(using: &rng) or .shuffled(using: &rng).
+            let hasUsingArg = callExpr.arguments.contains { arg in
+                arg.label?.text == "using"
+            }
+            guard !hasUsingArg else { return .visitChildren }
+
             let location = node.startLocation(
                 converter: SourceLocationConverter(fileName: fileName, tree: node.root)
             )

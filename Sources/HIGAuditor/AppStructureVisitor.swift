@@ -207,6 +207,12 @@ final class NavigationPatternVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
+        // Skip NavigationStack in non-body computed properties (e.g., sheet helpers)
+        // and inside conditional branches where it serves as one of several possible views.
+        if isInsideNonBodyProperty(node) || isInsideConditionalBranch(node) {
+            return .visitChildren
+        }
+
         let location = node.startLocation(converter: converter)
         let line = location.line
 
@@ -225,6 +231,44 @@ final class NavigationPatternVisitor: SyntaxVisitor {
         }
 
         return .visitChildren
+    }
+
+    // MARK: - Context Detection
+
+    /// Returns true when the node is inside a computed property whose name is NOT `body`.
+    /// NavigationStack inside sheet helpers or auxiliary view builders is expected.
+    private func isInsideNonBodyProperty(_ node: some SyntaxProtocol) -> Bool {
+        var current: Syntax? = Syntax(node)
+        while let parent = current?.parent {
+            if let varDecl = parent.as(VariableDeclSyntax.self) {
+                let name = varDecl.bindings.first?.pattern.trimmedDescription
+                return name != "body"
+            }
+            // Stop at struct/class boundary — no point climbing further.
+            if parent.is(StructDeclSyntax.self) || parent.is(ClassDeclSyntax.self) {
+                break
+            }
+            current = parent
+        }
+        return false
+    }
+
+    /// Returns true when the node is nested inside an if/else/switch conditional branch.
+    /// NavigationStack used as one of several conditional views is a single-column flow,
+    /// not the primary navigation structure.
+    private func isInsideConditionalBranch(_ node: some SyntaxProtocol) -> Bool {
+        var current: Syntax? = Syntax(node)
+        while let parent = current?.parent {
+            if parent.is(IfExprSyntax.self) || parent.is(SwitchExprSyntax.self) {
+                return true
+            }
+            // Stop at the variable/function declaration boundary.
+            if parent.is(VariableDeclSyntax.self) || parent.is(FunctionDeclSyntax.self) {
+                break
+            }
+            current = parent
+        }
+        return false
     }
 
     private func checkExemption(near line: Int) -> DiagnosticOverride? {
