@@ -359,6 +359,13 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
             }
         }
 
+        // Integer literal 0 is exempt (semantically identical to 0.0 in FP context)
+        if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
+            if intLit.literal.text == "0" {
+                return true
+            }
+        }
+
         // .zero, .nan, .infinity, .pi, etc.
         if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
             let memberName = memberAccess.declName.baseName.text
@@ -373,7 +380,8 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     // MARK: - Guard Detection
 
     /// Scans a syntax subtree for zero-guard patterns on variable names.
-    /// Recognised patterns: `!= 0`, `> 0`, `!= 0.0`, `!= .zero`, `guard ... != 0`.
+    /// Recognised patterns: `!= 0`, `> 0`, `!= 0.0`, `!= .zero`, `guard ... != 0`,
+    /// `abs(x) > 0`, `abs(x) > .ulpOfOne`, `!x.isZero`.
     private func collectGuardedVariables(from node: Syntax) {
         for descendant in node.children(viewMode: .sourceAccurate) {
             // Look for SequenceExprSyntax containing guard patterns
@@ -389,29 +397,75 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
                         let rhsIdx = idx + 1
                         guard lhsIdx >= 0, rhsIdx < elements.count else { continue }
 
+                        let lhs = elements[lhsIdx]
                         let rhs = elements[rhsIdx]
                         let isZeroCheck = isZeroExpression(rhs)
+                        let isPositiveThreshold = op == ">" && isPositiveExpression(rhs)
 
-                        if isZeroCheck, let varName = extractVariableName(elements[lhsIdx]) {
-                            guardedVariables.insert(varName)
+                        if isZeroCheck || isPositiveThreshold {
+                            // Direct variable: `x > 0`
+                            if let varName = extractVariableName(lhs) {
+                                guardedVariables.insert(varName)
+                            }
+                            // Wrapped in abs(): `abs(x) > 0`
+                            if let innerVar = extractAbsArgument(lhs) {
+                                guardedVariables.insert(innerVar)
+                            }
                         }
                     }
                 }
             }
 
             // Pattern: `!collection.isEmpty` implies collection.count > 0
+            // Pattern: `!variable.isZero` implies variable != 0
             if let prefixOp = descendant.as(PrefixOperatorExprSyntax.self),
                prefixOp.operator.text == "!",
-               let memberAccess = prefixOp.expression.as(MemberAccessExprSyntax.self),
-               memberAccess.declName.baseName.text == "isEmpty",
-               let base = memberAccess.base {
-                let countExpr = "\(base.trimmedDescription).count"
-                guardedVariables.insert(countExpr)
+               let memberAccess = prefixOp.expression.as(MemberAccessExprSyntax.self) {
+                let memberName = memberAccess.declName.baseName.text
+                if memberName == "isEmpty", let base = memberAccess.base {
+                    let countExpr = "\(base.trimmedDescription).count"
+                    guardedVariables.insert(countExpr)
+                } else if memberName == "isZero", let base = memberAccess.base {
+                    if let varName = extractVariableName(ExprSyntax(base)) {
+                        guardedVariables.insert(varName)
+                    }
+                }
             }
 
             // Recurse into children
             collectGuardedVariables(from: descendant)
         }
+    }
+
+    /// Extracts the variable name from an `abs(variable)` call, if the expression
+    /// is a call to `abs` with a single unlabelled argument.
+    private func extractAbsArgument(_ expr: ExprSyntax) -> String? {
+        guard let funcCall = expr.as(FunctionCallExprSyntax.self),
+              let callee = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
+              callee.baseName.text == "abs",
+              funcCall.arguments.count == 1,
+              let firstArg = funcCall.arguments.first,
+              firstArg.label == nil else {
+            return nil
+        }
+        return extractVariableName(firstArg.expression)
+    }
+
+    /// Returns true if the expression is a positive numeric literal or sentinel
+    /// (e.g. `0.01`, `.ulpOfOne`, `1e-30`). Used to recognise threshold guards
+    /// like `abs(x) > .ulpOfOne`.
+    private func isPositiveExpression(_ expr: ExprSyntax) -> Bool {
+        if let floatLit = expr.as(FloatLiteralExprSyntax.self) {
+            return !isZeroExpression(ExprSyntax(floatLit))
+        }
+        if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
+            return intLit.literal.text != "0"
+        }
+        if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
+            let name = memberAccess.declName.baseName.text
+            return name == "ulpOfOne" || name == "leastNonzeroMagnitude" || name == "leastNormalMagnitude"
+        }
+        return false
     }
 
     /// Returns true if the expression is a non-zero numeric literal (e.g. 10.0, 5.0, 2).
