@@ -198,6 +198,26 @@ struct FPEqualityTests {
         #expect(!results.contains { $0.ruleId == ruleId })
     }
 
+    @Test("Does NOT flag comparison to integer literal 0")
+    func exemptIntegerZero() {
+        let code = """
+        let x: Double = 1.0
+        if x != 0 {}
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag == comparison to integer literal 0")
+    func exemptIntegerZeroEquals() {
+        let code = """
+        let x: Double = 1.0
+        if x == 0 {}
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
     @Test("Does NOT flag integer comparison")
     func exemptIntegerComparison() {
         let code = """
@@ -309,6 +329,54 @@ struct FPDivisionTests {
                 return 100.0 / divisor
             }
             return 0
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded division with abs(x) > 0")
+    func exemptAbsGreaterThanZero() {
+        let code = """
+        func compute(divisor: Double) -> Double {
+            guard abs(divisor) > 0 else { return 0 }
+            return 100.0 / divisor
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded division with abs(x) > .ulpOfOne")
+    func exemptAbsGreaterThanUlpOfOne() {
+        let code = """
+        func compute(divisor: Double) -> Double {
+            guard abs(divisor) > .ulpOfOne else { return 0 }
+            return 100.0 / divisor
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded division with abs(x) > 1e-15")
+    func exemptAbsGreaterThanEpsilon() {
+        let code = """
+        func compute(divisor: Double) -> Double {
+            guard abs(divisor) > 1e-15 else { return 0 }
+            return 100.0 / divisor
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does NOT flag guarded division with !x.isZero")
+    func exemptIsZeroGuard() {
+        let code = """
+        func compute(divisor: Double) -> Double {
+            guard !divisor.isZero else { return 0 }
+            return 100.0 / divisor
         }
         """
         let results = diagnose(code)
