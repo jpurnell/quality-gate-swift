@@ -35,12 +35,15 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
     public let projectTrajectories: [ProjectTrajectory]?
     /// Group-level aggregated snapshots keyed by group ID.
     public let groupSnapshots: [String: [DailySnapshot]]?
+    /// Point-in-time snapshot from the latest run per project.
+    public let currentSnapshot: CurrentSnapshot?
 
     private enum CodingKeys: String, CodingKey {
         case windowStart, windowEnd, weekLabel, label, projects
         case statistics, violationClusters, proposedPolicyUpdates
         case calibrationSummaries, narrative, generatedAt
         case projectTiers, projectTrajectories, groupSnapshots
+        case currentSnapshot
     }
 
     /// Creates a new institutional pulse.
@@ -58,7 +61,8 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
         generatedAt: Date,
         projectTiers: [String: ProjectTier]? = nil,
         projectTrajectories: [ProjectTrajectory]? = nil,
-        groupSnapshots: [String: [DailySnapshot]]? = nil
+        groupSnapshots: [String: [DailySnapshot]]? = nil,
+        currentSnapshot: CurrentSnapshot? = nil
     ) {
         self.windowStart = windowStart
         self.windowEnd = windowEnd
@@ -74,6 +78,7 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
         self.projectTiers = projectTiers
         self.projectTrajectories = projectTrajectories
         self.groupSnapshots = groupSnapshots
+        self.currentSnapshot = currentSnapshot
     }
 
     /// Returns a copy of this pulse with the narrative field set.
@@ -92,7 +97,8 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
             generatedAt: generatedAt,
             projectTiers: projectTiers,
             projectTrajectories: projectTrajectories,
-            groupSnapshots: groupSnapshots
+            groupSnapshots: groupSnapshots,
+            currentSnapshot: currentSnapshot
         )
     }
 
@@ -113,6 +119,7 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
         projectTiers = try container.decodeIfPresent([String: ProjectTier].self, forKey: .projectTiers)
         projectTrajectories = try container.decodeIfPresent([ProjectTrajectory].self, forKey: .projectTrajectories)
         groupSnapshots = try container.decodeIfPresent([String: [DailySnapshot]].self, forKey: .groupSnapshots)
+        currentSnapshot = try container.decodeIfPresent(CurrentSnapshot.self, forKey: .currentSnapshot)
     }
 
     /// Encodes all pulse fields, omitting nil optional properties.
@@ -132,5 +139,6 @@ public struct InstitutionalPulse: Sendable, Codable, Equatable {
         try container.encodeIfPresent(projectTiers, forKey: .projectTiers)
         try container.encodeIfPresent(projectTrajectories, forKey: .projectTrajectories)
         try container.encodeIfPresent(groupSnapshots, forKey: .groupSnapshots)
+        try container.encodeIfPresent(currentSnapshot, forKey: .currentSnapshot)
     }
 }

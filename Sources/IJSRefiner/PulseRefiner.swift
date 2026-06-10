@@ -184,7 +184,7 @@ public actor PulseRefiner {
             groups: manifest?.groups ?? [:]
         )
 
-        let statistics = buildStatistics(
+        let result = buildStatistics(
             windowMetadata: allWindowMetadata,
             calibrations: allWindowCalibrations,
             corpusTrends: corpusTrends,
@@ -205,7 +205,7 @@ public actor PulseRefiner {
             weekLabel: weekLabel,
             label: label,
             projects: corpusPaths.map(\.projectID),
-            statistics: statistics,
+            statistics: result.statistics,
             violationClusters: clusters,
             proposedPolicyUpdates: allWindowCalibrations.compactMap(\.proposedPolicyUpdate),
             calibrationSummaries: allWindowCalibrations.map(\.pulseContribution),
@@ -213,7 +213,8 @@ public actor PulseRefiner {
             generatedAt: Date(),
             projectTiers: tiers.isEmpty ? nil : tiers,
             projectTrajectories: trajectories.isEmpty ? nil : trajectories,
-            groupSnapshots: groupSnaps.isEmpty ? nil : groupSnaps
+            groupSnapshots: groupSnaps.isEmpty ? nil : groupSnaps,
+            currentSnapshot: result.currentSnapshot
         )
     }
 
@@ -418,7 +419,7 @@ public actor PulseRefiner {
         complexityTrends: [ComplexityTrend]? = nil,
         weightedScores: [String: Double]? = nil,
         gatedAnomalies: [AnomalyGate]? = nil
-    ) -> PulseStatistics {
+    ) -> (statistics: PulseStatistics, currentSnapshot: CurrentSnapshot) {
         let totalGateRuns = windowMetadata.count
         let passedRuns = windowMetadata.filter { meta in
             meta.results.allSatisfy { $0.status == .passed }
@@ -468,7 +469,30 @@ public actor PulseRefiner {
             ? nil
             : consistencyScores.reduce(0, +) / Double(consistencyScores.count)
 
-        return PulseStatistics(
+        var snapshotFailingCheckers: [String: Int] = [:]
+        let projectStatuses: [CurrentSnapshot.ProjectStatus] = latestByProject.values.map { meta in
+            let failed = meta.results.filter { $0.status == .failed }.map(\.checkerId)
+            for checker in failed {
+                snapshotFailingCheckers[checker, default: 0] += 1
+            }
+            let allPassed = meta.results.allSatisfy { $0.status.isPassing }
+            return CurrentSnapshot.ProjectStatus(
+                projectID: meta.projectID,
+                allPassed: allPassed,
+                failedCheckers: failed,
+                lastRunDate: meta.timestamp,
+                overrideCount: meta.overrides.count
+            )
+        }.sorted { $0.projectID < $1.projectID }
+
+        let snapshot = CurrentSnapshot(
+            projects: projectStatuses,
+            totalOverrides: totalOverrides,
+            totalComplianceCount: latestByProject.values.reduce(0) { $0 + $1.complianceCount },
+            failingCheckers: snapshotFailingCheckers
+        )
+
+        let statistics = PulseStatistics(
             totalGateRuns: totalGateRuns,
             passedRuns: passedRuns,
             failedRuns: failedRuns,
@@ -488,6 +512,8 @@ public actor PulseRefiner {
             weightedScores: weightedScores,
             gatedAnomalies: gatedAnomalies
         )
+
+        return (statistics: statistics, currentSnapshot: snapshot)
     }
 
     private func isoWeekLabel(for date: Date) -> String {
