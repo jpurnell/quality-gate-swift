@@ -80,6 +80,8 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
     public let ethicalFlags: [EthicalFlag]
     /// How consistent this implementation is with institutional lessons. Nil if not yet scored.
     public let consistencyScore: Double?
+    /// Total compliance annotations verified across all checkers (not overrides).
+    public let complianceCount: Int
 
     /// Creates a new check result metadata record.
     /// - Parameters:
@@ -92,6 +94,7 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
     ///   - riskTier: Overall risk classification.
     ///   - ethicalFlags: Ethical risk signals.
     ///   - consistencyScore: Institutional consistency score, if available.
+    ///   - complianceCount: Total compliance annotations verified.
     public init(
         projectID: String,
         timestamp: Date,
@@ -101,7 +104,8 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
         overrides: [OverrideRecord],
         riskTier: RiskTier,
         ethicalFlags: [EthicalFlag],
-        consistencyScore: Double?
+        consistencyScore: Double?,
+        complianceCount: Int = 0
     ) {
         self.projectID = projectID
         self.timestamp = timestamp
@@ -112,5 +116,20 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
         self.riskTier = riskTier
         self.ethicalFlags = ethicalFlags
         self.consistencyScore = consistencyScore
+        self.complianceCount = complianceCount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        projectID = try container.decode(String.self, forKey: .projectID)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        environment = try container.decode(Environment.self, forKey: .environment)
+        decisionOwner = try container.decode(String.self, forKey: .decisionOwner)
+        results = try container.decode([CheckResult].self, forKey: .results)
+        overrides = try container.decode([OverrideRecord].self, forKey: .overrides)
+        riskTier = try container.decode(RiskTier.self, forKey: .riskTier)
+        ethicalFlags = try container.decode([EthicalFlag].self, forKey: .ethicalFlags)
+        consistencyScore = try container.decodeIfPresent(Double.self, forKey: .consistencyScore)
+        complianceCount = try container.decodeIfPresent(Int.self, forKey: .complianceCount) ?? 0
     }
 }

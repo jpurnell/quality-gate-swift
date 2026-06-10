@@ -35,15 +35,17 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
+        var allCompliance: [ComplianceRecord] = []
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let result = try await auditDirectory(at: sourcesPath)
             allDiagnostics.append(contentsOf: result.diagnostics)
             allOverrides.append(contentsOf: result.overrides)
+            allCompliance.append(contentsOf: result.complianceRecords)
         }
 
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
-        return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, overrides: allOverrides, duration: duration)
+        return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, overrides: allOverrides, complianceRecords: allCompliance, duration: duration)
     }
 
     /// Audits a single source string for pointer escapes.
@@ -59,16 +61,17 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
         let result = auditSourceCode(source, fileName: fileName)
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
-        return CheckResult(checkerId: id, status: status, diagnostics: result.diagnostics, overrides: result.overrides, duration: duration)
+        return CheckResult(checkerId: id, status: status, diagnostics: result.diagnostics, overrides: result.overrides, complianceRecords: result.complianceRecords, duration: duration)
     }
 
     // MARK: - Private
 
-    private func auditDirectory(at path: String) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+    private func auditDirectory(at path: String) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], complianceRecords: [ComplianceRecord]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
+        var complianceRecords: [ComplianceRecord] = []
+        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], [], []) }
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
@@ -77,15 +80,16 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(source, fileName: fullPath)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
+                complianceRecords.append(contentsOf: result.complianceRecords)
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
-        return (diagnostics, overrides)
+        return (diagnostics, overrides, complianceRecords)
     }
 
-    private func auditSourceCode(_ source: String, fileName: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+    private func auditSourceCode(_ source: String, fileName: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], complianceRecords: [ComplianceRecord]) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let visitor = PointerEscapeVisitor(
@@ -95,6 +99,6 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
             sourceText: source
         )
         visitor.walk(tree)
-        return (visitor.diagnostics, visitor.overrides)
+        return (visitor.diagnostics, visitor.overrides, visitor.complianceRecords)
     }
 }

@@ -93,8 +93,8 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
 
-    @Option(name: .long, help: "Override corpus path for telemetry (useful for CI)")
-    var corpusPath: String?
+    @Option(name: .customLong("telemetry-corpus-path"), help: "Override corpus path for telemetry (useful for CI)")
+    var telemetryCorpusPath: String?
 
     func run() async throws {
         if let skipRef = ProcessInfo.processInfo.environment["QG_SKIP"] {
@@ -166,7 +166,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             )
         }
 
-        if let corpusPathOverride = corpusPath {
+        if let corpusPathOverride = telemetryCorpusPath {
             let c = configuration.consistency
             configuration = Configuration(
                 parallelWorkers: configuration.parallelWorkers,
@@ -429,6 +429,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             let isCI = ProcessInfo.processInfo.environment["CI"] != nil
             let author = ProcessInfo.processInfo.environment["USER"] ?? "local"
             let allOverrides = allResults.flatMap(\.overrides)
+            let complianceCount = allResults.map(\.complianceRecords.count).reduce(0, +)
             let overrideRecords = allOverrides.map { override in
                 OverrideRecord(
                     diagnosticOverride: override,
@@ -448,7 +449,8 @@ struct QualityGateCLI: AsyncParsableCommand {
                 overrides: overrideRecords,
                 riskTier: riskTier,
                 ethicalFlags: [],
-                consistencyScore: consistencyScore
+                consistencyScore: consistencyScore,
+                complianceCount: complianceCount
             )
 
             let calibrations = CalibrationClassifier.classify(
