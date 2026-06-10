@@ -170,8 +170,10 @@ public enum PulseSectionRenderer: Sendable {
 
         for summary in summaries {
             let a = summary.top
-            let isGood = a.direction == .positive
-            let directionArrow = a.direction == .negative ? "\u{2193}" : "\u{2191}"
+            let upIsGood = a.metric == "passRate"
+            let isUp = a.direction == .positive
+            let isGood = upIsGood ? isUp : !isUp
+            let directionArrow = isUp ? "\u{2191}" : "\u{2193}"
             let zStr = abs(a.zScore).formatted(.number.precision(.fractionLength(2)))
             let icon: String
             if isGood {
