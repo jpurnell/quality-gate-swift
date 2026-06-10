@@ -300,8 +300,10 @@ public enum PortfolioTUIView: Sendable {
             }
             guard let top else { continue }
 
-            let isGood = top.direction == .positive
-            let arrow = top.direction == .negative ? "\u{2193}" : "\u{2191}"
+            let upIsGood = top.metric == "passRate"
+            let isUp = top.direction == .positive
+            let isGood = upIsGood ? isUp : !isUp
+            let arrow = isUp ? "\u{2191}" : "\u{2193}"
             let zStr = abs(top.zScore).formatted(.number.precision(.fractionLength(1)))
             let icon: String
             if isGood {
