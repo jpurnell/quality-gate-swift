@@ -53,9 +53,11 @@ public enum PortfolioTUIView: Sendable {
 
         buf.appendLine(boxRow("", width: width))
 
+        let anomalyByScope = buildAnomalyLookup(pulse: pulse)
+
         let visibleRows = state.visibleRows
         if !visibleRows.isEmpty {
-            let nameWidth = min(max(width - 40, 16), 30)
+            let nameWidth = min(max(width - 58, 16), 26)
             let sortIndicator = state.sortAscending ? "\u{25B2}" : "\u{25BC}"
             let nameLabel = state.sortKey == .name
                 ? "Project \(sortIndicator)" : "Project  "
@@ -66,7 +68,7 @@ public enum PortfolioTUIView: Sendable {
             let runsLabel = state.sortKey == .runs
                 ? "Runs\(sortIndicator)" : "Runs "
             let header = "  " + nameLabel.padding(toLength: nameWidth + 2, withPad: " ", startingAt: 0)
-                + "\(statusLabel)  \(healthLabel) \(runsLabel)"
+                + "\(statusLabel)  \(healthLabel) \(runsLabel) Anomaly"
             buf.appendLine(boxRow(header, width: width))
             buf.appendLine(box.midBorder(width: width))
 
@@ -114,8 +116,9 @@ public enum PortfolioTUIView: Sendable {
 
                     let runs = allRuns[project.projectID] ?? []
                     let timeline = renderHealthTimeline(runs: runs)
+                    let anomalyTag = anomalyByScope[projectID] ?? ""
 
-                    let projectRow = "\(indent)\(name)  \(status)     \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(project.runCount)"
+                    let projectRow = "\(indent)\(name)  \(status)     \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(String(describing: project.runCount).padding(toLength: 4, withPad: " ", startingAt: 0)) \(anomalyTag)"
 
                     if isSelected {
                         buf.appendLine(boxRow(ANSICodes.reverse + projectRow + ANSICodes.reset, width: width))
@@ -173,9 +176,6 @@ public enum PortfolioTUIView: Sendable {
                 }
             }
             for line in PulseSectionRenderer.renderClusters(pulse.violationClusters, width: width) {
-                buf.appendLine(line)
-            }
-            for line in PulseSectionRenderer.renderAnomalies(stats.anomalies, width: width) {
                 buf.appendLine(line)
             }
             for line in PulseSectionRenderer.renderNarrative(pulse.narrative, width: width) {
@@ -283,6 +283,42 @@ public enum PortfolioTUIView: Sendable {
             : ANSICodes.dim + "\u{25B6}" + ANSICodes.reset
         let position = "\(idx + 1)/\(state.availableLabels.count)"
         return "\(left) Pulse \(label) \(right)  (\(position))"
+    }
+
+    private static func buildAnomalyLookup(pulse: InstitutionalPulse?) -> [String: String] {
+        guard let pulse else { return [:] }
+        let anomalies = pulse.statistics.anomalies
+        guard !anomalies.isEmpty else { return [:] }
+
+        let grouped = Dictionary(grouping: anomalies, by: \.scope)
+        var result: [String: String] = [:]
+
+        for (scope, items) in grouped {
+            let top = items.max { a, b in
+                if a.severity != b.severity { return a.severity < b.severity }
+                return abs(a.zScore) < abs(b.zScore)
+            }
+            guard let top else { continue }
+
+            let severityColor: ANSIColor = switch top.severity {
+            case .extreme: .red
+            case .significant: .yellow
+            case .notable: .cyan
+            }
+            let arrow = top.direction == .negative ? "\u{2193}" : "\u{2191}"
+            let zStr = abs(top.zScore).formatted(.number.precision(.fractionLength(1)))
+            let icon = ANSICodes.fg(severityColor) + "\u{26A0}" + ANSICodes.reset
+            let metricShort: String = switch top.metric {
+            case "passRate": "pass"
+            case "failureRate": "fail"
+            case "overrideRate": "ovrd"
+            case "calibrationRate": "cal"
+            default: String(top.metric.prefix(4))
+            }
+            result[scope] = "\(icon)\(metricShort) z\(zStr)\(arrow)"
+        }
+
+        return result
     }
 
     private static func formatPercent(_ value: Double) -> String {
