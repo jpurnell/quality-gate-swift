@@ -44,6 +44,7 @@ final class PointerEscapeVisitor: SyntaxVisitor {
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
+    private(set) var complianceRecords: [ComplianceRecord] = []
 
     init(
         fileName: String,
@@ -306,9 +307,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         //    function receive the borrowed pointer.
         if let call = expression.as(FunctionCallExprSyntax.self), isAllowlistedCall(call) {
             let functionName = allowlistedFunctionName(call) ?? "unknown"
-            overrides.append(DiagnosticOverride(
+            complianceRecords.append(ComplianceRecord(
                 ruleId: "pointer-escape",
-                justification: "Allowed by configuration: \(functionName)",
+                annotation: "Allowed by configuration: \(functionName)",
                 filePath: fileName,
                 lineNumber: line(of: call)
             ))
@@ -416,9 +417,9 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         // Allowlisted function — fully suppress checks.
         if isAllowlistedCall(call) {
             let functionName = allowlistedFunctionName(call) ?? "unknown"
-            overrides.append(DiagnosticOverride(
+            complianceRecords.append(ComplianceRecord(
                 ruleId: "pointer-escape",
-                justification: "Allowed by configuration: \(functionName)",
+                annotation: "Allowed by configuration: \(functionName)",
                 filePath: fileName,
                 lineNumber: line(of: call)
             ))

@@ -38,8 +38,28 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Run the build check.
     ///
     /// Executes `swift build` and parses any compiler diagnostics.
+    /// Skips automatically when no Package.swift is present (Xcode-only projects).
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
+
+        let projectRoot = FileManager.default.currentDirectoryPath
+        let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
+
+        guard FileManager.default.fileExists(atPath: packagePath) else {
+            let duration = ContinuousClock.now - startTime
+            return CheckResult(
+                checkerId: id,
+                status: .skipped,
+                diagnostics: [
+                    Diagnostic(
+                        severity: .note,
+                        message: "No Package.swift found; skipping SPM build.",
+                        ruleId: "build-skip"
+                    )
+                ],
+                duration: duration
+            )
+        }
 
         let args = buildArguments(for: configuration)
         let (output, exitCode) = try await runSwiftBuild(arguments: args)
