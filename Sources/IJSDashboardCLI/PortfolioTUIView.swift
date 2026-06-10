@@ -300,14 +300,10 @@ public enum PortfolioTUIView: Sendable {
             }
             guard let top else { continue }
 
-            let severityColor: ANSIColor = switch top.severity {
-            case .extreme: .red
-            case .significant: .yellow
-            case .notable: .cyan
-            }
+            let directionColor: ANSIColor = top.direction == .positive ? .green : .red
             let arrow = top.direction == .negative ? "\u{2193}" : "\u{2191}"
             let zStr = abs(top.zScore).formatted(.number.precision(.fractionLength(1)))
-            let icon = ANSICodes.fg(severityColor) + "\u{26A0}" + ANSICodes.reset
+            let icon = ANSICodes.fg(directionColor) + (top.direction == .positive ? "\u{2713}" : "\u{26A0}") + ANSICodes.reset
             let metricShort: String = switch top.metric {
             case "passRate": "pass"
             case "failureRate": "fail"
