@@ -170,14 +170,10 @@ public enum PulseSectionRenderer: Sendable {
 
         for summary in summaries {
             let a = summary.top
-            let severityColor: ANSIColor = switch a.severity {
-            case .extreme: .red
-            case .significant: .yellow
-            case .notable: .cyan
-            }
+            let directionColor: ANSIColor = a.direction == .positive ? .green : .red
             let directionArrow = a.direction == .negative ? "\u{2193}" : "\u{2191}"
             let zStr = abs(a.zScore).formatted(.number.precision(.fractionLength(2)))
-            let icon = ANSICodes.fg(severityColor) + "\u{26A0}" + ANSICodes.reset
+            let icon = ANSICodes.fg(directionColor) + (a.direction == .positive ? "\u{2713}" : "\u{26A0}") + ANSICodes.reset
             let name = summary.scope.padding(toLength: maxNameLen, withPad: " ", startingAt: 0)
             let detail = "\(a.metric) z=\(zStr) (\(a.severity.rawValue), \(directionArrow))"
 
