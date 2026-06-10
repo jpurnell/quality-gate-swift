@@ -146,7 +146,9 @@ struct GenerateNarrative: AsyncParsableCommand {
         senior developer who manages all these projects personally.
 
         Your narrative should:
-        - Open with a 1–2 sentence summary of the most significant change or signal
+        - Open with a 1–2 sentence summary of the CURRENT STATE from the Current Snapshot section
+        - Clearly distinguish between current state (snapshot) and historical trends (window). \
+        The reader cares most about "where are we now" and then "how did we get here."
         - Analyze patterns rather than restating numbers the reader can already see in the dashboard
         - Cross-reference related projects (e.g. a parent app and its library dependencies)
         - Distinguish real signals from statistical noise — always note sample sizes
@@ -193,10 +195,36 @@ struct GenerateNarrative: AsyncParsableCommand {
             Generated: \(dateFmt.string(from: pulse.generatedAt))
             """)
 
-        // Overall statistics
+        // Current snapshot — latest run per project
+        if let snap = pulse.currentSnapshot {
+            let failing = snap.projects.filter { !$0.allPassed }
+            var section = """
+                ## Current Snapshot (latest run per project)
+                This is the CURRENT state — not historical. Use this to answer "how are things right now?"
+                - Projects: \(snap.totalProjects) total, \(snap.passingProjects) passing, \(snap.failingProjects) failing
+                - Overrides: \(snap.totalOverrides)
+                - Compliance annotations: \(snap.totalComplianceCount)
+                """
+            if failing.isEmpty {
+                section += "\n- All projects are currently passing all checkers."
+            } else {
+                section += "\n- Currently failing projects:"
+                for p in failing.sorted(by: { $0.projectID < $1.projectID }) {
+                    section += "\n  - \(p.projectID): \(p.failedCheckers.joined(separator: ", "))"
+                }
+            }
+            if !snap.failingCheckers.isEmpty {
+                let top = snap.failingCheckers.sorted { $0.value > $1.value }.prefix(5)
+                section += "\n- Top failing checkers (current): \(top.map { "\($0.key) (\($0.value))" }.joined(separator: ", "))"
+            }
+            sections.append(section)
+        }
+
+        // Window statistics (30-day aggregate — includes historical runs)
         let s = pulse.statistics
         var stats = """
-            ## Overall Statistics
+            ## Window Statistics (30-day aggregate)
+            These numbers include ALL runs in the window, including resolved incidents. Do NOT present these as current state.
             - Gate runs: \(s.totalGateRuns)
             - Passed: \(s.passedRuns) (\(decimal(s.passRate, 1))%)
             - Failed: \(s.failedRuns)
