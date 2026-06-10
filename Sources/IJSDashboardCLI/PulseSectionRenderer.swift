@@ -122,7 +122,8 @@ public enum PulseSectionRenderer: Sendable {
         return lines
     }
 
-    /// Renders statistical anomaly alerts with severity coloring.
+    /// Renders statistical anomaly alerts grouped by project, showing the
+    /// highest-severity anomaly per project with a summary of additional signals.
     ///
     /// - Parameters:
     ///   - anomalies: Anomalies to render.
@@ -134,22 +135,58 @@ public enum PulseSectionRenderer: Sendable {
     ) -> [String] {
         guard !anomalies.isEmpty else { return [] }
 
-        var lines: [String] = []
-        lines.append(boxRow("  Anomalies:", width: width))
+        let grouped = Dictionary(grouping: anomalies, by: \.scope)
+        let projectCount = grouped.count
+        let totalCount = anomalies.count
 
-        for anomaly in anomalies {
-            let severityColor: ANSIColor = switch anomaly.severity {
+        struct ProjectSummary {
+            let scope: String
+            let top: StatisticalAnomaly
+            let otherMetrics: [String]
+            let count: Int
+        }
+
+        let summaries: [ProjectSummary] = grouped.map { scope, items in
+            let sorted = items.sorted { a, b in
+                if a.severity != b.severity { return a.severity > b.severity }
+                return abs(a.zScore) > abs(b.zScore)
+            }
+            let top = sorted[0]
+            let others = sorted.dropFirst().map { a in
+                let arrow = a.direction == .negative ? "\u{2193}" : "\u{2191}"
+                return "\(a.metric)\(arrow)"
+            }
+            let uniqueOthers = Array(Set(others)).sorted()
+            return ProjectSummary(scope: scope, top: top, otherMetrics: uniqueOthers, count: items.count)
+        }.sorted { a, b in
+            if a.top.severity != b.top.severity { return a.top.severity > b.top.severity }
+            return abs(a.top.zScore) > abs(b.top.zScore)
+        }
+
+        let maxNameLen = min(summaries.map(\.scope.count).max() ?? 0, 28)
+
+        var lines: [String] = []
+        lines.append(boxRow("  Anomalies (\(projectCount) projects, \(totalCount) signals):", width: width))
+
+        for summary in summaries {
+            let a = summary.top
+            let severityColor: ANSIColor = switch a.severity {
             case .extreme: .red
             case .significant: .yellow
             case .notable: .cyan
             }
-            let directionArrow = anomaly.direction == .negative ? "\u{2193}" : "\u{2191}"
-            let zStr = abs(anomaly.zScore).formatted(.number.precision(.fractionLength(2)))
+            let directionArrow = a.direction == .negative ? "\u{2193}" : "\u{2191}"
+            let zStr = abs(a.zScore).formatted(.number.precision(.fractionLength(2)))
             let icon = ANSICodes.fg(severityColor) + "\u{26A0}" + ANSICodes.reset
-            lines.append(boxRow(
-                "    \(icon) \(anomaly.metric): z=\(zStr) (\(anomaly.severity.rawValue), \(directionArrow))",
-                width: width
-            ))
+            let name = summary.scope.padding(toLength: maxNameLen, withPad: " ", startingAt: 0)
+            let detail = "\(a.metric) z=\(zStr) (\(a.severity.rawValue), \(directionArrow))"
+
+            if summary.count > 1 {
+                let extras = summary.otherMetrics.prefix(3).joined(separator: ", ")
+                lines.append(boxRow("    \(icon) \(name)  \(detail)  +\(summary.count - 1) more: \(extras)", width: width))
+            } else {
+                lines.append(boxRow("    \(icon) \(name)  \(detail)", width: width))
+            }
         }
 
         lines.append(boxRow("", width: width))
