@@ -170,10 +170,23 @@ public enum PulseSectionRenderer: Sendable {
 
         for summary in summaries {
             let a = summary.top
-            let directionColor: ANSIColor = a.direction == .positive ? .green : .red
+            let isGood = a.direction == .positive
             let directionArrow = a.direction == .negative ? "\u{2193}" : "\u{2191}"
             let zStr = abs(a.zScore).formatted(.number.precision(.fractionLength(2)))
-            let icon = ANSICodes.fg(directionColor) + (a.direction == .positive ? "\u{2713}" : "\u{26A0}") + ANSICodes.reset
+            let icon: String
+            if isGood {
+                icon = ANSICodes.fg(.green) + "\u{2713}" + ANSICodes.reset
+            } else {
+                let z = abs(a.zScore)
+                let color: String = if z > 2.576 {
+                    ANSICodes.fg(.red)
+                } else if z >= 1.96 {
+                    ANSICodes.fg(.yellow)
+                } else {
+                    ANSICodes.fg(.cyan)
+                }
+                icon = color + "\u{26A0}" + ANSICodes.reset
+            }
             let name = summary.scope.padding(toLength: maxNameLen, withPad: " ", startingAt: 0)
             let detail = "\(a.metric) z=\(zStr) (\(a.severity.rawValue), \(directionArrow))"
 
