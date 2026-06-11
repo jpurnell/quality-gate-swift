@@ -86,12 +86,17 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Install Swift 6.2
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.2'
+
       - name: Cache quality-gate binary
         id: qg-cache
         uses: actions/cache@v4
         with:
           path: /usr/local/bin/quality-gate
-          key: quality-gate-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+          key: quality-gate-swift62-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
       - name: Build quality-gate from latest main
         if: steps.qg-cache.outputs.cache-hit != 'true'
@@ -142,7 +147,7 @@ jobs:
 
           # Write telemetry directly to corpus checkout if available
           if [ -d "_corpus" ]; then
-            ARGS="$ARGS --corpus-path $(pwd)/_corpus"
+            ARGS="$ARGS --telemetry-corpus-path $(pwd)/_corpus"
           fi
 
           echo "Running: quality-gate $ARGS"
