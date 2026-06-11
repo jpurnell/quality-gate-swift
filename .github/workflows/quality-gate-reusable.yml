@@ -98,6 +98,15 @@ jobs:
           path: /usr/local/bin/quality-gate
           key: quality-gate-swift62-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
+      - name: Configure git auth for private dependencies
+        if: steps.qg-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.corpus-token }}
+        run: |
+          if [ -n "$GH_TOKEN" ]; then
+            git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
+
       - name: Build quality-gate from latest main
         if: steps.qg-cache.outputs.cache-hit != 'true'
         run: |
