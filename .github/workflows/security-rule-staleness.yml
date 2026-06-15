@@ -16,23 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-
-      - name: Build quality-gate
-        run: swift build -c release
-
       - name: Check security rule staleness
         id: staleness
         run: |
-          # Run the safety checker in JSON mode and extract security rule metadata.
-          # SecurityRuleManifest.staleRules() is exposed via the CLI:
-          #   quality-gate --check safety --security-staleness --format json
-          #
-          # If the --security-staleness flag isn't implemented yet, fall back to
-          # reading the manifest source directly.
-
           MANIFEST="Sources/SafetyAuditor/SecurityRuleManifest.swift"
           if [ ! -f "$MANIFEST" ]; then
             echo "SecurityRuleManifest.swift not found — SecurityVisitor not yet implemented."
@@ -40,38 +26,55 @@ jobs:
             exit 0
           fi
 
-          # Extract lastReviewedDate values and check against today
-          TODAY=$(date -u +%Y-%m-%d)
-          TODAY_EPOCH=$(date -u -j -f "%Y-%m-%d" "$TODAY" "+%s" 2>/dev/null || date -u -d "$TODAY" "+%s")
-          STALE_RULES=""
-          STALE_COUNT=0
+          RESULT=$(python3 - "$MANIFEST" << 'PYEOF'
+          import re, sys, json
+          from datetime import datetime, timedelta, timezone
 
-          # Parse rule entries: look for ruleId and lastReviewedDate pairs
-          while IFS= read -r line; do
-            RULE_ID=$(echo "$line" | grep -oE 'ruleId: "([^"]+)"' | sed 's/ruleId: "//;s/"//')
-            REVIEW_DATE=$(echo "$line" | grep -oE 'lastReviewedDate: "([^"]+)"' | sed 's/lastReviewedDate: "//;s/"//')
-            STALE_DAYS=$(echo "$line" | grep -oE 'staleAfterDays: ([0-9]+)' | sed 's/staleAfterDays: //')
+          with open(sys.argv[1]) as f:
+              content = f.read()
 
-            if [ -n "$RULE_ID" ] && [ -n "$REVIEW_DATE" ]; then
-              STALE_DAYS=${STALE_DAYS:-365}
-              REVIEW_EPOCH=$(date -u -j -f "%Y-%m-%d" "$REVIEW_DATE" "+%s" 2>/dev/null || date -u -d "$REVIEW_DATE" "+%s")
-              THRESHOLD=$(( REVIEW_EPOCH + STALE_DAYS * 86400 ))
+          blocks = re.findall(r'SecurityRule\((.*?)\)', content, re.DOTALL)
+          today = datetime.now(timezone.utc)
+          stale = []
 
-              if [ "$TODAY_EPOCH" -gt "$THRESHOLD" ]; then
-                DAYS_OVER=$(( (TODAY_EPOCH - THRESHOLD) / 86400 ))
-                STALE_RULES="${STALE_RULES}- **${RULE_ID}** — last reviewed ${REVIEW_DATE}, ${DAYS_OVER} days overdue\n"
-                STALE_COUNT=$((STALE_COUNT + 1))
-              fi
-            fi
-          done < <(grep -E "(ruleId|lastReviewedDate|staleAfterDays)" "$MANIFEST" | paste - - - 2>/dev/null || grep -E "SecurityRule\(" "$MANIFEST")
+          for block in blocks:
+              rule_id = re.search(r'ruleId:\s*"([^"]+)"', block)
+              review_date = re.search(r'lastReviewedDate:\s*"([^"]+)"', block)
+              stale_days = re.search(r'staleAfterDays:\s*(\d+)', block)
+
+              if rule_id and review_date:
+                  rd = datetime.strptime(review_date.group(1), '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                  sd = int(stale_days.group(1)) if stale_days else 365
+                  threshold = rd + timedelta(days=sd)
+
+                  if today > threshold:
+                      days_over = (today - threshold).days
+                      stale.append({
+                          'ruleId': rule_id.group(1),
+                          'reviewDate': review_date.group(1),
+                          'daysOver': days_over,
+                      })
+
+          print(json.dumps({'count': len(stale), 'rules': stale}))
+          PYEOF
+          )
+
+          STALE_COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
 
           if [ "$STALE_COUNT" -gt 0 ]; then
             echo "stale=found" >> "$GITHUB_OUTPUT"
             echo "count=$STALE_COUNT" >> "$GITHUB_OUTPUT"
-            # Write multiline output
+
+            DETAILS=$(echo "$RESULT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for r in data['rules']:
+              print(f\"- **{r['ruleId']}** — last reviewed {r['reviewDate']}, {r['daysOver']} days overdue\")
+          ")
+
             {
               echo "details<<EOF"
-              echo -e "$STALE_RULES"
+              echo "$DETAILS"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           else
@@ -87,7 +90,6 @@ jobs:
           COUNT="${{ steps.staleness.outputs.count }}"
           DETAILS="${{ steps.staleness.outputs.details }}"
 
-          # Check for an existing open staleness issue to avoid duplicates
           EXISTING=$(gh issue list --label "security-staleness" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [ -n "$EXISTING" ]; then
             echo "Updating existing staleness issue #${EXISTING}"
