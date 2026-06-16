@@ -80,7 +80,7 @@ jobs:
       CI: "true"
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -93,7 +93,7 @@ jobs:
 
       - name: Cache quality-gate binary
         id: qg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /usr/local/bin/quality-gate
           key: quality-gate-swift62-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
@@ -132,7 +132,7 @@ jobs:
 
       - name: Checkout corpus
         if: inputs.corpus-repo != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ inputs.corpus-repo }}
           ref: ${{ inputs.corpus-branch }}
