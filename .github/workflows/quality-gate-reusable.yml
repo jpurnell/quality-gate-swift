@@ -132,12 +132,12 @@ jobs:
 
       - name: Checkout corpus
         if: inputs.corpus-repo != ''
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ inputs.corpus-repo }}
-          ref: ${{ inputs.corpus-branch }}
-          token: ${{ secrets.corpus-token }}
-          path: _corpus
+        env:
+          GH_TOKEN: ${{ secrets.corpus-token }}
+        run: |
+          git clone --depth 1 --branch ${{ inputs.corpus-branch }} \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ inputs.corpus-repo }}.git" \
+            _corpus
 
       - name: Run quality gate
         id: qg-run
