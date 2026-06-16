@@ -103,14 +103,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.corpus-token }}
         run: |
+          # Disable submodule auto-init — development-guidelines is a private
+          # documentation-only submodule inside quality-gate-types that is not
+          # needed for compilation.  Without this, SPM's checkout triggers a
+          # recursive clone that fails for callers without a matching token.
+          git config --global submodule.recurse false
+          git config --global fetch.recurseSubmodules false
           if [ -n "$GH_TOKEN" ]; then
             git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
 
       - name: Build quality-gate from latest main
         if: steps.qg-cache.outputs.cache-hit != 'true'
+        env:
+          GIT_SUBMODULE_STRATEGY: none
         run: |
-          git clone --depth 1 https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
+          git clone --depth 1 --no-recurse-submodules https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
           cd /tmp/quality-gate-swift
           swift build -c release 2>&1 | tail -5
           cp .build/release/quality-gate /usr/local/bin/
