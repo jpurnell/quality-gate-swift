@@ -120,7 +120,13 @@ jobs:
         run: |
           git clone --depth 1 --no-recurse-submodules https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
           cd /tmp/quality-gate-swift
-          swift build -c release 2>&1 | tail -5
+          swift build -c release 2>&1 | tee /tmp/qg-build.log | tail -20
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "::error::quality-gate build failed (exit $BUILD_EXIT). Last 50 lines:"
+            tail -50 /tmp/qg-build.log
+            exit $BUILD_EXIT
+          fi
           cp .build/release/quality-gate /usr/local/bin/
           echo "quality-gate built from $(git rev-parse --short HEAD)"
 
@@ -172,8 +178,12 @@ jobs:
 
       - name: Push telemetry to corpus
         if: inputs.corpus-repo != '' && always()
-        working-directory: _corpus
         run: |
+          if [ ! -d "_corpus" ]; then
+            echo "Corpus directory not found — skipping telemetry push."
+            exit 0
+          fi
+          cd _corpus
           git config user.name "quality-gate[bot]"
           git config user.email "quality-gate[bot]@users.noreply.github.com"
           git add -A
