@@ -113,7 +113,7 @@ jobs:
 
       - name: Build quality-gate from latest main
         if: steps.qg-cache.outputs.cache-hit != 'true'
-        timeout-minutes: 10
+        timeout-minutes: 25
         env:
           GIT_SUBMODULE_STRATEGY: none
         run: |
