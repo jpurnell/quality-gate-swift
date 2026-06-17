@@ -22,6 +22,12 @@ public struct CurrentSnapshot: Sendable, Codable, Equatable {
     /// Checkers that failed in the latest run, aggregated across projects.
     public let failingCheckers: [String: Int]
 
+    /// Creates a snapshot from aggregated project statuses.
+    /// - Parameters:
+    ///   - projects: Per-project status entries.
+    ///   - totalOverrides: Sum of overrides across all projects.
+    ///   - totalComplianceCount: Sum of compliance annotations across all projects.
+    ///   - failingCheckers: Checker IDs mapped to the number of projects in which they failed.
     public init(
         projects: [ProjectStatus],
         totalOverrides: Int,
@@ -47,6 +53,13 @@ public struct CurrentSnapshot: Sendable, Codable, Equatable {
         /// Number of overrides in the latest run.
         public let overrideCount: Int
 
+        /// Creates a project status entry.
+        /// - Parameters:
+        ///   - projectID: Unique identifier for the project.
+        ///   - allPassed: Whether every checker passed.
+        ///   - failedCheckers: IDs of checkers that failed.
+        ///   - lastRunDate: Timestamp of the most recent run.
+        ///   - overrideCount: Number of active overrides.
         public init(
             projectID: String,
             allPassed: Bool,
