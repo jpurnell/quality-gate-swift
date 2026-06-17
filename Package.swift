@@ -88,6 +88,10 @@ let package = Package(
             targets: ["DependencyAuditor"]
         ),
         .library(
+            name: "SubmoduleAuditor",
+            targets: ["SubmoduleAuditor"]
+        ),
+        .library(
             name: "ReleaseReadinessAuditor",
             targets: ["ReleaseReadinessAuditor"]
         ),
@@ -420,6 +424,15 @@ let package = Package(
         ),
 
         .target(
+            name: "SubmoduleAuditor",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "SubmoduleAuditorTests",
+            dependencies: ["SubmoduleAuditor"]
+        ),
+
+        .target(
             name: "ReleaseReadinessAuditor",
             dependencies: ["QualityGateCore"]
         ),
@@ -699,6 +712,7 @@ let package = Package(
                 "TestQualityAuditor",
                 "ContextAuditor",
                 "DependencyAuditor",
+                "SubmoduleAuditor",
                 "ReleaseReadinessAuditor",
                 "FloatingPointSafetyAuditor",
                 "StochasticDeterminismAuditor",
