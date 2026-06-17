@@ -119,6 +119,7 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
         self.complianceCount = complianceCount
     }
 
+    /// Decodes a ``CheckResultMetadata`` from an external representation, defaulting `complianceCount` to `0` when absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projectID = try container.decode(String.self, forKey: .projectID)
