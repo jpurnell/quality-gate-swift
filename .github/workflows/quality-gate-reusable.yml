@@ -72,28 +72,30 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   quality-gate:
     runs-on: macos-latest
+    timeout-minutes: 60
     env:
       CI: "true"
     steps:
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
       - name: Install Swift 6.2
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '6.2'
 
       - name: Cache quality-gate binary
         id: qg-cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /usr/local/bin/quality-gate
           key: quality-gate-swift62-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
@@ -103,10 +105,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.corpus-token }}
         run: |
-          # Disable submodule auto-init — development-guidelines is a private
-          # documentation-only submodule inside quality-gate-types that is not
-          # needed for compilation.  Without this, SPM's checkout triggers a
-          # recursive clone that fails for callers without a matching token.
           git config --global submodule.recurse false
           git config --global fetch.recurseSubmodules false
           if [ -n "$GH_TOKEN" ]; then
@@ -115,6 +113,7 @@ jobs:
 
       - name: Build quality-gate from latest main
         if: steps.qg-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
         env:
           GIT_SUBMODULE_STRATEGY: none
         run: |
@@ -132,6 +131,7 @@ jobs:
 
       - name: Checkout corpus
         if: inputs.corpus-repo != ''
+        timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.corpus-token }}
         run: |
@@ -141,6 +141,7 @@ jobs:
 
       - name: Run quality gate
         id: qg-run
+        timeout-minutes: 45
         run: |
           ARGS=""
 
@@ -178,6 +179,7 @@ jobs:
 
       - name: Push telemetry to corpus
         if: inputs.corpus-repo != '' && always()
+        timeout-minutes: 2
         run: |
           if [ ! -d "_corpus" ]; then
             echo "Corpus directory not found — skipping telemetry push."
@@ -208,3 +210,27 @@ jobs:
 
           echo "::warning::Telemetry push failed after $MAX_RETRIES attempts."
           exit 0
+
+      - name: Open issue on failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="Quality Gate failure: ${{ github.repository }}"
+          BODY="**Nightly quality gate failed** on $(date -u +%Y-%m-%d).
+
+          **Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          **Branch:** ${{ github.ref_name }}
+          **Commit:** ${{ github.sha }}
+
+          This issue was opened automatically by the quality-gate workflow."
+
+          EXISTING=$(gh issue list --state open --search "in:title \"Quality Gate failure\"" --json number --jq '.[0].number' 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "Commented on existing issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label "ci-failure"
+            echo "Opened new failure issue"
+          fi

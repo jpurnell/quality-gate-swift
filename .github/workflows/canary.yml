@@ -1,0 +1,28 @@
+name: Canary — Reusable Workflow Smoke Test
+
+# Runs the reusable workflow against quality-gate-swift itself on every
+# push to main. Catches infrastructure breaks (action version issues,
+# build failures, missing permissions) before they propagate to the
+# 50+ consumer projects that reference @main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/quality-gate-reusable.yml'
+      - 'Sources/**'
+      - 'Package.swift'
+      - 'Package.resolved'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+    with:
+      checks: "safety dependency-audit"
+      continue-on-failure: true
+    secrets:
+      corpus-token: ${{ secrets.CORPUS_PUSH_TOKEN }}

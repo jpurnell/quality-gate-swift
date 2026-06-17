@@ -21,6 +21,7 @@ import LoggingAuditor
 import TestQualityAuditor
 import ContextAuditor
 import DependencyAuditor
+import SubmoduleAuditor
 import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
 import StochasticDeterminismAuditor
@@ -240,6 +241,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             TestQualityAuditor(),
             ContextAuditor(),
             DependencyAuditor(),
+            SubmoduleAuditor(),
             ReleaseReadinessAuditor(),
             FloatingPointSafetyAuditor(),
             StochasticDeterminismAuditor(),
