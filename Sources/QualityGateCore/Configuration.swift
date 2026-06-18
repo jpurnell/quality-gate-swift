@@ -501,6 +501,30 @@ extension DependencyAuditorConfig: Codable {
     }
 }
 
+/// Per-checker configuration for SubmoduleAuditor.
+public struct SubmoduleAuditorConfig: Sendable, Equatable, Codable {
+    /// Package checkout names to skip (e.g. third-party packages with public submodules).
+    public let allowedPackages: [String]
+
+    /// Creates a submodule auditor configuration.
+    public init(allowedPackages: [String] = []) {
+        self.allowedPackages = allowedPackages
+    }
+
+    /// Default submodule auditor configuration.
+    public static let `default` = SubmoduleAuditorConfig()
+
+    private enum CodingKeys: String, CodingKey {
+        case allowedPackages
+    }
+
+    /// Creates a submodule auditor configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        allowedPackages = try container.decodeIfPresent([String].self, forKey: .allowedPackages) ?? []
+    }
+}
+
 /// Per-checker configuration for ReleaseReadinessAuditor.
 public struct ReleaseReadinessAuditorConfig: Sendable, Equatable {
     /// Path to CHANGELOG file relative to project root.
@@ -1243,6 +1267,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for DependencyAuditor.
     public let dependencyAudit: DependencyAuditorConfig
 
+    /// Per-checker configuration for SubmoduleAuditor.
+    public let submoduleAudit: SubmoduleAuditorConfig
+
     /// Per-checker configuration for ReleaseReadinessAuditor.
     public let releaseReadiness: ReleaseReadinessAuditorConfig
 
@@ -1305,6 +1332,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         memoryBuilder: MemoryBuilderConfig = .default,
         logging: LoggingAuditorConfig = .default,
         dependencyAudit: DependencyAuditorConfig = .default,
+        submoduleAudit: SubmoduleAuditorConfig = .default,
         releaseReadiness: ReleaseReadinessAuditorConfig = .default,
         fpSafety: FloatingPointSafetyAuditorConfig = .default,
         stochasticDeterminism: StochasticDeterminismConfig = .default,
@@ -1339,6 +1367,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.memoryBuilder = memoryBuilder
         self.logging = logging
         self.dependencyAudit = dependencyAudit
+        self.submoduleAudit = submoduleAudit
         self.releaseReadiness = releaseReadiness
         self.fpSafety = fpSafety
         self.stochasticDeterminism = stochasticDeterminism
@@ -1434,6 +1463,7 @@ extension Configuration {
         case memoryBuilder
         case logging
         case dependencyAudit
+        case submoduleAudit
         case releaseReadiness
         case fpSafety
         case stochasticDeterminism
@@ -1473,6 +1503,7 @@ extension Configuration {
         memoryBuilder = try container.decodeIfPresent(MemoryBuilderConfig.self, forKey: .memoryBuilder) ?? .default
         logging = try container.decodeIfPresent(LoggingAuditorConfig.self, forKey: .logging) ?? .default
         dependencyAudit = try container.decodeIfPresent(DependencyAuditorConfig.self, forKey: .dependencyAudit) ?? .default
+        submoduleAudit = try container.decodeIfPresent(SubmoduleAuditorConfig.self, forKey: .submoduleAudit) ?? .default
         releaseReadiness = try container.decodeIfPresent(ReleaseReadinessAuditorConfig.self, forKey: .releaseReadiness) ?? .default
         fpSafety = try container.decodeIfPresent(FloatingPointSafetyAuditorConfig.self, forKey: .fpSafety) ?? .default
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default

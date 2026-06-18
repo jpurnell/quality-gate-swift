@@ -67,7 +67,14 @@ public struct SubmoduleAuditor: QualityChecker, Sendable {
             )
         }
 
+        let allowedPackages = Set(configuration.submoduleAudit.allowedPackages)
+
         for packageDir in checkouts {
+            if allowedPackages.contains(packageDir) {
+                Self.logger.info("Skipping allowed package '\(packageDir, privacy: .public)'")
+                continue
+            }
+
             let gitmodulesPath = checkoutsPath + "/" + packageDir + "/.gitmodules"
             guard FileManager.default.fileExists(atPath: gitmodulesPath) else {
                 continue
