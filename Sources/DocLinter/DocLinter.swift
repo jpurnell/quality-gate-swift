@@ -68,6 +68,20 @@ public struct DocLinter: QualityChecker, Sendable {
         ) {
             arguments.append("--target")
             arguments.append(target)
+        } else if !packageContent.isEmpty && Self.isExecutableOnly(packageContent) {
+            let duration = ContinuousClock.now - startTime
+            return CheckResult(
+                checkerId: id,
+                status: .skipped,
+                diagnostics: [
+                    Diagnostic(
+                        severity: .note,
+                        message: "Executable-only package — no library target for DocC symbol graph generation.",
+                        ruleId: "doc-lint-skip"
+                    )
+                ],
+                duration: duration
+            )
         }
 
         // Run swift package generate-documentation
@@ -273,6 +287,17 @@ public struct DocLinter: QualityChecker, Sendable {
             return nil
         }
         return String(packageContent[targetRange])
+    }
+
+    /// Returns true if the Package.swift defines executable products but no library products.
+    ///
+    /// Swift 6.3's docc-plugin can't generate symbol graphs for executable targets
+    /// (output lands in `ExecutableModules/` instead of `Products/`), so doc-lint
+    /// skips these packages gracefully.
+    public static func isExecutableOnly(_ packageContent: String) -> Bool {
+        let hasLibrary = packageContent.contains(".library(")
+        let hasExecutable = packageContent.contains(".executable(") || packageContent.contains(".executableTarget(")
+        return hasExecutable && !hasLibrary
     }
 
     /// Resolves the documentation target, preferring explicit config over auto-detection.
