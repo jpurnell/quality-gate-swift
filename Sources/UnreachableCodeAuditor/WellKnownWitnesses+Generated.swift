@@ -11,8 +11,8 @@
 // Source modules:
 //   Swift _Concurrency _StringProcessing Foundation SwiftUI UIKit AppKit Combine SwiftData Observation CoreData CoreGraphics OSLog Charts
 //
-// Last regenerated: 2026-04-07
-// Toolchain:        Apple Swift version 6.3 (swiftlang-6.3.0.123.5 clang-2100.0.123.102)
+// Last regenerated: 2026-06-29
+// Toolchain:        Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
 // Coverage:         1860 requirement names across 378 protocols
 
 import Foundation
