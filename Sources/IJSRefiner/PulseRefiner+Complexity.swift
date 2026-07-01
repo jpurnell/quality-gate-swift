@@ -138,19 +138,25 @@ extension PulseRefiner {
             }
         }
 
-        let previousRuleIds = Set(previousClusters.map(\.ruleId))
+        let previousByRule = Dictionary(
+            uniqueKeysWithValues: previousClusters.map { ($0.ruleId, $0) }
+        )
 
         return patternOccurrences
             .filter { $0.value >= 2 }
             .map { (pattern, count) in
                 let ruleId = "complexity.\(pattern)"
+                let prior = previousByRule[ruleId]
+                let appearances = prior.map { ($0.consecutiveAppearances ?? 1) + 1 } ?? 1
                 return ViolationCluster(
                     ruleId: ruleId,
                     occurrenceCount: count,
                     affectedProjectCount: patternProjects[pattern]?.count ?? 0,
                     dominantRootCause: nil,
                     dominantFailedStep: nil,
-                    isRecurring: previousRuleIds.contains(ruleId)
+                    isRecurring: appearances >= PulseRefiner.minimumConsecutiveAppearances
+                        && (patternProjects[pattern]?.count ?? 0) >= PulseRefiner.minimumAffectedProjectsForRecurring,
+                    consecutiveAppearances: appearances
                 )
             }
             .sorted { $0.occurrenceCount > $1.occurrenceCount }

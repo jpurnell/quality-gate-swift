@@ -99,21 +99,22 @@ struct ComplexityTrendTests {
         #expect(sortCluster.occurrenceCount == 2)
     }
 
-    @Test("Marks complexity clusters as recurring when they appeared in previous pulse")
+    @Test("Complexity clusters require 3 consecutive appearances and 2+ projects for recurring")
     func complexityClustersRecurring() async {
         let refiner = PulseRefiner(writer: TelemetryWriter())
         let reports = [
-            makeReport(day: "2026-05-14", patterns: ["containsInFilter", "sortInLoop"]),
-            makeReport(day: "2026-05-15", patterns: ["containsInFilter", "sortInLoop"]),
+            makeReport(day: "2026-05-14", patterns: ["containsInFilter", "sortInLoop"], projectID: "project-a"),
+            makeReport(day: "2026-05-15", patterns: ["containsInFilter", "sortInLoop"], projectID: "project-b"),
         ]
         let previousClusters = [
             ViolationCluster(
                 ruleId: "complexity.containsInFilter",
                 occurrenceCount: 3,
-                affectedProjectCount: 1,
+                affectedProjectCount: 2,
                 dominantRootCause: nil,
                 dominantFailedStep: nil,
-                isRecurring: false
+                isRecurring: false,
+                consecutiveAppearances: 2
             )
         ]
 
@@ -122,9 +123,11 @@ struct ComplexityTrendTests {
             previousClusters: previousClusters
         )
         let containsCluster = clusters.first { $0.ruleId == "complexity.containsInFilter" }
+        #expect(containsCluster?.consecutiveAppearances == 3)
         #expect(containsCluster?.isRecurring == true)
 
         let sortCluster = clusters.first { $0.ruleId == "complexity.sortInLoop" }
+        #expect(sortCluster?.consecutiveAppearances == 1)
         #expect(sortCluster?.isRecurring == false)
     }
 
