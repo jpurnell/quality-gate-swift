@@ -267,8 +267,129 @@ struct PulseRefinerTests {
         #expect(cluster?.isRecurring == false)
     }
 
-    @Test("detectClusters: recurring when present in previous clusters")
+    @Test("detectClusters: present in previous clusters increments count but needs 3 for recurring")
     func detectClustersRecurring() async {
+        let refiner = PulseRefiner(writer: writer)
+        let date = makeDate("2026-04-28T10:00:00")
+        let metadata = [
+            makeMetadata(projectID: "project-a", timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"]),
+            makeMetadata(projectID: "project-b", timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"]),
+        ]
+        let previousClusters = [
+            ViolationCluster(
+                ruleId: "safetyauditor.test-rule",
+                occurrenceCount: 5,
+                affectedProjectCount: 2,
+                dominantRootCause: nil,
+                dominantFailedStep: nil,
+                isRecurring: true,
+                consecutiveAppearances: 5
+            )
+        ]
+        let clusters = await refiner.detectClusters(
+            from: metadata, calibrations: [], previousClusters: previousClusters
+        )
+        let cluster = clusters.first { $0.ruleId == "safetyauditor.test-rule" }
+        #expect(cluster?.consecutiveAppearances == 6)
+        #expect(cluster?.isRecurring == true)
+    }
+
+    @Test("detectClusters: not recurring with only 1 prior appearance (consecutiveAppearances=2)")
+    func detectClustersNotRecurringAfterOnePrior() async {
+        let refiner = PulseRefiner(writer: writer)
+        let date = makeDate("2026-04-28T10:00:00")
+        let metadata = (0..<2).map { _ in
+            makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"])
+        }
+        let previousClusters = [
+            ViolationCluster(
+                ruleId: "safetyauditor.test-rule",
+                occurrenceCount: 5,
+                affectedProjectCount: 1,
+                dominantRootCause: nil,
+                dominantFailedStep: nil,
+                isRecurring: false,
+                consecutiveAppearances: 1
+            )
+        ]
+        let clusters = await refiner.detectClusters(
+            from: metadata, calibrations: [], previousClusters: previousClusters
+        )
+        let cluster = clusters.first { $0.ruleId == "safetyauditor.test-rule" }
+        #expect(cluster?.consecutiveAppearances == 2)
+        #expect(cluster?.isRecurring == false)
+    }
+
+    @Test("detectClusters: recurring after 3 consecutive appearances across 2+ projects")
+    func detectClustersRecurringAfterThree() async {
+        let refiner = PulseRefiner(writer: writer)
+        let date = makeDate("2026-04-28T10:00:00")
+        let metadata = [
+            makeMetadata(projectID: "project-a", timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"]),
+            makeMetadata(projectID: "project-b", timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"]),
+        ]
+        let previousClusters = [
+            ViolationCluster(
+                ruleId: "safetyauditor.test-rule",
+                occurrenceCount: 5,
+                affectedProjectCount: 2,
+                dominantRootCause: nil,
+                dominantFailedStep: nil,
+                isRecurring: false,
+                consecutiveAppearances: 2
+            )
+        ]
+        let clusters = await refiner.detectClusters(
+            from: metadata, calibrations: [], previousClusters: previousClusters
+        )
+        let cluster = clusters.first { $0.ruleId == "safetyauditor.test-rule" }
+        #expect(cluster?.consecutiveAppearances == 3)
+        #expect(cluster?.isRecurring == true)
+    }
+
+    @Test("detectClusters: not recurring when only 1 project affected despite 3+ appearances")
+    func detectClustersNotRecurringSingleProject() async {
+        let refiner = PulseRefiner(writer: writer)
+        let date = makeDate("2026-04-28T10:00:00")
+        let metadata = (0..<2).map { _ in
+            makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"])
+        }
+        let previousClusters = [
+            ViolationCluster(
+                ruleId: "safetyauditor.test-rule",
+                occurrenceCount: 5,
+                affectedProjectCount: 1,
+                dominantRootCause: nil,
+                dominantFailedStep: nil,
+                isRecurring: false,
+                consecutiveAppearances: 4
+            )
+        ]
+        let clusters = await refiner.detectClusters(
+            from: metadata, calibrations: [], previousClusters: previousClusters
+        )
+        let cluster = clusters.first { $0.ruleId == "safetyauditor.test-rule" }
+        #expect(cluster?.consecutiveAppearances == 5)
+        #expect(cluster?.isRecurring == false)
+    }
+
+    @Test("detectClusters: new cluster starts at consecutiveAppearances=1")
+    func detectClustersNewClusterStartsAtOne() async {
+        let refiner = PulseRefiner(writer: writer)
+        let date = makeDate("2026-04-28T10:00:00")
+        let metadata = (0..<3).map { _ in
+            makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["ConcurrencyAuditor"])
+        }
+        let clusters = await refiner.detectClusters(
+            from: metadata, calibrations: [], previousClusters: []
+        )
+        let cluster = clusters.first { $0.ruleId == "concurrencyauditor.test-rule" }
+        #expect(cluster?.consecutiveAppearances == 1)
+        #expect(cluster?.isRecurring == false)
+    }
+
+    @Test("detectClusters: prior cluster without consecutiveAppearances defaults to 1")
+    func detectClustersLegacyPriorDefaults() async {
         let refiner = PulseRefiner(writer: writer)
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<2).map { _ in
@@ -288,7 +409,8 @@ struct PulseRefinerTests {
             from: metadata, calibrations: [], previousClusters: previousClusters
         )
         let cluster = clusters.first { $0.ruleId == "safetyauditor.test-rule" }
-        #expect(cluster?.isRecurring == true)
+        #expect(cluster?.consecutiveAppearances == 2)
+        #expect(cluster?.isRecurring == false)
     }
 
     // MARK: - Dominant root cause

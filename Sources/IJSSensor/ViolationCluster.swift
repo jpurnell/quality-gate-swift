@@ -17,7 +17,10 @@ public struct ViolationCluster: Sendable, Codable, Equatable {
     /// The most common failed 5-Step stage from calibrations referencing this rule.
     public let dominantFailedStep: FiveStepStage?
     /// Whether this cluster appeared in the previous Pulse (recurring vs. new).
+    /// Requires at least 3 consecutive pulse appearances to become true.
     public let isRecurring: Bool
+    /// How many consecutive pulses this cluster has appeared in.
+    public let consecutiveAppearances: Int?
     /// Occurrence count from the prior pulse.
     public let priorOccurrenceCount: Int?
     /// Affected project count from the prior pulse.
@@ -39,6 +42,7 @@ public struct ViolationCluster: Sendable, Codable, Equatable {
         dominantRootCause: String?,
         dominantFailedStep: FiveStepStage?,
         isRecurring: Bool,
+        consecutiveAppearances: Int? = nil,
         priorOccurrenceCount: Int? = nil,
         priorProjectCount: Int? = nil,
         currentOccurrenceCount: Int? = nil,
@@ -52,6 +56,7 @@ public struct ViolationCluster: Sendable, Codable, Equatable {
         self.dominantRootCause = dominantRootCause
         self.dominantFailedStep = dominantFailedStep
         self.isRecurring = isRecurring
+        self.consecutiveAppearances = consecutiveAppearances
         self.priorOccurrenceCount = priorOccurrenceCount
         self.priorProjectCount = priorProjectCount
         self.currentOccurrenceCount = currentOccurrenceCount
@@ -63,6 +68,7 @@ public struct ViolationCluster: Sendable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case ruleId, occurrenceCount, affectedProjectCount
         case dominantRootCause, dominantFailedStep, isRecurring
+        case consecutiveAppearances
         case priorOccurrenceCount, priorProjectCount
         case currentOccurrenceCount, currentProjectCount
         case affectedProjects, currentAffectedProjects
@@ -77,6 +83,7 @@ public struct ViolationCluster: Sendable, Codable, Equatable {
         dominantRootCause = try container.decodeIfPresent(String.self, forKey: .dominantRootCause)
         dominantFailedStep = try container.decodeIfPresent(FiveStepStage.self, forKey: .dominantFailedStep)
         isRecurring = try container.decode(Bool.self, forKey: .isRecurring)
+        consecutiveAppearances = try container.decodeIfPresent(Int.self, forKey: .consecutiveAppearances)
         priorOccurrenceCount = try container.decodeIfPresent(Int.self, forKey: .priorOccurrenceCount)
         priorProjectCount = try container.decodeIfPresent(Int.self, forKey: .priorProjectCount)
         currentOccurrenceCount = try container.decodeIfPresent(Int.self, forKey: .currentOccurrenceCount)

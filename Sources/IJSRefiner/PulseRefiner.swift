@@ -11,6 +11,8 @@ import os
 public actor PulseRefiner {
 
     static let logger = Logger(subsystem: "com.quality-gate", category: "PulseRefiner")
+    static let minimumConsecutiveAppearances = 3
+    static let minimumAffectedProjectsForRecurring = 2
     private let writer: TelemetryWriter
 
     /// Creates a new pulse refiner.
@@ -375,7 +377,9 @@ public actor PulseRefiner {
             }
         }
 
-        let previousRuleIds = Set(previousClusters.map(\.ruleId))
+        let previousByRule = Dictionary(
+            uniqueKeysWithValues: previousClusters.map { ($0.ruleId, $0) }
+        )
 
         var rootCauseCounts: [String: Int] = [:]
         var failedStepCounts: [FiveStepStage: Int] = [:]
@@ -394,13 +398,17 @@ public actor PulseRefiner {
         return ruleOccurrences
             .filter { $0.value >= 2 }
             .map { (ruleId, count) in
-                ViolationCluster(
+                let prior = previousByRule[ruleId]
+                let appearances = prior.map { ($0.consecutiveAppearances ?? 1) + 1 } ?? 1
+                return ViolationCluster(
                     ruleId: ruleId,
                     occurrenceCount: count,
                     affectedProjectCount: ruleProjects[ruleId]?.count ?? 0,
                     dominantRootCause: dominantRootCause,
                     dominantFailedStep: dominantFailedStep,
-                    isRecurring: previousRuleIds.contains(ruleId)
+                    isRecurring: appearances >= Self.minimumConsecutiveAppearances
+                        && (ruleProjects[ruleId]?.count ?? 0) >= Self.minimumAffectedProjectsForRecurring,
+                    consecutiveAppearances: appearances
                 )
             }
             .sorted { $0.occurrenceCount > $1.occurrenceCount }
