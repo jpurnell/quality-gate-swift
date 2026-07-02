@@ -773,3 +773,84 @@ struct PrivacyInFallbackTests {
         #expect(result.diagnostics.contains { $0.ruleId == ruleId })
     }
 }
+
+// MARK: - Rule 8: unguarded-os-import
+
+@Suite("LoggingAuditor: unguarded-os-import")
+struct UnguardedOSImportTests {
+    private let ruleId = "logging.unguarded-os-import"
+
+    @Test("Flags bare import os without #if canImport guard")
+    func flagsBareImportOS() async throws {
+        let code = """
+        import Foundation
+        import os
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Flags bare import OSLog without #if canImport guard")
+    func flagsBareImportOSLog() async throws {
+        let code = """
+        import Foundation
+        import OSLog
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag import os inside #if canImport(os)")
+    func allowsGuardedImportOS() async throws {
+        let code = """
+        import Foundation
+        #if canImport(os)
+        import os
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag import os inside #if canImport(OSLog)")
+    func allowsGuardedImportOSLog() async throws {
+        let code = """
+        import Foundation
+        #if canImport(OSLog)
+        import os
+        #endif
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Does not flag import Foundation (non-os import)")
+    func ignoresNonOSImports() async throws {
+        let code = """
+        import Foundation
+        import SwiftUI
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Flags import os.log without guard")
+    func flagsBareImportOsLog() async throws {
+        let code = """
+        import Foundation
+        import os.log
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Diagnostic has error severity")
+    func errorSeverity() async throws {
+        let code = """
+        import os
+        """
+        let result = try await TestHelpers.audit(code)
+        let diag = result.diagnostics.first { $0.ruleId == ruleId }
+        #expect(diag?.severity == .error)
+    }
+}

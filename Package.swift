@@ -199,7 +199,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
-            ]
+            ],
+            exclude: ["QualityGateCore.docc"]
         ),
         .testTarget(
             name: "QualityGateCoreTests",
@@ -213,7 +214,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["SafetyAuditor.docc"]
         ),
         .testTarget(
             name: "SafetyAuditorTests",
@@ -222,7 +224,8 @@ let package = Package(
 
         .target(
             name: "BuildChecker",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["BuildChecker.docc"]
         ),
         .testTarget(
             name: "BuildCheckerTests",
@@ -231,7 +234,8 @@ let package = Package(
 
         .target(
             name: "TestRunner",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["TestRunner.docc"]
         ),
         .testTarget(
             name: "TestRunnerTests",
@@ -240,7 +244,8 @@ let package = Package(
 
         .target(
             name: "DocLinter",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["DocLinter.docc"]
         ),
         .testTarget(
             name: "DocLinterTests",
@@ -254,7 +259,8 @@ let package = Package(
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["DocCoverageChecker.docc"]
         ),
         .testTarget(
             name: "DocCoverageCheckerTests",
@@ -263,7 +269,8 @@ let package = Package(
 
         .target(
             name: "DiskCleaner",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["DiskCleaner.docc"]
         ),
         .testTarget(
             name: "DiskCleanerTests",
@@ -278,7 +285,8 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
-            ]
+            ],
+            exclude: ["UnreachableCodeAuditor.docc"]
         ),
         .testTarget(
             name: "UnreachableCodeAuditorTests",
@@ -293,7 +301,8 @@ let package = Package(
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["RecursionAuditor.docc"]
         ),
         .testTarget(
             name: "RecursionAuditorTests",
@@ -307,7 +316,8 @@ let package = Package(
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["ConcurrencyAuditor.docc"]
         ),
         .testTarget(
             name: "ConcurrencyAuditorTests",
@@ -320,7 +330,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["PointerEscapeAuditor.docc"]
         ),
         .testTarget(
             name: "PointerEscapeAuditorTests",
@@ -332,7 +343,8 @@ let package = Package(
             dependencies: [
                 "QualityGateCore",
                 .product(name: "Yams", package: "Yams"),
-            ]
+            ],
+            exclude: ["MemoryBuilder.docc"]
         ),
         .testTarget(
             name: "MemoryBuilderTests",
@@ -346,7 +358,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["ACCESSIBILITY_MATRIX.md"]
+            exclude: ["ACCESSIBILITY_MATRIX.md", "AccessibilityAuditor.docc"]
         ),
         .testTarget(
             name: "AccessibilityAuditorTests",
@@ -355,7 +367,8 @@ let package = Package(
 
         .target(
             name: "StatusAuditor",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["StatusAuditor.docc"]
         ),
         .testTarget(
             name: "StatusAuditorTests",
@@ -364,7 +377,8 @@ let package = Package(
 
         .target(
             name: "SwiftVersionChecker",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["SwiftVersionChecker.docc"]
         ),
         .testTarget(
             name: "SwiftVersionCheckerTests",
@@ -377,7 +391,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["LoggingAuditor.docc"]
         ),
         .testTarget(
             name: "LoggingAuditorTests",
@@ -390,7 +405,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["TestQualityAuditor.docc"]
         ),
         .testTarget(
             name: "TestQualityAuditorTests",
@@ -403,7 +419,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["ContextAuditor.docc"]
         ),
         .testTarget(
             name: "ContextAuditorTests",
@@ -416,7 +433,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["DependencyAuditor.docc"]
         ),
         .testTarget(
             name: "DependencyAuditorTests",
@@ -434,7 +452,8 @@ let package = Package(
 
         .target(
             name: "ReleaseReadinessAuditor",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            exclude: ["ReleaseReadinessAuditor.docc"]
         ),
         .testTarget(
             name: "ReleaseReadinessAuditorTests",
@@ -447,7 +466,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["FloatingPointSafetyAuditor.docc"]
         ),
         .testTarget(
             name: "FloatingPointSafetyAuditorTests",
@@ -460,7 +480,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["MCPReadinessAuditor.docc"]
         ),
         .testTarget(
             name: "MCPReadinessAuditorTests",
@@ -473,7 +494,8 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["StochasticDeterminismAuditor.docc"]
         ),
         .testTarget(
             name: "StochasticDeterminismAuditorTests",
@@ -487,7 +509,8 @@ let package = Package(
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["MemoryLifecycleGuard.docc"]
         ),
         .testTarget(
             name: "MemoryLifecycleGuardTests",
@@ -546,7 +569,8 @@ let package = Package(
             dependencies: [
                 "QualityGateCore",
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
-            ]
+            ],
+            exclude: ["IndexStoreInfra.docc"]
         ),
         .testTarget(
             name: "IndexStoreInfraTests",
@@ -561,7 +585,8 @@ let package = Package(
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["AppIntentsAuditor.docc"]
         ),
         .testTarget(
             name: "AppIntentsAuditorTests",
@@ -733,7 +758,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["README.md"]
+            exclude: ["README.md", "QualityGateCLI.docc"]
         ),
 
         // MARK: - IJS MCP Server
