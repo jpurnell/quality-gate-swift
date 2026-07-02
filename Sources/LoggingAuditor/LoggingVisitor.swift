@@ -12,6 +12,7 @@ import SwiftSyntax
 /// - `logging.bare-logger-init`: `Logger()` with no subsystem/category (note)
 /// - `logging.catch-without-logging`: `catch` block with no logger call and no `throw` (warning)
 /// - `logging.privacy-in-fallback`: `privacy:` annotation inside non-Apple `#else` block (error)
+/// - `logging.unguarded-os-import`: `import os`/`import OSLog` outside `#if canImport(os)` guard (error)
 final class LoggingVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
@@ -26,6 +27,7 @@ final class LoggingVisitor: SyntaxVisitor {
     private var hasOSImport = false
     private var hasPrintOrNSLog = false
     private var nonApplePlatformDepth = 0
+    private var applePlatformDepth = 0
 
     init(
         fileName: String,
@@ -76,9 +78,11 @@ final class LoggingVisitor: SyntaxVisitor {
         for clause in clauses {
             let isAppleBranch = clause.condition.map { isApplePlatformCondition($0) } ?? false
             if isAppleBranch {
+                applePlatformDepth += 1
                 if let elements = clause.elements {
                     walk(elements)
                 }
+                applePlatformDepth -= 1
             } else {
                 nonApplePlatformDepth += 1
                 if let elements = clause.elements {
@@ -97,10 +101,22 @@ final class LoggingVisitor: SyntaxVisitor {
     // MARK: - Import tracking
 
     override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Check if importing `os` or `os.log`
         let pathText = node.path.map { $0.name.text }
         if let first = pathText.first, first == "os" || first == "OSLog" {
             hasOSImport = true
+
+            // Rule 8: flag os/OSLog imports outside #if canImport(os) guard
+            if applePlatformDepth == 0 {
+                let line = startLine(of: Syntax(node))
+                diagnostics.append(Diagnostic(
+                    severity: .error,
+                    message: "`import \(first)` is Apple-only; wrap in #if canImport(os) for cross-platform builds",
+                    filePath: fileName,
+                    lineNumber: line,
+                    ruleId: "logging.unguarded-os-import",
+                    suggestedFix: "Wrap in #if canImport(os) ... #endif"
+                ))
+            }
         }
         return .visitChildren
     }
