@@ -29,6 +29,8 @@ final class ViewModifierVisitor: SyntaxVisitor {
 
     private var listDepth = 0
     private var listHasContextMenu = false
+    private var listHasForEach = false
+    private var listHasDataArgument = false
     private var listItemLine: Int = 0
 
     /// Hardcoded color names that should use semantic alternatives.
@@ -70,6 +72,9 @@ final class ViewModifierVisitor: SyntaxVisitor {
         }
         if listDepth > 0 {
             checkListModifiers(node)
+            if calledName == "ForEach" {
+                listHasForEach = true
+            }
         }
 
         checkSemanticColors(node)
@@ -186,6 +191,11 @@ final class ViewModifierVisitor: SyntaxVisitor {
     private func enterListContext(_ node: FunctionCallExprSyntax) {
         listDepth += 1
         listHasContextMenu = false
+        listHasForEach = false
+        // A data-driven `List(collection) { ... }` produces rows directly; detect it
+        // via an unlabeled leading argument (the collection). `List { ... }` with only
+        // static content or references to extracted @ViewBuilder sections has none.
+        listHasDataArgument = node.arguments.first.map { $0.label == nil } ?? false
         let location = node.startLocation(converter: converter)
         listItemLine = location.line
     }
@@ -200,7 +210,14 @@ final class ViewModifierVisitor: SyntaxVisitor {
     private func exitListContext() {
         guard listDepth > 0 else { return }
 
-        if !activePlatforms.isDisjoint(with: HIGRules.contextMenus.platforms) && !listHasContextMenu {
+        // Only flag Lists that actually produce rows — either data-driven
+        // (`List(items) { ... }`) or containing a direct `ForEach`. A `List { ... }`
+        // whose content is static or delegated to extracted @ViewBuilder sections
+        // has no items the visitor can inspect, so flagging it is a false positive.
+        let listProducesItems = listHasDataArgument || listHasForEach
+
+        if listProducesItems,
+           !activePlatforms.isDisjoint(with: HIGRules.contextMenus.platforms) && !listHasContextMenu {
             if checkExemption(near: listItemLine, ruleId: HIGRules.contextMenus.id) == nil {
                 diagnostics.append(Diagnostic(
                     severity: .note,

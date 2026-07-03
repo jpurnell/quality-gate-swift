@@ -413,6 +413,72 @@ struct HIGAuditorTests {
         #expect(ctxDiag.isEmpty, "Should not flag List with .contextMenu")
     }
 
+    @Test("Does not flag List whose rows are extracted into @ViewBuilder sections with context menus")
+    func listWithExtractedSectionContextMenus() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View {
+                List {
+                    headerSection
+                    rowsSection
+                }
+            }
+            @ViewBuilder private var headerSection: some View {
+                Section { Text("Header") }
+            }
+            @ViewBuilder private var rowsSection: some View {
+                Section {
+                    ForEach(items) { item in
+                        Text(item.name)
+                            .contextMenu { Button("Delete") { } }
+                    }
+                }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
+        let ctxDiag = result.diagnostics.filter { $0.ruleId == "hig.context-menus" }
+        #expect(ctxDiag.isEmpty, "List delegating rows to @ViewBuilder sections should not be flagged")
+    }
+
+    @Test("Does not flag List with only static rows")
+    func listWithStaticRowsNotFlagged() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View {
+                List {
+                    Text("One")
+                    Text("Two")
+                }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
+        let ctxDiag = result.diagnostics.filter { $0.ruleId == "hig.context-menus" }
+        #expect(ctxDiag.isEmpty, "Static List with no data-driven items should not be flagged")
+    }
+
+    @Test("Flags List containing ForEach without .contextMenu")
+    func listWithForEachWithoutContextMenu() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View {
+                List {
+                    ForEach(items) { item in
+                        Text(item.name)
+                    }
+                }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
+        let ctxDiag = result.diagnostics.filter { $0.ruleId == "hig.context-menus" }
+        #expect(!ctxDiag.isEmpty, "List with a ForEach lacking context menu should be flagged")
+    }
+
     // MARK: - Non-SwiftUI files skipped
 
     @Test("Skips files without import SwiftUI")

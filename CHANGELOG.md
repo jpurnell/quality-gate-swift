@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.1
+
+- HIGAuditor context-menus rule: no longer false-positives on `List { ... }` views whose rows are delegated to extracted `@ViewBuilder` computed properties (a common SwiftUI pattern the AST visitor could not follow into) or on static Lists with no repeating items. The rule now fires only on Lists that actually produce rows — data-driven (`List(items) { ... }`) or containing a direct `ForEach` — matching its documented "List/ForEach items" intent. Genuine inline misses are still flagged.
+
 ## 2.0.0
 
 - ComplexityAnalyzer Pass 2: cross-module cognitive complexity amplification via IndexStoreDB call graph resolution, 3x loop multiplier, cycle-safe visited set
