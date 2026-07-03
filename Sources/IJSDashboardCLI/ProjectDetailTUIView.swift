@@ -17,15 +17,14 @@ public enum ProjectDetailTUIView: Sendable {
         pulse: InstitutionalPulse? = nil,
         manifest: CorpusManifest = CorpusManifest()
     ) -> String {
-        let box = BoxDrawing.unicode
         var buf = ScreenBuffer(width: width)
 
         let titleHeader = " \(project.projectID) "
-        buf.appendLine(box.topBorder(titleHeader, width: width))
+        buf.appendLine(DashboardChrome.titleRule(titleHeader, width: width))
         buf.appendLine(boxRow("", width: width))
 
         renderTabBar(into: &buf, selectedTab: state.selectedTab, width: width)
-        buf.appendLine(box.midBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
 
         switch state.selectedTab {
         case .overview:
@@ -38,7 +37,7 @@ public enum ProjectDetailTUIView: Sendable {
             renderStatus(into: &buf, project: project, state: state, width: width, pulse: pulse, manifest: manifest)
         }
 
-        buf.appendLine(box.bottomBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
 
         let helpLine = ANSICodes.dim + "  Tab/Shift-Tab Switch tabs  Esc Back  q Quit" + ANSICodes.reset
         buf.appendLine(helpLine)
@@ -222,8 +221,7 @@ public enum ProjectDetailTUIView: Sendable {
 
         buf.appendLine(boxRow("", width: width))
 
-        let box = BoxDrawing.unicode
-        buf.appendLine(box.midBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
         buf.appendLine(boxRow("  Override Tier:", width: width))
         buf.appendLine(boxRow("", width: width))
 
@@ -255,13 +253,7 @@ public enum ProjectDetailTUIView: Sendable {
     // MARK: - Helpers
 
     private static func boxRow(_ content: String, width: Int) -> String {
-        let box = BoxDrawing.unicode
-        let visLen = ANSIStringMetrics.visibleLength(content)
-        let innerWidth = width - 2
-        let padding = max(0, innerWidth - visLen)
-        return box.vertical + content
-            + String(repeating: " ", count: padding)
-            + box.vertical
+        DashboardChrome.contentRow(content, width: width)
     }
 
     private static func formatPercent(_ value: Double) -> String {

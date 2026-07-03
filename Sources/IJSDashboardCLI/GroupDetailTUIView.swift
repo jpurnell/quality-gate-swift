@@ -15,10 +15,9 @@ public enum GroupDetailTUIView: Sendable {
         state: DashboardState,
         width: Int
     ) -> String {
-        let box = BoxDrawing.unicode
         var buf = ScreenBuffer(width: width)
 
-        buf.appendLine(box.topBorder(" \(groupID) ", width: width))
+        buf.appendLine(DashboardChrome.titleRule(" \(groupID) ", width: width))
         buf.appendLine(boxRow("", width: width))
 
         let memberCount = memberProjects.count
@@ -39,11 +38,11 @@ public enum GroupDetailTUIView: Sendable {
         buf.appendLine(boxRow("", width: width))
 
         // Member table
-        buf.appendLine(box.midBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
         let nameWidth = min(max(width - 30, 16), 30)
         let header = "  " + "Project".padding(toLength: nameWidth, withPad: " ", startingAt: 0) + "Status  Pass Rate"
         buf.appendLine(boxRow(header, width: width))
-        buf.appendLine(box.midBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
 
         let sorted = memberProjects.sorted { $0.projectID < $1.projectID }
         for (idx, project) in sorted.enumerated() {
@@ -65,7 +64,7 @@ public enum GroupDetailTUIView: Sendable {
         buf.appendLine(boxRow("", width: width))
 
         // Group trend
-        buf.appendLine(box.midBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
         if let snapshots = groupSnapshots, !snapshots.isEmpty {
             let sorted = snapshots.sorted { $0.date < $1.date }
             let values = sorted.map(\.passRate)
@@ -83,7 +82,7 @@ public enum GroupDetailTUIView: Sendable {
         }
         buf.appendLine(boxRow("", width: width))
 
-        buf.appendLine(box.bottomBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
 
         let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  Enter Select  Esc Back  q Quit" + ANSICodes.reset
         buf.appendLine(helpLine)
@@ -92,13 +91,7 @@ public enum GroupDetailTUIView: Sendable {
     }
 
     private static func boxRow(_ content: String, width: Int) -> String {
-        let box = BoxDrawing.unicode
-        let visLen = ANSIStringMetrics.visibleLength(content)
-        let innerWidth = width - 2
-        let padding = max(0, innerWidth - visLen)
-        return box.vertical + content
-            + String(repeating: " ", count: padding)
-            + box.vertical
+        DashboardChrome.contentRow(content, width: width)
     }
 
     private static func formatPercent(_ value: Double) -> String {

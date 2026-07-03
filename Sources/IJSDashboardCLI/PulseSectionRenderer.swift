@@ -372,21 +372,7 @@ public enum PulseSectionRenderer: Sendable {
     // MARK: - Private
 
     private static func boxRow(_ content: String, width: Int) -> String {
-        let box = BoxDrawing.unicode
-        let visLen = ANSIStringMetrics.visibleLength(content)
-        let innerWidth = width - 2
-        if visLen >= innerWidth {
-            let truncated = ANSIStringMetrics.truncateVisible(content, to: innerWidth - 1)
-            let truncLen = ANSIStringMetrics.visibleLength(truncated)
-            let pad = max(0, innerWidth - truncLen)
-            return box.vertical + truncated
-                + String(repeating: " ", count: pad)
-                + box.vertical
-        }
-        let padding = innerWidth - visLen
-        return box.vertical + content
-            + String(repeating: " ", count: padding)
-            + box.vertical
+        DashboardChrome.contentRow(content, width: width)
     }
 
     private static func wrapText(_ text: String, to maxWidth: Int) -> [String] {

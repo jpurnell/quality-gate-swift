@@ -18,13 +18,12 @@ public enum PortfolioTUIView: Sendable {
         width: Int,
         pulse: InstitutionalPulse? = nil
     ) -> String {
-        let box = BoxDrawing.unicode
         var buf = ScreenBuffer(width: width)
 
         let active = projects.filter { $0.lifecycle == .active }
         let sunset = projects.filter { $0.lifecycle == .sunset }
 
-        buf.appendLine(box.topBorder(" IJS Portfolio Dashboard ", width: width))
+        buf.appendLine(DashboardChrome.titleRule(" IJS Portfolio Dashboard ", width: width))
         buf.appendLine(boxRow("", width: width))
 
         var statusParts = ["\(portfolio.totalProjects) active", "\(portfolio.passingProjects) passing", "\(portfolio.failingProjects) failing"]
@@ -70,7 +69,7 @@ public enum PortfolioTUIView: Sendable {
             let header = "  " + nameLabel.padding(toLength: nameWidth + 2, withPad: " ", startingAt: 0)
                 + "\(statusLabel)  \(healthLabel) \(runsLabel) Anomaly"
             buf.appendLine(boxRow(header, width: width))
-            buf.appendLine(box.midBorder(width: width))
+            buf.appendLine(DashboardChrome.sectionRule(width: width))
 
             let activeMap = Dictionary(uniqueKeysWithValues: active.map { ($0.projectID, $0) })
 
@@ -131,7 +130,7 @@ public enum PortfolioTUIView: Sendable {
         }
 
         if !portfolio.worstCheckers.isEmpty {
-            buf.appendLine(box.midBorder(width: width))
+            buf.appendLine(DashboardChrome.sectionRule(width: width))
             buf.appendLine(boxRow("  Worst Checkers:", width: width))
             for checker in portfolio.worstCheckers.prefix(5) {
                 buf.appendLine(boxRow("    - \(checker)", width: width))
@@ -140,7 +139,7 @@ public enum PortfolioTUIView: Sendable {
         }
 
         if !sunset.isEmpty {
-            buf.appendLine(box.midBorder(width: width))
+            buf.appendLine(DashboardChrome.sectionRule(width: width))
             let dimOn = ANSICodes.dim
             let dimOff = ANSICodes.reset
             buf.appendLine(boxRow("  \(dimOn)Sunset Projects (\(sunset.count)):\(dimOff)", width: width))
@@ -155,7 +154,7 @@ public enum PortfolioTUIView: Sendable {
         }
 
         if let pulse {
-            buf.appendLine(box.midBorder(width: width))
+            buf.appendLine(DashboardChrome.sectionRule(width: width))
             let stats = pulse.statistics
             for line in PulseSectionRenderer.renderCorpusTrend(stats.corpusSnapshots, width: width) {
                 buf.appendLine(line)
@@ -183,7 +182,7 @@ public enum PortfolioTUIView: Sendable {
             }
         }
 
-        buf.appendLine(box.bottomBorder(width: width))
+        buf.appendLine(DashboardChrome.sectionRule(width: width))
 
         let helpLine = ANSICodes.dim + "  \u{2191}\u{2193} Navigate  \u{2190}\u{2192} Expand/Pulse  Enter Select  Scroll/PgUp/PgDn Viewport  s Sort  q Quit" + ANSICodes.reset
         buf.appendLine(helpLine)
@@ -192,13 +191,7 @@ public enum PortfolioTUIView: Sendable {
     }
 
     private static func boxRow(_ content: String, width: Int) -> String {
-        let box = BoxDrawing.unicode
-        let visLen = ANSIStringMetrics.visibleLength(content)
-        let innerWidth = width - 2
-        let padding = max(0, innerWidth - visLen)
-        return box.vertical + content
-            + String(repeating: " ", count: padding)
-            + box.vertical
+        DashboardChrome.contentRow(content, width: width)
     }
 
     private static func renderHealthTimeline(runs: [TimestampedRun]) -> String {
