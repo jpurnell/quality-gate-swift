@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 
 /// Locates and ensures freshness of compiler index stores for Swift projects.

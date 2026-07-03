@@ -2,7 +2,9 @@ import Foundation
 import IJSAggregator
 import IJSDashboardCore
 import IJSSensor
+#if canImport(os)
 import os
+#endif
 
 /// Renders dashboard summaries as formatted text or JSON.
 public enum DashboardRenderer: Sendable {

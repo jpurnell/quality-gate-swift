@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 
 /// Cleans up build artifacts and optimizes git repository.

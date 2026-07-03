@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Actual state of a module from the file system.
 public struct ActualModuleState: Sendable, Equatable {

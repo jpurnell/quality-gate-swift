@@ -1,6 +1,8 @@
 import Foundation
 import IJSSensor
+#if canImport(os)
 import os
+#endif
 import Yams
 
 /// Configuration for IJS telemetry aggregation.

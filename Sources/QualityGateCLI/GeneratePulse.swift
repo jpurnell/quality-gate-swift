@@ -1,6 +1,8 @@
 import ArgumentParser
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 import IJSSensor
 import IJSAggregator

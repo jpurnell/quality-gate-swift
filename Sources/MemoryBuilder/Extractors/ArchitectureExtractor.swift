@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Extracts module architecture from Package.swift dependency graph.
 public struct ArchitectureExtractor: MemoryExtractor, Sendable {

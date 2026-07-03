@@ -3,6 +3,8 @@
 ## 2.0.1
 
 - HIGAuditor context-menus rule: no longer false-positives on `List { ... }` views whose rows are delegated to extracted `@ViewBuilder` computed properties (a common SwiftUI pattern the AST visitor could not follow into) or on static Lists with no repeating items. The rule now fires only on Lists that actually produce rows — data-driven (`List(items) { ... }`) or containing a direct `ForEach` — matching its documented "List/ForEach items" intent. Genuine inline misses are still flagged.
+- Checker selection: `disk-clean` (a destructive maintenance task that deletes `.build/` and runs `git gc`) is now opt-in — excluded from `--check all` unless explicitly named (`--check all --check disk-clean` or `--check disk-clean`). Previously `--check all` silently wiped the build cache and index store mid-gate, which made consecutive runs non-reproducible and spuriously errored index-store-dependent checkers. Selection logic extracted to `CheckerSelection` (QualityGateCore) with unit tests.
+- Self-compliance: brought the tool's own source into compliance with the logging Rule 8 (`logging.unguarded-os-import`) added in 2.0.0 by wrapping every `import os` in `#if canImport(os) ... #endif` (62 files). The package targets macOS only, so this is a no-op at build time; it keeps the tool honest against its own checker. Also refreshed MASTER_PLAN test counts / auditor inventory to clear `status` drift.
 
 ## 2.0.0
 

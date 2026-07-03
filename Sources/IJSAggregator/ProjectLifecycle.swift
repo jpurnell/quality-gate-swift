@@ -1,6 +1,8 @@
 import Foundation
 import IJSSensor
+#if canImport(os)
 import os
+#endif
 import Yams
 
 /// The lifecycle state of a project within the corpus.

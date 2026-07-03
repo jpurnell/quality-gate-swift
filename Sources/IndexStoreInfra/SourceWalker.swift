@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Recursively enumerates `.swift` files under a project root, skipping
 /// build outputs, dependency directories, and Xcode container packages.

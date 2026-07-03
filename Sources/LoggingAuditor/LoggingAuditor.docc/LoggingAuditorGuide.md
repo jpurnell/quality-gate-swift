@@ -32,7 +32,9 @@ func fetchUser() async throws -> User {
 
 ```swift
 // accepted
+#if canImport(os)
 import os
+#endif
 
 private let logger = Logger(subsystem: "com.app", category: "Network")
 
@@ -120,7 +122,9 @@ func start() {
 ```swift
 // accepted -- import os is present
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 func start() {
     print("Starting up")  // still flagged by print-statement rule,

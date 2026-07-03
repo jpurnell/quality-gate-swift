@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 
 /// Validates that project status documents match actual code state.

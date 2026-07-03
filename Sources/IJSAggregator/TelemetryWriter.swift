@@ -1,6 +1,8 @@
 import Foundation
 import IJSSensor
+#if canImport(os)
 import os
+#endif
 
 /// Writes and reads IJS telemetry artifacts as JSON files in the corpus.
 ///

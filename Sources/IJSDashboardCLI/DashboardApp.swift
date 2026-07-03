@@ -2,7 +2,9 @@ import Foundation
 import IJSAggregator
 import IJSDashboardCore
 import IJSSensor
+#if canImport(os)
 import os
+#endif
 import SwiftCLIKit
 import Synchronization
 

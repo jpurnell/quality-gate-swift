@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 
 /// Generates a complete Master Plan from actual project state.

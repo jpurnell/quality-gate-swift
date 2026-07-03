@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Extracts project profile from Package.swift.
 public struct ProjectProfileExtractor: MemoryExtractor, Sendable {

@@ -1,7 +1,9 @@
 import Foundation
 import IJSAggregator
 import IJSSensor
+#if canImport(os)
 import os
+#endif
 
 /// Reads quality gate telemetry from a corpus directory.
 ///

@@ -2,7 +2,9 @@ import Foundation
 import BusinessMath
 import IJSSensor
 import IJSAggregator
+#if canImport(os)
 import os
+#endif
 
 extension PulseRefiner {
     /// Computes per-project trajectories using OLS regression on weighted quality scores.

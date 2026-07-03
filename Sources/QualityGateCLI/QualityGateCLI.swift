@@ -1,7 +1,9 @@
 
 import ArgumentParser
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 import SafetyAuditor
 import BuildChecker
@@ -256,23 +258,15 @@ struct QualityGateCLI: AsyncParsableCommand {
             DiskCleaner()
         ]
 
-        // Determine effective checkers: --check all | --check X Y | config | defaults
-        let effectiveCheckers: [String]
-        if check.contains("all") {
-            let allIDs = allCheckers.map(\.id)
-            let excludeSet = Set(exclude)
-            effectiveCheckers = allIDs.filter { !excludeSet.contains($0) }
-        } else if !check.isEmpty {
-            effectiveCheckers = check
-        } else if !configuration.enabledCheckers.isEmpty {
-            effectiveCheckers = configuration.enabledCheckers
-        } else {
-            var optOutCheckers: Set<String> = ["disk-clean", "xcode-build"]
-            if full {
-                optOutCheckers.remove("xcode-build")
-            }
-            effectiveCheckers = allCheckers.map(\.id).filter { !optOutCheckers.contains($0) }
-        }
+        // Determine effective checkers: --check all | --check X Y | config | defaults.
+        // Destructive maintenance checkers (disk-clean) are opt-in even under "all".
+        let effectiveCheckers = CheckerSelection.resolve(
+            requested: check,
+            excluded: exclude,
+            configuredEnabled: configuration.enabledCheckers,
+            full: full,
+            allIDs: allCheckers.map(\.id)
+        )
 
         let checkersToRun = allCheckers.filter { checker in
             effectiveCheckers.contains(checker.id)

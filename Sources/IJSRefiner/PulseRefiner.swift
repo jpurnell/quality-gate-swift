@@ -2,7 +2,9 @@ import Foundation
 import BusinessMath
 import IJSSensor
 import IJSAggregator
+#if canImport(os)
 import os
+#endif
 
 /// Orchestrates Pulse generation from corpus telemetry with statistical analysis.
 ///

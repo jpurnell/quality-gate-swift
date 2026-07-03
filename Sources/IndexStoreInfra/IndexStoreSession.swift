@@ -1,6 +1,8 @@
 import Foundation
 import IndexStoreDB
+#if canImport(os)
 import os
+#endif
 
 // Justification: IndexStoreDB is immutable after init; all queries are read-only.
 extension IndexStoreDB: @retroactive @unchecked Sendable {}

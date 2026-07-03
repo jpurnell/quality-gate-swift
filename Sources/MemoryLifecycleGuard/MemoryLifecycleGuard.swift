@@ -1,6 +1,8 @@
 import Foundation
 import IndexStoreInfra
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser

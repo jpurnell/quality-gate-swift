@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// What kind of Swift project lives at a given root directory.
 ///

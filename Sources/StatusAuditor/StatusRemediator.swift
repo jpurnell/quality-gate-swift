@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(os)
 import os
+#endif
 import QualityGateCore
 
 /// Generates and applies surgical patches to Master Plan based on diagnostics.

@@ -1,6 +1,8 @@
 import ArgumentParser
 import Foundation
+#if canImport(os)
 import os
+#endif
 import IJSAggregator
 
 /// Generate or update a corpus manifest from telemetry project directories.
