@@ -93,11 +93,25 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Generate initial status documents from actual project state (use with --check status)")
     var bootstrap: Bool = false
 
+    @Flag(name: .long, help: "Disable the incremental result cache (re-run every checker from scratch)")
+    var noCache: Bool = false
+
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
 
     @Option(name: .customLong("telemetry-corpus-path"), help: "Override corpus path for telemetry (useful for CI)")
     var telemetryCorpusPath: String?
+
+    /// The active Swift toolchain version string, folded into the cache's gate identity so a
+    /// compiler change invalidates cached results. Returns "" on failure (still a stable key).
+    private static func toolchainVersion() -> String {
+        // SAFETY: subprocess with hardcoded `/usr/bin/env swift --version`
+        guard let result = try? ProcessRunner.run("/usr/bin/env", arguments: ["swift", "--version"]),
+              result.exitCode == 0 else {
+            return ""
+        }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     func run() async throws {
         if let skipRef = ProcessInfo.processInfo.environment["QG_SKIP"] {
@@ -295,6 +309,16 @@ struct QualityGateCLI: AsyncParsableCommand {
             print("Running \(checkersToRun.count) checkers concurrently...")
         }
 
+        // Incremental result cache: checkers that opt in via `cacheInputs` skip re-running when
+        // their inputs are byte-identical to a prior run. The gate identity (binary + toolchain)
+        // is folded into every key, so a gate rebuild or compiler change invalidates all entries.
+        let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let gateHash = CheckerFingerprint.gateIdentityHash(
+            executablePath: CommandLine.arguments.first ?? "",
+            toolchainVersion: Self.toolchainVersion()
+        )
+        let resultCache = ResultCache.standard(projectRoot: projectRoot)
+
         // Run checkers concurrently (bounded by core count), preserving checker order.
         // Overrides are applied via `transform` so pass/fail — and the continueOnFailure
         // early-exit — match the previous sequential behavior exactly.
@@ -303,6 +327,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             configuration: configuration,
             strict: strict,
             continueOnFailure: continueOnFailure,
+            cache: resultCache,
+            gateHash: gateHash,
+            useCache: !noCache,
             transform: { overrideProcessor.apply(to: $0) },
             onError: { checkerID, error in
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")

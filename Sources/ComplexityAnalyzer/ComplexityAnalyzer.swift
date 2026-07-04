@@ -20,6 +20,17 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     /// Human-readable name shown in quality-gate output.
     public let name = "Complexity Analyzer"
 
+    /// Cross-module complexity analysis depends on the whole source tree (its call-graph
+    /// amplification spans every module), so the result is cacheable keyed by all Swift
+    /// sources + the manifests. Over-inclusive by design (a re-run on any change, never a
+    /// stale reuse).
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            excludePatterns: configuration.excludePatterns
+        )
+    }
+
     /// Creates a new complexity analyzer.
     public init() {}
 

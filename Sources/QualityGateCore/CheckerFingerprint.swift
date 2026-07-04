@@ -58,6 +58,28 @@ public enum CheckerFingerprint {
         return hexString(SHA256.hash(data: data))
     }
 
+    /// A stable identity hash for the running gate: the executable's size + modification time
+    /// plus the active toolchain version. Use as the `gateHash` argument so a gate rebuild
+    /// **or** a compiler change invalidates every cached result — a checker can never serve a
+    /// result produced by different analysis logic or a different toolchain.
+    ///
+    /// Size+mtime (rather than hashing the whole binary) keeps this instant: hashing a large
+    /// executable on every run is pure waste, and any rebuild/deploy changes the mtime.
+    public static func gateIdentityHash(executablePath: String, toolchainVersion: String) -> String {
+        var hasher = SHA256()
+        hasher.update(data: Data("qg-gate-identity-v2".utf8))
+        // SAFETY: CLI tool reads its own executable's file attributes
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: executablePath) {
+            let size = (attributes[.size] as? Int) ?? 0
+            let mtime = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            hasher.update(data: Data("\(size)-\(mtime)".utf8))
+        } else {
+            hasher.update(data: Data("<no-executable>".utf8))
+        }
+        hasher.update(data: Data(toolchainVersion.utf8))
+        return hexString(hasher.finalize())
+    }
+
     private static let hexDigits = Array("0123456789abcdef")
 
     private static func hexString<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
