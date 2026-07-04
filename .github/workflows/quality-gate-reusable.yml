@@ -101,7 +101,9 @@ jobs:
           key: quality-gate-swift62-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
       - name: Configure git auth for private dependencies
-        if: steps.qg-cache.outputs.cache-hit != 'true'
+        # Must run on every job (not only cache-miss): the project's own
+        # `swift build` in "Run quality gate" resolves private URL dependencies
+        # and needs the token rewrite even when the quality-gate binary is cached.
         env:
           GH_TOKEN: ${{ secrets.corpus-token }}
         run: |
