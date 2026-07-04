@@ -387,3 +387,246 @@ struct SourceTodoTests {
         #expect(diagnostics.count == 2)
     }
 }
+
+// MARK: - Version Normalization
+
+@Suite("ReleaseReadinessAuditor: normalizeVersion")
+struct NormalizeVersionTests {
+
+    @Test("Strips leading lowercase v")
+    func stripsLowercaseV() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("v1.2.0") == "1.2.0")
+    }
+
+    @Test("Strips leading uppercase V")
+    func stripsUppercaseV() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("V2.0.1") == "2.0.1")
+    }
+
+    @Test("Leaves bare semver untouched")
+    func leavesBareUntouched() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("1.2.0") == "1.2.0")
+    }
+
+    @Test("Trims surrounding whitespace")
+    func trimsWhitespace() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("  v1.0.0  ") == "1.0.0")
+    }
+}
+
+// MARK: - Latest Changelog Version Parsing
+
+@Suite("ReleaseReadinessAuditor: parseLatestChangelogVersion")
+struct ParseLatestChangelogVersionTests {
+
+    @Test("Extracts topmost released version from plain heading")
+    func topmostPlain() {
+        let content = """
+        # Changelog
+
+        ## 2.0.1
+
+        - latest
+
+        ## 2.0.0
+
+        - older
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content) == "2.0.1")
+    }
+
+    @Test("Extracts version from bracketed dated heading")
+    func bracketedDated() {
+        let content = """
+        # Changelog
+
+        ## [1.4.0] - 2026-06-07
+
+        - stuff
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content) == "1.4.0")
+    }
+
+    @Test("Skips an Unreleased heading and returns the next released version")
+    func skipsUnreleased() {
+        let content = """
+        # Changelog
+
+        ## [Unreleased]
+
+        - work in progress
+
+        ## 1.2.0
+
+        - released
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content) == "1.2.0")
+    }
+
+    @Test("Returns nil when only an Unreleased section exists")
+    func onlyUnreleased() {
+        let content = """
+        # Changelog
+
+        ## [Unreleased]
+
+        - nothing shipped yet
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content) == nil)
+    }
+
+    @Test("Strips a v prefix on the changelog heading")
+    func stripsVPrefix() {
+        let content = """
+        # Changelog
+
+        ## v3.1.0
+
+        - stuff
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content) == "3.1.0")
+    }
+}
+
+// MARK: - Version/Tag Parity (corrected invariant)
+
+@Suite("ReleaseReadinessAuditor: checkVersionTagParity")
+struct VersionTagParityTests {
+
+    @Test("No diagnostics when the documented version is tagged")
+    func documentedAndTagged() {
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: "1.2.0",
+            tags: ["v1.0.0", "v1.1.0", "v1.2.0"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Matches a tag regardless of v prefix on either side")
+    func matchesAcrossVPrefix() {
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: "2.0.1",
+            tags: ["2.0.1"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Errors when the documented version has no matching tag")
+    func documentedButUntagged() {
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: "2.0.1",
+            tags: ["v1.0.0"]
+        )
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.severity == .error)
+        #expect(diagnostics.first?.ruleId == "release-untagged-version")
+    }
+
+    @Test("No diagnostics when there is no released version to check")
+    func nilVersion() {
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: nil,
+            tags: ["v1.0.0"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("No diagnostics for a pre-first-release project (version documented, zero tags is only clean when version is nil)")
+    func documentedVersionWithNoTagsErrors() {
+        // A concrete released version with NO tags at all is still drift.
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: "0.1.0",
+            tags: []
+        )
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.severity == .error)
+        #expect(diagnostics.first?.ruleId == "release-untagged-version")
+    }
+}
+
+// MARK: - README Dependency Version Parsing
+
+@Suite("ReleaseReadinessAuditor: parseReadmeDependencyVersions")
+struct ParseReadmeDependencyVersionsTests {
+
+    @Test("Extracts a from: version")
+    func fromVersion() {
+        let content = #"""
+        Add to your Package.swift:
+
+        .package(url: "https://example.com/pkg", from: "2.0.0")
+        """#
+        let versions = ReleaseReadinessAuditor.parseReadmeDependencyVersions(content: content)
+        #expect(versions.contains("2.0.0"))
+    }
+
+    @Test("Extracts an exact version")
+    func exactVersion() {
+        let content = #"""
+        .package(url: "https://example.com/pkg", .exact("1.3.1"))
+        """#
+        let versions = ReleaseReadinessAuditor.parseReadmeDependencyVersions(content: content)
+        #expect(versions.contains("1.3.1"))
+    }
+
+    @Test("Extracts an upToNextMajor from: version")
+    func upToNextMajorVersion() {
+        let content = #"""
+        .package(url: "u", .upToNextMajor(from: "0.4.0"))
+        """#
+        let versions = ReleaseReadinessAuditor.parseReadmeDependencyVersions(content: content)
+        #expect(versions.contains("0.4.0"))
+    }
+
+    @Test("Returns empty for a README with no dependency versions")
+    func none() {
+        let content = "# My Project\n\nJust prose, no package versions here."
+        let versions = ReleaseReadinessAuditor.parseReadmeDependencyVersions(content: content)
+        #expect(versions.isEmpty)
+    }
+}
+
+// MARK: - Dependency Resolvability
+
+@Suite("ReleaseReadinessAuditor: checkDependencyVersionsResolvable")
+struct DependencyResolvableTests {
+
+    @Test("No diagnostics when every advertised version is tagged")
+    func allResolvable() {
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["1.0.0", "1.1.0"],
+            tags: ["v1.0.0", "v1.1.0", "v1.2.0"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Errors for an advertised version with no matching tag")
+    func unresolvable() {
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["2.0.0"],
+            tags: ["v1.0.0"]
+        )
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.severity == .error)
+        #expect(diagnostics.first?.ruleId == "release-unresolvable-dependency")
+    }
+
+    @Test("Reports one diagnostic per unresolvable version")
+    func multipleUnresolvable() {
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["2.0.0", "3.0.0"],
+            tags: ["v1.0.0"]
+        )
+        #expect(diagnostics.count == 2)
+        #expect(diagnostics.allSatisfy { $0.ruleId == "release-unresolvable-dependency" })
+    }
+
+    @Test("No diagnostics when README advertises nothing")
+    func nothingAdvertised() {
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: [],
+            tags: []
+        )
+        #expect(diagnostics.isEmpty)
+    }
+}

@@ -10,6 +10,11 @@ import QualityGateCore
 /// - `release-changelog`: No CHANGELOG.md found, or no entry matching the current version.
 /// - `release-todo-readme`: README.md contains TODO, FIXME, HACK, XXX, PLACEHOLDER, or custom markers.
 /// - `release-todo-sources`: Source files contain TODO/FIXME without issue references (when configured).
+/// - `release-untagged-version` (error): The latest CHANGELOG version has no matching git tag,
+///   so consumers cannot resolve the release. Enforces the corrected invariant — the *documented*
+///   version must be tagged, not merely that the current tag is documented.
+/// - `release-unresolvable-dependency` (error): A README-advertised `from:`/`.exact` dependency
+///   version has no matching git tag.
 ///
 /// This auditor is file-based and does not require SwiftSyntax.
 public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
@@ -40,6 +45,9 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         // 1. Detect version from git tags
         let version = detectVersion(projectRoot: projectRoot)
 
+        // 1b. Gather git tags once for parity checks (empty when not a git repo).
+        let tags = gitTags(in: projectRoot)
+
         // 2. Check CHANGELOG
         let changelogFullPath = (projectRoot as NSString).appendingPathComponent(config.changelogPath)
         // SECURITY: CLI tool reads local project file — path derived from validated project root
@@ -49,6 +57,13 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 diagnostics.append(
                     contentsOf: Self.checkChangelog(content: content, version: version)
                 )
+                // Corrected invariant: the documented latest version MUST be tagged.
+                if config.checkVersionTagParity {
+                    let latest = Self.parseLatestChangelogVersion(content: content)
+                    diagnostics.append(
+                        contentsOf: Self.checkVersionTagParity(latestChangelogVersion: latest, tags: tags)
+                    )
+                }
             } catch {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
@@ -80,6 +95,17 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         filePath: readmeFullPath
                     )
                 )
+                // Every dependency version the README advertises must resolve to a tag.
+                if config.checkDependencyResolvability {
+                    let advertised = Self.parseReadmeDependencyVersions(content: content)
+                    diagnostics.append(
+                        contentsOf: Self.checkDependencyVersionsResolvable(
+                            readmeVersions: advertised,
+                            tags: tags,
+                            filePath: readmeFullPath
+                        )
+                    )
+                }
             } catch {
                 Self.logger.warning("Could not read README at \(config.readmePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 diagnostics.append(Diagnostic(
@@ -262,6 +288,137 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         }
 
         return diagnostics
+    }
+
+    // MARK: - Version / Tag Parity
+
+    /// Normalizes a version string by trimming whitespace and stripping a leading `v`/`V`.
+    ///
+    /// - Parameter raw: A version or tag string such as `"v1.2.0"` or `" 1.0.0 "`.
+    /// - Returns: The bare semver string, e.g. `"1.2.0"`.
+    static func normalizeVersion(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("v") || trimmed.hasPrefix("V") {
+            return String(trimmed.dropFirst())
+        }
+        return trimmed
+    }
+
+    /// Extracts the topmost *released* version from a CHANGELOG, skipping an `Unreleased` heading.
+    ///
+    /// Recognizes headings like `## 2.0.1`, `## [1.4.0] - 2026-06-07`, and `## v3.1.0`.
+    ///
+    /// - Parameter content: The full text of the CHANGELOG.
+    /// - Returns: The latest released version (normalized), or nil if only an
+    ///   `Unreleased` section (or no version heading) is present.
+    static func parseLatestChangelogVersion(content: String) -> String? {
+        let headingPattern = #/^\s*#{1,6}\s+(.*)$/#
+        let semverPattern = #/v?(\d+\.\d+(?:\.\d+)?)/#
+        for line in content.components(separatedBy: "\n") {
+            guard let heading = line.firstMatch(of: headingPattern) else { continue }
+            let text = String(heading.1)
+            if text.lowercased().contains("unreleased") { continue }
+            if let semver = text.firstMatch(of: semverPattern) {
+                return String(semver.1)
+            }
+        }
+        return nil
+    }
+
+    /// Verifies the documented latest version has a matching git tag (the release invariant).
+    ///
+    /// This is the corrected direction: rather than asking whether the current
+    /// tag is documented, it asks whether the *documented* version is tagged —
+    /// the failure mode where a CHANGELOG races ahead of the tags and consumers
+    /// cannot resolve the package.
+    ///
+    /// - Parameters:
+    ///   - latestChangelogVersion: The latest released version from the CHANGELOG, or nil.
+    ///   - tags: The project's git tags (with or without a `v` prefix).
+    /// - Returns: A single `.error` diagnostic when the version is untagged, else empty.
+    static func checkVersionTagParity(latestChangelogVersion: String?, tags: [String]) -> [Diagnostic] {
+        guard let version = latestChangelogVersion else { return [] }
+        let normalizedTags = Set(tags.map(normalizeVersion))
+        guard normalizedTags.contains(normalizeVersion(version)) else {
+            return [
+                Diagnostic(
+                    severity: .error,
+                    message: "CHANGELOG documents version \(version) but no matching git tag exists — consumers cannot resolve this release. Tag it (e.g. `git tag v\(version) && git push --tags`).",
+                    ruleId: "release-untagged-version"
+                )
+            ]
+        }
+        return []
+    }
+
+    /// Extracts dependency versions a README advertises for consumers to resolve against.
+    ///
+    /// Recognizes `from: "X.Y.Z"` and `.exact("X.Y.Z")` (the latter also covers
+    /// `upToNextMajor(from: "X.Y.Z")` via its `from:` clause).
+    ///
+    /// - Parameter content: The full text of the README.
+    /// - Returns: The advertised version strings (normalized, de-duplicated, order-preserving).
+    static func parseReadmeDependencyVersions(content: String) -> [String] {
+        let fromPattern = #/from:\s*"(\d+\.\d+(?:\.\d+)?)"/#
+        let exactPattern = #/\.exact\(\s*"(\d+\.\d+(?:\.\d+)?)"\s*\)/#
+        var found: [String] = []
+        var seen: Set<String> = []
+        func collect(_ version: Substring) {
+            let normalized = normalizeVersion(String(version))
+            if seen.insert(normalized).inserted {
+                found.append(normalized)
+            }
+        }
+        for match in content.matches(of: fromPattern) { collect(match.1) }
+        for match in content.matches(of: exactPattern) { collect(match.1) }
+        return found
+    }
+
+    /// Verifies every README-advertised dependency version resolves to an existing tag.
+    ///
+    /// - Parameters:
+    ///   - readmeVersions: Versions advertised in the README (from `parseReadmeDependencyVersions`).
+    ///   - tags: The project's git tags.
+    ///   - filePath: Optional path used for diagnostic reporting.
+    /// - Returns: One `.error` diagnostic per advertised version with no matching tag.
+    static func checkDependencyVersionsResolvable(
+        readmeVersions: [String],
+        tags: [String],
+        filePath: String? = nil
+    ) -> [Diagnostic] {
+        let normalizedTags = Set(tags.map(normalizeVersion))
+        return readmeVersions.compactMap { version in
+            guard !normalizedTags.contains(normalizeVersion(version)) else { return nil }
+            return Diagnostic(
+                severity: .error,
+                message: "README advertises dependency version \(version) but no matching git tag exists — consumers following the README cannot resolve the package.",
+                filePath: filePath,
+                ruleId: "release-unresolvable-dependency"
+            )
+        }
+    }
+
+    /// Lists the project's git tags. Returns an empty array when git is unavailable or not a repo.
+    ///
+    /// - Parameter directory: The project root directory path.
+    /// - Returns: The tag names as reported by `git tag`, or an empty array.
+    private func gitTags(in directory: String) -> [String] {
+        // SECURITY: subprocess with hardcoded /usr/bin/git executable path
+        do {
+            let result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["tag"],
+                currentDirectory: directory
+            )
+            guard result.exitCode == 0 else { return [] }
+            return result.stdout
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        } catch {
+            Self.logger.warning("git tag failed in \(directory, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return []
+        }
     }
 
     // MARK: - Private Helpers

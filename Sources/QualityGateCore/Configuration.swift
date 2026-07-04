@@ -539,17 +539,27 @@ public struct ReleaseReadinessAuditorConfig: Sendable, Equatable {
     /// Additional marker patterns to flag beyond TODO/FIXME/HACK/XXX.
     public let additionalMarkers: [String]
 
+    /// Whether to error when the latest CHANGELOG version has no matching git tag.
+    public let checkVersionTagParity: Bool
+
+    /// Whether to error when a README-advertised dependency version has no matching git tag.
+    public let checkDependencyResolvability: Bool
+
     /// Creates a release readiness auditor configuration with the given options.
     public init(
         changelogPath: String = "CHANGELOG.md",
         readmePath: String = "README.md",
         requireIssueReference: Bool = false,
-        additionalMarkers: [String] = []
+        additionalMarkers: [String] = [],
+        checkVersionTagParity: Bool = true,
+        checkDependencyResolvability: Bool = true
     ) {
         self.changelogPath = changelogPath
         self.readmePath = readmePath
         self.requireIssueReference = requireIssueReference
         self.additionalMarkers = additionalMarkers
+        self.checkVersionTagParity = checkVersionTagParity
+        self.checkDependencyResolvability = checkDependencyResolvability
     }
 
     /// Default release readiness auditor configuration.
@@ -559,6 +569,7 @@ public struct ReleaseReadinessAuditorConfig: Sendable, Equatable {
 extension ReleaseReadinessAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case changelogPath, readmePath, requireIssueReference, additionalMarkers
+        case checkVersionTagParity, checkDependencyResolvability
     }
 
     /// Creates a release readiness auditor configuration by decoding from the given decoder.
@@ -569,6 +580,8 @@ extension ReleaseReadinessAuditorConfig: Codable {
         readmePath = try container.decodeIfPresent(String.self, forKey: .readmePath) ?? defaults.readmePath
         requireIssueReference = try container.decodeIfPresent(Bool.self, forKey: .requireIssueReference) ?? defaults.requireIssueReference
         additionalMarkers = try container.decodeIfPresent([String].self, forKey: .additionalMarkers) ?? defaults.additionalMarkers
+        checkVersionTagParity = try container.decodeIfPresent(Bool.self, forKey: .checkVersionTagParity) ?? defaults.checkVersionTagParity
+        checkDependencyResolvability = try container.decodeIfPresent(Bool.self, forKey: .checkDependencyResolvability) ?? defaults.checkDependencyResolvability
     }
 }
 

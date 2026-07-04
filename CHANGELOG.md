@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- **ReleaseReadinessAuditor**: corrected the version/tag hygiene invariant. Two new rules — `release-untagged-version` (error): the latest *documented* CHANGELOG version must have a matching git tag; and `release-unresolvable-dependency` (error): every README-advertised `from:` / `.exact(` dependency version must resolve to an existing tag. Previously the auditor only checked whether the newest tag was *mentioned* in the CHANGELOG (a substring test, wrong direction), so a CHANGELOG racing ahead of its tags — the most common release-hygiene failure — went undetected. Adds pure, unit-tested functions (`parseLatestChangelogVersion`, `checkVersionTagParity`, `parseReadmeDependencyVersions`, `checkDependencyVersionsResolvable`) with 22 new tests, and two opt-out config flags (`checkVersionTagParity`, `checkDependencyResolvability`), both default-on. Uses the `[Unreleased]` convention: pending work sits here (skipped by the tag-parity check) and is promoted to a version heading when tagged.
+
 ## 2.0.1
 
 - Dashboard TUI: removed the left/right vertical border edges (`│`) from every view (portfolio, project detail, group detail, pulse sections). Selecting and copying multi-line content — the weekly narrative especially — no longer drags box-drawing pipes into the clipboard, so narratives paste as clean shareable text. Visual ordering is preserved by full-width horizontal section rules and a titled top rule (`── IJS Portfolio Dashboard ──…`) instead of a four-sided box. Chrome logic centralized in `DashboardChrome` (`titleRule` / `sectionRule` / `contentRow`), collapsing four duplicated `boxRow` helpers into one.
