@@ -51,9 +51,23 @@ public protocol QualityChecker: Sendable {
     /// directory) or mutate the build tree must return `false` so the runner executes
     /// them sequentially, outside the concurrent task group.
     var isParallelSafe: Bool { get }
+
+    /// The complete set of inputs whose change could change this checker's result, or
+    /// `nil` (the default) to declare the checker **not cacheable** — it then runs every
+    /// time.
+    ///
+    /// Returning a value opts the checker into incremental result caching. It **must**
+    /// enumerate every input the checker reads (source files, config, etc.); bias to
+    /// over-inclusion, because over-including only causes extra cache misses (slower),
+    /// never a wrong reuse. Under-specifying an input is the *only* way caching could
+    /// serve a stale pass. See ``CacheInputs`` and ``CheckerFingerprint``.
+    func cacheInputs(configuration: Configuration) -> CacheInputs?
 }
 
 public extension QualityChecker {
     /// Default: checkers are parallel-safe unless they opt out.
     var isParallelSafe: Bool { true }
+
+    /// Default: checkers are not cacheable (they run every time) until they opt in.
+    func cacheInputs(configuration: Configuration) -> CacheInputs? { nil }
 }

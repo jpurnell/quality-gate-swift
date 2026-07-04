@@ -191,6 +191,7 @@ let package = Package(
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.2.0"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
     targets: [
         // MARK: - Core Module
@@ -199,6 +200,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ],
             exclude: ["QualityGateCore.docc"]
         ),

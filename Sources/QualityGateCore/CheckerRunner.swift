@@ -53,18 +53,21 @@ public struct CheckerRunner: Sendable {
         configuration: Configuration,
         strict: Bool,
         continueOnFailure: Bool,
+        cache: ResultCache? = nil,
+        gateHash: String = "",
+        useCache: Bool = false,
         transform: @Sendable @escaping (CheckResult) -> CheckResult = { $0 },
         onError: @Sendable @escaping (String, any Error) -> Void = { _, _ in }
     ) async -> [CheckResult] {
         if checkers.isEmpty { return [] }
 
-        @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
+        // Runs the checker, converting a throw into a failed `checker-error` result.
+        @Sendable func runAndSynthesize(_ checker: any QualityChecker) async -> CheckResult {
             do {
-                let raw = try await checker.check(configuration: configuration)
-                return transform(raw)
+                return try await checker.check(configuration: configuration)
             } catch {
                 onError(checker.id, error)
-                let synthesized = CheckResult(
+                return CheckResult(
                     checkerId: checker.id,
                     status: .failed,
                     diagnostics: [
@@ -76,8 +79,26 @@ public struct CheckerRunner: Sendable {
                     ],
                     duration: .zero
                 )
-                return transform(synthesized)
             }
+        }
+
+        // Evaluates a checker, consulting the result cache when it is enabled AND the checker
+        // opted in via `cacheInputs`. The cache stores the RAW checker output; `transform`
+        // (override application) is applied per-run to both cache hits and misses, so overrides
+        // never get baked into a cached result.
+        @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
+            if useCache, let cache, let inputs = checker.cacheInputs(configuration: configuration) {
+                let fingerprint = CheckerFingerprint.compute(
+                    checkerId: checker.id, inputs: inputs, gateHash: gateHash
+                )
+                if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
+                    return transform(cached)
+                }
+                let fresh = await runAndSynthesize(checker)
+                cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
+                return transform(fresh)
+            }
+            return transform(await runAndSynthesize(checker))
         }
 
         func isFailing(_ result: CheckResult) -> Bool {

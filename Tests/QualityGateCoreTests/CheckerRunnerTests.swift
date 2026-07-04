@@ -15,6 +15,10 @@ private struct FakeChecker: QualityChecker {
     /// If true, throws instead of returning a result.
     let throwsError: Bool
     let isParallelSafe: Bool
+    /// If non-nil, the checker opts into caching with these input files.
+    let cacheInputFiles: [String]?
+    /// Counts how many times `check()` actually executed (to detect cache hits).
+    let callCounter: CallCounter?
 
     init(
         id: String,
@@ -22,7 +26,9 @@ private struct FakeChecker: QualityChecker {
         delay: Duration = .zero,
         tracker: ConcurrencyTracker? = nil,
         throwsError: Bool = false,
-        isParallelSafe: Bool = true
+        isParallelSafe: Bool = true,
+        cacheInputFiles: [String]? = nil,
+        callCounter: CallCounter? = nil
     ) {
         self.id = id
         self.name = id
@@ -31,11 +37,18 @@ private struct FakeChecker: QualityChecker {
         self.tracker = tracker
         self.throwsError = throwsError
         self.isParallelSafe = isParallelSafe
+        self.cacheInputFiles = cacheInputFiles
+        self.callCounter = callCounter
     }
 
     struct Boom: Error {}
 
+    func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        cacheInputFiles.map { CacheInputs(files: $0) }
+    }
+
     func check(configuration: Configuration) async throws -> CheckResult {
+        await callCounter?.increment()
         await tracker?.enter()
         if delay != .zero {
             try? await Task.sleep(for: delay)
@@ -52,6 +65,12 @@ private actor ConcurrencyTracker {
     private(set) var peak = 0
     func enter() { current += 1; peak = max(peak, current) }
     func leave() { current -= 1 }
+}
+
+/// Counts checker executions.
+private actor CallCounter {
+    private(set) var count = 0
+    func increment() { count += 1 }
 }
 
 // MARK: - Tests
@@ -229,5 +248,104 @@ struct CheckerRunnerTests {
         #expect(results.map(\.checkerId) == ["build"])
         let parallelPeak = await parallelTracker.peak
         #expect(parallelPeak == 0)  // no parallel checker executed
+    }
+}
+
+// MARK: - Result cache behavior
+
+@Suite("CheckerRunner: result cache")
+struct CheckerRunnerCacheTests {
+
+    private func tempDir() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qg-runner-cache-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func run(
+        _ checker: FakeChecker, cache: ResultCache, useCache: Bool
+    ) async -> [CheckResult] {
+        await CheckerRunner(maxConcurrency: 4).run(
+            checkers: [checker], configuration: Configuration(),
+            strict: false, continueOnFailure: true,
+            cache: cache, gateHash: "gate-hash", useCache: useCache
+        )
+    }
+
+    @Test("Unchanged input across two runs → checker runs once (second is a cache hit)")
+    func cacheHitSkipsRerun() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(id: "cacheable", cacheInputFiles: [input.path], callCounter: counter)
+
+        _ = await run(checker, cache: cache, useCache: true)
+        _ = await run(checker, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 1)  // second run served from cache
+    }
+
+    @Test("A changed input file re-runs the checker")
+    func changedInputRerunsChecker() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(id: "cacheable", cacheInputFiles: [input.path], callCounter: counter)
+
+        _ = await run(checker, cache: cache, useCache: true)
+        try "v2".write(to: input, atomically: true, encoding: .utf8)  // input changed
+        _ = await run(checker, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 2)  // fingerprint changed → re-run
+    }
+
+    @Test("A non-cacheable checker (cacheInputs == nil) runs every time")
+    func nonCacheableAlwaysRuns() async throws {
+        let dir = try tempDir()
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(id: "plain", callCounter: counter)  // no cacheInputFiles → nil
+
+        _ = await run(checker, cache: cache, useCache: true)
+        _ = await run(checker, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 2)
+    }
+
+    @Test("useCache == false bypasses the cache even for a cacheable checker")
+    func useCacheFalseBypasses() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(id: "cacheable", cacheInputFiles: [input.path], callCounter: counter)
+
+        _ = await run(checker, cache: cache, useCache: false)
+        _ = await run(checker, cache: cache, useCache: false)
+
+        let count = await counter.count
+        #expect(count == 2)  // caching disabled → always runs
+    }
+
+    @Test("A cached failing result is still surfaced as failing")
+    func cachedFailureStillFails() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let checker = FakeChecker(id: "cacheable", status: .failed, cacheInputFiles: [input.path])
+
+        _ = await run(checker, cache: cache, useCache: true)          // stores the failure
+        let second = await run(checker, cache: cache, useCache: true) // cache hit
+        #expect(second.first?.status == .failed)
     }
 }
