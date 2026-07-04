@@ -92,8 +92,14 @@ public enum PortfolioTUIView: Sendable {
                     let allPassing = memberProjects.allSatisfy(\.latestPassed)
                     let status = allPassing ? "\u{2713}" : "\u{2717}"
                     let pct = formatPercent(groupPassRate)
-                    let label = "\(arrow) \(groupID) (\(memberCount))"
-                    let name = String(label.prefix(nameWidth))
+                    // Elide only the group name, always preserving the disclosure
+                    // arrow and the " (N)" member count so long group names stay
+                    // legible (SwiftExcel -> SwiftExcel, but a long name middle-elides).
+                    let arrowPrefix = "\(arrow) "
+                    let countSuffix = " (\(memberCount))"
+                    let nameBudget = max(nameWidth - arrowPrefix.count - countSuffix.count, 1)
+                    let elidedGroup = ANSIStringMetrics.elideMiddle(groupID, to: nameBudget)
+                    let name = "\(arrowPrefix)\(elidedGroup)\(countSuffix)"
                         .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
                     let groupRow = "  \(name)  \(status)              \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))"
 

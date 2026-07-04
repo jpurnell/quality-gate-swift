@@ -545,6 +545,48 @@ struct TUIViewTests {
         #expect(output.contains("MyGroup"))
     }
 
+    @Test("Portfolio view middle-elides a long group name but keeps arrow and count")
+    func portfolioGroupNameElided() {
+        let longID = "SuperLongPlatformFrameworkGroup"
+        let projects = [
+            makeProjectSummary(id: "m1", passRate: 0.8),
+            makeProjectSummary(id: "m2", passRate: 0.6),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["m1", "m2"])
+        state.updateGroups([longID: ["m1", "m2"]])
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio, projects: projects, allRuns: [:], state: state, width: 80
+        )
+        let plain = ANSIStringMetrics.plainText(output)
+        // Name too long for the column → ellipsis, but arrow, count, and the
+        // identity-bearing suffix survive; the full name never appears uncut.
+        #expect(plain.contains("…"))
+        #expect(plain.contains("(2)"))
+        #expect(plain.contains("Group"))
+        #expect(!plain.contains(longID))
+        #expect(plain.contains("\u{25B6}") || plain.contains("\u{25BC}"))
+    }
+
+    @Test("Portfolio view leaves a short group name unelided")
+    func portfolioShortGroupNameUnchanged() {
+        let projects = [
+            makeProjectSummary(id: "m1", passRate: 0.8),
+            makeProjectSummary(id: "m2", passRate: 0.6),
+        ]
+        let portfolio = PortfolioSummary.compute(from: projects)
+        var state = DashboardState(projectIDs: ["m1", "m2"])
+        state.updateGroups(["Harbor": ["m1", "m2"]])
+
+        let output = PortfolioTUIView.render(
+            portfolio: portfolio, projects: projects, allRuns: [:], state: state, width: 80
+        )
+        let plain = ANSIStringMetrics.plainText(output)
+        #expect(plain.contains("Harbor (2)"))
+        #expect(!plain.contains("Na…"))
+    }
+
     @Test("Portfolio view shows expanded group members indented")
     func portfolioExpandedGroupIndented() {
         let projects = [
