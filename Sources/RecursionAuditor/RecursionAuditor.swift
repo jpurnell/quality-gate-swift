@@ -100,7 +100,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         // Pass 2: USR-based cycle detection via IndexStoreDB (when available).
         if configuration.recursion.useIndexStore {
             do {
-                let pass2Diagnostics = try runIndexStorePass(configuration: configuration)
+                let pass2Diagnostics = try await runIndexStorePass(configuration: configuration)
                 allDiagnostics.append(contentsOf: pass2Diagnostics)
 
                 for diag in nameBasedCycleDiagnostics {
@@ -160,7 +160,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     }
 
     /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
-    private func runIndexStorePass(configuration: Configuration) throws -> [Diagnostic] {
+    private func runIndexStorePass(configuration: Configuration) async throws -> [Diagnostic] {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let kind = ProjectKind.detect(at: cwd)
 
@@ -172,7 +172,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             throw IndexStorePassError.toolchainNotFound
         }
 
-        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        let session = try await SharedIndexStore.session(storePath: located.url, libPath: libPath)
         let swiftFiles = SourceWalker.swiftFiles(under: kind.rootURL, excludePatterns: configuration.excludePatterns)
 
         return try RecursionIndexPass.run(

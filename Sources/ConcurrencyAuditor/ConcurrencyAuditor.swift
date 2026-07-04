@@ -81,7 +81,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         // Pass 2: index-backed cross-file analysis (optional, graceful degradation).
         if configuration.concurrency.useIndexStore {
             do {
-                let indexDiagnostics = try runIndexPass(configuration: configuration)
+                let indexDiagnostics = try await runIndexPass(configuration: configuration)
                 allDiagnostics.append(contentsOf: indexDiagnostics)
             } catch SkipMarker.skipped {
                 Self.logger.info("Concurrency index pass skipped by marker")
@@ -157,7 +157,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     // MARK: - Pass 2 (index-backed)
 
     /// Attempts to locate an index store and run the cross-file concurrency pass.
-    private func runIndexPass(configuration: Configuration) throws -> [Diagnostic] {
+    private func runIndexPass(configuration: Configuration) async throws -> [Diagnostic] {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let kind = ProjectKind.detect(at: cwd)
 
@@ -169,7 +169,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
             return [ConcurrencyIndexPass.unavailableNote()]
         }
 
-        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        let session = try await SharedIndexStore.session(storePath: located.url, libPath: libPath)
         _ = session
 
         let diagnostics: [Diagnostic] = []

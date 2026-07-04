@@ -82,7 +82,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         // Pass 2: Cross-module cognitive complexity amplification via IndexStoreDB.
         if configuration.complexity.useIndexStore && configuration.complexity.crossModuleAmplification {
             do {
-                let edges = try resolveCrossModuleEdges(records: records, configuration: configuration)
+                let edges = try await resolveCrossModuleEdges(records: records, configuration: configuration)
                 let inputs = ComplexityIndexPass.Inputs(
                     records: records,
                     edges: edges,
@@ -275,7 +275,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     private func resolveCrossModuleEdges(
         records: [FunctionComplexityRecord],
         configuration: Configuration
-    ) throws -> [CrossModuleCallEdge] {
+    ) async throws -> [CrossModuleCallEdge] {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let kind = ProjectKind.detect(at: cwd)
 
@@ -287,7 +287,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
             throw IndexStorePassError.toolchainNotFound
         }
 
-        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        let session = try await SharedIndexStore.session(storePath: located.url, libPath: libPath)
         let swiftFiles = SourceWalker.swiftFiles(under: kind.rootURL, excludePatterns: configuration.excludePatterns)
 
         // Build a complexity lookup keyed by "moduleName.functionName" from Pass 1 records.

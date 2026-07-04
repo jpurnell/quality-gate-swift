@@ -65,7 +65,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         var inheritedDocCount = 0
         if configuration.docCoverage.useIndexStore && totalPublicAPIs > 0 {
             do {
-                let (indexDiagnostics, inherited) = try runIndexPass(
+                let (indexDiagnostics, inherited) = try await runIndexPass(
                     pass1Diagnostics: allDiagnostics,
                     totalPublicAPIs: totalPublicAPIs,
                     documentedAPIs: documentedAPIs,
@@ -191,7 +191,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         totalPublicAPIs: Int,
         documentedAPIs: Int,
         configuration: Configuration
-    ) throws -> (diagnostics: [Diagnostic], inheritedCount: Int) {
+    ) async throws -> (diagnostics: [Diagnostic], inheritedCount: Int) {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let kind = ProjectKind.detect(at: cwd)
 
@@ -203,7 +203,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
             return ([DocCoverageIndexPass.unavailableNote()], 0)
         }
 
-        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        let session = try await SharedIndexStore.session(storePath: located.url, libPath: libPath)
 
         // Step 1: Build undocumented APIs list from Pass 1 "missing-doc" diagnostics.
         let missingDocDiagnostics = pass1Diagnostics.filter { $0.ruleId == "missing-doc" }

@@ -54,7 +54,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
 
         if config.useIndexStore && !allDiagnostics.isEmpty {
             do {
-                let pass2Diagnostics = try runIndexPass(
+                let pass2Diagnostics = try await runIndexPass(
                     pass1Diagnostics: allDiagnostics,
                     taskProperties: allTaskInfos,
                     delegateProperties: allDelegateInfos,
@@ -88,7 +88,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         taskProperties: [LifecycleIndexPass.TaskPropertyInfo],
         delegateProperties: [LifecycleIndexPass.DelegatePropertyInfo],
         streamCreationSites: [LifecycleIndexPass.StreamCreationInfo]
-    ) throws -> [Diagnostic] {
+    ) async throws -> [Diagnostic] {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let kind = ProjectKind.detect(at: cwd)
 
