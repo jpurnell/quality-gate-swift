@@ -194,7 +194,12 @@ public struct DocLinter: QualityChecker, Sendable {
         return CheckResult(
             checkerId: id,
             status: coverage.severity == .error ? .failed : baseResult.status,
-            diagnostics: diagnostics,
+            // Scoped after accumulation, not before: the ambiguous-link, withheld-catalogue
+            // and coverage findings all postdate the original scoping change, and each is
+            // about this package rather than a dependency. Scoping `enrichedDiagnostics`
+            // alone — as the original commit did — would let a dependency's warning through
+            // any path that appended to `diagnostics` afterwards.
+            diagnostics: diagnostics.scopedToFirstParty(),
             duration: duration
         )
     }

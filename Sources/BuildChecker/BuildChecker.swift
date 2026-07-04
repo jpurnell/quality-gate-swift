@@ -275,7 +275,7 @@ public struct BuildChecker: QualityChecker, Sendable {
         return CheckResult(
             checkerId: "build",
             status: status,
-            diagnostics: diagnostics,
+            diagnostics: diagnostics.scopedToFirstParty(),
             duration: duration
         )
     }
