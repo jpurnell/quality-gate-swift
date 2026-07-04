@@ -189,7 +189,7 @@ let package = Package(
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.1.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
-        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.0.1"),
+        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.2.0"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
     ],
     targets: [

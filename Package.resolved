@@ -1,5 +1,5 @@
 {
-  "originHash" : "a1646426adadc1cb17f126fecf3a6ea89d52607a2d526854b189cdf6d5b409da",
+  "originHash" : "3a62435c9b859396121170ba42d2d5373ce6006cca95a7cea0df4a21133c5899",
   "pins" : [
     {
       "identity" : "businessmath",
@@ -186,8 +186,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/SwiftCLIKit.git",
       "state" : {
-        "revision" : "4009359ddf0d1f121602545cb4f70434cf028074",
-        "version" : "1.0.1"
+        "revision" : "7fad9bb079d7d82ad4ddb07412cdd2c747892962",
+        "version" : "1.2.0"
       }
     },
     {
