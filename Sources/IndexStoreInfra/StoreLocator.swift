@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 #if canImport(os)
 import os
 #endif
@@ -248,13 +253,49 @@ public enum StoreLocator {
     }
 
     /// Ensure a fresh index store exists for `packageRoot`.
+    ///
+    /// Concurrent callers — e.g. two `quality-gate` runs in the same checkout — are
+    /// serialized by an exclusive advisory file lock so that at most one `swift build`
+    /// writes the index store at a time. Without this, two builds race to write the same
+    /// store and a reader (or the builds themselves) can observe an empty/partial index —
+    /// the flake that intermittently broke the cross-module index checkers.
     public static func ensureFresh(packageRoot: URL) throws -> URL {
         let buildPath = packageRoot.appendingPathComponent(".build/index-build")
         let store = buildPath.appendingPathComponent("index-store")
-        if needsRebuild(packageRoot: packageRoot, store: store) {
-            try build(packageRoot: packageRoot, buildPath: buildPath, store: store)
+
+        // Fast path: already fresh, no lock needed.
+        guard needsRebuild(packageRoot: packageRoot, store: store) else { return store }
+
+        // SAFETY: CLI tool creates its local index-build directory to host the lock file
+        try FileManager.default.createDirectory(at: buildPath, withIntermediateDirectories: true)
+        let lockURL = buildPath.appendingPathComponent(".index-build.lock")
+
+        try withExclusiveLock(at: lockURL) {
+            // Double-checked under the lock: a peer that held the lock first may have just
+            // produced a fresh store, in which case this caller skips a redundant, racy build.
+            if needsRebuild(packageRoot: packageRoot, store: store) {
+                try build(packageRoot: packageRoot, buildPath: buildPath, store: store)
+            }
         }
         return store
+    }
+
+    /// Runs `body` while holding an exclusive, blocking advisory lock on `lockURL`.
+    ///
+    /// Uses `flock(2)`, so the lock is honored **across processes** — two `quality-gate`
+    /// invocations in one checkout serialize their index builds instead of racing.
+    static func withExclusiveLock(at lockURL: URL, _ body: () throws -> Void) throws {
+        // SAFETY: CLI tool opens its local lock file
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o644)
+        guard descriptor >= 0 else {
+            throw Error.buildFailed("could not open index-build lock at \(lockURL.path)")
+        }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw Error.buildFailed("could not acquire index-build lock")
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        try body()
     }
 
     // MARK: - Private helpers
