@@ -110,7 +110,10 @@ public enum PortfolioTUIView: Sendable {
                     let effectiveNameWidth = isGroupMember ? nameWidth - 2 : nameWidth
                     let status = project.latestPassed ? "\u{2713}" : "\u{2717}"
                     let pct = formatPercent(project.passRate)
-                    let name = String(project.projectID.prefix(effectiveNameWidth))
+                    // Middle-elide so both the head and the identity-bearing suffix
+                    // survive (HarborKit -> Ha…Kit, HarborUI -> Har…UI), keeping
+                    // sibling modules distinguishable in tight columns.
+                    let name = ANSIStringMetrics.elideMiddle(project.projectID, to: effectiveNameWidth)
                         .padding(toLength: effectiveNameWidth, withPad: " ", startingAt: 0)
 
                     let runs = allRuns[project.projectID] ?? []
