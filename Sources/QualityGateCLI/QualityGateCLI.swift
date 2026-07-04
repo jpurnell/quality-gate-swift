@@ -291,49 +291,27 @@ struct QualityGateCLI: AsyncParsableCommand {
         }
         let reporter = ReporterFactory.create(for: outputFormat)
 
-        var allResults: [CheckResult] = []
-        var hasFailure = false
+        if verbose {
+            print("Running \(checkersToRun.count) checkers concurrently...")
+        }
 
-        // Run each checker
-        for checker in checkersToRun {
-            if verbose {
-                print("Running \(checker.name)...")
+        // Run checkers concurrently (bounded by core count), preserving checker order.
+        // Overrides are applied via `transform` so pass/fail — and the continueOnFailure
+        // early-exit — match the previous sequential behavior exactly.
+        let allResults = await CheckerRunner().run(
+            checkers: checkersToRun,
+            configuration: configuration,
+            strict: strict,
+            continueOnFailure: continueOnFailure,
+            transform: { overrideProcessor.apply(to: $0) },
+            onError: { checkerID, error in
+                Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
             }
-
-            do {
-                let rawResult = try await checker.check(configuration: configuration)
-                let result = overrideProcessor.apply(to: rawResult)
-                allResults.append(result)
-
-                let isFailing = result.status == .failed
-                    || (strict && result.status == .warning)
-                if isFailing {
-                    hasFailure = true
-                    if !continueOnFailure {
-                        break
-                    }
-                }
-            } catch {
-                Self.logger.error("Checker '\(checker.id, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
-                let errorResult = CheckResult(
-                    checkerId: checker.id,
-                    status: .failed,
-                    diagnostics: [
-                        Diagnostic(
-                            severity: .error,
-                            message: "Checker failed: \(error.localizedDescription)",
-                            ruleId: "checker-error"
-                        )
-                    ],
-                    duration: .zero
-                )
-                allResults.append(errorResult)
-                hasFailure = true
-
-                if !continueOnFailure {
-                    break
-                }
-            }
+        )
+        let hasFailure = allResults.contains { result in
+            if result.status == .failed { return true }
+            if strict && result.status == .warning { return true }
+            return false
         }
 
         // Handle --bootstrap: generate initial status documents

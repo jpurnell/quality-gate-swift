@@ -43,4 +43,17 @@ public protocol QualityChecker: Sendable {
     /// - Returns: The check result with status and diagnostics.
     /// - Throws: `QualityGateError` if the check cannot be completed.
     func check(configuration: Configuration) async throws -> CheckResult
+
+    /// Whether this checker is safe to run concurrently with other checkers.
+    ///
+    /// Defaults to `true` (pure AST/file analysis is read-only and parallel-safe).
+    /// Checkers that spawn `swift build`/`swift test` (locking the SwiftPM `.build`
+    /// directory) or mutate the build tree must return `false` so the runner executes
+    /// them sequentially, outside the concurrent task group.
+    var isParallelSafe: Bool { get }
+}
+
+public extension QualityChecker {
+    /// Default: checkers are parallel-safe unless they opt out.
+    var isParallelSafe: Bool { true }
 }

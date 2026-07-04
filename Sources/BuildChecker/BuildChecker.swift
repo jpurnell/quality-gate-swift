@@ -34,6 +34,10 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Build Checker"
 
+    /// Spawns `swift build`, which locks the SwiftPM `.build` directory — must run
+    /// sequentially, outside the concurrent task group.
+    public var isParallelSafe: Bool { false }
+
     /// Creates a new BuildChecker instance.
     public init() {}
 

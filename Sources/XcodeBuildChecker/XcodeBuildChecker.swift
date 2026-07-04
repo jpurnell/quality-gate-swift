@@ -33,6 +33,10 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Xcode Build Checker"
 
+    /// Spawns `xcodebuild`, which locks the build tree — must run sequentially,
+    /// outside the concurrent task group.
+    public var isParallelSafe: Bool { false }
+
     /// Creates a new XcodeBuildChecker instance.
     public init() {}
 

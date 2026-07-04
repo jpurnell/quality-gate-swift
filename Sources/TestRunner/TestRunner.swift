@@ -34,6 +34,10 @@ public struct TestRunner: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Test Runner"
 
+    /// Spawns `swift test`, which locks the SwiftPM `.build` directory — must run
+    /// sequentially, outside the concurrent task group.
+    public var isParallelSafe: Bool { false }
+
     /// Creates a new TestRunner instance.
     public init() {}
 

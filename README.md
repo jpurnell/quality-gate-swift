@@ -27,7 +27,7 @@ cp .build/release/quality-gate /usr/local/bin/
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/jpurnell/quality-gate-swift.git", from: "2.0.0"),
+    .package(url: "https://github.com/jpurnell/quality-gate-swift.git", from: "2.0.1"),
 ]
 ```
 

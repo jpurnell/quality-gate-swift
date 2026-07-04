@@ -300,15 +300,26 @@ public enum StoreLocator {
     }
 
     private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
+        var arguments = ["swift", "build"]
+        // Swift 6.4's SwiftPM defaults to the `swiftbuild` (XCBuild) build system, which
+        // does NOT honor `-index-store-path` — it emits no queryable index store, silently
+        // breaking every cross-module index checker. Force the classic `native` system on
+        // 6.4+ to restore the index. On < 6.4, `native` is already the default and the
+        // `--build-system` flag may not exist, so it is omitted there. (native is
+        // deprecated; follow-up: adopt swiftbuild's index mechanism before it is removed.)
+        if let version = detectSwiftVersion(),
+           requiresNativeBuildSystem(major: version.major, minor: version.minor) {
+            arguments += ["--build-system", "native"]
+        }
+        arguments += [
+            "--package-path", packageRoot.path,
+            "--build-path", buildPath.path,
+            "-Xswiftc", "-index-store-path",
+            "-Xswiftc", store.path,
+        ]
         let result = try ProcessRunner.run(
             "/usr/bin/env",
-            arguments: [
-                "swift", "build",
-                "--package-path", packageRoot.path,
-                "--build-path", buildPath.path,
-                "-Xswiftc", "-index-store-path",
-                "-Xswiftc", store.path,
-            ],
+            arguments: arguments,
             mergeStderr: true
         )
         if result.exitCode != 0 {
@@ -319,5 +330,37 @@ public enum StoreLocator {
                 throw Error.buildFailed(result.stdout)
             }
         }
+    }
+
+    /// Parses `(major, minor)` from `swift --version` output, or nil if unrecognized.
+    ///
+    /// Handles the common shapes: `Apple Swift version 6.4 (...)`,
+    /// `Swift version 6.0.1 (...)`, and dev snapshots like `6.2-dev`.
+    static func parseSwiftVersion(fromVersionOutput output: String) -> (major: Int, minor: Int)? {
+        guard let match = output.firstMatch(of: #/[Ss]wift version (\d+)\.(\d+)/#) else { return nil }
+        guard let major = Int(match.1), let minor = Int(match.2) else { return nil }
+        return (major, minor)
+    }
+
+    /// Whether `--build-system native` is required to emit an index store.
+    ///
+    /// Swift 6.4 changed the default build system to `swiftbuild`, which ignores
+    /// `-index-store-path`. Toolchains at 6.4 or newer therefore need the classic
+    /// `native` system; older toolchains default to `native` and may lack the flag.
+    static func requiresNativeBuildSystem(major: Int, minor: Int) -> Bool {
+        (major, minor) >= (6, 4)
+    }
+
+    /// Detects the active Swift compiler version via `swift --version`.
+    private static func detectSwiftVersion() -> (major: Int, minor: Int)? {
+        // SAFETY: subprocess with hardcoded `/usr/bin/env swift --version`
+        guard let result = try? ProcessRunner.run(
+            "/usr/bin/env",
+            arguments: ["swift", "--version"],
+            mergeStderr: true
+        ), result.exitCode == 0 else {
+            return nil
+        }
+        return parseSwiftVersion(fromVersionOutput: result.stdout)
     }
 }

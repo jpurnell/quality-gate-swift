@@ -26,6 +26,11 @@ public struct DiskCleaner: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Disk Cleaner"
 
+    /// Deletes the SwiftPM `.build` directory (including the index store other checkers
+    /// read), so it must run sequentially and isolated — never in the concurrent task
+    /// group. This checker is also opt-in (excluded from `--check all`).
+    public var isParallelSafe: Bool { false }
+
     /// Creates a new DiskCleaner instance.
     public init() {}
 
