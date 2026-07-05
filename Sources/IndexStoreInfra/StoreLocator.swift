@@ -260,6 +260,18 @@ public enum StoreLocator {
     /// store and a reader (or the builds themselves) can observe an empty/partial index —
     /// the flake that intermittently broke the cross-module index checkers.
     public static func ensureFresh(packageRoot: URL) throws -> URL {
+        // Fast path A — reuse swiftbuild's own index store. Swift 6.4+ SwiftPM (the
+        // `swiftbuild`/XCBuild default) index-while-builds a queryable store to
+        // `.build/out/v5` during the *normal* build, so when that store exists and is
+        // current there is nothing to do: we skip the dedicated index compile entirely
+        // (which would otherwise be a full second build of the whole module graph — the
+        // double-compile that dominated gate wall-time). Native toolchains (< 6.4) do NOT
+        // index without `-index-store-path`, so `.build/out` is absent there and we fall
+        // through to the dedicated, locked index build below.
+        if let swiftbuildStore = freshSwiftbuildStore(packageRoot: packageRoot) {
+            return swiftbuildStore
+        }
+
         let buildPath = packageRoot.appendingPathComponent(".build/index-build")
         let store = buildPath.appendingPathComponent("index-store")
 
@@ -299,6 +311,31 @@ public enum StoreLocator {
     }
 
     // MARK: - Private helpers
+
+    /// Returns swiftbuild's own index store (`.build/out`) when it exists and is current
+    /// relative to `Sources`, else `nil`.
+    ///
+    /// Swift 6.4+ SwiftPM emits `.build/out/v5/{units,records}` as a side effect of a normal
+    /// `swift build` — a full, queryable index store. Reusing it lets `ensureFresh` skip a
+    /// redundant second compile. Returns `nil` when the store is absent (native toolchains,
+    /// which do not index without `-index-store-path`) or stale (a source is newer than the
+    /// store's records), so the caller falls back to the dedicated index build.
+    static func freshSwiftbuildStore(packageRoot: URL) -> URL? {
+        let store = packageRoot.appendingPathComponent(".build/out")
+        let units = store.appendingPathComponent("v5/units")
+        let fm = FileManager.default
+        // Must exist and be a non-empty index-while-building store.
+        guard let entries = try? fm.contentsOfDirectory(atPath: units.path), !entries.isEmpty else {
+            return nil
+        }
+        // Must be current: no source file newer than the store's unit records.
+        guard let storeMtime = mtime(of: units) else { return nil }
+        let sources = packageRoot.appendingPathComponent("Sources")
+        if let newest = newestSwiftMtime(under: sources), newest > storeMtime {
+            return nil
+        }
+        return store
+    }
 
     private static func needsRebuild(packageRoot: URL, store: URL) -> Bool {
         let fm = FileManager.default
