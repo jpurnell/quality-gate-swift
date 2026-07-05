@@ -96,6 +96,9 @@ public enum DashboardApp: Sendable {
                 }
 
                 state.terminalHeight = rows
+                // The compact pulse line adds a chrome row above the table; keep
+                // click/scroll hit-testing aligned with what actually renders.
+                state.hasPulseHeader = currentPulse != nil
 
                 if needsRedraw {
                     let frame: String

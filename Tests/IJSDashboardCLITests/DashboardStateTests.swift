@@ -206,6 +206,17 @@ struct DashboardStateTests {
         #expect(state.currentView == .projectDetail)
     }
 
+    @Test("Click aligns to rows when the compact pulse header is present")
+    func clickWithPulseHeader() {
+        var state = DashboardState(projectIDs: ["alpha", "beta", "gamma"])
+        // The live dashboard renders a compact pulse line, so the preamble is
+        // one row taller (7, not 6) and the first data row is terminal row 8.
+        state.hasPulseHeader = true
+        state.handleInput(.click(row: 8, column: 10))
+        #expect(state.selectedIndex == 0)
+        #expect(state.currentView == .projectDetail)
+    }
+
     @Test("Click outside project rows does nothing")
     func clickOutsideRows() {
         var state = DashboardState(projectIDs: ["alpha", "beta"])

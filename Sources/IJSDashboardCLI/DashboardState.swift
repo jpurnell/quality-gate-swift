@@ -79,6 +79,10 @@ public struct DashboardState: Sendable {
     private var nameBaseAscending: Bool = true
     /// Terminal height used for scroll calculations.
     public var terminalHeight: Int = 24
+    /// Whether the portfolio view is currently rendering the compact pulse line.
+    /// It adds one chrome row above the table, so click/scroll math must account
+    /// for it (see ``portfolioHeaderLines``). Set by the app before handling input.
+    public var hasPulseHeader: Bool = false
     /// Sorted project identifiers for the portfolio list.
     public private(set) var projectIDs: [String]
     /// Group definitions from manifest (group name → member project IDs).
@@ -253,7 +257,7 @@ public struct DashboardState: Sendable {
         case .pageUp:
             scrollOffset = max(0, scrollOffset - terminalHeight / 2)
         case .click(let row, _):
-            let clickedIndex = row - Self.portfolioHeaderLines - 1 + scrollOffset
+            let clickedIndex = row - portfolioHeaderLines - 1 + scrollOffset
             if clickedIndex >= 0, clickedIndex < rows.count {
                 selectedIndex = clickedIndex
                 switch rows[clickedIndex] {
@@ -295,12 +299,12 @@ public struct DashboardState: Sendable {
     }
 
     private mutating func ensureSelectionVisible() {
-        let selectedLine = Self.portfolioHeaderLines + selectedIndex
+        let selectedLine = portfolioHeaderLines + selectedIndex
         let visibleBottom = scrollOffset + terminalHeight - 2
         if selectedLine > visibleBottom {
             scrollOffset = selectedLine - terminalHeight + 2
-        } else if selectedLine < scrollOffset + Self.portfolioHeaderLines {
-            scrollOffset = max(0, selectedLine - Self.portfolioHeaderLines)
+        } else if selectedLine < scrollOffset + portfolioHeaderLines {
+            scrollOffset = max(0, selectedLine - portfolioHeaderLines)
         }
         scrollOffset = max(0, scrollOffset)
     }
@@ -465,6 +469,9 @@ public struct DashboardState: Sendable {
         return rows
     }
 
-    /// Number of fixed header lines before project rows in the portfolio view.
-    static let portfolioHeaderLines = 6
+    /// Number of chrome lines rendered above the first project row in the
+    /// portfolio view. Mirrors ``PortfolioTUIView/render(portfolio:projects:allRuns:state:width:pulse:)``:
+    /// title rule, blank, status line, (compact pulse line, only when a pulse is
+    /// loaded), blank, column header, section rule — so 7 with a pulse, 6 without.
+    var portfolioHeaderLines: Int { hasPulseHeader ? 7 : 6 }
 }
