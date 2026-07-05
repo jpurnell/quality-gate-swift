@@ -96,6 +96,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Disable the incremental result cache (re-run every checker from scratch)")
     var noCache: Bool = false
 
+    @Flag(name: .long, help: "Never compile a project to produce an index store; index-backed checkers reuse an existing store or degrade to AST-only. Use for fast portfolio sweeps that must not build.")
+    var noIndexBuild: Bool = false
+
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
 
@@ -117,6 +120,13 @@ struct QualityGateCLI: AsyncParsableCommand {
     }
 
     func run() async throws {
+        // Propagate --no-index-build to StoreLocator (which lives in a lower module and reads
+        // this env var) so index-backed checkers never trigger a compile — they reuse an
+        // existing store or degrade to AST-only. Set before any checker runs.
+        if noIndexBuild {
+            setenv("QG_NO_INDEX_BUILD", "1", 1)
+        }
+
         if let skipRef = ProcessInfo.processInfo.environment["QG_SKIP"] {
             guard skipRef != "1", skipRef != "true",
                   skipRef.contains("/") || skipRef.contains("#") else {
@@ -325,7 +335,13 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Run checkers concurrently (bounded by core count), preserving checker order.
         // Overrides are applied via `transform` so pass/fail — and the continueOnFailure
         // early-exit — match the previous sequential behavior exactly.
-        let allResults = await CheckerRunner().run(
+        //
+        // `QG_BENCH_CONCURRENCY` overrides the bound (diagnostic/benchmark only): set to 1
+        // to force the pre-parallelization sequential baseline, or any N to cap concurrency.
+        // Unset → the default (active processor count).
+        let benchConcurrency = ProcessInfo.processInfo.environment["QG_BENCH_CONCURRENCY"].flatMap(Int.init)
+        let runner = benchConcurrency.map(CheckerRunner.init(maxConcurrency:)) ?? CheckerRunner()
+        let allResults = await runner.run(
             checkers: checkersToRun,
             configuration: configuration,
             strict: strict,

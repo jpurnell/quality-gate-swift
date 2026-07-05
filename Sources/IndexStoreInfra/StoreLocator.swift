@@ -19,11 +19,16 @@ public enum StoreLocator {
     /// Errors thrown during index-store location or build operations.
     public enum Error: LocalizedError {
         case buildFailed(String)
-        /// A human-readable description of the build failure.
+        /// No fresh index store exists and `--no-index-build` (`QG_NO_INDEX_BUILD`) forbids
+        /// building one. Index-backed checkers catch this and degrade to AST-only analysis.
+        case indexBuildSkipped
+        /// A human-readable description of the failure.
         public var errorDescription: String? {
             switch self {
             case .buildFailed(let s):
                 return "swift build (index-store) failed: \(s)"
+            case .indexBuildSkipped:
+                return "no fresh index store and --no-index-build set; skipping index-backed analysis"
             }
         }
     }
@@ -277,6 +282,13 @@ public enum StoreLocator {
 
         // Fast path: already fresh, no lock needed.
         guard needsRebuild(packageRoot: packageRoot, store: store) else { return store }
+
+        // --no-index-build: a compile would be required here (no swiftbuild store, no fresh
+        // dedicated store), but the caller forbade building — e.g. a portfolio sweep that must
+        // not rebuild every project. Signal "unavailable"; index checkers degrade to AST-only.
+        if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
+            throw Error.indexBuildSkipped
+        }
 
         // SAFETY: CLI tool creates its local index-build directory to host the lock file
         try FileManager.default.createDirectory(at: buildPath, withIntermediateDirectories: true)
