@@ -20,6 +20,15 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     /// Human-readable name shown in quality-gate output.
     public let name = "Recursion Auditor"
 
+    /// Cross-module recursion analysis depends on the whole source tree, so the result is
+    /// cacheable keyed by all Swift sources + manifests + config.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
+
     /// Creates a new recursion auditor.
     public init() {}
 

@@ -33,6 +33,15 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Concurrency Auditor"
 
+    /// Cross-module concurrency analysis depends on the whole source tree, so the result is
+    /// cacheable keyed by all Swift sources + manifests + config.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
+
     /// First-party module names (parsed from Package.swift). Empty in single-file mode.
     private let firstPartyModules: Set<String>
     /// Allowlist of modules that may use `@preconcurrency` even if first-party.

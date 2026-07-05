@@ -27,6 +27,15 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Documentation Coverage"
 
+    /// Cross-module doc-coverage analysis (inherited docs) depends on the whole source tree,
+    /// so the result is cacheable keyed by all Swift sources + manifests + config.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
+
     /// Creates a new DocCoverageChecker instance.
     public init() {}
 

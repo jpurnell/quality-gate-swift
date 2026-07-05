@@ -48,6 +48,12 @@ public enum CheckerFingerprint {
         return hexString(hasher.finalize())
     }
 
+    /// SHA-256 of arbitrary data, as a hex string. Used to fold a serialized config slice
+    /// into a cache salt (so a config change invalidates the cached result).
+    public static func digest(of data: Data) -> String {
+        hexString(SHA256.hash(data: data))
+    }
+
     /// SHA-256 of a file's contents, or a sentinel when the file is missing/unreadable
     /// (so deleting an input file changes the fingerprint).
     static func fileDigest(_ path: String) -> String {

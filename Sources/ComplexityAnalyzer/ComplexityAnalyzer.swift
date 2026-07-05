@@ -27,7 +27,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
             projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-            excludePatterns: configuration.excludePatterns
+            configuration: configuration
         )
     }
 

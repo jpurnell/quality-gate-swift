@@ -32,6 +32,15 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// Human-readable name for display.
     public let name = "Unreachable Code Auditor"
 
+    /// Cross-module dead-code analysis depends on the whole source tree, so the result is
+    /// cacheable keyed by all Swift sources + manifests + config.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
+
     /// Creates a new auditor.
     public init() {}
 
