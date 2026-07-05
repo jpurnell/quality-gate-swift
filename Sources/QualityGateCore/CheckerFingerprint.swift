@@ -1,5 +1,8 @@
 import Foundation
 import Crypto
+#if canImport(os)
+import os
+#endif
 
 /// The complete set of inputs a checker's result depends on.
 ///
@@ -31,6 +34,8 @@ public struct CacheInputs: Sendable, Equatable {
 /// cache relies on. A false pass is only possible if the declared inputs *omit* a real
 /// input, which is why callers bias to over-inclusion.
 public enum CheckerFingerprint {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "CheckerFingerprint")
 
     /// Returns a hex digest for `(checkerId, inputs, gateHash)`.
     public static func compute(checkerId: String, inputs: CacheInputs, gateHash: String) -> String {
@@ -75,11 +80,13 @@ public enum CheckerFingerprint {
         var hasher = SHA256()
         hasher.update(data: Data("qg-gate-identity-v2".utf8))
         // SAFETY: CLI tool reads its own executable's file attributes
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: executablePath) {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: executablePath)
             let size = (attributes[.size] as? Int) ?? 0
             let mtime = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
             hasher.update(data: Data("\(size)-\(mtime)".utf8))
-        } else {
+        } catch {
+            logger.warning("Could not read gate executable attributes at \(executablePath, privacy: .public); using sentinel identity: \(error.localizedDescription, privacy: .public)")
             hasher.update(data: Data("<no-executable>".utf8))
         }
         hasher.update(data: Data(toolchainVersion.utf8))

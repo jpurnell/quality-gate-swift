@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// Runs quality checkers concurrently with bounded parallelism, preserving order.
 ///
@@ -8,6 +11,8 @@ import Foundation
 /// the run loop performs no writes, the checkers can run concurrently. This collapses
 /// wall-time to roughly the slowest single checker without changing any check.
 public struct CheckerRunner: Sendable {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "CheckerRunner")
 
     /// Maximum number of checkers allowed to run at once.
     public let maxConcurrency: Int
@@ -66,6 +71,7 @@ public struct CheckerRunner: Sendable {
             do {
                 return try await checker.check(configuration: configuration)
             } catch {
+                Self.logger.error("Checker '\(checker.id, privacy: .public)' threw: \(error.localizedDescription, privacy: .public)")
                 onError(checker.id, error)
                 return CheckResult(
                     checkerId: checker.id,

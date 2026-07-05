@@ -1,9 +1,14 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 
 /// Builds the incremental-cache input set for a checker whose result depends on the whole
 /// Swift source tree — e.g. the cross-module index checkers, whose analysis spans every module.
 public enum SourceCacheInputs {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "SourceCacheInputs")
 
     /// All `.swift` files under `projectRoot` (honoring `excludePatterns`) plus the package
     /// manifests.
@@ -34,7 +39,11 @@ public enum SourceCacheInputs {
     static func configurationSalt(_ configuration: Configuration) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(configuration) else { return "" }
-        return CheckerFingerprint.digest(of: data)
+        do {
+            return CheckerFingerprint.digest(of: try encoder.encode(configuration))
+        } catch {
+            logger.warning("Could not encode configuration for cache salt; using empty salt (forces a cache miss): \(error.localizedDescription, privacy: .public)")
+            return ""
+        }
     }
 }

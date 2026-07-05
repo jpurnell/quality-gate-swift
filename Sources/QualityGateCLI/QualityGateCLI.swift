@@ -106,11 +106,14 @@ struct QualityGateCLI: AsyncParsableCommand {
     /// compiler change invalidates cached results. Returns "" on failure (still a stable key).
     private static func toolchainVersion() -> String {
         // SAFETY: subprocess with hardcoded `/usr/bin/env swift --version`
-        guard let result = try? ProcessRunner.run("/usr/bin/env", arguments: ["swift", "--version"]),
-              result.exitCode == 0 else {
+        do {
+            let result = try ProcessRunner.run("/usr/bin/env", arguments: ["swift", "--version"])
+            guard result.exitCode == 0 else { return "" }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            Self.logger.warning("Could not probe toolchain version for cache identity: \(error.localizedDescription, privacy: .public)")
             return ""
         }
-        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func run() async throws {

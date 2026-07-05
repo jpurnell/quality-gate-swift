@@ -395,13 +395,17 @@ public enum StoreLocator {
     /// Detects the active Swift compiler version via `swift --version`.
     private static func detectSwiftVersion() -> (major: Int, minor: Int)? {
         // SAFETY: subprocess with hardcoded `/usr/bin/env swift --version`
-        guard let result = try? ProcessRunner.run(
-            "/usr/bin/env",
-            arguments: ["swift", "--version"],
-            mergeStderr: true
-        ), result.exitCode == 0 else {
+        do {
+            let result = try ProcessRunner.run(
+                "/usr/bin/env",
+                arguments: ["swift", "--version"],
+                mergeStderr: true
+            )
+            guard result.exitCode == 0 else { return nil }
+            return parseSwiftVersion(fromVersionOutput: result.stdout)
+        } catch {
+            logger.warning("Could not probe swift version, assuming default build system: \(error.localizedDescription, privacy: .public)")
             return nil
         }
-        return parseSwiftVersion(fromVersionOutput: result.stdout)
     }
 }
