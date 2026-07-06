@@ -113,6 +113,14 @@ struct CrossModuleTests {
         #expect(!flagged(result, name: "zombieButLive"))
     }
 
+    @Test("Honors a trailing // LIVE: on an unused enum case")
+    func honorsTrailingLiveOnEnumCase() async throws {
+        let result = try await auditFixture()
+        // `deadButLiveCase` is never matched/constructed but is marked `// LIVE:`
+        // on its own declaration line — the exemption must be honored.
+        #expect(!flagged(result, name: "deadButLiveCase"))
+    }
+
     // The auto-build code path is exercised by every other test in this
     // suite (none of them pre-build the fixture), so a dedicated
     // delete-and-rebuild test would be redundant — and the SwiftPM

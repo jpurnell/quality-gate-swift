@@ -125,12 +125,19 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 throw SkipMarker.skipped
             }
             let located2 = storeInfo
-            if located2.isStale {
+            // A stale index reports symbols at their old line numbers; once source
+            // above them shifts (e.g. an added `#if canImport` guard), those lines
+            // no longer line up with the current file — `// LIVE:` markers are missed
+            // and live symbols look dead. Rather than fail the gate on unreliable
+            // data, skip the cross-module pass entirely (like a missing store) and
+            // point the user at a rebuild. The syntactic pass has already run.
+            guard Self.shouldRunCrossModule(located: located2) else {
                 diagnostics.append(Diagnostic(
                     severity: .note,
-                    message: "Index store at \(located2.url.path) is older than the newest source file — results may be out of date. Build the project in Xcode and re-run, or pass `--auto-build-xcode`.",
+                    message: "Index store at \(located2.url.path) is older than the newest source file — cross-module analysis skipped to avoid false positives from stale line numbers. Build the project in Xcode and re-run, or pass `--auto-build-xcode`.",
                     ruleId: "unreachable.cross_module.stale"
                 ))
+                throw SkipMarker.skipped
             }
             let dylib = try Self.locateLibIndexStore()
             let targetTypeByModule: [String: String]
@@ -175,6 +182,20 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     }
 
     private enum SkipMarker: Error { case skipped }
+
+    /// Whether the cross-module (index-backed) pass should run for a located store.
+    ///
+    /// A `nil` store means none was found; a stale store's recorded line numbers may
+    /// have drifted from the current source, making its reachability findings — and
+    /// the `// LIVE:` line matching that guards them — unreliable. In both cases the
+    /// cross-module pass is skipped so the gate never fails on data it can't trust.
+    ///
+    /// - Parameter located: The located index store, or `nil`.
+    /// - Returns: `true` only when a fresh store is present.
+    static func shouldRunCrossModule(located: StoreLocator.LocatedStore?) -> Bool {
+        guard let located else { return false }
+        return !located.isStale
+    }
 
     /// Build the Xcode project / workspace via `xcodebuild` and return a
     /// freshly-located index store. Used by the v5 `--auto-build-xcode`

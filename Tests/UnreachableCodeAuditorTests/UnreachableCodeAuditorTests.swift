@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import UnreachableCodeAuditor
 @testable import QualityGateCore
+@testable import IndexStoreInfra
 
 /// Tests for UnreachableCodeAuditor.
 ///
@@ -151,6 +152,20 @@ struct UnreachableCodeAuditorTests {
         """
         let result = try await audit(code)
         #expect(result.diagnostics.contains { $0.ruleId == "unreachable.unused_private" })
+    }
+
+    // MARK: - Stale-index gating
+
+    @Test("Runs cross-module only with a fresh store")
+    func crossModuleGating() {
+        let url = URL(fileURLWithPath: "/tmp/store")
+        #expect(UnreachableCodeAuditor.shouldRunCrossModule(located: nil) == false)
+        #expect(UnreachableCodeAuditor.shouldRunCrossModule(
+            located: StoreLocator.LocatedStore(url: url, isStale: false)) == true)
+        // A stale store's line numbers may have drifted from current source, so its
+        // cross-module findings are unreliable — skip rather than emit false positives.
+        #expect(UnreachableCodeAuditor.shouldRunCrossModule(
+            located: StoreLocator.LocatedStore(url: url, isStale: true)) == false)
     }
 
     // MARK: - Helpers
