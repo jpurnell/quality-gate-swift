@@ -329,7 +329,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // is folded into every key, so a gate rebuild or compiler change invalidates all entries.
         let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let gateHash = CheckerFingerprint.gateIdentityHash(
-            executablePath: CommandLine.arguments.first ?? "",
+            executablePath: CheckerFingerprint.runningExecutablePath(),
             toolchainVersion: Self.toolchainVersion()
         )
         let resultCache = ResultCache.standard(projectRoot: projectRoot)

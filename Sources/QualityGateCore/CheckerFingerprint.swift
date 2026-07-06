@@ -69,6 +69,22 @@ public enum CheckerFingerprint {
         return hexString(SHA256.hash(data: data))
     }
 
+    /// Absolute path of the running executable, robust to invocation by bare name via
+    /// `PATH`.
+    ///
+    /// When a user runs `quality-gate` (not `/usr/local/custom/bin/quality-gate`), the
+    /// shell sets `argv[0]` to just `"quality-gate"` — a relative name that
+    /// `FileManager.attributesOfItem` cannot stat, so `gateIdentityHash` would collapse
+    /// to its missing-file sentinel and never change when the binary is replaced (the
+    /// cache-not-invalidating-after-install bug). `Bundle.main.executablePath` resolves
+    /// the real path via the OS (`_NSGetExecutablePath` / `/proc/self/exe`); we fall back
+    /// to `argv[0]` only if that is unavailable.
+    ///
+    /// - Returns: The resolved executable path, or `argv[0]` as a last resort.
+    public static func runningExecutablePath() -> String {
+        Bundle.main.executablePath ?? CommandLine.arguments.first ?? ""
+    }
+
     /// A stable identity hash for the running gate: the executable's size + modification time
     /// plus the active toolchain version. Use as the `gateHash` argument so a gate rebuild
     /// **or** a compiler change invalidates every cached result — a checker can never serve a

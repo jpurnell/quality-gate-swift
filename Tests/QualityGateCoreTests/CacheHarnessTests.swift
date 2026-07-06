@@ -82,6 +82,52 @@ struct CheckerFingerprintTests {
     }
 }
 
+// MARK: - Gate identity (binary-change invalidation)
+
+@Suite("CheckerFingerprint: gate identity")
+struct GateIdentityTests {
+
+    @Test("runningExecutablePath resolves an existing absolute path")
+    func runningPathResolves() {
+        // Robust to bare-name PATH invocation: must be a real, stattable file — not
+        // the relative argv[0] a shell passes (e.g. just "quality-gate").
+        let path = CheckerFingerprint.runningExecutablePath()
+        #expect(path.hasPrefix("/"))
+        #expect(FileManager.default.fileExists(atPath: path))
+    }
+
+    @Test("Gate identity differs for binaries of different size")
+    func differsBySize() throws {
+        let dir = try makeTempDir()
+        let small = try writeFile("v1", in: dir, named: "gate-a")
+        let large = try writeFile(String(repeating: "x", count: 4096), in: dir, named: "gate-b")
+        let a = CheckerFingerprint.gateIdentityHash(executablePath: small, toolchainVersion: "tc")
+        let b = CheckerFingerprint.gateIdentityHash(executablePath: large, toolchainVersion: "tc")
+        #expect(a != b)
+    }
+
+    @Test("A real binary's identity differs from the missing-path sentinel")
+    func realDiffersFromSentinel() throws {
+        let dir = try makeTempDir()
+        let real = try writeFile("gate", in: dir, named: "gate-real")
+        let realHash = CheckerFingerprint.gateIdentityHash(executablePath: real, toolchainVersion: "tc")
+        let missingHash = CheckerFingerprint.gateIdentityHash(
+            executablePath: "/no/such/quality-gate", toolchainVersion: "tc")
+        // The bug: an unresolvable path collapses to the sentinel, so real binaries
+        // could never be distinguished from it (or from each other) — this guards it.
+        #expect(realHash != missingHash)
+    }
+
+    @Test("Toolchain change invalidates the gate identity")
+    func differsByToolchain() throws {
+        let dir = try makeTempDir()
+        let bin = try writeFile("gate", in: dir, named: "gate-tc")
+        let a = CheckerFingerprint.gateIdentityHash(executablePath: bin, toolchainVersion: "swift-6.3")
+        let b = CheckerFingerprint.gateIdentityHash(executablePath: bin, toolchainVersion: "swift-6.4")
+        #expect(a != b)
+    }
+}
+
 // MARK: - ResultCache
 
 @Suite("ResultCache")
