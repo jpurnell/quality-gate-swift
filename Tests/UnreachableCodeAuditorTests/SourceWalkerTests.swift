@@ -68,4 +68,12 @@ struct SourceWalkerTests {
         let files = SourceWalker.swiftFiles(under: root, excludePatterns: ["**/Generated/**"])
         #expect(names(files) == ["a.swift"])
     }
+
+    @Test("isExcluded matches vendor/glob patterns as substrings")
+    func isExcludedMatching() {
+        #expect(SourceWalker.isExcluded(path: "/x/polar-ble-sdk/Sources/A.swift", patterns: ["polar-ble-sdk"]))
+        #expect(SourceWalker.isExcluded(path: "/x/Generated/B.swift", patterns: ["**/Generated/**"]))
+        #expect(!SourceWalker.isExcluded(path: "/x/Sources/App/C.swift", patterns: ["polar-ble-sdk"]))
+        #expect(!SourceWalker.isExcluded(path: "/x/anything.swift", patterns: []))
+    }
 }

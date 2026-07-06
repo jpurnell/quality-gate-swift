@@ -117,4 +117,19 @@ struct CrossModuleTests {
     // suite (none of them pre-build the fixture), so a dedicated
     // delete-and-rebuild test would be redundant — and the SwiftPM
     // incremental cache makes it brittle to assert "this run rebuilt".
+
+    // MARK: - vendorPaths / excludePatterns filtering
+
+    @Test("Honors vendorPaths — drops cross-module findings in vendored files")
+    func honorsVendorPathsCrossModule() async throws {
+        let auditor = UnreachableCodeAuditor()
+        // Vendor the file that defines `deadInternal`.
+        let result = try await auditor.auditPackage(
+            at: Self.fixtureRoot,
+            configuration: Configuration(vendorPaths: ["Internals.swift"]))
+        // The vendored file's dead symbol is no longer reported...
+        #expect(!flagged(result, name: "deadInternal"))
+        // ...but dead symbols in non-vendored files still are.
+        #expect(flagged(result, name: "deadCase"))
+    }
 }

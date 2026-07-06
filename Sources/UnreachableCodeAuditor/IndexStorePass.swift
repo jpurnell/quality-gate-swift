@@ -301,6 +301,17 @@ struct IndexStorePass {
             ))
         }
 
+        // Drop findings in excluded / vendored files. The reachability loop above
+        // iterates every indexed symbol, including those defined in vendored trees
+        // that the file walk already skips — so filter emitted diagnostics with the
+        // same substring rule. File-less diagnostics (notes) are always kept.
+        if !inputs.excludePatterns.isEmpty {
+            diagnostics = diagnostics.filter { diag in
+                guard let path = diag.filePath else { return true }
+                return !SourceWalker.isExcluded(path: path, patterns: inputs.excludePatterns)
+            }
+        }
+
         // Stable order — useful for golden output and human review.
         diagnostics.sort { lhs, rhs in
             if (lhs.filePath ?? "") != (rhs.filePath ?? "") { return (lhs.filePath ?? "") < (rhs.filePath ?? "") }

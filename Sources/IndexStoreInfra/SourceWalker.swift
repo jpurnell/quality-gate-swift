@@ -52,6 +52,20 @@ public enum SourceWalker {
     }
 
     private static func shouldExclude(path: String, patterns: [String]) -> Bool {
+        isExcluded(path: path, patterns: patterns)
+    }
+
+    /// Whether `path` matches any of `patterns` under the walker's substring rule.
+    ///
+    /// Glob markers (`**/`, `/**`, `*`) are stripped and the remainder is matched
+    /// as a substring of `path`. Shared so index-backed passes filter emitted
+    /// diagnostics with exactly the same semantics the file walk uses to skip files.
+    ///
+    /// - Parameters:
+    ///   - path: An absolute file path to test.
+    ///   - patterns: Exclude / vendor patterns (empty never matches).
+    /// - Returns: `true` when any non-empty stripped pattern is a substring of `path`.
+    public static func isExcluded(path: String, patterns: [String]) -> Bool {
         for pattern in patterns {
             let stripped = pattern
                 .replacingOccurrences(of: "**/", with: "")
