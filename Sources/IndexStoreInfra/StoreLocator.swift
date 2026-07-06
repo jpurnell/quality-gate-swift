@@ -337,6 +337,7 @@ public enum StoreLocator {
         let units = store.appendingPathComponent("v5/units")
         let fm = FileManager.default
         // Must exist and be a non-empty index-while-building store.
+        // silent: an absent .build/out (native toolchains, or before the first index-while-build) is the expected no-store case, signaled to the caller by returning nil to trigger the dedicated index-build fallback.
         guard let entries = try? fm.contentsOfDirectory(atPath: units.path), !entries.isEmpty else {
             return nil
         }
