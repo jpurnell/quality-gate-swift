@@ -104,6 +104,10 @@ let package = Package(
             targets: ["StochasticDeterminismAuditor"]
         ),
         .library(
+            name: "TemporalDeterminismAuditor",
+            targets: ["TemporalDeterminismAuditor"]
+        ),
+        .library(
             name: "MemoryLifecycleGuard",
             targets: ["MemoryLifecycleGuard"]
         ),
@@ -505,6 +509,20 @@ let package = Package(
         ),
 
         .target(
+            name: "TemporalDeterminismAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            exclude: ["TemporalDeterminismAuditor.docc"]
+        ),
+        .testTarget(
+            name: "TemporalDeterminismAuditorTests",
+            dependencies: ["TemporalDeterminismAuditor"]
+        ),
+
+        .target(
             name: "MemoryLifecycleGuard",
             dependencies: [
                 "QualityGateCore",
@@ -743,6 +761,7 @@ let package = Package(
                 "ReleaseReadinessAuditor",
                 "FloatingPointSafetyAuditor",
                 "StochasticDeterminismAuditor",
+                "TemporalDeterminismAuditor",
                 "MemoryLifecycleGuard",
                 "MCPReadinessAuditor",
                 "ProcessSafetyAuditor",

@@ -667,6 +667,64 @@ extension StochasticDeterminismConfig: Codable {
     }
 }
 
+/// Configuration for the ``TemporalDeterminismAuditor``.
+///
+/// Controls detection of hidden nondeterminism from wall-clock time — the
+/// temporal analog of stochastic (randomness) determinism.
+public struct TemporalDeterminismConfig: Sendable, Equatable {
+    /// Type names (or substrings) exempt from the simulated-source rule.
+    public let exemptTypes: [String]
+
+    /// Function names exempt from the wall-clock-assertion rule.
+    public let exemptFunctions: [String]
+
+    /// File path substrings exempt from all temporal checks.
+    public let exemptFiles: [String]
+
+    /// Whether to flag wall-clock reads stamped as timestamps inside
+    /// simulation/synthetic/mock types (`temporal-simulated-wall-clock`).
+    public let flagSimulatedWallClock: Bool
+
+    /// Whether to flag assertions on measured wall-clock elapsed time in tests
+    /// (`temporal-wall-clock-assertion`).
+    public let flagWallClockAssertion: Bool
+
+    /// Creates a temporal determinism configuration with the given options.
+    public init(
+        exemptTypes: [String] = [],
+        exemptFunctions: [String] = [],
+        exemptFiles: [String] = [],
+        flagSimulatedWallClock: Bool = true,
+        flagWallClockAssertion: Bool = true
+    ) {
+        self.exemptTypes = exemptTypes
+        self.exemptFunctions = exemptFunctions
+        self.exemptFiles = exemptFiles
+        self.flagSimulatedWallClock = flagSimulatedWallClock
+        self.flagWallClockAssertion = flagWallClockAssertion
+    }
+
+    /// Default temporal determinism configuration.
+    public static let `default` = TemporalDeterminismConfig()
+}
+
+extension TemporalDeterminismConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case exemptTypes, exemptFunctions, exemptFiles, flagSimulatedWallClock, flagWallClockAssertion
+    }
+
+    /// Creates a temporal determinism configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = TemporalDeterminismConfig.default
+        exemptTypes = try container.decodeIfPresent([String].self, forKey: .exemptTypes) ?? defaults.exemptTypes
+        exemptFunctions = try container.decodeIfPresent([String].self, forKey: .exemptFunctions) ?? defaults.exemptFunctions
+        exemptFiles = try container.decodeIfPresent([String].self, forKey: .exemptFiles) ?? defaults.exemptFiles
+        flagSimulatedWallClock = try container.decodeIfPresent(Bool.self, forKey: .flagSimulatedWallClock) ?? defaults.flagSimulatedWallClock
+        flagWallClockAssertion = try container.decodeIfPresent(Bool.self, forKey: .flagWallClockAssertion) ?? defaults.flagWallClockAssertion
+    }
+}
+
 /// Per-checker configuration for MemoryLifecycleGuard.
 public struct MemoryLifecycleConfig: Sendable, Equatable {
     /// Property name patterns that indicate delegate/parent references.
@@ -1292,6 +1350,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for StochasticDeterminismAuditor.
     public let stochasticDeterminism: StochasticDeterminismConfig
 
+    /// Configuration for the temporal determinism auditor.
+    public let temporalDeterminism: TemporalDeterminismConfig
+
     /// Per-checker configuration for MemoryLifecycleGuard.
     public let memoryLifecycle: MemoryLifecycleConfig
 
@@ -1349,6 +1410,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         releaseReadiness: ReleaseReadinessAuditorConfig = .default,
         fpSafety: FloatingPointSafetyAuditorConfig = .default,
         stochasticDeterminism: StochasticDeterminismConfig = .default,
+        temporalDeterminism: TemporalDeterminismConfig = .default,
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
         appIntentsReadiness: AppIntentsReadinessConfig = .default,
@@ -1384,6 +1446,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.releaseReadiness = releaseReadiness
         self.fpSafety = fpSafety
         self.stochasticDeterminism = stochasticDeterminism
+        self.temporalDeterminism = temporalDeterminism
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
         self.appIntentsReadiness = appIntentsReadiness
@@ -1480,6 +1543,7 @@ extension Configuration {
         case releaseReadiness
         case fpSafety
         case stochasticDeterminism
+        case temporalDeterminism
         case memoryLifecycle
         case mcpReadiness
         case appIntentsReadiness
@@ -1520,6 +1584,7 @@ extension Configuration {
         releaseReadiness = try container.decodeIfPresent(ReleaseReadinessAuditorConfig.self, forKey: .releaseReadiness) ?? .default
         fpSafety = try container.decodeIfPresent(FloatingPointSafetyAuditorConfig.self, forKey: .fpSafety) ?? .default
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
+        temporalDeterminism = try container.decodeIfPresent(TemporalDeterminismConfig.self, forKey: .temporalDeterminism) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
         appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default

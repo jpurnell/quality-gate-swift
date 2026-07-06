@@ -27,6 +27,7 @@ import SubmoduleAuditor
 import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
 import StochasticDeterminismAuditor
+import TemporalDeterminismAuditor
 import MCPReadinessAuditor
 import ProcessSafetyAuditor
 import MemoryLifecycleGuard
@@ -274,6 +275,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             ReleaseReadinessAuditor(),
             FloatingPointSafetyAuditor(),
             StochasticDeterminismAuditor(),
+            TemporalDeterminismAuditor(),
             MemoryLifecycleGuard(),
             MCPReadinessAuditor(),
             ProcessSafetyAuditor(),

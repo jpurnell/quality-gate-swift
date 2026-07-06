@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-29 checkers. 1,662 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
+30 checkers. 1,677 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
@@ -86,6 +86,7 @@ quality-gate --check status --bootstrap
 |----|--------|-------------|
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
+| `temporal-determinism` | TemporalDeterminismAuditor | Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time |
 | `hig-auditor` | HIGAuditor | Apple Human Interface Guidelines compliance for SwiftUI views |
 
 ### Code Hygiene
