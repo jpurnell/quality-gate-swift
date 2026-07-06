@@ -667,7 +667,7 @@ extension StochasticDeterminismConfig: Codable {
     }
 }
 
-/// Configuration for the ``TemporalDeterminismAuditor``.
+/// Configuration for the `TemporalDeterminismAuditor`.
 ///
 /// Controls detection of hidden nondeterminism from wall-clock time — the
 /// temporal analog of stochastic (randomness) determinism.

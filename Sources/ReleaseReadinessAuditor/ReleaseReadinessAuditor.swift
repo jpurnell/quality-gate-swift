@@ -292,12 +292,23 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
 
     // MARK: - Version / Tag Parity
 
-    /// Normalizes a version string by trimming whitespace and stripping a leading `v`/`V`.
+    /// Normalizes a version string by trimming whitespace, stripping a monorepo
+    /// `Project@` tag prefix, and stripping a leading `v`/`V`.
     ///
-    /// - Parameter raw: A version or tag string such as `"v1.2.0"` or `" 1.0.0 "`.
+    /// Handles the monorepo tag convention (`IconquerApp@v0.1.0`) alongside plain
+    /// (`v1.2.0`) and bare (`1.0.0`) forms so all three normalize to the same bare
+    /// semver — the CHANGELOG parser already extracts a bare semver, so the tag
+    /// side must reduce to one too for parity to match.
+    ///
+    /// - Parameter raw: A version or tag string such as `"IconquerApp@v0.1.0"`,
+    ///   `"v1.2.0"`, or `" 1.0.0 "`.
     /// - Returns: The bare semver string, e.g. `"1.2.0"`.
     static func normalizeVersion(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Drop a monorepo scope prefix like `Project@` (keep only what follows the last `@`).
+        if let lastAt = trimmed.lastIndex(of: "@") {
+            trimmed = String(trimmed[trimmed.index(after: lastAt)...])
+        }
         if trimmed.hasPrefix("v") || trimmed.hasPrefix("V") {
             return String(trimmed.dropFirst())
         }

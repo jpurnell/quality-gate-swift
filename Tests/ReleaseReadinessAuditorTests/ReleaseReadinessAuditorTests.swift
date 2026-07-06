@@ -412,6 +412,26 @@ struct NormalizeVersionTests {
     func trimsWhitespace() {
         #expect(ReleaseReadinessAuditor.normalizeVersion("  v1.0.0  ") == "1.0.0")
     }
+
+    @Test("Strips a monorepo Project@v prefix")
+    func stripsProjectPrefixWithV() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("IconquerApp@v0.1.0") == "0.1.0")
+    }
+
+    @Test("Strips a monorepo Project@ prefix without a v")
+    func stripsProjectPrefixWithoutV() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("IconquerMCP@0.2.0") == "0.2.0")
+    }
+
+    @Test("Strips only up to the last @ when a scope contains one")
+    func stripsToLastAt() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("scope@pkg@v3.4.5") == "3.4.5")
+    }
+
+    @Test("Trims whitespace around a prefixed tag")
+    func trimsPrefixedWhitespace() {
+        #expect(ReleaseReadinessAuditor.normalizeVersion("  IconquerGameKit@v0.1.0  ") == "0.1.0")
+    }
 }
 
 // MARK: - Latest Changelog Version Parsing
@@ -507,6 +527,24 @@ struct VersionTagParityTests {
         let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
             latestChangelogVersion: "2.0.1",
             tags: ["2.0.1"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Matches a monorepo Project@v tag against a bare changelog version")
+    func matchesMonorepoPrefixedTag() {
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: "0.1.0",
+            tags: ["IconquerApp@v0.1.0"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Matches the right prefixed tag among a mix of conventions")
+    func matchesPrefixedTagAmongMix() {
+        let diagnostics = ReleaseReadinessAuditor.checkVersionTagParity(
+            latestChangelogVersion: "0.2.0",
+            tags: ["v0.1.0", "IconquerMCP@v0.2.0"]
         )
         #expect(diagnostics.isEmpty)
     }

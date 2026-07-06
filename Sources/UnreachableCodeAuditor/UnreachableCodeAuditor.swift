@@ -81,10 +81,15 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
 
         let kind = ProjectKind.detect(at: root)
 
+        // Vendored third-party trees the project does not own are excluded from
+        // both passes: `vendorPaths` entries are treated as additional excludes
+        // so declaring code as vendored keeps it out of every unreachable finding.
+        let effectiveExcludes = configuration.excludePatterns + configuration.vendorPaths
+
         // Syntactic pass — works regardless of project kind.
         let swiftFiles = SourceWalker.swiftFiles(
             under: kind.rootURL,
-            excludePatterns: configuration.excludePatterns)
+            excludePatterns: effectiveExcludes)
         for file in swiftFiles {
             let src: String
             do {
@@ -142,7 +147,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             }
             let inputs = IndexStorePass.Inputs(
                 rootURL: kind.rootURL,
-                excludePatterns: configuration.excludePatterns,
+                excludePatterns: effectiveExcludes,
                 indexStorePath: located2.url,
                 libIndexStoreDylib: dylib,
                 targetTypeByModule: targetTypeByModule

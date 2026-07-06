@@ -50,6 +50,9 @@ public struct CheckerRunner: Sendable {
     ///   - configuration: The gate configuration passed to each checker.
     ///   - strict: When `true`, a `.warning` result counts as failing for early-exit.
     ///   - continueOnFailure: When `false`, stop after the first failing result.
+    ///   - cache: Optional result cache consulted when `useCache` is `true`; `nil` disables caching.
+    ///   - gateHash: Identity hash of the gate build, mixed into each cache fingerprint so a gate rebuild invalidates stale entries.
+    ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged checker inputs.
     ///   - transform: Applied to each result before judging pass/fail (e.g. override application).
     ///   - onError: Invoked with the checker id and error when a checker throws (for logging).
     /// - Returns: The results in checker order.
