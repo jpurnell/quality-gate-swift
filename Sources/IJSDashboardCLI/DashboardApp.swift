@@ -328,10 +328,6 @@ public enum DashboardApp: Sendable {
             return .enter
         case .escape:
             return .escape
-        case .tab:
-            return .tab
-        case .backtab:
-            return .backtab
         case .pageUp:
             return .pageUp
         case .pageDown:

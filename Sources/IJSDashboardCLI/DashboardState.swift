@@ -23,11 +23,21 @@ public enum SortKey: Sendable, Equatable, CaseIterable {
 }
 
 /// Tabs available in the project detail view.
+///
+/// The former Overview, Trends, and Status tabs are consolidated into a single
+/// scrollable ``DetailTab/summary`` page; ``DetailTab/checkers`` (a long list)
+/// stays on its own tab.
 public enum DetailTab: Int, Sendable, Equatable, CaseIterable {
-    case overview = 0
+    case summary = 0
     case checkers
-    case trends
-    case status
+
+    /// The label shown for this tab in the detail-view tab bar.
+    var label: String {
+        switch self {
+        case .summary: return "Summary"
+        case .checkers: return "Checkers"
+        }
+    }
 }
 
 /// A request to override a project's tier, produced by the Status tab picker.
@@ -46,8 +56,6 @@ public enum DashboardInput: Sendable {
     case arrowRight
     case enter
     case escape
-    case tab
-    case backtab
     case quit
     case pageUp
     case pageDown
@@ -65,7 +73,7 @@ public struct DashboardState: Sendable {
     /// Index of the selected project in the portfolio list.
     public private(set) var selectedIndex: Int = 0
     /// Which tab is active in the project detail view.
-    public private(set) var selectedTab: DetailTab = .overview
+    public private(set) var selectedTab: DetailTab = .summary
     /// Whether the user has requested to exit.
     public private(set) var shouldQuit: Bool = false
     /// Vertical scroll offset for content that exceeds terminal height.
@@ -247,7 +255,7 @@ public struct DashboardState: Sendable {
             case .project:
                 returnView = .portfolio
                 currentView = .projectDetail
-                selectedTab = .overview
+                selectedTab = .summary
                 scrollOffset = 0
             }
         case .quit, .escape:
@@ -268,7 +276,7 @@ public struct DashboardState: Sendable {
                 case .project:
                     returnView = .portfolio
                     currentView = .projectDetail
-                    selectedTab = .overview
+                    selectedTab = .summary
                     scrollOffset = 0
                 }
             }
@@ -310,26 +318,22 @@ public struct DashboardState: Sendable {
     }
 
     private mutating func handleDetailInput(_ input: DashboardInput) {
-        if selectedTab == .status && tierPickerActive {
+        // The tier picker only lives on the summary tab, so it owns all input
+        // whenever it is active.
+        if tierPickerActive {
             handleTierPickerInput(input)
             return
         }
         switch input {
-        case .tab:
-            let allTabs = DetailTab.allCases
-            let nextRaw = (selectedTab.rawValue + 1) % allTabs.count
-            selectedTab = allTabs[nextRaw]
-            scrollOffset = 0
-        case .backtab:
-            let allTabs = DetailTab.allCases
-            let prevRaw = (selectedTab.rawValue - 1 + allTabs.count) % allTabs.count
-            selectedTab = allTabs[prevRaw]
-            scrollOffset = 0
+        case .arrowRight:
+            switchTab(by: 1)
+        case .arrowLeft:
+            switchTab(by: -1)
         case .escape, .quit:
             currentView = returnView
             scrollOffset = 0
         case .enter:
-            if selectedTab == .status {
+            if selectedTab == .summary {
                 tierPickerActive = true
             }
         case .arrowDown:
@@ -344,9 +348,25 @@ public struct DashboardState: Sendable {
             scrollOffset += terminalHeight / 2
         case .pageUp:
             scrollOffset = max(0, scrollOffset - terminalHeight / 2)
+        case .click(let row, let column):
+            if let tab = DetailTabBar.tab(atRow: row, column: column, scrollOffset: scrollOffset) {
+                selectedTab = tab
+                scrollOffset = 0
+            }
         default:
             break
         }
+    }
+
+    /// Moves the active tab by `delta`, clamped to the tab range (no wrap), and
+    /// resets the scroll offset when the tab actually changes.
+    private mutating func switchTab(by delta: Int) {
+        let allTabs = DetailTab.allCases
+        let targetIndex = min(max(selectedTab.rawValue + delta, 0), allTabs.count - 1)
+        let target = allTabs[targetIndex]
+        guard target != selectedTab else { return }
+        selectedTab = target
+        scrollOffset = 0
     }
 
     private mutating func handleTierPickerInput(_ input: DashboardInput) {
@@ -393,7 +413,7 @@ public struct DashboardState: Sendable {
             }
             returnView = .groupDetail
             currentView = .projectDetail
-            selectedTab = .overview
+            selectedTab = .summary
             scrollOffset = 0
         case .escape, .quit:
             currentView = .portfolio

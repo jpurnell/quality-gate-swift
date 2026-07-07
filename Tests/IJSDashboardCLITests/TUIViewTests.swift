@@ -127,7 +127,7 @@ struct TUIViewTests {
         )
         var state = DashboardState(projectIDs: ["test"])
         state.handleInput(.enter)
-        state.handleInput(.tab)
+        state.handleInput(.arrowRight)
         #expect(state.selectedTab == .checkers)
 
         let output = ProjectDetailTUIView.render(
@@ -141,15 +141,13 @@ struct TUIViewTests {
         #expect(output.contains("build"))
     }
 
-    @Test("Detail trends tab shows sparkline")
-    func detailTrendsTab() {
+    @Test("Summary tab shows the trend sparkline section")
+    func summaryTabShowsTrends() {
         let summary = makeProjectSummary(id: "test", passRate: 1.0)
         let trends = makeTrends()
         var state = DashboardState(projectIDs: ["test"])
         state.handleInput(.enter)
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .trends)
+        #expect(state.selectedTab == .summary)
 
         let output = ProjectDetailTUIView.render(
             project: summary,
@@ -161,7 +159,45 @@ struct TUIViewTests {
         #expect(output.contains("Pass Rate Trend"))
     }
 
-    @Test("Detail view shows tab indicators")
+    @Test("Summary tab stacks summary, trends, and status sections in one frame")
+    func summaryTabStacksSections() {
+        let summary = makeProjectSummary(id: "test", passRate: 0.9)
+        var state = DashboardState(projectIDs: ["test"])
+        state.handleInput(.enter)
+
+        let output = ProjectDetailTUIView.render(
+            project: summary,
+            trends: makeTrends(),
+            runs: [],
+            state: state,
+            width: 80
+        )
+        #expect(output.contains("Summary"))
+        #expect(output.contains("Pass Rate Trend"))
+        #expect(output.contains("Tier:"))
+        #expect(output.contains("Override Tier:"))
+    }
+
+    @Test("Tab bar renders on the hit-tested bar line")
+    func tabBarOnExpectedLine() {
+        let summary = makeProjectSummary(id: "test", passRate: 1.0)
+        var state = DashboardState(projectIDs: ["test"])
+        state.handleInput(.enter)
+        let output = ProjectDetailTUIView.render(
+            project: summary,
+            trends: [],
+            runs: [],
+            state: state,
+            width: 80
+        )
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        #expect(lines.count > DetailTabBar.barLineIndex)
+        let barLine = lines[DetailTabBar.barLineIndex]
+        #expect(barLine.contains("Summary"))
+        #expect(barLine.contains("Checkers"))
+    }
+
+    @Test("Detail tab bar shows exactly Summary and Checkers")
     func detailTabIndicators() {
         let summary = makeProjectSummary(id: "test", passRate: 1.0)
         var state = DashboardState(projectIDs: ["test"])
@@ -174,9 +210,10 @@ struct TUIViewTests {
             state: state,
             width: 80
         )
-        #expect(output.contains("Overview"))
+        #expect(output.contains("Summary"))
         #expect(output.contains("Checkers"))
-        #expect(output.contains("Trends"))
+        // The former standalone tabs are gone from the tab bar.
+        #expect(!output.contains("Overview"))
     }
     // MARK: - Sunset Lifecycle
 
@@ -384,7 +421,7 @@ struct TUIViewTests {
         )
         var state = DashboardState(projectIDs: ["overflow-test"])
         state.handleInput(.enter)
-        state.handleInput(.tab)
+        state.handleInput(.arrowRight)
 
         let output = ProjectDetailTUIView.render(
             project: summary,
@@ -410,7 +447,7 @@ struct TUIViewTests {
         )
         var state = DashboardState(projectIDs: ["width-test"])
         state.handleInput(.enter)
-        state.handleInput(.tab)
+        state.handleInput(.arrowRight)
 
         let width = 80
         let output = ProjectDetailTUIView.render(
@@ -482,10 +519,10 @@ struct TUIViewTests {
         #expect(state.selectedProjectID == "beta")
         #expect(state.currentView == .projectDetail)
     }
-    // MARK: - Status Tab
+    // MARK: - Status Section (within Summary tab)
 
-    @Test("Detail view shows Status tab in tab bar")
-    func statusTabInTabBar() {
+    @Test("Summary tab renders the Status section title")
+    func statusSectionTitle() {
         let project = makeProjectSummary(id: "test", passRate: 0.8)
         var state = DashboardState(projectIDs: ["test"])
         state.handleInput(.enter)
@@ -499,15 +536,11 @@ struct TUIViewTests {
         #expect(output.contains("Status"))
     }
 
-    @Test("Status tab renders current tier and quality score labels")
-    func statusTabRendersContent() {
+    @Test("Summary tab renders tier and quality score labels without navigation")
+    func statusSectionRendersContent() {
         let project = makeProjectSummary(id: "test", passRate: 0.8)
         var state = DashboardState(projectIDs: ["test"])
-        state.handleInput(.enter)
-        // Navigate to status tab
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.tab)
+        state.handleInput(.enter) // summary tab shows the status section directly
         let output = ProjectDetailTUIView.render(
             project: project,
             trends: makeTrends(),

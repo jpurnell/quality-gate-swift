@@ -27,19 +27,20 @@ public enum ProjectDetailTUIView: Sendable {
         buf.appendLine(DashboardChrome.sectionRule(width: width))
 
         switch state.selectedTab {
-        case .overview:
+        case .summary:
+            // Overview, Trends, and Status are stacked as titled sections on one
+            // scrollable page. The Summary stats need no title of their own — the
+            // active tab is already labeled "Summary".
             renderOverview(into: &buf, project: project, width: width)
+            renderTrends(into: &buf, trends: trends, width: width)
+            renderStatus(into: &buf, project: project, state: state, width: width, pulse: pulse, manifest: manifest)
         case .checkers:
             renderCheckers(into: &buf, project: project, runs: runs, width: width)
-        case .trends:
-            renderTrends(into: &buf, trends: trends, width: width)
-        case .status:
-            renderStatus(into: &buf, project: project, state: state, width: width, pulse: pulse, manifest: manifest)
         }
 
         buf.appendLine(DashboardChrome.sectionRule(width: width))
 
-        let helpLine = ANSICodes.dim + "  Tab/Shift-Tab Switch tabs  Esc Back  q Quit" + ANSICodes.reset
+        let helpLine = ANSICodes.dim + "  \u{2190}/\u{2192} Switch tabs  \u{2191}/\u{2193} Scroll  Esc Back  q Quit" + ANSICodes.reset
         buf.appendLine(helpLine)
 
         return buf.raw
@@ -48,19 +49,15 @@ public enum ProjectDetailTUIView: Sendable {
     // MARK: - Tab Bar
 
     private static func renderTabBar(into buf: inout ScreenBuffer, selectedTab: DetailTab, width: Int) {
-        let tabs: [(DetailTab, String)] = [
-            (.overview, "Overview"),
-            (.checkers, "Checkers"),
-            (.trends, "Trends"),
-            (.status, "Status"),
-        ]
-
-        var tabLine = "  "
-        for (tab, label) in tabs {
+        // Indent and gap mirror ``DetailTabBar`` so the drawn labels line up with
+        // the clickable column ranges computed by ``DetailTabBar/regions()``.
+        let gap = String(repeating: " ", count: DetailTabBar.gap)
+        var tabLine = String(repeating: " ", count: DetailTabBar.indent)
+        for tab in DetailTab.allCases {
             if tab == selectedTab {
-                tabLine += ANSICodes.bold + ANSICodes.underline + label + ANSICodes.reset + "  "
+                tabLine += ANSICodes.bold + ANSICodes.underline + tab.label + ANSICodes.reset + gap
             } else {
-                tabLine += ANSICodes.dim + label + ANSICodes.reset + "  "
+                tabLine += ANSICodes.dim + tab.label + ANSICodes.reset + gap
             }
         }
         buf.appendLine(boxRow(tabLine, width: width))
@@ -138,6 +135,7 @@ public enum ProjectDetailTUIView: Sendable {
     // MARK: - Trends Tab
 
     private static func renderTrends(into buf: inout ScreenBuffer, trends: [TrendPoint], width: Int) {
+        buf.appendLine(DashboardChrome.titleRule("Trends", width: width))
         buf.appendLine(boxRow("", width: width))
         if trends.isEmpty {
             buf.appendLine(boxRow("  No trend data available.", width: width))
@@ -184,6 +182,7 @@ public enum ProjectDetailTUIView: Sendable {
         pulse: InstitutionalPulse?,
         manifest: CorpusManifest
     ) {
+        buf.appendLine(DashboardChrome.titleRule("Status", width: width))
         buf.appendLine(boxRow("", width: width))
 
         let manifestOverride = manifest.projects[project.projectID]?.tierOverride

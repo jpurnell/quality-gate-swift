@@ -97,28 +97,32 @@ struct DashboardStateTests {
 
     // MARK: - Tab Navigation
 
-    @Test("Tab cycles through detail tabs")
-    func tabCycle() {
-        var state = DashboardState(projectIDs: ["alpha"])
-        state.handleInput(.enter)
-        #expect(state.selectedTab == .overview)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .checkers)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .trends)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .status)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .overview)
+    @Test("Detail view has exactly two tabs: summary and checkers")
+    func detailTabCases() {
+        #expect(DetailTab.allCases == [.summary, .checkers])
     }
 
-    @Test("Backtab cycles tabs backwards")
-    func backtabCycle() {
+    @Test("Right arrow moves to the next tab and clamps at the last")
+    func arrowRightSwitchesTabClamped() {
         var state = DashboardState(projectIDs: ["alpha"])
         state.handleInput(.enter)
-        #expect(state.selectedTab == .overview)
-        state.handleInput(.backtab)
-        #expect(state.selectedTab == .status)
+        #expect(state.selectedTab == .summary)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedTab == .checkers)
+        state.handleInput(.arrowRight) // clamps — no wrap
+        #expect(state.selectedTab == .checkers)
+    }
+
+    @Test("Left arrow moves to the previous tab and clamps at the first")
+    func arrowLeftSwitchesTabClamped() {
+        var state = DashboardState(projectIDs: ["alpha"])
+        state.handleInput(.enter)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedTab == .checkers)
+        state.handleInput(.arrowLeft)
+        #expect(state.selectedTab == .summary)
+        state.handleInput(.arrowLeft) // clamps — no wrap
+        #expect(state.selectedTab == .summary)
     }
 
     // MARK: - Scroll
@@ -183,7 +187,7 @@ struct DashboardStateTests {
         state.handleInput(.arrowDown)
         state.handleInput(.arrowDown)
         #expect(state.scrollOffset == 2)
-        state.handleInput(.tab)
+        state.handleInput(.arrowRight)
         #expect(state.scrollOffset == 0)
     }
 
@@ -467,43 +471,44 @@ struct DashboardStateTests {
         #expect(state.selectedGroupID == nil)
     }
 
-    // MARK: - Status Tab + Tier Picker
+    // MARK: - Tier Picker (Summary tab)
 
-    @Test("Tab cycles through 4 tabs including status")
-    func tabCyclesIncludingStatus() {
-        var state = DashboardState(projectIDs: ["a"])
-        state.handleInput(.enter) // go to projectDetail
-        #expect(state.selectedTab == .overview)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .checkers)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .trends)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .status)
-        state.handleInput(.tab)
-        #expect(state.selectedTab == .overview)
-    }
-
-    @Test("Enter on status tab activates tier picker")
+    @Test("Enter on the summary tab activates the tier picker")
     func enterActivatesTierPicker() {
         var state = DashboardState(projectIDs: ["a"])
-        state.handleInput(.enter) // go to projectDetail
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.tab) // now on status tab
-        #expect(state.selectedTab == .status)
+        state.handleInput(.enter) // go to projectDetail (summary tab)
+        #expect(state.selectedTab == .summary)
         #expect(!state.tierPickerActive)
         state.handleInput(.enter)
         #expect(state.tierPickerActive)
     }
 
+    @Test("Enter on the checkers tab does not activate the tier picker")
+    func enterOnCheckersNoPicker() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter)
+        state.handleInput(.arrowRight) // checkers
+        #expect(state.selectedTab == .checkers)
+        state.handleInput(.enter)
+        #expect(!state.tierPickerActive)
+    }
+
+    @Test("Arrow keys do not switch tabs while the tier picker is active")
+    func arrowsDoNotSwitchTabWhilePicking() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter) // summary
+        state.handleInput(.enter) // activate picker
+        #expect(state.tierPickerActive)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedTab == .summary)
+        state.handleInput(.arrowLeft)
+        #expect(state.selectedTab == .summary)
+    }
+
     @Test("Tier picker navigates with arrow keys")
     func tierPickerNavigation() {
         var state = DashboardState(projectIDs: ["a"])
-        state.handleInput(.enter) // projectDetail
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.tab) // status
+        state.handleInput(.enter) // summary
         state.handleInput(.enter) // activate picker
         #expect(state.tierPickerIndex == 0)
         state.handleInput(.arrowDown)
@@ -517,10 +522,7 @@ struct DashboardStateTests {
     @Test("Tier picker confirm sets pendingTierOverride")
     func tierPickerConfirm() {
         var state = DashboardState(projectIDs: ["a"])
-        state.handleInput(.enter) // projectDetail
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.tab) // status
+        state.handleInput(.enter) // summary
         state.handleInput(.enter) // activate picker
         state.handleInput(.arrowDown)
         state.handleInput(.arrowDown)
@@ -534,10 +536,7 @@ struct DashboardStateTests {
     @Test("Tier picker escape cancels without setting override")
     func tierPickerEscapeCancels() {
         var state = DashboardState(projectIDs: ["a"])
-        state.handleInput(.enter)
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.tab)
+        state.handleInput(.enter) // summary
         state.handleInput(.enter) // activate picker
         state.handleInput(.arrowDown)
         state.handleInput(.escape) // cancel
@@ -548,14 +547,58 @@ struct DashboardStateTests {
     @Test("clearPendingTierOverride resets to nil")
     func clearPendingTierOverride() {
         var state = DashboardState(projectIDs: ["a"])
-        state.handleInput(.enter)
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.tab)
-        state.handleInput(.enter)
+        state.handleInput(.enter) // summary
+        state.handleInput(.enter) // activate picker
         state.handleInput(.enter) // confirm with default tier (dormant, index 0)
         #expect(state.pendingTierOverride?.tier == .dormant)
         state.clearPendingTierOverride()
         #expect(state.pendingTierOverride == nil)
+    }
+
+    // MARK: - Clickable Tabs
+
+    @Test("Click on the Checkers tab label activates the checkers tab")
+    func clickActivatesCheckersTab() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter) // summary
+        // Tab bar renders on render-line index 2 → screen row 3 at scrollOffset 0.
+        // "Summary" occupies cols 3–9; "Checkers" begins after a 2-col gap at col 12.
+        let checkers = DetailTabBar.regions().first { $0.tab == .checkers }
+        let col = checkers?.columns.lowerBound ?? 12
+        state.handleInput(.click(row: DetailTabBar.barLineIndex + 1, column: col))
+        #expect(state.selectedTab == .checkers)
+    }
+
+    @Test("Click on the Summary tab label returns to the summary tab")
+    func clickActivatesSummaryTab() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter)
+        state.handleInput(.arrowRight) // checkers
+        #expect(state.selectedTab == .checkers)
+        let summary = DetailTabBar.regions().first { $0.tab == .summary }
+        let col = summary?.columns.lowerBound ?? 3
+        state.handleInput(.click(row: DetailTabBar.barLineIndex + 1, column: col))
+        #expect(state.selectedTab == .summary)
+    }
+
+    @Test("Click off the tab-bar line leaves the tab unchanged")
+    func clickOffTabBarLine() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter)
+        state.handleInput(.click(row: DetailTabBar.barLineIndex + 5, column: 5))
+        #expect(state.selectedTab == .summary)
+    }
+
+    @Test("Tab click hit-testing accounts for scroll offset")
+    func clickTabWithScrollOffset() {
+        var state = DashboardState(projectIDs: ["a"])
+        state.handleInput(.enter)
+        state.handleInput(.arrowDown) // scrollOffset == 1
+        #expect(state.scrollOffset == 1)
+        // With the frame scrolled up by 1, the tab bar now sits one screen row higher.
+        let checkers = DetailTabBar.regions().first { $0.tab == .checkers }
+        let col = checkers?.columns.lowerBound ?? 12
+        state.handleInput(.click(row: DetailTabBar.barLineIndex, column: col))
+        #expect(state.selectedTab == .checkers)
     }
 }
