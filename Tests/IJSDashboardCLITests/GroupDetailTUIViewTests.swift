@@ -113,6 +113,25 @@ struct GroupDetailTUIViewTests {
         #expect(output.contains("No trend data"))
     }
 
+    @Test("Long member names are middle-elided, keeping head and suffix")
+    func longMemberNameElided() {
+        let projects = [makeProjectSummary(id: "BioFeedbackKitCore", passRate: 0.8)]
+        var state = DashboardState(projectIDs: ["BioFeedbackKitCore"])
+        state.updateGroups(["Harbor": ["BioFeedbackKitCore"]])
+        let output = GroupDetailTUIView.render(
+            groupID: "Harbor",
+            memberProjects: projects,
+            groupSnapshots: nil,
+            pulse: nil,
+            state: state,
+            width: 60 // nameWidth 16 < 18-char name → must elide
+        )
+        #expect(output.contains("\u{2026}"))            // middle ellipsis
+        #expect(output.contains("Bio"))                 // head preserved
+        #expect(output.contains("Core"))                // identity-bearing suffix preserved
+        #expect(!output.contains("BioFeedbackKitCore")) // full name does not fit verbatim
+    }
+
     // MARK: - Member table columns
 
     @Test("Member table header lists the new columns")

@@ -106,7 +106,10 @@ public enum GroupDetailTUIView: Sendable {
         width: Int
     ) {
         let passed = project.latestPassed
-        let namePad = ljust(project.projectID, nameWidth)
+        // Middle-elide like the portfolio list so both the head and the
+        // identity-bearing suffix survive in tight columns (HarborKit -> Ha…Kit).
+        let namePad = ANSIStringMetrics.elideMiddle(project.projectID, to: nameWidth)
+            .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
         let stPlain = ljust(passed ? "ok" : "!!", 2)
         let passTxt = rjust(formatPercent(project.passRate), 5)
         let runsTxt = rjust("\(project.runCount)", 5)
