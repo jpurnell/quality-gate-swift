@@ -471,6 +471,73 @@ struct DashboardStateTests {
         #expect(state.selectedGroupID == nil)
     }
 
+    // MARK: - Group Detail drill-in (collapsed group; blank-window regression)
+
+    @Test("Enter on a group member opens that project's detail (group stays collapsed)")
+    func groupEnterDrillsIntoMember() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.enter) // group G → groupDetail, member index 0
+        #expect(state.currentView == .groupDetail)
+        #expect(!state.expandedGroups.contains("G")) // collapsed — reproduces the old blank bug
+        state.handleInput(.enter) // drill into member "a"
+        #expect(state.currentView == .projectDetail)
+        #expect(state.detailProjectID == "a")
+    }
+
+    @Test("Right arrow in group detail opens the selected member's detail")
+    func groupRightArrowDrillsIn() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.enter) // groupDetail
+        state.handleInput(.arrowDown) // member index 1 → "b"
+        state.handleInput(.arrowRight) // drill into "b"
+        #expect(state.currentView == .projectDetail)
+        #expect(state.detailProjectID == "b")
+    }
+
+    @Test("Left arrow in group detail backs out to the portfolio")
+    func groupLeftArrowBacksOut() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.enter) // groupDetail
+        state.handleInput(.arrowLeft)
+        #expect(state.currentView == .portfolio)
+    }
+
+    @Test("Group member drill-in respects the view's projectID sort order")
+    func groupDrillInMatchesViewOrder() {
+        // Portfolio order is reversed vs. the alphabetical order the view shows.
+        var state = DashboardState(projectIDs: ["b", "a"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.enter) // groupDetail, member index 0
+        state.handleInput(.enter) // should open the FIRST alphabetical member, "a"
+        #expect(state.detailProjectID == "a")
+    }
+
+    @Test("Click on a group member row selects and drills in")
+    func groupClickDrillsIn() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.enter) // groupDetail
+        // First member row renders at groupDetailHeaderLines (0-based) → screen row +1.
+        state.handleInput(.click(row: state.groupDetailHeaderLines + 2, column: 5))
+        #expect(state.selectedGroupMemberIndex == 1) // second member row
+        #expect(state.currentView == .projectDetail)
+        #expect(state.detailProjectID == "b")
+    }
+
+    @Test("Tier override from a group-drilled project targets that project")
+    func groupDrillInTierOverride() {
+        var state = DashboardState(projectIDs: ["a", "b"])
+        state.updateGroups(["G": ["a", "b"]])
+        state.handleInput(.enter) // groupDetail
+        state.handleInput(.enter) // drill into "a" (summary tab)
+        state.handleInput(.enter) // activate tier picker
+        state.handleInput(.enter) // confirm default tier (dormant, index 0)
+        #expect(state.pendingTierOverride?.projectID == "a")
+    }
+
     // MARK: - Tier Picker (Summary tab)
 
     @Test("Enter on the summary tab activates the tier picker")

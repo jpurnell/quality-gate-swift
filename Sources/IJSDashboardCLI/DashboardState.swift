@@ -74,6 +74,13 @@ public struct DashboardState: Sendable {
     public private(set) var selectedIndex: Int = 0
     /// Which tab is active in the project detail view.
     public private(set) var selectedTab: DetailTab = .summary
+    /// The project shown in the project-detail view, set on every drill-in.
+    ///
+    /// Decouples the detail subject from `selectedIndex`: drilling into a group
+    /// member (whose row may not exist in the portfolio's `visibleRows` while the
+    /// group is collapsed) sets this directly, so the detail view always resolves
+    /// a project instead of rendering a blank frame.
+    public private(set) var detailProjectID: String?
     /// Whether the user has requested to exit.
     public private(set) var shouldQuit: Bool = false
     /// Vertical scroll offset for content that exceeds terminal height.
@@ -252,7 +259,8 @@ public struct DashboardState: Sendable {
                 currentView = .groupDetail
                 selectedGroupMemberIndex = 0
                 scrollOffset = 0
-            case .project:
+            case .project(let projectID):
+                detailProjectID = projectID
                 returnView = .portfolio
                 currentView = .projectDetail
                 selectedTab = .summary
@@ -273,7 +281,8 @@ public struct DashboardState: Sendable {
                     currentView = .groupDetail
                     selectedGroupMemberIndex = 0
                     scrollOffset = 0
-                case .project:
+                case .project(let projectID):
+                    detailProjectID = projectID
                     returnView = .portfolio
                     currentView = .projectDetail
                     selectedTab = .summary
@@ -377,7 +386,7 @@ public struct DashboardState: Sendable {
         case .arrowUp:
             tierPickerIndex = max(tierPickerIndex - 1, 0)
         case .enter:
-            if let projectID = selectedProjectID {
+            if let projectID = detailProjectID ?? selectedProjectID {
                 pendingTierOverride = TierOverrideRequest(
                     projectID: projectID,
                     tier: allTiers[tierPickerIndex]
@@ -396,8 +405,10 @@ public struct DashboardState: Sendable {
             currentView = .portfolio
             return
         }
+        // Order members to match the group detail view, which lists them sorted
+        // by projectID; the portfolio sort order must not desync the selection.
         let memberIDs = groups[groupID] ?? []
-        let activeMembers = projectIDs.filter { memberIDs.contains($0) }
+        let activeMembers = projectIDs.filter { memberIDs.contains($0) }.sorted()
 
         switch input {
         case .arrowDown:
@@ -405,19 +416,19 @@ public struct DashboardState: Sendable {
             selectedGroupMemberIndex = min(selectedGroupMemberIndex + 1, activeMembers.count - 1)
         case .arrowUp:
             selectedGroupMemberIndex = max(selectedGroupMemberIndex - 1, 0)
-        case .enter:
-            guard !activeMembers.isEmpty, selectedGroupMemberIndex < activeMembers.count else { return }
-            let memberID = activeMembers[selectedGroupMemberIndex]
-            if let projectIndex = visibleRows.firstIndex(of: .project(projectID: memberID)) {
-                selectedIndex = projectIndex
-            }
-            returnView = .groupDetail
-            currentView = .projectDetail
-            selectedTab = .summary
+        case .enter, .arrowRight:
+            drillIntoGroupMember(activeMembers)
+        case .arrowLeft:
+            currentView = .portfolio
             scrollOffset = 0
         case .escape, .quit:
             currentView = .portfolio
             scrollOffset = 0
+        case .click(let row, _):
+            let memberIndex = row - groupDetailHeaderLines - 1 + scrollOffset
+            guard memberIndex >= 0, memberIndex < activeMembers.count else { return }
+            selectedGroupMemberIndex = memberIndex
+            drillIntoGroupMember(activeMembers)
         case .scrollDown:
             scrollOffset += 3
         case .scrollUp:
@@ -429,6 +440,18 @@ public struct DashboardState: Sendable {
         default:
             break
         }
+    }
+
+    /// Opens the selected group member's project detail without moving
+    /// `selectedIndex` (which must stay on the group row so returning to the
+    /// group detail still resolves `selectedGroupID`).
+    private mutating func drillIntoGroupMember(_ activeMembers: [String]) {
+        guard !activeMembers.isEmpty, selectedGroupMemberIndex < activeMembers.count else { return }
+        detailProjectID = activeMembers[selectedGroupMemberIndex]
+        returnView = .groupDetail
+        currentView = .projectDetail
+        selectedTab = .summary
+        scrollOffset = 0
     }
 
     /// Updates the group definitions from the manifest.
@@ -494,4 +517,11 @@ public struct DashboardState: Sendable {
     /// title rule, blank, status line, (compact pulse line, only when a pulse is
     /// loaded), blank, column header, section rule — so 7 with a pulse, 6 without.
     var portfolioHeaderLines: Int { hasPulseHeader ? 7 : 6 }
+
+    /// Number of chrome lines rendered above the first member row in the group
+    /// detail view. Mirrors ``GroupDetailTUIView/render(groupID:memberProjects:groupSnapshots:pulse:state:width:manifest:)``:
+    /// title rule, blank, stats line, blank, section rule, column header, section
+    /// rule — so the first member row is at line 7. `tabBarOnExpectedLine`'s
+    /// group analog (`firstMemberRowLine`) guards this alignment.
+    var groupDetailHeaderLines: Int { 7 }
 }

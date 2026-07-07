@@ -126,10 +126,11 @@ public enum DashboardApp: Sendable {
                             groupSnapshots: snapshots,
                             pulse: currentPulse,
                             state: state,
-                            width: cols
+                            width: cols,
+                            manifest: currentManifest
                         )
                     case .projectDetail:
-                        guard let projectID = state.selectedProjectID,
+                        guard let projectID = state.detailProjectID ?? state.selectedProjectID,
                               let project = sortedProjects.first(where: { $0.projectID == projectID }) else {
                             frame = ""
                             break
