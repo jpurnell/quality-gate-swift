@@ -240,7 +240,11 @@ let package = Package(
 
         .target(
             name: "TestRunner",
-            dependencies: ["QualityGateCore"],
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
             exclude: ["TestRunner.docc"]
         ),
         .testTarget(

@@ -81,7 +81,105 @@ public struct TestRunner: QualityChecker, Sendable {
             )
         }
 
+        // Deliberate stress runs of timing-tagged tests (per-release / nightly).
+        if configuration.stress.runs > 1 {
+            result = await runStress(
+                on: result,
+                projectRoot: projectRoot,
+                configuration: configuration,
+                startTime: startTime
+            )
+        }
+
         return result
+    }
+
+    /// Re-runs the `// TIMING:`-tagged tests `stress.runs` times (optionally under CPU
+    /// contention) and folds any intra-batch flip into `result`. A test that is not
+    /// unanimous across the identical runs is a definitive race. No tagged tests → a
+    /// `.note`, no runs. Best-effort: a failed stress invocation never crashes the gate.
+    private func runStress(
+        on result: CheckResult,
+        projectRoot: String,
+        configuration: Configuration,
+        startTime: ContinuousClock.Instant
+    ) async -> CheckResult {
+        let stress = configuration.stress
+        let tagged = Self.timingTests(projectRoot: projectRoot, marker: stress.marker)
+        guard !tagged.isEmpty else {
+            let note = Diagnostic(
+                severity: .note,
+                message: "stress mode: no '\(stress.marker)' tagged tests found — nothing to stress",
+                ruleId: "test.stress-empty"
+            )
+            return withAppended([note], to: result, startTime: startTime)
+        }
+
+        // One `--filter <name>` per tagged test (swift test ORs multiple filters).
+        var filterArgs: [String] = []
+        for name in tagged { filterArgs.append(contentsOf: ["--filter", name]) }
+
+        var rosters: [[TestOutcome]] = []
+        await Self.withCPUContention(enabled: stress.contention) {
+            for _ in 0..<stress.runs {
+                // silent: a failed stress invocation is best-effort; skip that run's roster
+                guard let (output, _) = try? await self.runSwiftTest(arguments: ["--parallel"] + filterArgs) else { continue }
+                rosters.append(Self.parseTestRoster(output))
+            }
+        }
+
+        let flips = Self.stressFlips(rosters: rosters)
+        let diagnostics = Self.stressDiagnostics(for: flips, runs: stress.runs, strict: stress.strict)
+        guard !diagnostics.isEmpty else { return result }
+        return withAppended(diagnostics, to: result, startTime: startTime)
+    }
+
+    /// Appends `extra` to `result`, recomputing status to `.failed` if any error was added.
+    private func withAppended(_ extra: [Diagnostic], to result: CheckResult, startTime: ContinuousClock.Instant) -> CheckResult {
+        let merged = result.diagnostics + extra
+        let status: CheckResult.Status = merged.contains { $0.severity == .error } ? .failed : result.status
+        return CheckResult(
+            checkerId: result.checkerId,
+            status: status,
+            diagnostics: merged,
+            duration: ContinuousClock.now - startTime
+        )
+    }
+
+    /// Unions the `// TIMING:`-tagged test names across every `.swift` file under `Tests/`.
+    static func timingTests(projectRoot: String, marker: String) -> [String] {
+        let testsDir = (projectRoot as NSString).appendingPathComponent("Tests")
+        guard let enumerator = FileManager.default.enumerator(atPath: testsDir) else { return [] }
+        var names: [String] = []
+        var seen: Set<String> = []
+        while let rel = enumerator.nextObject() as? String {
+            guard rel.hasSuffix(".swift") else { continue }
+            let path = (testsDir as NSString).appendingPathComponent(rel)
+            // silent: an unreadable test file is skipped; stress scan is best-effort
+            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            for name in TimingTestScanner.timingTests(in: source, marker: marker) where !seen.contains(name) {
+                seen.insert(name)
+                names.append(name)
+            }
+        }
+        return names
+    }
+
+    /// Runs `body` under best-effort background CPU load sized to `cores − 1`, torn down
+    /// on exit. A no-op when `enabled` is false.
+    static func withCPUContention(enabled: Bool, _ body: () async -> Void) async {
+        guard enabled else { await body(); return }
+        let flag = ContentionFlag()
+        let count = max(1, ProcessInfo.processInfo.activeProcessorCount - 1)
+        for _ in 0..<count {
+            let thread = Thread {
+                while !flag.isStopped { _ = (0..<10_000).reduce(0, +) }
+            }
+            thread.stackSize = 64 * 1024
+            thread.start()
+        }
+        defer { flag.stop() }
+        await body()
     }
 
     /// Persists this run's roster and folds any scheduler-dependent flips into `result`.
@@ -364,6 +462,84 @@ public struct TestRunner: QualityChecker, Sendable {
         return (flipDiagnostics(for: flips, strict: strict), current)
     }
 
+    /// A test that did not return the same outcome across every run of a stress batch —
+    /// a definitive race, since all runs share the same commit and source.
+    public struct StressFlip: Sendable, Equatable {
+        /// Enclosing suite/class name.
+        public let suite: String
+        /// Test display name.
+        public let test: String
+        /// How many of the runs passed.
+        public let passes: Int
+        /// How many of the runs failed.
+        public let failures: Int
+
+        /// Creates a stress flip.
+        public init(suite: String, test: String, passes: Int, failures: Int) {
+            self.suite = suite
+            self.test = test
+            self.passes = passes
+            self.failures = failures
+        }
+    }
+
+    /// Finds tests that were not unanimous across a batch of identical stress runs.
+    ///
+    /// A stress flip needs both a pass and a fail for the same test across the rosters —
+    /// a uniformly failing (or passing) test is not a flip. Requires ≥2 rosters.
+    ///
+    /// - Parameter rosters: One roster per stress repetition.
+    /// - Returns: The flipping tests with their pass/fail tallies, in first-seen order.
+    public static func stressFlips(rosters: [[TestOutcome]]) -> [StressFlip] {
+        guard rosters.count >= 2 else { return [] }
+
+        var order: [String] = []
+        var passes: [String: Int] = [:]
+        var failures: [String: Int] = [:]
+        var meta: [String: (suite: String, test: String)] = [:]
+
+        for roster in rosters {
+            for outcome in roster {
+                let key = outcome.key
+                if meta[key] == nil {
+                    meta[key] = (outcome.suite, outcome.test)
+                    order.append(key)
+                }
+                if outcome.passed { passes[key, default: 0] += 1 } else { failures[key, default: 0] += 1 }
+            }
+        }
+
+        return order.compactMap { key in
+            let p = passes[key] ?? 0
+            let f = failures[key] ?? 0
+            guard p > 0 && f > 0, let info = meta[key] else { return nil }
+            return StressFlip(suite: info.suite, test: info.test, passes: p, failures: f)
+        }
+    }
+
+    /// Builds diagnostics for intra-batch stress flips.
+    ///
+    /// Framed as a *definitive* race (same commit, same source, N identical runs), which
+    /// is a stronger signal than a cross-commit flip. Severity is `.warning` by default,
+    /// `.error` under `strict`.
+    ///
+    /// - Parameters:
+    ///   - flips: The flips from ``stressFlips(rosters:)``.
+    ///   - runs: The number of stress repetitions (surfaced in the message).
+    ///   - strict: When true, emit `.error` instead of `.warning`.
+    /// - Returns: One diagnostic per flip.
+    public static func stressDiagnostics(for flips: [StressFlip], runs: Int, strict: Bool) -> [Diagnostic] {
+        flips.map { flip in
+            let scope = flip.suite.isEmpty ? flip.test : "\(flip.suite).\(flip.test)"
+            return Diagnostic(
+                severity: strict ? .error : .warning,
+                message: "definitive race: '\(scope)' was not unanimous across \(runs) identical stress runs (\(flip.passes) passed / \(flip.failures) failed) — same commit, same source",
+                ruleId: "test.stress-flip",
+                suggestedFix: "The test's outcome depends on scheduling, not inputs. Fix the timing window (teardown liveness, reconnect budget, or phase sync) it exercises."
+            )
+        }
+    }
+
     /// Parse test summary from output.
     ///
     /// Extracts total test count and failure count from the test run summary line.
@@ -498,5 +674,26 @@ public struct TestRunner: QualityChecker, Sendable {
         let combinedOutput = result.stdout + "\n" + result.stderr
 
         return (combinedOutput, result.exitCode)
+    }
+}
+
+/// Thread-safe stop flag for the best-effort CPU-contention harness.
+// Justification: a single Bool guarded by NSLock for cross-thread stop signaling; no data race is possible.
+private final class ContentionFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+
+    /// Whether the harness has been asked to stop.
+    var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    /// Signals every contention thread to exit.
+    func stop() {
+        lock.lock()
+        stopped = true
+        lock.unlock()
     }
 }

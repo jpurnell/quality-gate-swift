@@ -17,7 +17,7 @@ public struct TestOutcome: Sendable, Equatable, Codable {
     }
 
     /// Suite-scoped identity used to match a test across runs.
-    var key: String { "\(suite)\u{001F}\(test)" }
+    public var key: String { "\(suite)\u{001F}\(test)" }
 }
 
 /// A recorded test run: the full roster plus the inputs that gate a flip.

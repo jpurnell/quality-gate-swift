@@ -765,6 +765,53 @@ public struct FlipDetectorConfig: Sendable, Equatable, Codable {
     }
 }
 
+/// Configuration for deliberate stress runs of timing-tagged tests (within TestRunner).
+///
+/// Tests carrying the `marker` comment (default `// TIMING:`) are self-identifying
+/// stress candidates — teardown-liveness bounds, reconnect budgets, phase-sync. When
+/// `runs > 1`, TestRunner re-runs *only* those tests `runs` times (optionally under a
+/// CPU-contention harness) to compress the scheduler window; any test that does not
+/// return the same outcome across all runs is a definitive race. Meant for
+/// per-release / nightly cadence, not per-commit — `runs == 1` is a no-op.
+public struct StressTestConfig: Sendable, Equatable, Codable {
+    /// Number of times to re-run each timing-tagged test. `1` disables stress mode.
+    public let runs: Int
+
+    /// Whether to run the repetitions under background CPU contention (best-effort).
+    public let contention: Bool
+
+    /// When true, an intra-batch flip is an `.error` instead of a `.warning`.
+    public let strict: Bool
+
+    /// Comment marker that identifies a timing-sensitive test.
+    public let marker: String
+
+    /// Creates a stress-test configuration with the given options.
+    public init(runs: Int = 1, contention: Bool = false, strict: Bool = false, marker: String = "// TIMING:") {
+        self.runs = runs
+        self.contention = contention
+        self.strict = strict
+        self.marker = marker
+    }
+
+    /// Default stress-test configuration (disabled).
+    public static let `default` = StressTestConfig()
+
+    private enum CodingKeys: String, CodingKey {
+        case runs, contention, strict, marker
+    }
+
+    /// Creates a stress-test configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = StressTestConfig.default
+        runs = try container.decodeIfPresent(Int.self, forKey: .runs) ?? defaults.runs
+        contention = try container.decodeIfPresent(Bool.self, forKey: .contention) ?? defaults.contention
+        strict = try container.decodeIfPresent(Bool.self, forKey: .strict) ?? defaults.strict
+        marker = try container.decodeIfPresent(String.self, forKey: .marker) ?? defaults.marker
+    }
+}
+
 /// Per-checker configuration for MemoryLifecycleGuard.
 public struct MemoryLifecycleConfig: Sendable, Equatable {
     /// Property name patterns that indicate delegate/parent references.
@@ -1396,6 +1443,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Configuration for the test-outcome flip detector (within TestRunner).
     public let flipDetector: FlipDetectorConfig
 
+    /// Configuration for deliberate stress runs of timing-tagged tests (within TestRunner).
+    public let stress: StressTestConfig
+
     /// Per-checker configuration for MemoryLifecycleGuard.
     public let memoryLifecycle: MemoryLifecycleConfig
 
@@ -1455,6 +1505,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         stochasticDeterminism: StochasticDeterminismConfig = .default,
         temporalDeterminism: TemporalDeterminismConfig = .default,
         flipDetector: FlipDetectorConfig = .default,
+        stress: StressTestConfig = .default,
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
         appIntentsReadiness: AppIntentsReadinessConfig = .default,
@@ -1492,6 +1543,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.stochasticDeterminism = stochasticDeterminism
         self.temporalDeterminism = temporalDeterminism
         self.flipDetector = flipDetector
+        self.stress = stress
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
         self.appIntentsReadiness = appIntentsReadiness
@@ -1590,6 +1642,7 @@ extension Configuration {
         case stochasticDeterminism
         case temporalDeterminism
         case flipDetector
+        case stress
         case memoryLifecycle
         case mcpReadiness
         case appIntentsReadiness
@@ -1632,6 +1685,7 @@ extension Configuration {
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
         temporalDeterminism = try container.decodeIfPresent(TemporalDeterminismConfig.self, forKey: .temporalDeterminism) ?? .default
         flipDetector = try container.decodeIfPresent(FlipDetectorConfig.self, forKey: .flipDetector) ?? .default
+        stress = try container.decodeIfPresent(StressTestConfig.self, forKey: .stress) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
         appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default

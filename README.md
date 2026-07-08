@@ -110,7 +110,7 @@ quality-gate --check status --bootstrap
 | ID | Module | Description |
 |----|--------|-------------|
 | `build` | BuildChecker | `swift build` wrapper — captures all compiler errors and warnings |
-| `test` | TestRunner | `swift test` wrapper — parses Swift Testing and XCTest results; flip detector flags scheduler-dependent pass↔fail outcome changes on an unchanged package |
+| `test` | TestRunner | `swift test` wrapper — parses Swift Testing and XCTest results; flip detector flags scheduler-dependent pass↔fail outcome changes on an unchanged package; optional stress mode re-runs `// TIMING:`-tagged tests to provoke races |
 | `status` | StatusAuditor | Drift between project docs and actual code state; supports `--fix` |
 | `dependency-audit` | DependencyAuditor | Package.resolved sync, branch pins, local overrides, hallucinated import detection via AST-parsed manifests |
 | `release-readiness` | ReleaseReadinessAuditor | CHANGELOG entries, README placeholders, pending-work markers |
