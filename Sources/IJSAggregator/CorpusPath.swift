@@ -30,6 +30,14 @@ public struct CorpusPath: Sendable, Equatable {
         "\(projectDirectory)/\(Self.dayFormatter.string(from: date))"
     }
 
+    /// Work-log artifact path: `<projectDirectory>/work-log.json`
+    ///
+    /// One file per project (not per-day): the append-mostly stream of
+    /// work-events joining metrics to the human work behind them.
+    public var workLogPath: String {
+        "\(projectDirectory)/work-log.json"
+    }
+
     /// Metadata artifact path: `<dailyDir>/<HHmmss>_metadata.json`
     public func metadataPath(for timestamp: Date) -> String {
         "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_metadata.json"

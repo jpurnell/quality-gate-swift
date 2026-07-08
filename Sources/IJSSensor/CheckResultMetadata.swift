@@ -82,6 +82,8 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
     public let consistencyScore: Double?
     /// Total compliance annotations verified across all checkers (not overrides).
     public let complianceCount: Int
+    /// Git commit SHA the gate ran against; the join key linking metrics to work-events. Nil if not a git repo.
+    public let commitSHA: String?
 
     /// Creates a new check result metadata record.
     /// - Parameters:
@@ -95,6 +97,7 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
     ///   - ethicalFlags: Ethical risk signals.
     ///   - consistencyScore: Institutional consistency score, if available.
     ///   - complianceCount: Total compliance annotations verified.
+    ///   - commitSHA: Git commit SHA the gate ran against; the join key linking metrics to work-events. Nil if not a git repo.
     public init(
         projectID: String,
         timestamp: Date,
@@ -105,7 +108,8 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
         riskTier: RiskTier,
         ethicalFlags: [EthicalFlag],
         consistencyScore: Double?,
-        complianceCount: Int = 0
+        complianceCount: Int = 0,
+        commitSHA: String? = nil
     ) {
         self.projectID = projectID
         self.timestamp = timestamp
@@ -117,9 +121,10 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
         self.ethicalFlags = ethicalFlags
         self.consistencyScore = consistencyScore
         self.complianceCount = complianceCount
+        self.commitSHA = commitSHA
     }
 
-    /// Decodes a ``CheckResultMetadata`` from an external representation, defaulting `complianceCount` to `0` when absent.
+    /// Decodes a ``CheckResultMetadata`` from an external representation, defaulting `complianceCount` to `0` and `commitSHA` to `nil` when absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projectID = try container.decode(String.self, forKey: .projectID)
@@ -132,5 +137,6 @@ public struct CheckResultMetadata: Sendable, Codable, Equatable {
         ethicalFlags = try container.decode([EthicalFlag].self, forKey: .ethicalFlags)
         consistencyScore = try container.decodeIfPresent(Double.self, forKey: .consistencyScore)
         complianceCount = try container.decodeIfPresent(Int.self, forKey: .complianceCount) ?? 0
+        commitSHA = try container.decodeIfPresent(String.self, forKey: .commitSHA)
     }
 }

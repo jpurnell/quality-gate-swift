@@ -84,4 +84,10 @@ struct CorpusPathTests {
         let path: any Sendable = CorpusPath(basePath: "/test", projectID: "test")
         #expect(path is CorpusPath)
     }
+
+    @Test("workLogPath is one file per project under projectDirectory")
+    func workLogPath() {
+        let cp = CorpusPath(basePath: Self.basePath, projectID: Self.projectID)
+        #expect(cp.workLogPath == "/tmp/test-corpus/telemetry/quality-gate-swift/work-log.json")
+    }
 }
