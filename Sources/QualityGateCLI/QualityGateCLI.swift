@@ -465,6 +465,20 @@ struct QualityGateCLI: AsyncParsableCommand {
             }
 
             let runTimestamp = Date()
+
+            // Capture git provenance so metric snapshots can be joined to the
+            // human work behind them. Best-effort: a provenance failure must
+            // never fail the gate.
+            let gatedProjectDir = FileManager.default.currentDirectoryPath
+            let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
+            let writer = TelemetryWriter()
+            let lastRecordedSHA = (try? await writer.readWorkLog(from: corpus))?
+                .last(where: { $0.commitSHA != nil })?.commitSHA
+            let provenance = GitProvenance.capture(
+                repoPath: gatedProjectDir,
+                sinceSHA: lastRecordedSHA
+            )
+
             let metadata = CheckResultMetadata(
                 projectID: projectID,
                 timestamp: runTimestamp,
@@ -475,7 +489,8 @@ struct QualityGateCLI: AsyncParsableCommand {
                 riskTier: riskTier,
                 ethicalFlags: [],
                 consistencyScore: consistencyScore,
-                complianceCount: complianceCount
+                complianceCount: complianceCount,
+                commitSHA: provenance.headSHA
             )
 
             let calibrations = CalibrationClassifier.classify(
@@ -486,9 +501,22 @@ struct QualityGateCLI: AsyncParsableCommand {
                 timestamp: runTimestamp
             )
 
+            // Record the work-event that produced this run's metrics. Idempotent
+            // by (day, SHA). Best-effort: never fail the gate on a write issue.
+            let workEvent = WorkEvent(
+                date: runTimestamp,
+                commitSHA: provenance.headSHA,
+                commitSubjects: provenance.subjects,
+                changelogDelta: provenance.changelogDelta,
+                sessionSummary: provenance.sessionSummary
+            )
             do {
-                let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
-                let writer = TelemetryWriter()
+                try await writer.writeWorkEvent(workEvent, to: corpus)
+            } catch {
+                Self.logger.warning("Work-log write failed: \(error.localizedDescription, privacy: .public)")
+            }
+
+            do {
                 try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
 
                 if configuration.complexity.emitToCorpus {
