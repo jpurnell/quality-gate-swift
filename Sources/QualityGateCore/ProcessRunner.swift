@@ -28,12 +28,17 @@ public enum ProcessRunner: Sendable {
     ///   - executablePath: Absolute path to the executable.
     ///   - arguments: Command-line arguments.
     ///   - currentDirectory: Working directory (nil for inherited).
+    ///   - environment: Full environment for the child (nil inherits the parent's).
+    ///     Pass an explicit environment to isolate a child from inherited state —
+    ///     e.g. scrubbing `GIT_*` vars so a `git` subprocess ignores an ambient
+    ///     repository set by a git hook.
     ///   - mergeStderr: If true, stderr is merged into stdout.
     /// - Returns: The captured output and exit code.
     public static func run(
         _ executablePath: String,
         arguments: [String] = [],
         currentDirectory: String? = nil,
+        environment: [String: String]? = nil,
         mergeStderr: Bool = false
     ) throws -> Output {
         let process = Process() // SAFETY: callers pass hardcoded executable paths
@@ -41,6 +46,9 @@ public enum ProcessRunner: Sendable {
         process.arguments = arguments
         if let dir = currentDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: dir)
+        }
+        if let environment {
+            process.environment = environment
         }
 
         let stdoutPipe = Pipe()

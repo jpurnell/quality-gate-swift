@@ -270,4 +270,65 @@ struct CheckResultMetadataTests {
         let json = String(data: data, encoding: .utf8) ?? ""
         #expect(json.contains("2026-"))
     }
+
+    @Test("Old JSON lacking commitSHA decodes with commitSHA == nil")
+    func backwardCompatibleCommitSHA() throws {
+        // Simulate legacy metadata JSON written before commitSHA existed by
+        // encoding a real value (which HAS a commitSHA) and stripping the key.
+        let meta = CheckResultMetadata(
+            projectID: "BusinessMath-Lib",
+            timestamp: Date(timeIntervalSince1970: 1_777_536_311),
+            environment: .ci,
+            decisionOwner: "j_doe_senior_dev",
+            results: [CheckResultIntegrationTests.sample],
+            overrides: [],
+            riskTier: .safety,
+            ethicalFlags: [],
+            consistencyScore: 0.5,
+            complianceCount: 0,
+            commitSHA: "should-be-stripped"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(meta)
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object.removeValue(forKey: "commitSHA")
+        #expect(object["commitSHA"] == nil)
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(CheckResultMetadata.self, from: legacyData)
+        #expect(decoded.commitSHA == nil)
+        #expect(decoded.projectID == "BusinessMath-Lib")
+    }
+
+    @Test("Round-trip preserves a set commitSHA")
+    func commitSHARoundTrip() throws {
+        let meta = CheckResultMetadata(
+            projectID: "Test",
+            timestamp: Date(timeIntervalSince1970: 0),
+            environment: .local,
+            decisionOwner: "tester",
+            results: [],
+            overrides: [],
+            riskTier: .operational,
+            ethicalFlags: [],
+            consistencyScore: nil,
+            complianceCount: 0,
+            commitSHA: "abc123def456"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let data = try encoder.encode(meta)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains("\"commitSHA\""))
+        let decoded = try decoder.decode(CheckResultMetadata.self, from: data)
+        #expect(decoded.commitSHA == "abc123def456")
+        #expect(decoded == meta)
+    }
 }

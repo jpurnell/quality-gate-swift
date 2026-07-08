@@ -466,6 +466,74 @@ public actor TelemetryWriter {
         return records.sorted { $0.timestamp < $1.timestamp }
     }
 
+    // MARK: - Work-Log I/O
+
+    /// Reads the per-project work-log stream from the corpus.
+    ///
+    /// The work-log joins metric snapshots to the human work behind them. It is
+    /// a single file per project (`work-log.json`) rather than a per-day
+    /// artifact.
+    ///
+    /// - Returns: The recorded work-events sorted by date, or an empty array if
+    ///   the file is absent.
+    /// - Throws: `IJSError.telemetryReadFailed` if the file exists but cannot be deserialized.
+    public func readWorkLog(from corpus: CorpusPath) async throws -> [WorkEvent] {
+        let fileURL = try sanitizedURL(corpus.workLogPath, within: corpus.basePath)
+        // SAFETY: Path is sanitized against the corpus base before use.
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let events = try decoder.decode([WorkEvent].self, from: data)
+            return events.sorted { $0.date < $1.date }
+        } catch {
+            throw IJSError.telemetryReadFailed(
+                reason: "Cannot read \(fileURL.path): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// Upserts a work-event into the per-project work-log, idempotently.
+    ///
+    /// Loads the existing log, then upserts by the key `(calendar-day of date,
+    /// commitSHA)`: if an entry with the same day and SHA already exists it is
+    /// **replaced**; otherwise the event is appended. The resulting list is kept
+    /// sorted by date and written pretty-printed.
+    ///
+    /// - Throws: `IJSError.telemetryWriteFailed` if directory creation or the
+    ///   write fails, or `IJSError.telemetryReadFailed` if the existing log
+    ///   cannot be read.
+    public func writeWorkEvent(_ event: WorkEvent, to corpus: CorpusPath) async throws {
+        var events = try await readWorkLog(from: corpus)
+
+        let key = Self.workLogKey(for: event)
+        if let index = events.firstIndex(where: { Self.workLogKey(for: $0) == key }) {
+            events[index] = event
+        } else {
+            events.append(event)
+        }
+        events.sort { $0.date < $1.date }
+
+        let projectDir = try sanitizedURL(corpus.projectDirectory, within: corpus.basePath)
+        try createDirectoryIfNeeded(at: projectDir)
+
+        let fileURL = try sanitizedURL(corpus.workLogPath, within: corpus.basePath)
+        try writeJSON(events, to: fileURL)
+    }
+
+    /// The idempotency key for a work-event: the calendar-day (UTC) of its date plus its commit SHA.
+    private static func workLogKey(for event: WorkEvent) -> String {
+        let day = workLogDayFormatter.string(from: event.date)
+        return "\(day)|\(event.commitSHA ?? "")"
+    }
+
+    private static let workLogDayFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = TimeZone(identifier: "UTC")
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        return fmt
+    }()
+
     // MARK: - Path Sanitization
 
     private func sanitizedURL(_ path: String, within basePath: String) throws -> URL {
