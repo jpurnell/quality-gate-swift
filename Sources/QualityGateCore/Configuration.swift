@@ -129,18 +129,23 @@ public struct ConcurrencyAuditorConfig: Sendable, Equatable {
     /// Whether to enable isolation-depth tracking for the `sendable-crosses-isolation` rule.
     /// Off by default for performance.
     public let trackIsolationDepth: Bool
+    /// Whether the `cancellation-checkpoint-after-loop` rule emits `.error` (strict)
+    /// instead of the default `.warning`. Off by default for incremental adoption.
+    public let cancellationCheckpointStrict: Bool
 
     /// Creates a concurrency auditor configuration with the given options.
     public init(
         justificationKeyword: String = "Justification:",
         allowPreconcurrencyImports: [String] = [],
         useIndexStore: Bool = true,
-        trackIsolationDepth: Bool = false
+        trackIsolationDepth: Bool = false,
+        cancellationCheckpointStrict: Bool = false
     ) {
         self.justificationKeyword = justificationKeyword
         self.allowPreconcurrencyImports = allowPreconcurrencyImports
         self.useIndexStore = useIndexStore
         self.trackIsolationDepth = trackIsolationDepth
+        self.cancellationCheckpointStrict = cancellationCheckpointStrict
     }
 
     /// Default concurrency auditor configuration.
@@ -149,7 +154,7 @@ public struct ConcurrencyAuditorConfig: Sendable, Equatable {
 
 extension ConcurrencyAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case justificationKeyword, allowPreconcurrencyImports, useIndexStore, trackIsolationDepth
+        case justificationKeyword, allowPreconcurrencyImports, useIndexStore, trackIsolationDepth, cancellationCheckpointStrict
     }
 
     /// Creates a concurrency auditor configuration by decoding from the given decoder.
@@ -160,6 +165,7 @@ extension ConcurrencyAuditorConfig: Codable {
         allowPreconcurrencyImports = try container.decodeIfPresent([String].self, forKey: .allowPreconcurrencyImports) ?? defaults.allowPreconcurrencyImports
         useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
         trackIsolationDepth = try container.decodeIfPresent(Bool.self, forKey: .trackIsolationDepth) ?? defaults.trackIsolationDepth
+        cancellationCheckpointStrict = try container.decodeIfPresent(Bool.self, forKey: .cancellationCheckpointStrict) ?? defaults.cancellationCheckpointStrict
     }
 }
 

@@ -4,7 +4,7 @@ Catches Swift 6 strict-concurrency bugs and dangerous escape hatches that compil
 
 ## Overview
 
-ConcurrencyAuditor uses SwiftSyntax to walk a Swift source file and apply eight rules tailored to the Swift 6 concurrency migration. It maintains an explicit isolation context stack so nested types do not falsely inherit actor isolation, while functions inside isolated containers do.
+ConcurrencyAuditor uses SwiftSyntax to walk a Swift source file and apply nine rules tailored to the Swift 6 concurrency migration. It maintains an explicit isolation context stack so nested types do not falsely inherit actor isolation, while functions inside isolated containers do.
 
 This auditor is intentionally conservative on flagging and intentionally strict on suppression. The escape hatch for every rule that involves an "unsafe" Swift construct is a justification comment immediately above the declaration.
 
@@ -20,6 +20,9 @@ This auditor is intentionally conservative on flagging and intentionally strict 
 | `concurrency.dispatch-queue-in-actor` | error | `DispatchQueue.main.async` (or any DispatchQueue method) used inside actor-isolated context |
 | `concurrency.main-actor-deinit-touches-state` | error | A `@MainActor` class deinit that references an instance stored property |
 | `concurrency.preconcurrency-first-party-import` | error | `@preconcurrency import` of a first-party module that should be fixed instead |
+| `concurrency.cancellation-checkpoint-after-loop` | warning¹ | A `for await`/`for try await` loop, in a function that uses a cancellation checkpoint, followed by exit-reason-dependent code with no post-loop cancellation check |
+
+¹ `.warning` by default; `.error` when `ConcurrencyAuditorConfig.cancellationCheckpointStrict` is set.
 
 ### Justification comments
 

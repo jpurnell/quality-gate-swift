@@ -73,7 +73,7 @@ quality-gate --check status --bootstrap
 |----|--------|-------------|
 | `recursion` | RecursionAuditor | Self-forwarding inits, computed property cycles, mutual recursion via USR call-graph analysis |
 | `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
-| `concurrency` | ConcurrencyAuditor | Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation |
+| `concurrency` | ConcurrencyAuditor | Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation, cancellation checkpoints after `for await` loops |
 | `fp-safety` | FloatingPointSafetyAuditor | Floating-point exact equality, unguarded division |
 | `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis |
 | `unreachable` | UnreachableCodeAuditor | Dead code via SwiftSyntax + IndexStore cross-reference |

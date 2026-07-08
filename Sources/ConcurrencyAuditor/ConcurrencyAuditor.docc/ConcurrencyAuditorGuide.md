@@ -175,6 +175,35 @@ The recommended fix is to introduce an explicit isolated cleanup method that run
 
 The CLI determines which modules are first-party by parsing `Package.swift` and collecting all `.target(name:)` literals. You can allowlist specific first-party modules during a transition via `allowPreconcurrencyImports:`.
 
+### `concurrency.cancellation-checkpoint-after-loop`
+
+A `for await` / `for try await` loop has a third exit path that is easy to miss: when the surrounding task is cancelled, the async sequence's iterator returns `nil` and the loop **ends quietly** — it does *not* throw `CancellationError`. So any code after the loop whose correctness depends on *why* the loop exited (marking a session "completed", flushing a "final" result, advancing a state machine) also runs on the cancelled path.
+
+```swift
+// ❌ flagged: cancellation is treated as semantic inside the loop, but the
+//    post-loop code runs even when the loop exited because of cancellation.
+func run(_ stream: AsyncThrowingStream<Sample, Error>) async throws {
+    for try await sample in stream {
+        try Task.checkCancellation()
+        process(sample)
+    }
+    session.markCompleted()          // also reached on cancellation
+}
+
+// ✅ accepted: an explicit checkpoint separates "the stream finished" from
+//    "we were cancelled" before the exit-reason-dependent statement.
+func run(_ stream: AsyncThrowingStream<Sample, Error>) async throws {
+    for try await sample in stream {
+        try Task.checkCancellation()
+        process(sample)
+    }
+    try Task.checkCancellation()
+    session.markCompleted()
+}
+```
+
+The rule is deliberately scoped: it fires only inside a function that already uses a cancellation checkpoint (`Task.checkCancellation()` or `Task.isCancelled`) — i.e. the author has demonstrably chosen to treat cancellation as semantic — and only when the first non-`defer` statement after the loop is reached without an intervening cancellation check. A `guard !Task.isCancelled else { … }`, an `if Task.isCancelled { … }`, or a `try Task.checkCancellation()` immediately after the loop all satisfy it. It is a `.warning` by default; set `ConcurrencyAuditorConfig.cancellationCheckpointStrict` to make it an `.error`.
+
 ## False positives and how to suppress them
 
 The auditor is intentionally conservative on what it flags but pragmatic about suppression. Each rule has its own escape hatch:
@@ -185,5 +214,6 @@ The auditor is intentionally conservative on what it flags but pragmatic about s
 - **dispatch-queue-in-actor**: use `await MainActor.run` or refactor to stay on-actor.
 - **main-actor-deinit-touches-state**: move cleanup to an explicit isolated method called before deallocation.
 - **preconcurrency-first-party-import**: add the module to `allowPreconcurrencyImports:` during a transition, then fix the underlying warnings and remove it.
+- **cancellation-checkpoint-after-loop**: add `try Task.checkCancellation()` after the loop, or — if the post-loop code genuinely must run on both paths — put `// concurrency:exempt` on the loop line (recorded as a `DiagnosticOverride`, not silently dropped).
 
 If you find yourself reaching for the escape hatch on every file, the rule is probably miscalibrated for your codebase. Open an issue.

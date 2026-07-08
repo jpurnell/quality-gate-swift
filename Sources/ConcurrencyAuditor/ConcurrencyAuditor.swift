@@ -20,6 +20,7 @@ import IndexStoreInfra
 /// - `concurrency.dispatch-queue-in-actor`
 /// - `concurrency.main-actor-deinit-touches-state`
 /// - `concurrency.preconcurrency-first-party-import`
+/// - `concurrency.cancellation-checkpoint-after-loop`
 ///
 /// **Pass 2 (index-backed, optional):**
 /// - `concurrency.sendable-non-sendable-stored-property`
@@ -48,19 +49,24 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     private let allowPreconcurrencyImports: Set<String>
     /// Keyword that identifies a justification comment (e.g. "Justification:").
     private let justificationKeyword: String
+    /// Whether `cancellation-checkpoint-after-loop` emits `.error` instead of `.warning`.
+    private let cancellationCheckpointStrict: Bool
 
     /// Creates a concurrency auditor with optional configuration for module-aware rules.
     /// - Parameter firstPartyModules: Module names from Package.swift used by the `@preconcurrency` import rule.
     /// - Parameter allowPreconcurrencyImports: First-party modules exempt from the `@preconcurrency` import rule.
     /// - Parameter justificationKeyword: Comment keyword that suppresses `@unchecked Sendable` and `nonisolated(unsafe)` diagnostics.
+    /// - Parameter cancellationCheckpointStrict: When true, the `cancellation-checkpoint-after-loop` rule emits `.error` instead of `.warning`.
     public init(
         firstPartyModules: Set<String> = [],
         allowPreconcurrencyImports: Set<String> = [],
-        justificationKeyword: String = "Justification:"
+        justificationKeyword: String = "Justification:",
+        cancellationCheckpointStrict: Bool = false
     ) {
         self.firstPartyModules = firstPartyModules
         self.allowPreconcurrencyImports = allowPreconcurrencyImports
         self.justificationKeyword = justificationKeyword
+        self.cancellationCheckpointStrict = cancellationCheckpointStrict
     }
 
     /// Sentinel error to short-circuit Pass 2 without propagating a real error.
@@ -157,7 +163,8 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
             sourceLines: sourceLines,
             firstPartyModules: firstPartyModules,
             allowPreconcurrencyImports: allowPreconcurrencyImports,
-            justificationKeyword: justificationKeyword
+            justificationKeyword: justificationKeyword,
+            cancellationCheckpointStrict: cancellationCheckpointStrict
         )
         visitor.walk(tree)
         return (visitor.diagnostics, visitor.overrides)

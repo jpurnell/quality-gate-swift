@@ -256,7 +256,8 @@ struct QualityGateCLI: AsyncParsableCommand {
             ConcurrencyAuditor(
                 firstPartyModules: PackageManifestParser.firstPartyTargets(at: FileManager.default.currentDirectoryPath),
                 allowPreconcurrencyImports: Set(configuration.concurrency.allowPreconcurrencyImports),
-                justificationKeyword: configuration.concurrency.justificationKeyword
+                justificationKeyword: configuration.concurrency.justificationKeyword,
+                cancellationCheckpointStrict: configuration.concurrency.cancellationCheckpointStrict
             ),
             PointerEscapeAuditor(
                 allowedEscapeFunctions: Set(configuration.pointerEscape.allowedEscapeFunctions)
