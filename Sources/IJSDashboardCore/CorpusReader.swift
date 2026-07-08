@@ -292,4 +292,49 @@ public struct CorpusReader: Sendable {
             return lhs < rhs
         }
     }
+
+    /// The most recent orientation report for a project, or `nil` when none exists.
+    public func loadLatestOrientationReport(for project: String) throws -> OrientationReport? {
+        let projectPath = "\(corpusPath)/telemetry/\(project)" // SAFETY: corpusPath from configuration; project from discoverProjects
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: projectPath) else { return nil } // SAFETY: read-only existence check
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        var latest: OrientationReport?
+        let dateDirs = try fm.contentsOfDirectory(atPath: projectPath) // SAFETY: reads configured corpus subdirectory
+        for dateDir in dateDirs {
+            let datePath = "\(projectPath)/\(dateDir)" // SAFETY: child of configured corpus path
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: datePath, isDirectory: &isDir), isDir.boolValue else { continue } // SAFETY: read-only directory check
+
+            let files = try fm.contentsOfDirectory(atPath: datePath) // SAFETY: reads date subdirectory of corpus
+            for file in files where file.hasSuffix("_orientation.json") {
+                let filePath = "\(datePath)/\(file)" // SAFETY: child of configured corpus path
+                guard let data = fm.contents(atPath: filePath) else { continue } // SAFETY: reads JSON from corpus
+                do {
+                    let report = try decoder.decode(OrientationReport.self, from: data)
+                    if latest == nil || report.timestamp > (latest?.timestamp ?? .distantPast) {
+                        latest = report
+                    }
+                } catch {
+                    Self.logger.warning("Skipping malformed orientation JSON at \(filePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    continue
+                }
+            }
+        }
+        return latest
+    }
+
+    /// The latest orientation report for every project in the corpus.
+    public func loadAllOrientationReports() throws -> [String: OrientationReport] {
+        var result: [String: OrientationReport] = [:]
+        for project in try discoverProjects() {
+            if let report = try loadLatestOrientationReport(for: project) {
+                result[project] = report
+            }
+        }
+        return result
+    }
 }

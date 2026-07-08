@@ -32,6 +32,7 @@ public enum ProjectDetailTUIView: Sendable {
             // scrollable page. The Summary stats need no title of their own — the
             // active tab is already labeled "Summary".
             renderOverview(into: &buf, project: project, width: width)
+            renderModuleOrientation(into: &buf, project: project, width: width)
             renderTrends(into: &buf, trends: trends, width: width)
             renderStatus(into: &buf, project: project, state: state, width: width, pulse: pulse, manifest: manifest)
         case .checkers:
@@ -88,6 +89,38 @@ public enum ProjectDetailTUIView: Sendable {
             buf.appendLine(boxRow("  Worst:       \(worst)", width: width))
         }
         buf.appendLine(boxRow("", width: width))
+    }
+
+    // MARK: - Orientation
+
+    /// Renders the product-composition orientation: what it does, its portfolio
+    /// role, what it is built from, and what relies on it. No-op when the project
+    /// has no orientation card.
+    private static func renderModuleOrientation(into buf: inout ScreenBuffer, project: ProjectSummary, width: Int) {
+        guard let card = project.orientation else { return }
+        buf.appendLine(DashboardChrome.titleRule("Orientation", width: width))
+        buf.appendLine(boxRow("", width: width))
+        if let what = card.whatItDoes {
+            buf.appendLine(boxRow("  What it does: \(what)", width: width))
+        }
+        buf.appendLine(boxRow("  Role:         \(card.role)", width: width))
+        if !card.dependsOn.isEmpty {
+            buf.appendLine(boxRow("  Built from:   \(joinElided(card.dependsOn))", width: width))
+        }
+        if !card.reliedOnBy.isEmpty {
+            buf.appendLine(boxRow("  Relied on by: \(joinElided(card.reliedOnBy))", width: width))
+        }
+        if let why = card.why {
+            buf.appendLine(boxRow("  Why:          \(why)", width: width))
+        }
+        buf.appendLine(boxRow("", width: width))
+    }
+
+    /// Joins a list, truncating past `max` items with a "(+N more)" tail.
+    private static func joinElided(_ items: [String], max: Int = 6) -> String {
+        guard items.count > max else { return items.joined(separator: ", ") }
+        let shown = items.prefix(max).joined(separator: ", ")
+        return "\(shown) (+\(items.count - max) more)"
     }
 
     // MARK: - Checkers Tab

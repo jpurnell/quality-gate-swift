@@ -1,5 +1,6 @@
 import Foundation
 import IJSAggregator
+import IJSSensor
 import QualityGateTypes
 
 /// Aggregated statistics for a single project's quality gate history.
@@ -22,6 +23,10 @@ public struct ProjectSummary: Sendable {
     public let runCount: Int
     /// The lifecycle state of the project.
     public let lifecycle: ProjectLifecycle
+    /// Product-composition orientation (built-from / relied-on-by / role), if a
+    /// cross-package orientation report is available for this project. Defaulted so
+    /// the memberwise initializer stays source-compatible with existing callers.
+    public var orientation: ModuleOrientationCard? = nil
 
     /// Computes a summary from a series of timestamped runs.
     ///
@@ -33,7 +38,8 @@ public struct ProjectSummary: Sendable {
     public static func compute(
         projectID: String,
         from runs: [TimestampedRun],
-        lifecycle: ProjectLifecycle = .active
+        lifecycle: ProjectLifecycle = .active,
+        orientation: ModuleOrientationCard? = nil
     ) -> ProjectSummary {
         guard !runs.isEmpty else {
             return ProjectSummary(
@@ -45,7 +51,8 @@ public struct ProjectSummary: Sendable {
                 latestCheckerPassed: [:],
                 totalOverrides: 0,
                 runCount: 0,
-                lifecycle: lifecycle
+                lifecycle: lifecycle,
+                orientation: orientation
             )
         }
 
@@ -101,7 +108,8 @@ public struct ProjectSummary: Sendable {
             latestCheckerPassed: latestCheckerPassed,
             totalOverrides: totalOverrides,
             runCount: sortedRuns.count,
-            lifecycle: lifecycle
+            lifecycle: lifecycle,
+            orientation: orientation
         )
     }
 }

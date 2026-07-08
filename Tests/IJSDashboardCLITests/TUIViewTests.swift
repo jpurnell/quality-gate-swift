@@ -101,6 +101,29 @@ struct TUIViewTests {
         #expect(output.contains("quality-gate-swift"))
     }
 
+    @Test("Detail summary shows the product-composition orientation section")
+    func detailOrientationSection() {
+        var summary = makeProjectSummary(id: "IconquerCore", passRate: 0.9)
+        summary.orientation = ModuleOrientationCard(
+            moduleID: "IconquerCore",
+            whatItDoes: "Core game logic and models.",
+            why: "A foundational library — 2 packages build on it.",
+            dependsOn: [],
+            reliedOnBy: ["IconquerApp", "IconquerCLI"],
+            role: "foundation library",
+            source: .template,
+            generatedAt: Date(timeIntervalSince1970: 1_777_536_311)
+        )
+        var state = DashboardState(projectIDs: ["IconquerCore"])
+        state.handleInput(.enter)
+
+        let output = ProjectDetailTUIView.render(project: summary, trends: [], runs: [], state: state, width: 100)
+        #expect(output.contains("Orientation"))
+        #expect(output.contains("What it does: Core game logic and models."))
+        #expect(output.contains("foundation library"))
+        #expect(output.contains("Relied on by: IconquerApp, IconquerCLI"))
+    }
+
     @Test("Detail overview tab shows status and pass rate")
     func detailOverviewTab() {
         let summary = makeProjectSummary(id: "test", passRate: 0.9)

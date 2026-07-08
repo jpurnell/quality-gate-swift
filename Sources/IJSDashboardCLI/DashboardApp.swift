@@ -282,9 +282,20 @@ public enum DashboardApp: Sendable {
             logger.warning("Failed to reload manifest: \(error.localizedDescription, privacy: .public)")
             manifest = CorpusManifest()
         }
+        var orientationCards: [String: ModuleOrientationCard] = [:]
+        do {
+            orientationCards = PortfolioOrientation.cards(from: try reader.loadAllOrientationReports())
+        } catch {
+            logger.warning("Failed to load orientation reports: \(error.localizedDescription, privacy: .public)")
+        }
         let freshProjects = freshRuns.map { (projectID, runs) in
             let lifecycle = manifest.lifecycle(for: projectID)
-            return ProjectSummary.compute(projectID: projectID, from: runs, lifecycle: lifecycle)
+            return ProjectSummary.compute(
+                projectID: projectID,
+                from: runs,
+                lifecycle: lifecycle,
+                orientation: orientationCards[projectID]
+            )
         }.sorted { $0.projectID < $1.projectID }
         projects = freshProjects
         portfolio = PortfolioSummary.compute(from: freshProjects)
