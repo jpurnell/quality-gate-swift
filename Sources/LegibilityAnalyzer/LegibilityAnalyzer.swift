@@ -70,13 +70,14 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
 
     /// Builds a per-module orientation card for every module in the graph.
     ///
-    /// Pure and deterministic. `reliedOnBy` and `role` are factual (from the
-    /// graph); prose is the deterministic template tier — `whatItDoes` points at
-    /// the DocC overview when one exists, and `why` explains the module's
-    /// structural role. Richer LLM prose is a later durability tier.
+    /// Pure and deterministic. `dependsOn`/`reliedOnBy`/`role` are factual (from
+    /// the graph). `whatItDoes` prefers the module's human-authored Master Plan
+    /// description, then a pointer to its DocC overview, else `nil`; `why`
+    /// explains the module's structural role. Richer LLM prose is a later tier.
     static func orientationCards(
         graph: ModuleGraph,
         orientation: [ModuleOrientation],
+        descriptions: [String: String] = [:],
         timestamp: Date
     ) -> [ModuleOrientationCard] {
         let hasDoc = Dictionary(
@@ -86,10 +87,13 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         return graph.modules.sorted().map { module in
             let fanIn = graph.fanIn(module)
             let role = LegibilityMapBuilder.inferRole(fanIn: fanIn, fanOut: graph.fanOut(module))
+            let whatItDoes = descriptions[module]
+                ?? (hasDoc[module] == true ? "See the module's DocC overview." : nil)
             return ModuleOrientationCard(
                 moduleID: module,
-                whatItDoes: hasDoc[module] == true ? "See the module's DocC overview." : nil,
+                whatItDoes: whatItDoes,
                 why: templateWhy(role: role, fanIn: fanIn),
+                dependsOn: graph.dependencies(of: module).sorted(),
                 reliedOnBy: graph.dependents(of: module).sorted(),
                 role: role,
                 source: .template,
@@ -116,10 +120,16 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         }
     }
 
-    /// Resolves the project's module graph and produces an orientation card per
-    /// module, for corpus emission. Prefers the semantic graph, falls back to the
-    /// declared graph — never throws.
-    public func orientationCards(configuration: Configuration, timestamp: Date) async -> [ModuleOrientationCard] {
+    /// Assembles the full corpus orientation report for the current project:
+    /// per-module cards (with Master Plan descriptions where available), the
+    /// package's "built from" dependencies (for cross-package inversion by the
+    /// dashboard), and the package-level Mission. Prefers the semantic graph,
+    /// falls back to the declared graph — never throws.
+    public func orientationReport(
+        configuration: Configuration,
+        timestamp: Date,
+        projectID: String
+    ) async -> OrientationReport {
         let cwd = FileManager.default.currentDirectoryPath
         var graph = loadDeclaredGraph(cwd: cwd, config: configuration.legibility)
         if configuration.legibility.useIndexStore,
@@ -128,7 +138,59 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
             graph = Self.filterExempt(semantic.graph, exemptModules: configuration.legibility.exemptModules)
         }
         let orientation = discoverOrientation(cwd: cwd, modules: graph.modules)
-        return Self.orientationCards(graph: graph, orientation: orientation, timestamp: timestamp)
+
+        let masterPlan = loadMasterPlan(cwd: cwd, config: configuration.status)
+        let descriptions = masterPlan.map(MasterPlanReader.descriptions) ?? [:]
+
+        let cards = Self.orientationCards(
+            graph: graph,
+            orientation: orientation,
+            descriptions: descriptions,
+            timestamp: timestamp
+        )
+
+        let packageSource = loadPackageSource(cwd: cwd)
+        let packageDependsOn = packageSource.map(PackageGraphLoader.externalPackageDependencies) ?? []
+
+        // Package "what it does": structured config → Package.swift comment →
+        // Master Plan Mission → nil.
+        let packageSummary = configuration.legibility.packageDescription
+            ?? packageSource.flatMap(PackageGraphLoader.packageDescription)
+            ?? masterPlan.flatMap(MasterPlanReader.mission)
+
+        return OrientationReport(
+            projectID: projectID,
+            timestamp: timestamp,
+            cards: cards,
+            packageDependsOn: packageDependsOn,
+            packageSummary: packageSummary
+        )
+    }
+
+    /// Reads the project's Master Plan markdown, or `nil` when absent/unreadable.
+    private func loadMasterPlan(cwd: String, config: StatusAuditorConfig) -> String? {
+        let path = (cwd as NSString)
+            .appendingPathComponent(config.guidelinesPath)
+            .appending("/\(config.masterPlanPath)")
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        do {
+            return try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            Self.logger.warning("Failed to read Master Plan at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// The project's `Package.swift` source, or `nil` when absent/unreadable.
+    private func loadPackageSource(cwd: String) -> String? {
+        let packagePath = (cwd as NSString).appendingPathComponent("Package.swift")
+        guard FileManager.default.fileExists(atPath: packagePath) else { return nil }
+        do {
+            return try String(contentsOfFile: packagePath, encoding: .utf8)
+        } catch {
+            Self.logger.warning("Failed to read Package.swift: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Runs the analyzer against the current project.

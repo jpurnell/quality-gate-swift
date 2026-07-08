@@ -31,12 +31,15 @@ struct OrientationTelemetryTests {
                     moduleID: "Core",
                     whatItDoes: nil,
                     why: "A foundational module — 2 other modules build on it.",
+                    dependsOn: ["QualityGateCore"],
                     reliedOnBy: ["App", "Feature"],
                     role: "foundation",
                     source: .template,
                     generatedAt: timestamp
                 )
-            ]
+            ],
+            packageDependsOn: ["IconquerCore", "IconquerGameKit"],
+            packageSummary: "The Iconquer product package."
         )
 
         let writer = TelemetryWriter()
@@ -49,5 +52,7 @@ struct OrientationTelemetryTests {
 
         #expect(decoded == report)
         #expect(decoded.card(for: "Core")?.reliedOnBy == ["App", "Feature"])
+        #expect(decoded.packageDependsOn == ["IconquerCore", "IconquerGameKit"])
+        #expect(decoded.packageSummary == "The Iconquer product package.")
     }
 }

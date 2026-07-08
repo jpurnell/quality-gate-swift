@@ -27,9 +27,14 @@ public struct ModuleOrientationCard: Sendable, Codable, Equatable {
     public let whatItDoes: String?
     /// Prose: why it exists. `nil` → omit the line.
     public let why: String?
-    /// Modules that rely on this one (its dependents), sorted — factual, exact.
+    /// The sub-packages / modules this one is **built from** (its dependencies),
+    /// sorted — factual, exact.
+    public let dependsOn: [String]
+    /// The packages / modules that **rely on** this one (its dependents), sorted —
+    /// factual, exact.
     public let reliedOnBy: [String]
-    /// One-word structural role inferred from the module's position in the graph.
+    /// One-word structural role inferred from position in the graph
+    /// (e.g. `foundation` library vs. top-level `entry-point` product).
     public let role: String
     /// Where `whatItDoes` / `why` came from (durability).
     public let source: ProseSource
@@ -41,6 +46,7 @@ public struct ModuleOrientationCard: Sendable, Codable, Equatable {
         moduleID: String,
         whatItDoes: String?,
         why: String?,
+        dependsOn: [String],
         reliedOnBy: [String],
         role: String,
         source: ProseSource,
@@ -49,6 +55,7 @@ public struct ModuleOrientationCard: Sendable, Codable, Equatable {
         self.moduleID = moduleID
         self.whatItDoes = whatItDoes
         self.why = why
+        self.dependsOn = dependsOn
         self.reliedOnBy = reliedOnBy
         self.role = role
         self.source = source
@@ -70,12 +77,27 @@ public struct OrientationReport: Sendable, Codable, Equatable {
     public let timestamp: Date
     /// One card per module in the package.
     public let cards: [ModuleOrientationCard]
+    /// The other first-party **packages/libraries this package is built from** —
+    /// its declared external package dependencies, sorted. The dashboard inverts
+    /// these across the whole corpus to compute each package's "relied on by".
+    public let packageDependsOn: [String]
+    /// Package-level "what it does" — the Mission from the package's Master Plan,
+    /// if present. `nil` when there is no Master Plan / Mission section.
+    public let packageSummary: String?
 
     /// Creates an orientation report.
-    public init(projectID: String, timestamp: Date, cards: [ModuleOrientationCard]) {
+    public init(
+        projectID: String,
+        timestamp: Date,
+        cards: [ModuleOrientationCard],
+        packageDependsOn: [String] = [],
+        packageSummary: String? = nil
+    ) {
         self.projectID = projectID
         self.timestamp = timestamp
         self.cards = cards
+        self.packageDependsOn = packageDependsOn
+        self.packageSummary = packageSummary
     }
 
     /// The card for a specific module, if present.

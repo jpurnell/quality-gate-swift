@@ -12,6 +12,7 @@ struct ModuleOrientationCardTests {
             moduleID: id,
             whatItDoes: "Captures IJS telemetry.",
             why: "Central data source the analytics build on.",
+            dependsOn: ["QualityGateTypes"],
             reliedOnBy: reliedOnBy,
             role: "foundation",
             source: .template,
@@ -35,7 +36,7 @@ struct ModuleOrientationCardTests {
     func nilProse() throws {
         let card = ModuleOrientationCard(
             moduleID: "M", whatItDoes: nil, why: nil,
-            reliedOnBy: [], role: "isolated", source: .template, generatedAt: fixedDate
+            dependsOn: [], reliedOnBy: [], role: "isolated", source: .template, generatedAt: fixedDate
         )
         let data = try JSONEncoder().encode(card)
         let decoded = try JSONDecoder().decode(ModuleOrientationCard.self, from: data)

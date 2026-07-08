@@ -504,9 +504,11 @@ struct QualityGateCLI: AsyncParsableCommand {
                 }
 
                 if configuration.legibility.emitToCorpus {
-                    let analyzer = LegibilityAnalyzer()
-                    let cards = await analyzer.orientationCards(configuration: configuration, timestamp: metadata.timestamp)
-                    let orientationReport = OrientationReport(projectID: projectID, timestamp: metadata.timestamp, cards: cards)
+                    let orientationReport = await LegibilityAnalyzer().orientationReport(
+                        configuration: configuration,
+                        timestamp: metadata.timestamp,
+                        projectID: projectID
+                    )
                     try await writer.writeOrientationReport(orientationReport, to: corpus)
                 }
 

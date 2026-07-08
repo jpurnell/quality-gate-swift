@@ -1175,6 +1175,12 @@ public struct LegibilityAnalyzerConfig: Sendable, Equatable {
     /// corpus path is configured.
     public let emitToCorpus: Bool
 
+    /// Structured package-level "what it does". Highest-priority source for the
+    /// dashboard's package summary, over a `// legibility:description:` comment in
+    /// `Package.swift` and the Master Plan Mission. Set per project in
+    /// `.quality-gate.yml`.
+    public let packageDescription: String?
+
     /// Creates a legibility analyzer configuration with the given options.
     public init(
         useIndexStore: Bool = true,
@@ -1187,7 +1193,8 @@ public struct LegibilityAnalyzerConfig: Sendable, Equatable {
         exemptModules: Set<String> = [],
         exemptSymbols: Set<String> = [],
         reservedMarker: String = "legibility:reserved",
-        emitToCorpus: Bool = true
+        emitToCorpus: Bool = true,
+        packageDescription: String? = nil
     ) {
         self.useIndexStore = useIndexStore
         self.centralUnorientedTopN = centralUnorientedTopN
@@ -1200,6 +1207,7 @@ public struct LegibilityAnalyzerConfig: Sendable, Equatable {
         self.exemptSymbols = exemptSymbols
         self.reservedMarker = reservedMarker
         self.emitToCorpus = emitToCorpus
+        self.packageDescription = packageDescription
     }
 
     /// Default legibility analyzer configuration.
@@ -1210,7 +1218,7 @@ extension LegibilityAnalyzerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case useIndexStore, centralUnorientedTopN, minFanInForCentral
         case flagOverPublicSymbols, flagCycles, emitReadingOrderArtifact
-        case artifactPath, exemptModules, exemptSymbols, reservedMarker, emitToCorpus
+        case artifactPath, exemptModules, exemptSymbols, reservedMarker, emitToCorpus, packageDescription
     }
 
     /// Creates a legibility analyzer configuration by decoding from the given decoder.
@@ -1228,6 +1236,7 @@ extension LegibilityAnalyzerConfig: Codable {
         exemptSymbols = try container.decodeIfPresent(Set<String>.self, forKey: .exemptSymbols) ?? defaults.exemptSymbols
         reservedMarker = try container.decodeIfPresent(String.self, forKey: .reservedMarker) ?? defaults.reservedMarker
         emitToCorpus = try container.decodeIfPresent(Bool.self, forKey: .emitToCorpus) ?? defaults.emitToCorpus
+        packageDescription = try container.decodeIfPresent(String.self, forKey: .packageDescription) ?? defaults.packageDescription
     }
 }
 

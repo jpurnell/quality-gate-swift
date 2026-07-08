@@ -78,6 +78,53 @@ enum PackageGraphLoader {
         return ModuleGraph(edges: edges)
     }
 
+    /// The identities of the external packages this manifest is **built from** —
+    /// parsed from `.package(url:)` / `.package(path:)` entries. Identity is the
+    /// last path component, minus any `.git` suffix (e.g.
+    /// `https://github.com/jpurnell/BusinessMath` → `BusinessMath`). Returns every
+    /// external package, sorted and de-duplicated; filtering to first-party
+    /// portfolio packages happens downstream (the dashboard intersects these with
+    /// the set of known corpus projects).
+    static func externalPackageDependencies(packageSource: String) -> [String] {
+        let pattern = #"\.package\(\s*(?:url|path|id):\s*"([^"]+)""#
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: pattern)
+        } catch {
+            Self.logger.warning("Failed to compile package-dependency regex: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+        let ns = packageSource as NSString
+        let matches = regex.matches(in: packageSource, range: NSRange(location: 0, length: ns.length))
+        var identities: Set<String> = []
+        for match in matches where match.numberOfRanges >= 2 {
+            identities.insert(packageIdentity(from: ns.substring(with: match.range(at: 1))))
+        }
+        return identities.sorted()
+    }
+
+    /// A non-actionable package description embedded in the manifest as a comment
+    /// `// legibility:description: <text>` — a structured, build-inert home for the
+    /// package's "what it does", co-located with its dependencies. `nil` when absent.
+    static func packageDescription(packageSource: String) -> String? {
+        for rawLine in packageSource.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            guard let range = line.range(of: #"//\s*legibility:description:\s*"#, options: .regularExpression) else {
+                continue
+            }
+            let text = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { return text }
+        }
+        return nil
+    }
+
+    /// The package identity from a URL or path: last path component, minus `.git`.
+    static func packageIdentity(from location: String) -> String {
+        let trimmed = location.hasSuffix("/") ? String(location.dropLast()) : location
+        let last = trimmed.split(separator: "/").last.map(String.init) ?? trimmed
+        return last.hasSuffix(".git") ? String(last.dropLast(4)) : last
+    }
+
     /// Extracts the quoted strings inside a target tail's `dependencies: [...]`.
     private static func parseDependencies(from tail: String) -> [String] {
         guard let depsRange = tail.range(of: #"dependencies:\s*\["#, options: .regularExpression) else {
