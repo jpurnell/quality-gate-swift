@@ -1122,6 +1122,107 @@ extension ComplexityAnalyzerConfig: Codable {
     }
 }
 
+/// Per-checker configuration for LegibilityAnalyzer (advisory).
+///
+/// The LegibilityAnalyzer reports on whole-codebase *navigability* — module
+/// centrality, orientation, cycles, and apparent public surface. It never gates;
+/// all findings are advisory notes. See the design proposal at
+/// `development-guidelines/02_IMPLEMENTATION_PLANS/PROPOSALS/LegibilityAnalyzer.md`.
+///
+/// ## YAML Example
+/// ```yaml
+/// legibility:
+///   minFanInForCentral: 3
+///   centralUnorientedTopN: 10
+///   exemptSymbols:
+///     - "MyKit.reservedForDownstream"
+/// ```
+public struct LegibilityAnalyzerConfig: Sendable, Equatable {
+    /// Whether to run the optional IndexStore pass for the semantic module graph.
+    /// When false (or when no fresh index exists) the analyzer falls back to the
+    /// declared `Package.swift` dependency graph and skips per-symbol rules.
+    public let useIndexStore: Bool
+
+    /// Number of highest-ranked central-but-unoriented modules to report.
+    public let centralUnorientedTopN: Int
+
+    /// Minimum fan-in for a module to be considered "load-bearing" (central).
+    public let minFanInForCentral: Int
+
+    /// Whether to flag live `public` symbols referenced only within their module.
+    public let flagOverPublicSymbols: Bool
+
+    /// Whether to flag dependency cycles between modules.
+    public let flagCycles: Bool
+
+    /// Whether to emit the reading-order / module-map documentation artifact.
+    public let emitReadingOrderArtifact: Bool
+
+    /// Where the JSON/Markdown map artifact is written (nil → default location).
+    public let artifactPath: String?
+
+    /// Modules excluded from all legibility rules (e.g. generated targets).
+    public let exemptModules: Set<String>
+
+    /// Over-public symbols acknowledged out of band (fully-qualified names).
+    public let exemptSymbols: Set<String>
+
+    /// Inline marker that acknowledges an intentional over-public symbol.
+    public let reservedMarker: String
+
+    /// Creates a legibility analyzer configuration with the given options.
+    public init(
+        useIndexStore: Bool = true,
+        centralUnorientedTopN: Int = 10,
+        minFanInForCentral: Int = 3,
+        flagOverPublicSymbols: Bool = true,
+        flagCycles: Bool = true,
+        emitReadingOrderArtifact: Bool = true,
+        artifactPath: String? = nil,
+        exemptModules: Set<String> = [],
+        exemptSymbols: Set<String> = [],
+        reservedMarker: String = "legibility:reserved"
+    ) {
+        self.useIndexStore = useIndexStore
+        self.centralUnorientedTopN = centralUnorientedTopN
+        self.minFanInForCentral = minFanInForCentral
+        self.flagOverPublicSymbols = flagOverPublicSymbols
+        self.flagCycles = flagCycles
+        self.emitReadingOrderArtifact = emitReadingOrderArtifact
+        self.artifactPath = artifactPath
+        self.exemptModules = exemptModules
+        self.exemptSymbols = exemptSymbols
+        self.reservedMarker = reservedMarker
+    }
+
+    /// Default legibility analyzer configuration.
+    public static let `default` = LegibilityAnalyzerConfig()
+}
+
+extension LegibilityAnalyzerConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case useIndexStore, centralUnorientedTopN, minFanInForCentral
+        case flagOverPublicSymbols, flagCycles, emitReadingOrderArtifact
+        case artifactPath, exemptModules, exemptSymbols, reservedMarker
+    }
+
+    /// Creates a legibility analyzer configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = LegibilityAnalyzerConfig.default
+        useIndexStore = try container.decodeIfPresent(Bool.self, forKey: .useIndexStore) ?? defaults.useIndexStore
+        centralUnorientedTopN = try container.decodeIfPresent(Int.self, forKey: .centralUnorientedTopN) ?? defaults.centralUnorientedTopN
+        minFanInForCentral = try container.decodeIfPresent(Int.self, forKey: .minFanInForCentral) ?? defaults.minFanInForCentral
+        flagOverPublicSymbols = try container.decodeIfPresent(Bool.self, forKey: .flagOverPublicSymbols) ?? defaults.flagOverPublicSymbols
+        flagCycles = try container.decodeIfPresent(Bool.self, forKey: .flagCycles) ?? defaults.flagCycles
+        emitReadingOrderArtifact = try container.decodeIfPresent(Bool.self, forKey: .emitReadingOrderArtifact) ?? defaults.emitReadingOrderArtifact
+        artifactPath = try container.decodeIfPresent(String.self, forKey: .artifactPath) ?? defaults.artifactPath
+        exemptModules = try container.decodeIfPresent(Set<String>.self, forKey: .exemptModules) ?? defaults.exemptModules
+        exemptSymbols = try container.decodeIfPresent(Set<String>.self, forKey: .exemptSymbols) ?? defaults.exemptSymbols
+        reservedMarker = try container.decodeIfPresent(String.self, forKey: .reservedMarker) ?? defaults.reservedMarker
+    }
+}
+
 /// Per-checker configuration for XcodeBuildChecker.
 ///
 /// Drives `xcodebuild build` for one or more simulator destinations,
@@ -1467,6 +1568,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for ComplexityAnalyzer (advisory).
     public var complexity: ComplexityAnalyzerConfig
 
+    /// Per-checker configuration for LegibilityAnalyzer (advisory).
+    public var legibility: LegibilityAnalyzerConfig
+
     /// Per-checker configuration for DocCoverageChecker.
     public let docCoverage: DocCoverageConfig
 
@@ -1513,6 +1617,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         xcodeBuild: XcodeBuildCheckerConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
+        legibility: LegibilityAnalyzerConfig = .default,
         docCoverage: DocCoverageConfig = .default,
         overrides: [String: SeverityOverride] = [:]
     ) {
@@ -1551,6 +1656,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.xcodeBuild = xcodeBuild
         self.consistency = consistency
         self.complexity = complexity
+        self.legibility = legibility
         self.docCoverage = docCoverage
         self.overrides = overrides
     }
@@ -1650,6 +1756,7 @@ extension Configuration {
         case xcodeBuild
         case consistency
         case complexity
+        case legibility
         case docCoverage
         case overrides
     }
@@ -1693,6 +1800,7 @@ extension Configuration {
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default
+        legibility = try container.decodeIfPresent(LegibilityAnalyzerConfig.self, forKey: .legibility) ?? .default
         docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
     }

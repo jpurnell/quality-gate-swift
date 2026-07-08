@@ -124,6 +124,10 @@ let package = Package(
             targets: ["ComplexityAnalyzer"]
         ),
         .library(
+            name: "LegibilityAnalyzer",
+            targets: ["LegibilityAnalyzer"]
+        ),
+        .library(
             name: "HIGAuditor",
             targets: ["HIGAuditor"]
         ),
@@ -567,6 +571,21 @@ let package = Package(
         .testTarget(
             name: "ComplexityAnalyzerTests",
             dependencies: ["ComplexityAnalyzer", "IJSSensor"]
+        ),
+        .target(
+            name: "LegibilityAnalyzer",
+            dependencies: [
+                "QualityGateCore",
+                "IJSSensor",
+                "IndexStoreInfra",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftOperators", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "LegibilityAnalyzerTests",
+            dependencies: ["LegibilityAnalyzer"]
         ),
 
         .target(
