@@ -372,6 +372,25 @@ public actor TelemetryWriter {
         try writeJSON(report, to: fileURL)
     }
 
+    /// Writes a per-run orientation report to
+    /// `telemetry/<projectID>/YYYY-MM-DD/HHmmss_orientation.json`.
+    public func writeOrientationReport(
+        _ report: OrientationReport,
+        to corpusPath: CorpusPath
+    ) async throws {
+        let dailyDir = try sanitizedURL(
+            corpusPath.dailyDirectory(for: report.timestamp),
+            within: corpusPath.basePath
+        )
+        try createDirectoryIfNeeded(at: dailyDir)
+
+        let fileURL = try sanitizedURL(
+            corpusPath.orientationPath(for: report.timestamp),
+            within: corpusPath.basePath
+        )
+        try writeJSON(report, to: fileURL)
+    }
+
     /// Reads all ComplexityReport artifacts for a project within a date range (inclusive).
     ///
     /// Scans daily directories concurrently. Results are sorted by timestamp.

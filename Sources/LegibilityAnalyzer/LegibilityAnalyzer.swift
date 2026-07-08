@@ -4,6 +4,7 @@ import os
 #endif
 import QualityGateCore
 import IndexStoreInfra
+import IJSSensor
 
 /// Advisory whole-codebase legibility analyzer.
 ///
@@ -65,6 +66,69 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
             overPublicByModule: overPublicByModule
         )
         return AnalysisResult(diagnostics: diagnostics, compliance: overFindings.compliance, map: map)
+    }
+
+    /// Builds a per-module orientation card for every module in the graph.
+    ///
+    /// Pure and deterministic. `reliedOnBy` and `role` are factual (from the
+    /// graph); prose is the deterministic template tier — `whatItDoes` points at
+    /// the DocC overview when one exists, and `why` explains the module's
+    /// structural role. Richer LLM prose is a later durability tier.
+    static func orientationCards(
+        graph: ModuleGraph,
+        orientation: [ModuleOrientation],
+        timestamp: Date
+    ) -> [ModuleOrientationCard] {
+        let hasDoc = Dictionary(
+            orientation.map { ($0.moduleName, $0.hasOrientationDoc) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return graph.modules.sorted().map { module in
+            let fanIn = graph.fanIn(module)
+            let role = LegibilityMapBuilder.inferRole(fanIn: fanIn, fanOut: graph.fanOut(module))
+            return ModuleOrientationCard(
+                moduleID: module,
+                whatItDoes: hasDoc[module] == true ? "See the module's DocC overview." : nil,
+                why: templateWhy(role: role, fanIn: fanIn),
+                reliedOnBy: graph.dependents(of: module).sorted(),
+                role: role,
+                source: .template,
+                generatedAt: timestamp
+            )
+        }
+    }
+
+    /// A deterministic structural explanation of a module's role.
+    static func templateWhy(role: String, fanIn: Int) -> String? {
+        switch role {
+        case "foundation":
+            return "A foundational module — \(fanIn) other module\(fanIn == 1 ? "" : "s") build on it."
+        case "entry-point":
+            return "An entry point — nothing else in the package depends on it."
+        case "orchestrator":
+            return "Coordinates several modules; little depends on it directly."
+        case "intermediate":
+            return "A mid-layer module — it both depends on and is depended upon."
+        case "isolated":
+            return "Standalone — no internal dependencies in either direction."
+        default:
+            return nil
+        }
+    }
+
+    /// Resolves the project's module graph and produces an orientation card per
+    /// module, for corpus emission. Prefers the semantic graph, falls back to the
+    /// declared graph — never throws.
+    public func orientationCards(configuration: Configuration, timestamp: Date) async -> [ModuleOrientationCard] {
+        let cwd = FileManager.default.currentDirectoryPath
+        var graph = loadDeclaredGraph(cwd: cwd, config: configuration.legibility)
+        if configuration.legibility.useIndexStore,
+           let semantic = await resolveSemantics(configuration: configuration, cwd: cwd),
+           !semantic.graph.modules.isEmpty {
+            graph = Self.filterExempt(semantic.graph, exemptModules: configuration.legibility.exemptModules)
+        }
+        let orientation = discoverOrientation(cwd: cwd, modules: graph.modules)
+        return Self.orientationCards(graph: graph, orientation: orientation, timestamp: timestamp)
     }
 
     /// Runs the analyzer against the current project.

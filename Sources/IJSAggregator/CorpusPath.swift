@@ -45,6 +45,11 @@ public struct CorpusPath: Sendable, Equatable {
         "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_complexity.json"
     }
 
+    /// Orientation report: `.../<HHmmss>_orientation.json` (module orientation cards).
+    public func orientationPath(for timestamp: Date) -> String {
+        "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_orientation.json"
+    }
+
     /// Skip artifact path: `<dailyDir>/<HHmmss>_skip.json`
     public func skipPath(for timestamp: Date) -> String {
         "\(dailyDirectory(for: timestamp))/\(Self.timeFormatter.string(from: timestamp))_skip.json"

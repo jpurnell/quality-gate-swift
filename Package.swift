@@ -594,7 +594,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LegibilityAnalyzerTests",
-            dependencies: ["LegibilityAnalyzer"]
+            dependencies: ["LegibilityAnalyzer", "IJSSensor"]
         ),
 
         .target(

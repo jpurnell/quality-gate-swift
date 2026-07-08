@@ -503,6 +503,13 @@ struct QualityGateCLI: AsyncParsableCommand {
                     try await writer.writeComplexityReport(report, to: corpus)
                 }
 
+                if configuration.legibility.emitToCorpus {
+                    let analyzer = LegibilityAnalyzer()
+                    let cards = await analyzer.orientationCards(configuration: configuration, timestamp: metadata.timestamp)
+                    let orientationReport = OrientationReport(projectID: projectID, timestamp: metadata.timestamp, cards: cards)
+                    try await writer.writeOrientationReport(orientationReport, to: corpus)
+                }
+
                 if verbose {
                     print("\n[ijs] Telemetry written to \(corpus.projectDirectory)")
                     if !calibrations.isEmpty {
