@@ -152,10 +152,9 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         let packageSource = loadPackageSource(cwd: cwd)
         let packageDependsOn = packageSource.map(PackageGraphLoader.externalPackageDependencies) ?? []
 
-        // Package "what it does": structured config → Package.swift comment →
-        // Master Plan Mission → nil.
-        let packageSummary = configuration.legibility.packageDescription
-            ?? packageSource.flatMap(PackageGraphLoader.packageDescription)
+        // Package "what it does": the `// legibility:description:` comment in
+        // Package.swift → the Master Plan Mission → nil.
+        let packageSummary = packageSource.flatMap(PackageGraphLoader.packageDescription)
             ?? masterPlan.flatMap(MasterPlanReader.mission)
 
         return OrientationReport(
