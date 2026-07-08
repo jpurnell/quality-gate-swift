@@ -472,6 +472,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             let gatedProjectDir = FileManager.default.currentDirectoryPath
             let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
             let writer = TelemetryWriter()
+            // silent: an unreadable work-log just means no baseline SHA — provenance is best-effort
             let lastRecordedSHA = (try? await writer.readWorkLog(from: corpus))?
                 .last(where: { $0.commitSHA != nil })?.commitSHA
             let provenance = GitProvenance.capture(

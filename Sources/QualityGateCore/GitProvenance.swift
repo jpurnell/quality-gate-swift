@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
 
 /// Captures the causal provenance behind a gate run: git commits, `CHANGELOG`
 /// delta, and the newest session summary.
@@ -16,9 +13,6 @@ import os
 /// binary, or any subprocess failure yields all-`nil`/empty results and
 /// **never** throws — a provenance failure must never fail the gate.
 public struct GitProvenance: Sendable {
-    #if canImport(os)
-    private static let logger = Logger(subsystem: "com.quality-gate", category: "GitProvenance")
-    #endif
 
     /// The provenance captured for a single gate run.
     public struct Result: Sendable, Equatable {
@@ -60,7 +54,7 @@ public struct GitProvenance: Sendable {
     /// - Parameters:
     ///   - repoPath: The directory being gated (the git repo root, or any path within it).
     ///   - sinceSHA: The last recorded commit SHA; only commits after it are captured.
-    ///     When `nil`, up to the most recent ``recentSubjectCap`` subjects are captured.
+    ///     When `nil`, up to the most recent 20 subjects are captured.
     /// - Returns: A ``Result``; all-`nil`/empty on any failure. Never throws.
     public static func capture(repoPath: String, sinceSHA: String?) -> Result {
         let headSHA = runGit(["rev-parse", "HEAD"], in: repoPath)
@@ -112,12 +106,13 @@ public struct GitProvenance: Sendable {
     /// Captures the top (unreleased) `CHANGELOG.md` section, if the file exists.
     ///
     /// Returns the text from the first `##` heading up to (but excluding) the
-    /// next `##` heading, capped at ``textCap`` characters. Returns `nil` when
+    /// next `##` heading, capped at `textCap` characters. Returns `nil` when
     /// the file is absent or unreadable.
     private static func captureChangelogDelta(repoPath: String) -> String? {
         let path = (repoPath as NSString).appendingPathComponent("CHANGELOG.md")
-        guard FileManager.default.fileExists(atPath: path),
-              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        // silent: CHANGELOG is best-effort context; an unreadable file yields nil
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
             return nil
         }
 
@@ -144,7 +139,7 @@ public struct GitProvenance: Sendable {
 
     /// Captures the newest file under `development-guidelines/05_SUMMARIES/`, if present.
     ///
-    /// Returns the file's text capped at ``textCap`` characters, or `nil` when
+    /// Returns the file's text capped at `textCap` characters, or `nil` when
     /// the directory is absent or empty.
     private static func captureSessionSummary(repoPath: String) -> String? {
         let dir = (repoPath as NSString)
@@ -163,6 +158,7 @@ public struct GitProvenance: Sendable {
         let newest = files
             .map { name -> (name: String, modified: Date) in
                 let full = (dir as NSString).appendingPathComponent(name)
+                // silent: mtime is best-effort ordering; a stat failure falls back to distantPast
                 let attrs = try? fm.attributesOfItem(atPath: full)
                 let modified = (attrs?[.modificationDate] as? Date) ?? .distantPast
                 return (name, modified)
@@ -175,6 +171,7 @@ public struct GitProvenance: Sendable {
 
         guard let newest else { return nil }
         let path = (dir as NSString).appendingPathComponent(newest.name)
+        // silent: summary text is best-effort context; an unreadable file yields nil
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
         let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
