@@ -83,11 +83,39 @@ struct GenerateNarrative: AsyncParsableCommand {
             }
         }
 
+        // Load per-project work-logs (Phase 1 telemetry) so the narrative can
+        // attribute metric movements to the work that produced them. Best-effort:
+        // a missing or unreadable work-log for a project is simply skipped.
+        let workWriter = TelemetryWriter()
+        var workLogsByProject: [String: [WorkEvent]] = [:]
+        for project in pulse.projects {
+            let projectCorpus = CorpusPath(basePath: effectivePath, projectID: project)
+            do {
+                let events = try await workWriter.readWorkLog(from: projectCorpus)
+                if !events.isEmpty { workLogsByProject[project] = events }
+            } catch {
+                // Best-effort: a corrupt/unreadable work-log must not fail
+                // narration, but surface it rather than swallowing silently.
+                Self.logger.warning("Skipping work-log for \(project, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        let recentWorkSection = WorkLogFormatter.recentWorkSection(
+            workLogsByProject: workLogsByProject,
+            windowStart: pulse.windowStart,
+            windowEnd: pulse.windowEnd
+        )
+
         let systemPrompt = Self.buildSystemPrompt()
-        let userPrompt = Self.buildUserPrompt(pulse: pulse, previousPulse: previousPulse)
+        let userPrompt = Self.buildUserPrompt(
+            pulse: pulse,
+            previousPulse: previousPulse,
+            recentWorkSection: recentWorkSection
+        )
 
         if verbose {
             print("[ijs] Prompt size: \(userPrompt.utf8.count) bytes")
+            let withWork = recentWorkSection == nil ? 0 : workLogsByProject.count
+            print("[ijs] Work-attribution: \(withWork) project(s) with in-window work-events")
         }
 
         print("[ijs] Calling \(model) for narrative generation...")
@@ -157,6 +185,12 @@ struct GenerateNarrative: AsyncParsableCommand {
         - Be honest about what the data doesn't support (e.g. "insufficient" trajectories)
         - End with 3–5 forward guidance items ordered by priority and actionability
 
+        Work attribution (only when the user prompt includes a "Recent Work" section):
+        - That section lists, per project, the commits and notes behind this window's changes — the causal record.
+        - Attribute a metric movement (a trajectory inflection, a resolved anomaly, an override drop) to a work-event ONLY when their dates — and commit SHAs where present — align.
+        - Phrase aligned cases as "coincides with" or "following", NOT "caused by", unless a session summary explicitly claims the fix.
+        - If no work-event aligns with a movement, stay descriptive. Never invent a cause; unattributed change is fine to report as unattributed.
+
         Style rules:
         - Use markdown with ## headers and | tables where helpful
         - Be direct and analytical, not promotional
@@ -180,7 +214,8 @@ struct GenerateNarrative: AsyncParsableCommand {
 
     static func buildUserPrompt(
         pulse: InstitutionalPulse,
-        previousPulse: InstitutionalPulse?
+        previousPulse: InstitutionalPulse?,
+        recentWorkSection: String? = nil
     ) -> String {
         let label = pulse.label ?? pulse.weekLabel
         let dateFmt = DateFormatter()
@@ -357,6 +392,12 @@ struct GenerateNarrative: AsyncParsableCommand {
                 section += "\(snaps.count) active days"
             }
             sections.append(section)
+        }
+
+        // Causal record — the commits/notes behind this window's changes. Placed
+        // last so the model reads the metrics first, then what produced them.
+        if let recentWorkSection {
+            sections.append(recentWorkSection)
         }
 
         return sections.joined(separator: "\n\n")
