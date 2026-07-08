@@ -5,14 +5,14 @@ import IndexStoreInfra
 /// The semantic resolution produced from the IndexStore: the real module usage
 /// graph (test-origin edges excluded, for a clean reading order) and the
 /// over-public occurrences (public symbols referenced only within their module).
-public struct SemanticResolution: Sendable {
+struct SemanticResolution: Sendable {
     /// The semantic module graph (source-to-source edges only).
-    public let graph: ModuleGraph
+    let graph: ModuleGraph
     /// Over-public occurrences, ready for the over-public rule.
-    public let overPublic: [OverPublicOccurrence]
+    let overPublic: [OverPublicOccurrence]
 
     /// Creates a semantic resolution.
-    public init(graph: ModuleGraph, overPublic: [OverPublicOccurrence]) {
+    init(graph: ModuleGraph, overPublic: [OverPublicOccurrence]) {
         self.graph = graph
         self.overPublic = overPublic
     }
@@ -23,11 +23,11 @@ public struct SemanticResolution: Sendable {
 /// Only `public`/`open` symbols are queried for references — cross-module use is
 /// only ever of the public surface, so this captures every inter-module edge
 /// while avoiding a reference query for every internal symbol.
-public enum LegibilityIndexPass {
+enum LegibilityIndexPass {
 
     /// The module that owns a file, from its `Sources/<Module>/` or
     /// `Tests/<Module>/` path segment. `nil` when neither segment is present.
-    public static func moduleName(fromFilePath path: String) -> String? {
+    static func moduleName(fromFilePath path: String) -> String? {
         for marker in ["/Sources/", "/Tests/"] {
             guard let range = path.range(of: marker) else { continue }
             let after = path[range.upperBound...]
@@ -61,7 +61,7 @@ public enum LegibilityIndexPass {
     ///   - publicByFile: The SwiftSyntax public surface, keyed by file path.
     ///   - exemptSymbols: Fully-qualified (`Module.name`) or bare names that
     ///     acknowledge an intentional over-public symbol.
-    public static func resolve(
+    static func resolve(
         session: IndexStoreSession,
         sourceFiles: [String],
         publicByFile: [String: [PublicSymbol]],

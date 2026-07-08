@@ -10,24 +10,24 @@ import Foundation
 /// The type is a pure value with deterministic algorithms — stable node ordering
 /// and an iterative (non-recursive) strongly-connected-components pass — so its
 /// results are reproducible across runs.
-public struct ModuleGraph: Sendable, Equatable {
+struct ModuleGraph: Sendable, Equatable {
 
     /// Adjacency: each module mapped to the set of modules it references.
-    public let edges: [String: Set<String>]
+    let edges: [String: Set<String>]
 
     /// Optional reference weights: `weights[from]?[to]` is the number of distinct
     /// references from `from` into `to`. When an edge exists but has no recorded
     /// weight it counts as `1`, so a weightless graph ranks identically to fan-in.
-    public let weights: [String: [String: Int]]
+    let weights: [String: [String: Int]]
 
     /// Creates a module graph from an adjacency map and optional edge weights.
-    public init(edges: [String: Set<String>], weights: [String: [String: Int]] = [:]) {
+    init(edges: [String: Set<String>], weights: [String: [String: Int]] = [:]) {
         self.edges = edges
         self.weights = weights
     }
 
     /// Every module that appears as a source or a target of an edge.
-    public var modules: Set<String> {
+    var modules: Set<String> {
         var all = Set(edges.keys)
         for targets in edges.values {
             all.formUnion(targets)
@@ -36,12 +36,12 @@ public struct ModuleGraph: Sendable, Equatable {
     }
 
     /// Modules that `module` references — its out-edges / dependencies.
-    public func dependencies(of module: String) -> Set<String> {
+    func dependencies(of module: String) -> Set<String> {
         edges[module] ?? []
     }
 
     /// Modules that reference `module` — its in-edges, i.e. "what relies on it".
-    public func dependents(of module: String) -> Set<String> {
+    func dependents(of module: String) -> Set<String> {
         var result: Set<String> = []
         for (from, targets) in edges where targets.contains(module) {
             result.insert(from)
@@ -50,19 +50,19 @@ public struct ModuleGraph: Sendable, Equatable {
     }
 
     /// Number of modules that rely on `module` (unweighted fan-in).
-    public func fanIn(_ module: String) -> Int {
+    func fanIn(_ module: String) -> Int {
         dependents(of: module).count
     }
 
     /// Number of modules that `module` relies on (out-degree / fan-out).
-    public func fanOut(_ module: String) -> Int {
+    func fanOut(_ module: String) -> Int {
         dependencies(of: module).count
     }
 
     /// Fan-in weighted by reference counts: the total number of references from
     /// other modules into `module`. Falls back to `1` per edge when no weight is
     /// recorded, so a weightless graph yields the same ranking as ``fanIn(_:)``.
-    public func weightedFanIn(_ module: String) -> Int {
+    func weightedFanIn(_ module: String) -> Int {
         var total = 0
         for from in dependents(of: module) {
             total += weights[from]?[module] ?? 1
@@ -81,7 +81,7 @@ public struct ModuleGraph: Sendable, Equatable {
     /// depended upon by many, depending on few) come first — exactly the order in
     /// which a newcomer should read them. Members within a component are ordered
     /// by descending fan-in, then by name, for determinism.
-    public func stronglyConnectedComponents() -> [[String]] {
+    func stronglyConnectedComponents() -> [[String]] {
         var nextIndex = 0
         var indexOf: [String: Int] = [:]
         var lowLink: [String: Int] = [:]
@@ -145,7 +145,7 @@ public struct ModuleGraph: Sendable, Equatable {
     /// Dependency cycles: strongly-connected components that contain more than one
     /// module, plus any single module with a self-referencing edge. These are the
     /// structures for which no clean reading order exists.
-    public func cycles() -> [[String]] {
+    func cycles() -> [[String]] {
         stronglyConnectedComponents().filter { component in
             if component.count > 1 { return true }
             guard let only = component.first else { return false }
@@ -155,7 +155,7 @@ public struct ModuleGraph: Sendable, Equatable {
 
     /// A fan-in-weighted reading order over the whole graph: the modules a reader
     /// should study first (most depended-upon, most foundational) come first.
-    public func topologicalReadingOrder() -> [String] {
+    func topologicalReadingOrder() -> [String] {
         stronglyConnectedComponents().flatMap { $0 }
     }
 

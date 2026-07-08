@@ -2,14 +2,14 @@ import Foundation
 import QualityGateCore
 
 /// Per-module orientation facts consumed by the central-unoriented rule.
-public struct ModuleOrientation: Sendable, Equatable {
+struct ModuleOrientation: Sendable, Equatable {
     /// The module's name.
-    public let moduleName: String
+    let moduleName: String
     /// Whether the module has a conceptual overview (DocC catalog landing page).
-    public let hasOrientationDoc: Bool
+    let hasOrientationDoc: Bool
 
     /// Creates a module-orientation fact.
-    public init(moduleName: String, hasOrientationDoc: Bool) {
+    init(moduleName: String, hasOrientationDoc: Bool) {
         self.moduleName = moduleName
         self.hasOrientationDoc = hasOrientationDoc
     }
@@ -17,22 +17,22 @@ public struct ModuleOrientation: Sendable, Equatable {
 
 /// A live-but-over-exposed public symbol, joined from the surface and semantic
 /// passes and annotated with any acknowledgment.
-public struct OverPublicOccurrence: Sendable, Equatable {
+struct OverPublicOccurrence: Sendable, Equatable {
     /// The symbol's declared name.
-    public let symbolName: String
+    let symbolName: String
     /// The module that defines it.
-    public let moduleName: String
+    let moduleName: String
     /// Absolute path to the defining file.
-    public let filePath: String
+    let filePath: String
     /// 1-based declaration line.
-    public let line: Int
+    let line: Int
     /// Whether the exposure is acknowledged (reserved marker or config exemption).
-    public let acknowledged: Bool
+    let acknowledged: Bool
     /// The acknowledgment text, recorded on the compliance record when acknowledged.
-    public let acknowledgment: String?
+    let acknowledgment: String?
 
     /// Creates an over-public occurrence.
-    public init(
+    init(
         symbolName: String,
         moduleName: String,
         filePath: String,
@@ -52,22 +52,16 @@ public struct OverPublicOccurrence: Sendable, Equatable {
 /// The advisory output of the legibility rules: notes plus recorded
 /// acknowledgments. Never contains an `.error` or `.warning` — the analyzer is
 /// advisory-only and never gates.
-public struct LegibilityFindings: Sendable, Equatable {
+struct LegibilityFindings: Sendable, Equatable {
     /// Advisory `.note` diagnostics.
-    public var diagnostics: [Diagnostic]
+    var diagnostics: [Diagnostic]
     /// Acknowledged exceptions, surfaced (not dropped) as compliance records.
-    public var compliance: [ComplianceRecord]
+    var compliance: [ComplianceRecord]
 
     /// Creates a findings bundle.
-    public init(diagnostics: [Diagnostic] = [], compliance: [ComplianceRecord] = []) {
+    init(diagnostics: [Diagnostic] = [], compliance: [ComplianceRecord] = []) {
         self.diagnostics = diagnostics
         self.compliance = compliance
-    }
-
-    /// Merges another findings bundle into this one.
-    public mutating func merge(_ other: LegibilityFindings) {
-        diagnostics.append(contentsOf: other.diagnostics)
-        compliance.append(contentsOf: other.compliance)
     }
 }
 
@@ -75,7 +69,7 @@ public struct LegibilityFindings: Sendable, Equatable {
 ///
 /// Each emits only `Severity.note`. All ranking and iteration is deterministic
 /// (stable sorts, name tie-breaks) so output is reproducible across runs.
-public enum LegibilityRules {
+enum LegibilityRules {
 
     static let centralUnorientedRuleID = "legibility.central-unoriented"
     static let moduleCycleRuleID = "legibility.module-cycle"
@@ -86,7 +80,7 @@ public enum LegibilityRules {
     /// Flags the top *N* central-but-unoriented modules, ranked by weighted
     /// fan-in. Modules without a known orientation fact, exempt modules, and any
     /// module with an overview are not flagged.
-    public static func centralUnoriented(
+    static func centralUnoriented(
         graph: ModuleGraph,
         orientation: [ModuleOrientation],
         config: LegibilityAnalyzerConfig
@@ -119,7 +113,7 @@ public enum LegibilityRules {
     }
 
     /// Rule 2 — a dependency cycle, for which no clean reading order exists.
-    public static func moduleCycles(
+    static func moduleCycles(
         graph: ModuleGraph,
         config: LegibilityAnalyzerConfig
     ) -> [Diagnostic] {
@@ -140,7 +134,7 @@ public enum LegibilityRules {
     ///
     /// Unacknowledged occurrences become `.note` diagnostics with a fix; the
     /// acknowledged ones become compliance records (surfaced, not dropped).
-    public static func overPublicSymbols(
+    static func overPublicSymbols(
         _ occurrences: [OverPublicOccurrence],
         config: LegibilityAnalyzerConfig
     ) -> LegibilityFindings {

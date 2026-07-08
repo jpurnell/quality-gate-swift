@@ -3,7 +3,7 @@ import SwiftSyntax
 import SwiftParser
 
 /// The kind of a public declaration discovered on a module's surface.
-public enum PublicSymbolKind: String, Sendable, Codable, Equatable {
+enum PublicSymbolKind: String, Sendable, Codable, Equatable {
     case classDecl = "class"
     case structDecl = "struct"
     case enumDecl = "enum"
@@ -20,7 +20,7 @@ public enum PublicSymbolKind: String, Sendable, Codable, Equatable {
     /// within its module is a clean "could be internal" signal, whereas a public
     /// *member* of a public type is part of that type's contract, not an
     /// independent over-exposure.
-    public var isType: Bool {
+    var isType: Bool {
         switch self {
         case .classDecl, .structDecl, .enumDecl, .protocolDecl, .actorDecl:
             return true
@@ -37,28 +37,28 @@ public enum PublicSymbolKind: String, Sendable, Codable, Equatable {
 /// actually referenced anywhere. Reference facts come from the IndexStore pass;
 /// joining the two is what lets the analyzer distinguish "over-exposed but alive"
 /// (a legibility concern) from "dead" (owned by `UnreachableCodeAuditor`).
-public struct PublicSymbol: Sendable, Codable, Equatable {
+struct PublicSymbol: Sendable, Codable, Equatable {
     /// The declared name (for initializers, `"init"`).
-    public let name: String
+    let name: String
 
     /// The kind of declaration.
-    public let kind: PublicSymbolKind
+    let kind: PublicSymbolKind
 
     /// 1-based line of the declaration.
-    public let line: Int
+    let line: Int
 
     /// Whether the declaration is `open` (as opposed to `public`).
-    public let isOpen: Bool
+    let isOpen: Bool
 
     /// Whether a doc comment (`///` or `/** */`) precedes the declaration.
-    public let hasDocComment: Bool
+    let hasDocComment: Bool
 
     /// Whether an acknowledgment marker (e.g. `// legibility:reserved`) precedes
     /// the declaration, deliberately opting it out of the over-public rule.
-    public let hasReservedMarker: Bool
+    let hasReservedMarker: Bool
 
     /// Creates a public-symbol record.
-    public init(
+    init(
         name: String,
         kind: PublicSymbolKind,
         line: Int,
@@ -80,10 +80,10 @@ public struct PublicSymbol: Sendable, Codable, Equatable {
 /// Symbols are returned in source order. Nested public members (e.g. a `public`
 /// method of a `public` struct) are included, since they too widen the apparent
 /// contract a reader must account for.
-public struct PublicSurfaceScanner: Sendable {
+struct PublicSurfaceScanner: Sendable {
 
     /// Creates a public-surface scanner.
-    public init() {}
+    init() {}
 
     /// Scans `source` and returns its public/open declarations in source order.
     ///
@@ -92,7 +92,7 @@ public struct PublicSurfaceScanner: Sendable {
     ///   - fileName: Name used for line resolution (diagnostics only).
     ///   - reservedMarker: Substring that, when present in a declaration's leading
     ///     comment, marks it as an acknowledged over-public exception.
-    public func scan(
+    func scan(
         source: String,
         fileName: String = "<source>",
         reservedMarker: String = "legibility:reserved"

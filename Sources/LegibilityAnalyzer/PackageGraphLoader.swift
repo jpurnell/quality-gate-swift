@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// Parses a `Package.swift` manifest into a first-party module dependency graph.
 ///
@@ -6,21 +9,23 @@ import Foundation
 /// pass is unavailable. Edge `A → B` means target `A` declares a dependency on
 /// first-party target `B`. External `.product(...)` dependencies are dropped: any
 /// quoted dependency that is not itself a declared target name is filtered out.
-public enum PackageGraphLoader {
+enum PackageGraphLoader {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PackageGraphLoader")
 
     /// A parsed target and its raw quoted dependency names.
-    public struct Target: Sendable, Equatable {
+    struct Target: Sendable, Equatable {
         /// The target's name.
-        public let name: String
+        let name: String
         /// Every quoted string inside the target's `dependencies:` list (both
         /// first-party target names and external product names — filtering to
         /// first-party happens in ``declaredGraph(packageSource:includingTestTargets:)``).
-        public let dependencies: [String]
+        let dependencies: [String]
         /// Whether this is a `.testTarget` (excluded from the human reading order).
-        public let isTest: Bool
+        let isTest: Bool
 
         /// Creates a parsed target.
-        public init(name: String, dependencies: [String], isTest: Bool = false) {
+        init(name: String, dependencies: [String], isTest: Bool = false) {
             self.name = name
             self.dependencies = dependencies
             self.isTest = isTest
@@ -28,9 +33,13 @@ public enum PackageGraphLoader {
     }
 
     /// Parses all `.target` / `.executableTarget` / `.testTarget` declarations.
-    public static func parseTargets(packageSource: String) -> [Target] {
+    static func parseTargets(packageSource: String) -> [Target] {
         let targetPattern = #"\.(target|executableTarget|testTarget)\s*\(\s*name:\s*"([^"]+)"([^)]*)\)"#
-        guard let regex = try? NSRegularExpression(pattern: targetPattern, options: .dotMatchesLineSeparators) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: targetPattern, options: .dotMatchesLineSeparators)
+        } catch {
+            Self.logger.warning("Failed to compile target regex: \(error.localizedDescription, privacy: .public)")
             return []
         }
 
@@ -52,7 +61,7 @@ public enum PackageGraphLoader {
     /// - Parameter includingTestTargets: When `false` (the default for the human
     ///   reading order), `.testTarget`s are dropped — they add noise without
     ///   telling a newcomer anything about how the system fits together.
-    public static func declaredGraph(packageSource: String, includingTestTargets: Bool = true) -> ModuleGraph {
+    static func declaredGraph(packageSource: String, includingTestTargets: Bool = true) -> ModuleGraph {
         var targets = parseTargets(packageSource: packageSource)
         if !includingTestTargets {
             targets = targets.filter { !$0.isTest }
@@ -75,7 +84,13 @@ public enum PackageGraphLoader {
             return []
         }
         let afterDeps = String(tail[depsRange.upperBound...])
-        guard let depRegex = try? NSRegularExpression(pattern: #""([^"]+)""#) else { return [] }
+        let depRegex: NSRegularExpression
+        do {
+            depRegex = try NSRegularExpression(pattern: #""([^"]+)""#)
+        } catch {
+            Self.logger.warning("Failed to compile dependency regex: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
 
         let ns = afterDeps as NSString
         let matches = depRegex.matches(in: afterDeps, range: NSRange(location: 0, length: ns.length))

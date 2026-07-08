@@ -7,16 +7,16 @@ import Foundation
 /// ``SemanticGraphBuilder``. Keeping them abstract lets the graph/over-public
 /// logic be unit-tested without a live index store — the same split the
 /// complexity pass uses (a pure `run(inputs:)` fed pre-resolved edges).
-public struct ReferenceFact: Sendable, Equatable, Hashable {
+struct ReferenceFact: Sendable, Equatable, Hashable {
     /// USR of the referenced symbol's definition.
-    public let defUSR: String
+    let defUSR: String
     /// Module that defines the symbol.
-    public let defModule: String
+    let defModule: String
     /// Module from which this particular reference is made.
-    public let refModule: String
+    let refModule: String
 
     /// Creates a reference fact.
-    public init(defUSR: String, defModule: String, refModule: String) {
+    init(defUSR: String, defModule: String, refModule: String) {
         self.defUSR = defUSR
         self.defModule = defModule
         self.refModule = refModule
@@ -24,23 +24,23 @@ public struct ReferenceFact: Sendable, Equatable, Hashable {
 }
 
 /// The semantic facts derived from resolved references.
-public struct SemanticFacts: Sendable, Equatable {
+struct SemanticFacts: Sendable, Equatable {
     /// The module usage graph: an edge `A → B` means a file in `A` references a
     /// symbol defined in `B`, weighted by reference count.
-    public let graph: ModuleGraph
+    let graph: ModuleGraph
 
     /// USRs of `public`/`open` symbols that are *alive but over-exposed*: they
     /// have at least one in-module reference and zero cross-module references.
     /// A symbol with no references at all is **not** here — that is dead code,
     /// owned by `UnreachableCodeAuditor`, not a legibility concern.
-    public let overPublicUSRs: Set<String>
+    let overPublicUSRs: Set<String>
 
     /// USRs referenced at least once from anywhere (used to dedup against dead
     /// symbols: anything not in this set is unreferenced).
-    public let referencedUSRs: Set<String>
+    let referencedUSRs: Set<String>
 
     /// Creates semantic facts.
-    public init(graph: ModuleGraph, overPublicUSRs: Set<String>, referencedUSRs: Set<String>) {
+    init(graph: ModuleGraph, overPublicUSRs: Set<String>, referencedUSRs: Set<String>) {
         self.graph = graph
         self.overPublicUSRs = overPublicUSRs
         self.referencedUSRs = referencedUSRs
@@ -51,7 +51,7 @@ public struct SemanticFacts: Sendable, Equatable {
 ///
 /// Pure and deterministic: given the same references and public-USR set it always
 /// produces the same facts, independent of any index store.
-public enum SemanticGraphBuilder {
+enum SemanticGraphBuilder {
 
     /// Derives ``SemanticFacts`` from resolved references.
     ///
@@ -60,7 +60,7 @@ public enum SemanticGraphBuilder {
     ///     to distinguish over-public from dead).
     ///   - publicUSRs: USRs known (from the SwiftSyntax surface pass) to be
     ///     `public`/`open`. Only these are eligible to be over-public.
-    public static func build(references: [ReferenceFact], publicUSRs: Set<String>) -> SemanticFacts {
+    static func build(references: [ReferenceFact], publicUSRs: Set<String>) -> SemanticFacts {
         var edges: [String: Set<String>] = [:]
         var weights: [String: [String: Int]] = [:]
         var inModuleRefCount: [String: Int] = [:]

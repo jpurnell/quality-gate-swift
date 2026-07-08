@@ -2,24 +2,24 @@ import Foundation
 
 /// A per-module summary card: the "what relies on it / how exposed / what role"
 /// view a reader or a dashboard consumes.
-public struct ModuleCard: Sendable, Codable, Equatable {
+struct ModuleCard: Sendable, Codable, Equatable {
     /// The module's name.
-    public let moduleName: String
+    let moduleName: String
     /// Number of modules that rely on this one (unweighted fan-in).
-    public let fanIn: Int
+    let fanIn: Int
     /// Reference-weighted fan-in.
-    public let weightedFanIn: Int
+    let weightedFanIn: Int
     /// Number of internal modules this one depends on.
-    public let fanOut: Int
+    let fanOut: Int
     /// Whether the module has a conceptual overview (DocC landing page).
-    public let hasOrientationDoc: Bool
+    let hasOrientationDoc: Bool
     /// Count of live-but-over-exposed public symbols in this module.
-    public let overPublicCount: Int
+    let overPublicCount: Int
     /// A one-word role inferred from the module's position in the graph.
-    public let role: String
+    let role: String
 
     /// Creates a module card.
-    public init(
+    init(
         moduleName: String,
         fanIn: Int,
         weightedFanIn: Int,
@@ -42,16 +42,16 @@ public struct ModuleCard: Sendable, Codable, Equatable {
 /// and the structural findings. Designed to be the substrate for an `ONBOARDING`
 /// document and the dashboard's module-orientation section — a derived artifact,
 /// not diagnostics.
-public struct LegibilityMap: Sendable, Codable, Equatable {
+struct LegibilityMap: Sendable, Codable, Equatable {
     /// Fan-in-weighted reading order: study these modules in this order.
-    public let readingOrder: [String]
+    let readingOrder: [String]
     /// Per-module cards, ordered to match ``readingOrder``.
-    public let cards: [ModuleCard]
+    let cards: [ModuleCard]
     /// Dependency cycles (each a set of mutually-entangled modules).
-    public let cycles: [[String]]
+    let cycles: [[String]]
 
     /// Creates a legibility map.
-    public init(readingOrder: [String], cards: [ModuleCard], cycles: [[String]]) {
+    init(readingOrder: [String], cards: [ModuleCard], cycles: [[String]]) {
         self.readingOrder = readingOrder
         self.cards = cards
         self.cycles = cycles
@@ -59,7 +59,7 @@ public struct LegibilityMap: Sendable, Codable, Equatable {
 }
 
 /// Builds a ``LegibilityMap`` from the module graph and per-module facts.
-public enum LegibilityMapBuilder {
+enum LegibilityMapBuilder {
 
     /// Assembles the map. Cards are ordered by the reading order so the artifact
     /// reads top-to-bottom as an onboarding path.
@@ -68,7 +68,7 @@ public enum LegibilityMapBuilder {
     ///   - graph: The (semantic or declared) module graph.
     ///   - orientation: Per-module orientation-doc presence.
     ///   - overPublicByModule: Count of over-public symbols per module.
-    public static func build(
+    static func build(
         graph: ModuleGraph,
         orientation: [ModuleOrientation],
         overPublicByModule: [String: Int]
@@ -108,10 +108,10 @@ public enum LegibilityMapBuilder {
 }
 
 /// Renders a ``LegibilityMap`` to JSON or Markdown for downstream consumers.
-public enum LegibilityMapRenderer {
+enum LegibilityMapRenderer {
 
     /// Deterministic pretty JSON (sorted keys) suitable for a corpus artifact.
-    public static func json(_ map: LegibilityMap) throws -> String {
+    static func json(_ map: LegibilityMap) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(map)
@@ -120,7 +120,7 @@ public enum LegibilityMapRenderer {
 
     /// A human-readable Markdown rendering: reading order, module-card table, and
     /// a cycles section. This is the shape a generated `ONBOARDING.md` builds on.
-    public static func markdown(_ map: LegibilityMap) -> String {
+    static func markdown(_ map: LegibilityMap) -> String {
         var lines: [String] = []
         lines.append("# Codebase Reading Order")
         lines.append("")

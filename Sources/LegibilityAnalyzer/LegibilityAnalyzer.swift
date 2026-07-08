@@ -31,19 +31,21 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     public init() {}
 
     /// The pure result of analysis: advisory notes, compliance records, and the map.
-    public struct AnalysisResult: Sendable {
+    struct AnalysisResult: Sendable {
         /// Advisory `.note` diagnostics.
-        public let diagnostics: [Diagnostic]
+        let diagnostics: [Diagnostic]
         /// Acknowledged over-public exceptions, surfaced not dropped.
-        public let compliance: [ComplianceRecord]
+        let compliance: [ComplianceRecord]
         /// The reading-order / module-map artifact.
-        public let map: LegibilityMap
+        let map: LegibilityMap
     }
 
     /// Runs all rules and builds the map over already-resolved facts.
     ///
-    /// Pure and deterministic — no file or index I/O — so it is fully unit-testable.
-    public static func analyze(
+    /// Pure and deterministic — no file or index I/O — so it is fully unit-testable
+    /// (via `@testable`). Internal: the module's only public surface is the
+    /// ``QualityChecker`` conformance.
+    static func analyze(
         graph: ModuleGraph,
         orientation: [ModuleOrientation],
         overPublic: [OverPublicOccurrence],
@@ -116,8 +118,15 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
 
     private func loadDeclaredGraph(cwd: String, config: LegibilityAnalyzerConfig) -> ModuleGraph {
         let packagePath = (cwd as NSString).appendingPathComponent("Package.swift")
-        // silent: absent/unreadable manifest simply yields an empty graph (advisory checker never fails).
-        guard let source = try? String(contentsOfFile: packagePath, encoding: .utf8) else {
+        // A non-package project legitimately has no manifest → empty graph, no error.
+        guard FileManager.default.fileExists(atPath: packagePath) else {
+            return ModuleGraph(edges: [:])
+        }
+        let source: String
+        do {
+            source = try String(contentsOfFile: packagePath, encoding: .utf8)
+        } catch {
+            Self.logger.warning("Failed to read Package.swift: \(error.localizedDescription, privacy: .public)")
             return ModuleGraph(edges: [:])
         }
         let graph = PackageGraphLoader.declaredGraph(packageSource: source, includingTestTargets: false)
@@ -178,8 +187,13 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         let scanner = PublicSurfaceScanner()
         var result: [String: [PublicSymbol]] = [:]
         for file in sourceFiles {
-            // silent: an unreadable source file simply contributes no public symbols.
-            guard let source = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            let source: String
+            do {
+                source = try String(contentsOfFile: file, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Skipping unreadable source file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             let symbols = scanner.scan(source: source, fileName: file, reservedMarker: config.reservedMarker)
             if !symbols.isEmpty { result[file] = symbols }
         }
@@ -195,11 +209,15 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     }
 
     private func hasDocCCatalog(moduleDir: String) -> Bool {
-        // silent: a module directory we cannot list is treated as having no catalog.
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: moduleDir) else {
+        // A module with no source directory on disk simply has no catalog.
+        guard FileManager.default.fileExists(atPath: moduleDir) else { return false }
+        do {
+            let entries = try FileManager.default.contentsOfDirectory(atPath: moduleDir)
+            return entries.contains { $0.hasSuffix(".docc") }
+        } catch {
+            Self.logger.warning("Failed to list module directory \(moduleDir, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return false
         }
-        return entries.contains { $0.hasSuffix(".docc") }
     }
 
     private func writeArtifact(_ map: LegibilityMap, cwd: String, config: LegibilityAnalyzerConfig) {

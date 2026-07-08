@@ -62,4 +62,3 @@ legibility:
 
 - ``LegibilityAnalyzer``
 - ``LegibilityAnalyzer/check(configuration:)``
-- ``LegibilityAnalyzer/analyze(graph:orientation:overPublic:overPublicByModule:config:)``
