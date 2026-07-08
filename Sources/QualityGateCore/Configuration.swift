@@ -731,6 +731,40 @@ extension TemporalDeterminismConfig: Codable {
     }
 }
 
+/// Configuration for the test-outcome flip detector (within TestRunner).
+///
+/// The detector persists a per-package roster after each `test` run and flags any test
+/// whose pass/fail outcome flips while the package fingerprint is unchanged — i.e.
+/// scheduler-dependent behavior. See ``FlipDetector``.
+public struct FlipDetectorConfig: Sendable, Equatable, Codable {
+    /// Whether flip detection runs after the test suite. On by default.
+    public let enabled: Bool
+
+    /// When true, a detected flip is an `.error` (fails the gate) instead of a `.warning`.
+    public let strict: Bool
+
+    /// Creates a flip-detector configuration with the given options.
+    public init(enabled: Bool = true, strict: Bool = false) {
+        self.enabled = enabled
+        self.strict = strict
+    }
+
+    /// Default flip-detector configuration.
+    public static let `default` = FlipDetectorConfig()
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, strict
+    }
+
+    /// Creates a flip-detector configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = FlipDetectorConfig.default
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+        strict = try container.decodeIfPresent(Bool.self, forKey: .strict) ?? defaults.strict
+    }
+}
+
 /// Per-checker configuration for MemoryLifecycleGuard.
 public struct MemoryLifecycleConfig: Sendable, Equatable {
     /// Property name patterns that indicate delegate/parent references.
@@ -1359,6 +1393,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Configuration for the temporal determinism auditor.
     public let temporalDeterminism: TemporalDeterminismConfig
 
+    /// Configuration for the test-outcome flip detector (within TestRunner).
+    public let flipDetector: FlipDetectorConfig
+
     /// Per-checker configuration for MemoryLifecycleGuard.
     public let memoryLifecycle: MemoryLifecycleConfig
 
@@ -1417,6 +1454,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         fpSafety: FloatingPointSafetyAuditorConfig = .default,
         stochasticDeterminism: StochasticDeterminismConfig = .default,
         temporalDeterminism: TemporalDeterminismConfig = .default,
+        flipDetector: FlipDetectorConfig = .default,
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
         appIntentsReadiness: AppIntentsReadinessConfig = .default,
@@ -1453,6 +1491,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.fpSafety = fpSafety
         self.stochasticDeterminism = stochasticDeterminism
         self.temporalDeterminism = temporalDeterminism
+        self.flipDetector = flipDetector
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
         self.appIntentsReadiness = appIntentsReadiness
@@ -1550,6 +1589,7 @@ extension Configuration {
         case fpSafety
         case stochasticDeterminism
         case temporalDeterminism
+        case flipDetector
         case memoryLifecycle
         case mcpReadiness
         case appIntentsReadiness
@@ -1591,6 +1631,7 @@ extension Configuration {
         fpSafety = try container.decodeIfPresent(FloatingPointSafetyAuditorConfig.self, forKey: .fpSafety) ?? .default
         stochasticDeterminism = try container.decodeIfPresent(StochasticDeterminismConfig.self, forKey: .stochasticDeterminism) ?? .default
         temporalDeterminism = try container.decodeIfPresent(TemporalDeterminismConfig.self, forKey: .temporalDeterminism) ?? .default
+        flipDetector = try container.decodeIfPresent(FlipDetectorConfig.self, forKey: .flipDetector) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
         appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default

@@ -39,6 +39,20 @@ TestRunner can parse the test summary line to extract total test count and failu
 Test run with 42 tests in 5 suites passed after 1.5 seconds.
 ```
 
+### Test-outcome flip detection
+
+Each run is otherwise memoryless — the gate cannot tell "this test passed last time and fails now with no source change" from "this test always fails." The flip detector closes that gap.
+
+After the suite runs, TestRunner parses the full pass/fail roster (`parseTestRoster(_:)`), fingerprints the package's `Sources`/`Tests` + `Package.swift`, and persists a ``TestRunRecord`` per package under `.build/quality-gate-cache/test-outcomes/`. On the next run it compares against the stored record and flags any test whose outcome **flipped while the package fingerprint is unchanged** (see ``FlipDetector``) — i.e. scheduler-dependent behavior, not a code change. The diagnostic (`test.outcome-flip`) names both commits so the regression window is bounded.
+
+An empty roster (e.g. a build failure meant no tests ran) never overwrites the stored history. All state IO is best-effort — the detector never fails the gate on its own IO.
+
+```yaml
+flipDetector:
+  enabled: true    # run flip detection after the suite (default)
+  strict: false    # true → a flip is an error, not a warning
+```
+
 ## Topics
 
 ### Essentials
@@ -55,3 +69,9 @@ Test run with 42 tests in 5 suites passed after 1.5 seconds.
 
 - ``TestRunner/TestSummary``
 - ``TestRunner/parseTestSummary(_:)``
+
+### Flip Detection
+
+- ``TestRunner/parseTestRoster(_:)``
+- ``TestRunner/flipDetection(roster:previous:packageFingerprint:commit:loadProxy:strict:)``
+- ``TestRunner/flipDiagnostics(for:strict:)``
