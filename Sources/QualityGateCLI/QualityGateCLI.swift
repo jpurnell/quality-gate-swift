@@ -32,6 +32,7 @@ import MCPReadinessAuditor
 import ProcessSafetyAuditor
 import MemoryLifecycleGuard
 import ComplexityAnalyzer
+import LegibilityAnalyzer
 import HIGAuditor
 import AppIntentsAuditor
 import XcodeBuildChecker
@@ -281,6 +282,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             MCPReadinessAuditor(),
             ProcessSafetyAuditor(),
             ComplexityAnalyzer(),
+            LegibilityAnalyzer(),
             HIGAuditor(),
             AppIntentsAuditor(),
             ConsistencyChecker(),

@@ -789,6 +789,7 @@ let package = Package(
                 "MCPReadinessAuditor",
                 "ProcessSafetyAuditor",
                 "ComplexityAnalyzer",
+                "LegibilityAnalyzer",
                 "HIGAuditor",
                 "XcodeBuildChecker",
                 "AppIntentsAuditor",

@@ -79,6 +79,7 @@ quality-gate --check status --bootstrap
 | `unreachable` | UnreachableCodeAuditor | Dead code via SwiftSyntax + IndexStore cross-reference |
 | `process-safety` | ProcessSafetyAuditor | Unsafe process spawning, command injection patterns |
 | `complexity` | ComplexityAnalyzer | Cognitive complexity per function, call-graph amplification, cross-module amplification, O(n) pattern detection |
+| `legibility` | LegibilityAnalyzer | Advisory (never gates): central-but-unoriented modules, dependency cycles, over-public surface; emits a reading-order / module-map artifact |
 
 ### Safety & Security
 
