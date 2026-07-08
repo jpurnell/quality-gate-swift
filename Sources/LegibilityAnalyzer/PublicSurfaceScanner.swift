@@ -13,6 +13,21 @@ public enum PublicSymbolKind: String, Sendable, Codable, Equatable {
     case property
     case typealiasDecl = "typealias"
     case initializer
+
+    /// Whether this is a type declaration.
+    ///
+    /// The over-public rule considers only *types*: a public type used solely
+    /// within its module is a clean "could be internal" signal, whereas a public
+    /// *member* of a public type is part of that type's contract, not an
+    /// independent over-exposure.
+    public var isType: Bool {
+        switch self {
+        case .classDecl, .structDecl, .enumDecl, .protocolDecl, .actorDecl:
+            return true
+        case .function, .property, .typealiasDecl, .initializer:
+            return false
+        }
+    }
 }
 
 /// A single `public` or `open` declaration on a module's API surface.

@@ -3,6 +3,7 @@ import Foundation
 import os
 #endif
 import QualityGateCore
+import IndexStoreInfra
 
 /// Advisory whole-codebase legibility analyzer.
 ///
@@ -70,16 +71,27 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         let config = configuration.legibility
         let cwd = FileManager.default.currentDirectoryPath
 
-        let graph = loadDeclaredGraph(cwd: cwd, config: config)
-        let orientation = discoverOrientation(cwd: cwd, modules: graph.modules)
+        // Prefer the semantic (IndexStore) graph — real fan-in + over-public —
+        // and fall back to the declared Package.swift graph when the index is
+        // unavailable or stale.
+        var graph = loadDeclaredGraph(cwd: cwd, config: config)
+        var overPublic: [OverPublicOccurrence] = []
+        if config.useIndexStore,
+           let semantic = await resolveSemantics(configuration: configuration, cwd: cwd) {
+            if !semantic.graph.modules.isEmpty {
+                graph = Self.filterExempt(semantic.graph, exemptModules: config.exemptModules)
+            }
+            overPublic = semantic.overPublic
+        }
 
-        // Over-public analysis requires the semantic (IndexStore) pass; the
-        // declared-graph run supplies no over-public facts.
+        let orientation = discoverOrientation(cwd: cwd, modules: graph.modules)
+        let overPublicByModule = Self.countByModule(overPublic)
+
         let result = Self.analyze(
             graph: graph,
             orientation: orientation,
-            overPublic: [],
-            overPublicByModule: [:],
+            overPublic: overPublic,
+            overPublicByModule: overPublicByModule,
             config: config
         )
 
@@ -109,15 +121,69 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
             return ModuleGraph(edges: [:])
         }
         let graph = PackageGraphLoader.declaredGraph(packageSource: source, includingTestTargets: false)
-        guard !config.exemptModules.isEmpty else { return graph }
+        return Self.filterExempt(graph, exemptModules: config.exemptModules)
+    }
 
-        // Drop exempt modules from the graph entirely.
+    /// Drops exempt modules — and every edge into them — from a graph.
+    static func filterExempt(_ graph: ModuleGraph, exemptModules: Set<String>) -> ModuleGraph {
+        guard !exemptModules.isEmpty else { return graph }
         var edges: [String: Set<String>] = [:]
-        for (from, tos) in graph.edges where !config.exemptModules.contains(from) {
-            let kept = tos.subtracting(config.exemptModules)
+        for (from, tos) in graph.edges where !exemptModules.contains(from) {
+            let kept = tos.subtracting(exemptModules)
             if !kept.isEmpty { edges[from] = kept }
         }
         return ModuleGraph(edges: edges)
+    }
+
+    /// Counts unacknowledged over-public occurrences per module (for the map cards).
+    static func countByModule(_ occurrences: [OverPublicOccurrence]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for occ in occurrences where !occ.acknowledged {
+            counts[occ.moduleName, default: 0] += 1
+        }
+        return counts
+    }
+
+    /// Opens the IndexStore and resolves the semantic graph + over-public set.
+    ///
+    /// Returns `nil` when the index is missing or stale — the caller then keeps
+    /// the declared-graph result. Never throws: an advisory checker degrades
+    /// silently rather than failing.
+    private func resolveSemantics(configuration: Configuration, cwd: String) async -> SemanticResolution? {
+        let kind = ProjectKind.detect(at: URL(fileURLWithPath: cwd))
+        do {
+            guard let located = try StoreLocator.locate(projectKind: kind), !located.isStale else {
+                return nil
+            }
+            guard let libPath = IndexStoreSession.findLibIndexStore() else { return nil }
+            let session = try await SharedIndexStore.session(storePath: located.url, libPath: libPath)
+            let sourceFiles = SourceWalker
+                .swiftFiles(under: kind.rootURL, excludePatterns: configuration.excludePatterns)
+                .filter { $0.contains("/Sources/") }
+            let publicByFile = scanPublicSurface(sourceFiles: sourceFiles, config: configuration.legibility)
+            return LegibilityIndexPass.resolve(
+                session: session,
+                sourceFiles: sourceFiles,
+                publicByFile: publicByFile,
+                exemptSymbols: configuration.legibility.exemptSymbols
+            )
+        } catch {
+            Self.logger.warning("Legibility index pass unavailable: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Runs the SwiftSyntax public-surface scan over the given source files.
+    private func scanPublicSurface(sourceFiles: [String], config: LegibilityAnalyzerConfig) -> [String: [PublicSymbol]] {
+        let scanner = PublicSurfaceScanner()
+        var result: [String: [PublicSymbol]] = [:]
+        for file in sourceFiles {
+            // silent: an unreadable source file simply contributes no public symbols.
+            guard let source = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            let symbols = scanner.scan(source: source, fileName: file, reservedMarker: config.reservedMarker)
+            if !symbols.isEmpty { result[file] = symbols }
+        }
+        return result
     }
 
     private func discoverOrientation(cwd: String, modules: Set<String>) -> [ModuleOrientation] {

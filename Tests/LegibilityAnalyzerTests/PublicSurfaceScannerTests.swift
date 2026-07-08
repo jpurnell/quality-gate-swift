@@ -98,6 +98,19 @@ struct PublicSurfaceScannerTests {
         #expect(names == ["Outer", "Inner", "deep"])
     }
 
+    @Test("isType distinguishes type declarations from members")
+    func isTypeClassification() {
+        #expect(PublicSymbolKind.structDecl.isType)
+        #expect(PublicSymbolKind.classDecl.isType)
+        #expect(PublicSymbolKind.enumDecl.isType)
+        #expect(PublicSymbolKind.protocolDecl.isType)
+        #expect(PublicSymbolKind.actorDecl.isType)
+        #expect(!PublicSymbolKind.property.isType)
+        #expect(!PublicSymbolKind.function.isType)
+        #expect(!PublicSymbolKind.initializer.isType)
+        #expect(!PublicSymbolKind.typealiasDecl.isType)
+    }
+
     @Test("line numbers are 1-based and accurate")
     func lineNumbers() {
         let source = """
