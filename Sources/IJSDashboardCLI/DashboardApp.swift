@@ -284,7 +284,10 @@ public enum DashboardApp: Sendable {
         }
         var orientationCards: [String: ModuleOrientationCard] = [:]
         do {
-            orientationCards = PortfolioOrientation.cards(from: try reader.loadAllOrientationReports())
+            orientationCards = PortfolioOrientation.cards(
+                from: try reader.loadAllOrientationReports(),
+                knownProjects: Set(freshRuns.keys)
+            )
         } catch {
             logger.warning("Failed to load orientation reports: \(error.localizedDescription, privacy: .public)")
         }

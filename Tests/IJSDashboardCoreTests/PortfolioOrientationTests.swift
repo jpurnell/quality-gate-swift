@@ -53,6 +53,19 @@ struct PortfolioOrientationTests {
         #expect(gameKit?.role == "shared library")   // reliedOnBy(1) >= builtFrom(1)
     }
 
+    @Test("built-from filters to knownProjects, not just projects that emitted reports")
+    func knownProjectsFilter() {
+        // Only App has emitted a report; Core is a known corpus project without one yet.
+        let reports = [
+            "IconquerApp": OrientationReport(
+                projectID: "IconquerApp", timestamp: ts, cards: [],
+                packageDependsOn: ["IconquerCore", "swift-syntax"], packageSummary: nil
+            )
+        ]
+        let cards = PortfolioOrientation.cards(from: reports, knownProjects: ["IconquerApp", "IconquerCore"])
+        #expect(cards["IconquerApp"]?.dependsOn == ["IconquerCore"])   // Core kept (known), swift-syntax dropped
+    }
+
     @Test("role helper covers the portfolio positions")
     func roles() {
         #expect(PortfolioOrientation.portfolioRole(builtFromCount: 0, reliedOnByCount: 0) == "standalone")

@@ -12,8 +12,18 @@ import IJSSensor
 public enum PortfolioOrientation {
 
     /// A package-level orientation card per project, keyed by project ID.
-    public static func cards(from reports: [String: OrientationReport]) -> [String: ModuleOrientationCard] {
-        let projects = Set(reports.keys)
+    ///
+    /// - Parameters:
+    ///   - reports: The latest orientation report per project that has emitted one.
+    ///   - knownProjects: The full set of first-party corpus projects. "Built from"
+    ///     edges are filtered to this set, so a package's dependencies show even
+    ///     before every dependency has emitted its own report. Defaults to the set
+    ///     of projects that have reports.
+    public static func cards(
+        from reports: [String: OrientationReport],
+        knownProjects: Set<String>? = nil
+    ) -> [String: ModuleOrientationCard] {
+        let projects = knownProjects ?? Set(reports.keys)
 
         var builtFrom: [String: [String]] = [:]
         var reliedOnBy: [String: Set<String>] = [:]
