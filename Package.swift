@@ -366,6 +366,14 @@ let package = Package(
         ),
 
         .target(
+            name: "AccessibilityCore",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "AccessibilityCoreTests",
+            dependencies: ["AccessibilityCore"]
+        ),
+        .target(
             name: "AccessibilityAuditor",
             dependencies: [
                 "QualityGateCore",
