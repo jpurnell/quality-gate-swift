@@ -1,4 +1,5 @@
 // swift-tools-version: 6.2
+// legibility:description: Modular, AST-powered static analysis for Swift projects.
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
