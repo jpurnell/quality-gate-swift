@@ -12,26 +12,36 @@ struct GitProvenanceTests {
         return dir.path
     }
 
-    @Test("Non-git directory degrades gracefully: nil head, empty subjects, no throw")
-    func nonGitDirectory() {
+    @Test("Existing directory with no docs has no document provenance, no throw")
+    func emptyDirectoryHasNoDocProvenance() {
+        // An existing, empty directory has no CHANGELOG.md and no
+        // development-guidelines/05_SUMMARIES, so the document fields are nil.
+        // headSHA/subjects are intentionally NOT asserted here: under a sandboxed
+        // test runner, $TMPDIR can resolve *inside* an enclosing repo, so git may
+        // report that repo's HEAD — an ambient-dependent value that would make
+        // this test flip. The "no repo → nil head, empty subjects" contract is
+        // covered deterministically by `nonexistentPath`, whose path cannot sit
+        // inside any repo.
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: dir) }
 
         let result = GitProvenance.capture(repoPath: dir, sinceSHA: nil)
-        #expect(result.headSHA == nil)
-        #expect(result.subjects.isEmpty)
         #expect(result.changelogDelta == nil)
         #expect(result.sessionSummary == nil)
     }
 
-    @Test("Nonexistent path degrades gracefully")
+    @Test("Nonexistent path degrades gracefully: nil head, empty subjects, nil docs")
     func nonexistentPath() {
+        // A path that does not exist cannot sit inside any git repo, so this
+        // deterministically exercises the full graceful-degradation contract.
         let result = GitProvenance.capture(
             repoPath: "/nonexistent-\(UUID().uuidString)",
             sinceSHA: nil
         )
         #expect(result.headSHA == nil)
         #expect(result.subjects.isEmpty)
+        #expect(result.changelogDelta == nil)
+        #expect(result.sessionSummary == nil)
     }
 
     @Test("Captures HEAD and subjects from a real git repo")
@@ -41,8 +51,20 @@ struct GitProvenanceTests {
 
         // Best-effort git init + one commit. If git is unavailable, the
         // capture still must not throw; we only assert the graceful contract.
+        //
+        // CRITICAL: scrub inherited GIT_* vars. When the quality gate runs as a
+        // pre-commit hook, git exports GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE; a
+        // child `git commit` that inherits them lands in the HOST repository, not
+        // `dir`. Scrubbing GIT_* (plus `-C dir`) keeps these commands isolated.
+        var gitEnv = ProcessInfo.processInfo.environment
+        for key in gitEnv.keys where key.hasPrefix("GIT_") { gitEnv[key] = nil }
         func git(_ args: [String]) {
-            _ = try? ProcessRunner.run("/usr/bin/git", arguments: args, currentDirectory: dir)
+            _ = try? ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["-C", dir] + args,
+                currentDirectory: dir,
+                environment: gitEnv
+            )
         }
         git(["init"])
         git(["config", "user.email", "test@example.com"])

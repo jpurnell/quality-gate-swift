@@ -88,12 +88,24 @@ public struct GitProvenance: Sendable {
             .filter { !$0.isEmpty }
     }
 
+    /// The parent environment with `GIT_*` variables removed, so `git -C <path>`
+    /// resolves the repository at `<path>` and is not hijacked by an ambient
+    /// `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` — as set when the gate runs
+    /// inside a git hook. Without this, provenance would report the hook's repo
+    /// rather than the directory actually being gated.
+    private static var scrubbedGitEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        for key in env.keys where key.hasPrefix("GIT_") { env[key] = nil }
+        return env
+    }
+
     /// Runs `git -C <repo> <args...>`, returning trimmed stdout on success or `nil` on any failure.
     private static func runGit(_ args: [String], in repoPath: String) -> String? {
         // silent: git provenance is best-effort metadata; git absence must not fail the gate
         guard let output = try? ProcessRunner.run(
             "/usr/bin/git",
-            arguments: ["-C", repoPath] + args
+            arguments: ["-C", repoPath] + args,
+            environment: scrubbedGitEnvironment
         ), output.exitCode == 0 else {
             return nil
         }
