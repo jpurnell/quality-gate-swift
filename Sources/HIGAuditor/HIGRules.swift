@@ -173,6 +173,46 @@ public enum HIGRules {
         isAutoFixable: true
     )
 
+    /// Flags password/sensitive fields using TextField instead of SecureField.
+    public static let secureField = HIGRuleDefinition(
+        id: "hig.secure-field",
+        message: "Password/sensitive field uses TextField. Sensitive input should use SecureField.",
+        suggestedFix: "Use SecureField instead of TextField for passwords, passcodes, and other sensitive data.",
+        platforms: .all,
+        tier: .modifier,
+        isAutoFixable: false
+    )
+
+    /// Flags typed text fields missing keyboard/content-type hints.
+    public static let textInputContentType = HIGRuleDefinition(
+        id: "hig.text-input-content-type",
+        message: "Typed text field missing .keyboardType / .textContentType — the system can't show the right keyboard or offer autofill.",
+        suggestedFix: "Add .keyboardType(.emailAddress/.numberPad/…) and/or .textContentType(.emailAddress/.telephoneNumber/…) matching the field's content.",
+        platforms: [.macOS, .iOS, .iPadOS, .visionOS, .watchOS],
+        tier: .modifier,
+        isAutoFixable: false
+    )
+
+    /// Flags hand-rolled search fields and unhelpful `.searchable` prompts.
+    public static let searchableField = HIGRuleDefinition(
+        id: "hig.searchable",
+        message: "Search implemented with a raw TextField, or a .searchable prompt of the unhelpful literal \"Search\".",
+        suggestedFix: "Use .searchable(text:) for search, and give the prompt descriptive text (e.g. \"Search recipes\") rather than \"Search\".",
+        platforms: .all,
+        tier: .modifier,
+        isAutoFixable: false
+    )
+
+    /// Flags tab items that supply an icon but no text label.
+    public static let tabItemLabel = HIGRuleDefinition(
+        id: "hig.tab-item-label",
+        message: "Tab item has an icon but no text label.",
+        suggestedFix: "Add a text label to the tab (e.g. Label(\"Home\", systemImage: \"house\")) so people can identify the section.",
+        platforms: [.iOS, .iPadOS, .tvOS, .visionOS],
+        tier: .modifier,
+        isAutoFixable: false
+    )
+
     /// Flags custom selection colors that ignore the macOS inactive-window state.
     public static let inactiveWindowState = HIGRuleDefinition(
         id: "hig.inactive-window-state",

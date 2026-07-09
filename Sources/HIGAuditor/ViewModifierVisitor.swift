@@ -78,6 +78,10 @@ final class ViewModifierVisitor: SyntaxVisitor {
         }
 
         checkSemanticColors(node)
+        checkSecureField(node)
+        checkTextInputContentType(node)
+        checkSearchable(node)
+        checkTabItemLabel(node)
 
         return .visitChildren
     }
@@ -283,6 +287,129 @@ final class ViewModifierVisitor: SyntaxVisitor {
                 }
             }
         }
+    }
+
+    // MARK: - Input rules
+
+    private static let passwordKeywords: Set<String> = ["password", "passcode", "passphrase", "cvv"]
+    private static let typedContentKeywords: Set<String> = [
+        "email", "phone", "url", "website", "zip", "postal", "amount", "price", "number", "quantity",
+    ]
+    private static let searchKeywords: Set<String> = ["search", "query"]
+
+    /// `hig.secure-field`: a password-labeled `TextField` should be a `SecureField`.
+    private func checkSecureField(_ node: FunctionCallExprSyntax) {
+        guard !activePlatforms.isDisjoint(with: HIGRules.secureField.platforms) else { return }
+        guard extractCalledName(node) == "TextField",
+              let label = firstStringLiteralArgument(node),
+              Self.matchesKeyword(label, Self.passwordKeywords) else {
+            return
+        }
+        emit(HIGRules.secureField, at: node)
+    }
+
+    /// `hig.text-input-content-type`: a typed field missing keyboard/content-type hints.
+    private func checkTextInputContentType(_ node: FunctionCallExprSyntax) {
+        guard !activePlatforms.isDisjoint(with: HIGRules.textInputContentType.platforms) else { return }
+        let name = extractCalledName(node)
+        guard name == "TextField" || name == "SecureField",
+              let label = firstStringLiteralArgument(node),
+              Self.matchesKeyword(label, Self.typedContentKeywords) else {
+            return
+        }
+        if hasAncestorModifier(from: node, named: "keyboardType") { return }
+        if hasAncestorModifier(from: node, named: "textContentType") { return }
+        emit(HIGRules.textInputContentType, at: node)
+    }
+
+    /// `hig.searchable`: hand-rolled search `TextField`, or a `.searchable` prompt of "Search".
+    private func checkSearchable(_ node: FunctionCallExprSyntax) {
+        guard !activePlatforms.isDisjoint(with: HIGRules.searchableField.platforms) else { return }
+        let name = extractCalledName(node)
+        if name == "TextField",
+           let label = firstStringLiteralArgument(node),
+           Self.matchesKeyword(label, Self.searchKeywords) {
+            emit(HIGRules.searchableField, at: node)
+            return
+        }
+        if name == "searchable",
+           let prompt = stringLiteralArgument(node, label: "prompt"),
+           prompt.lowercased() == "search" {
+            emit(HIGRules.searchableField, at: node)
+        }
+    }
+
+    /// `hig.tab-item-label`: a `.tabItem` closure with an icon but no text/label.
+    private func checkTabItemLabel(_ node: FunctionCallExprSyntax) {
+        guard !activePlatforms.isDisjoint(with: HIGRules.tabItemLabel.platforms) else { return }
+        guard extractCalledName(node) == "tabItem",
+              let closure = node.trailingClosure else {
+            return
+        }
+        let hasLabel = closureMentions(closure, identifiers: ["Text", "Label"])
+        if !hasLabel {
+            emit(HIGRules.tabItemLabel, at: node)
+        }
+    }
+
+    // MARK: - Input-rule helpers
+
+    private func emit(_ rule: HIGRuleDefinition, at node: some SyntaxProtocol) {
+        let location = node.startLocation(converter: converter)
+        if let override = checkExemption(near: location.line, ruleId: rule.id) {
+            overrides.append(override)
+            return
+        }
+        diagnostics.append(Diagnostic(
+            severity: .note,
+            message: rule.message,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: rule.id,
+            suggestedFix: rule.suggestedFix
+        ))
+    }
+
+    private func firstStringLiteralArgument(_ node: FunctionCallExprSyntax) -> String? {
+        guard let first = node.arguments.first, first.label == nil,
+              let literal = first.expression.as(StringLiteralExprSyntax.self) else {
+            return nil
+        }
+        return literal.representedLiteralValue
+    }
+
+    private func stringLiteralArgument(_ node: FunctionCallExprSyntax, label: String) -> String? {
+        guard let arg = node.arguments.first(where: { $0.label?.text == label }),
+              let literal = arg.expression.as(StringLiteralExprSyntax.self) else {
+            return nil
+        }
+        return literal.representedLiteralValue
+    }
+
+    private func hasAncestorModifier(from node: some SyntaxProtocol, named: String) -> Bool {
+        var current: Syntax? = Syntax(node)
+        while let parent = current?.parent {
+            if let call = parent.as(FunctionCallExprSyntax.self),
+               let member = call.calledExpression.as(MemberAccessExprSyntax.self),
+               member.declName.baseName.text == named {
+                return true
+            }
+            current = parent
+        }
+        return false
+    }
+
+    private func closureMentions(_ closure: ClosureExprSyntax, identifiers: Set<String>) -> Bool {
+        for token in closure.tokens(viewMode: .sourceAccurate) where identifiers.contains(token.text) {
+            return true
+        }
+        return false
+    }
+
+    private static func matchesKeyword(_ text: String, _ keywords: Set<String>) -> Bool {
+        let lower = text.lowercased()
+        return keywords.contains { lower.contains($0) }
     }
 
     // MARK: - MemberAccess for static Color properties (Color.blue, Color.red, etc.)

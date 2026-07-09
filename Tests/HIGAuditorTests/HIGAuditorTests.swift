@@ -492,4 +492,144 @@ struct HIGAuditorTests {
         let result = auditor.auditSource(source, fileName: "MyModel.swift", activePlatforms: .all)
         #expect(result.diagnostics.isEmpty, "Non-SwiftUI files should produce no diagnostics")
     }
+
+    // MARK: - Input: secure-field
+
+    @Test("Flags password TextField (should be SecureField)")
+    func secureFieldFlagged() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var pw = ""
+            var body: some View { TextField("Password", text: $pw) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.secure-field" })
+    }
+
+    @Test("SecureField for password passes")
+    func secureFieldClean() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var pw = ""
+            var body: some View { SecureField("Password", text: $pw) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.secure-field" })
+    }
+
+    // MARK: - Input: text-input-content-type
+
+    @Test("Flags typed field missing content-type hints")
+    func contentTypeFlagged() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var email = ""
+            var body: some View { TextField("Email", text: $email) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.text-input-content-type" })
+    }
+
+    @Test("Typed field with keyboardType passes")
+    func contentTypeClean() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var email = ""
+            var body: some View { TextField("Email", text: $email).keyboardType(.emailAddress) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.text-input-content-type" })
+    }
+
+    @Test("Content-type rule is excluded on tvOS")
+    func contentTypeTvOSExcluded() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var email = ""
+            var body: some View { TextField("Email", text: $email) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .tvOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.text-input-content-type" })
+    }
+
+    // MARK: - Input: searchable
+
+    @Test("Flags a raw TextField used for search")
+    func searchableRawField() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var q = ""
+            var body: some View { TextField("Search", text: $q) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.searchable" })
+    }
+
+    @Test("Flags a vague .searchable prompt")
+    func searchableVaguePrompt() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var q = ""
+            var body: some View { List { Text("x") }.searchable(text: $q, prompt: "Search") }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.searchable" })
+    }
+
+    @Test("Descriptive .searchable prompt passes")
+    func searchableGoodPrompt() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var q = ""
+            var body: some View { List { Text("x") }.searchable(text: $q, prompt: "Search recipes") }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.searchable" })
+    }
+
+    // MARK: - Input: tab-item-label
+
+    @Test("Flags a tab item with an icon but no label")
+    func tabItemNoLabel() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View {
+                TabView { Text("Home").tabItem { Image(systemName: "house") } }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.tab-item-label" })
+    }
+
+    @Test("Tab item with a Label passes")
+    func tabItemWithLabel() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View {
+                TabView { Text("Home").tabItem { Label("Home", systemImage: "house") } }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.tab-item-label" })
+    }
 }
