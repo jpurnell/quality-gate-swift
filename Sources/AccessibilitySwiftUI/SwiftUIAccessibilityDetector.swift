@@ -90,7 +90,7 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: "Fixed font size detected. Users who need larger text (low vision) or larger tap targets (motor) won't benefit from Dynamic Type.",
+            message: "Fixed font size detected. Users who need larger text (low vision) or larger tap targets (motor) won't benefit from Dynamic Type. — \(AccessibilityPrinciple.scalableText.higAnchor)",
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,
@@ -119,7 +119,7 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: "withAnimation used without an accessibilityReduceMotion check. Users with motion sensitivity (low vision, vestibular disorders) or motor difficulties may need reduced or no animation.",
+            message: "withAnimation used without an accessibilityReduceMotion check. Users with motion sensitivity (low vision, vestibular disorders) or motor difficulties may need reduced or no animation. — \(AccessibilityPrinciple.respectMotionPref.higAnchor)",
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,
@@ -151,7 +151,7 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: ".animation() modifier used without an accessibilityReduceMotion check. Users with motion sensitivity may need reduced or no animation.",
+            message: ".animation() modifier used without an accessibilityReduceMotion check. Users with motion sensitivity may need reduced or no animation. — \(AccessibilityPrinciple.respectMotionPref.higAnchor)",
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,
@@ -194,7 +194,7 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: "Image without .accessibilityLabel() or .accessibilityHidden(true). VoiceOver users (blind) will hear the raw image name or nothing. Screen reader is the primary UI for blind users.",
+            message: "Image without .accessibilityLabel() or .accessibilityHidden(true). VoiceOver users (blind) will hear the raw image name or nothing. Screen reader is the primary UI for blind users. — \(AccessibilityPrinciple.textAlternative.higAnchor)",
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,

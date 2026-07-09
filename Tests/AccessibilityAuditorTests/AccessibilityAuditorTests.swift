@@ -59,6 +59,23 @@ struct AccessibilityAuditorTests {
         #expect(fixedFont.isEmpty)
     }
 
+    @Test("Diagnostics cite their Apple HIG basis")
+    func diagnosticsCiteHIG() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hello").font(.system(size: 14))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Cite.swift")
+        let fixedFont = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
+        #expect(fixedFont.first?.message.contains("Apple HIG") == true)
+        #expect(fixedFont.first?.message.contains("Dynamic Type") == true)
+    }
+
     // MARK: - missing-reduce-motion
 
     @Test("withAnimation without reduceMotion triggers warning")
