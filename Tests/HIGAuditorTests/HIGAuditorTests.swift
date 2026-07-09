@@ -242,36 +242,64 @@ struct HIGAuditorTests {
         #expect(!result.overrides.isEmpty, "Should record the override")
     }
 
-    // MARK: - Tier 2: Semantic Colors
+    // MARK: - Foundations: forced-color-scheme
 
-    @Test("Flags hardcoded Color.blue")
-    func flagsHardcodedColorBlue() {
+    @Test("Flags .preferredColorScheme(.dark) locking appearance")
+    func forcedColorSchemeFlagged() {
         let source = """
         import SwiftUI
         struct ContentView: View {
-            var body: some View {
-                Text("Hello").foregroundStyle(Color.blue)
-            }
+            var body: some View { Text("Hi").preferredColorScheme(.dark) }
         }
         """
-        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .all)
-        let colorDiag = result.diagnostics.filter { $0.ruleId == "hig.semantic-colors" }
-        #expect(!colorDiag.isEmpty, "Should flag Color.blue")
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.forced-color-scheme" })
     }
 
-    @Test("Does not flag Color.clear")
-    func allowsColorClear() {
+    @Test("No preferredColorScheme passes")
+    func forcedColorSchemeClean() {
         let source = """
         import SwiftUI
         struct ContentView: View {
-            var body: some View {
-                Text("Hello").background(Color.clear)
-            }
+            var body: some View { Text("Hi") }
         }
         """
-        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .all)
-        let colorDiag = result.diagnostics.filter { $0.ruleId == "hig.semantic-colors" }
-        #expect(colorDiag.isEmpty, "Should not flag Color.clear")
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.forced-color-scheme" })
+    }
+
+    // MARK: - Foundations: opaque-material
+
+    @Test("Flags opaque Color toolbar background")
+    func opaqueMaterialFlagged() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View { NavigationStack { Text("x") }.toolbarBackground(Color.blue) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.opaque-material" })
+    }
+
+    @Test("Material toolbar background and Visibility argument pass")
+    func opaqueMaterialClean() {
+        let materialSource = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View { NavigationStack { Text("x") }.toolbarBackground(.regularMaterial) }
+        }
+        """
+        let visibilitySource = """
+        import SwiftUI
+        struct ContentView: View {
+            var body: some View { NavigationStack { Text("x") }.toolbarBackground(.visible, for: .navigationBar) }
+        }
+        """
+        let m = auditor.auditSource(materialSource, fileName: "M.swift", activePlatforms: .iOS)
+        let v = auditor.auditSource(visibilitySource, fileName: "V.swift", activePlatforms: .iOS)
+        #expect(!m.diagnostics.contains { $0.ruleId == "hig.opaque-material" })
+        #expect(!v.diagnostics.contains { $0.ruleId == "hig.opaque-material" })
     }
 
     // MARK: - Tier 2: Toolbar Tooltips

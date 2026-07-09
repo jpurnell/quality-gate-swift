@@ -143,23 +143,17 @@ public enum HIGRules {
         isAutoFixable: true
     )
 
-    /// Checks that list items provide a `.contextMenu` for right-click or long-press actions.
+    /// Suggests a `.contextMenu` for data-driven lists (optional; consistency matters).
+    ///
+    /// The HIG treats context menus as hidden, optional, duplicative shortcuts — never
+    /// required — so this is an advisory note, not a mandate. The real guidance is
+    /// consistency: if some rows of a kind have a context menu, all similar rows should.
     public static let contextMenus = HIGRuleDefinition(
         id: "hig.context-menus",
-        message: "List items missing .contextMenu modifier for right-click / long-press actions.",
-        suggestedFix: "Add .contextMenu { } with relevant actions to list items.",
+        message: "List has no .contextMenu. Context menus are optional (hidden, duplicative shortcuts) — consider one for frequent actions, and keep similar rows consistent.",
+        suggestedFix: "Optionally add .contextMenu { } duplicating actions already in the main UI; if some rows of a kind have one, give all of them one.",
         platforms: .allExceptWatch,
-        tier: .modifier,
-        isAutoFixable: true
-    )
-
-    /// Flags hardcoded Color literals in view bodies; prefer semantic colors.
-    public static let semanticColors = HIGRuleDefinition(
-        id: "hig.semantic-colors",
-        message: "Hardcoded Color literal in View body. Use semantic colors for Dark Mode and accessibility.",
-        suggestedFix: "Use .tint, .primary, .secondary, or Color(\"AssetName\") instead.",
-        platforms: .all,
-        tier: .modifier,
+        tier: .completeness,
         isAutoFixable: true
     )
 
@@ -209,6 +203,26 @@ public enum HIGRules {
         message: "Tab item has an icon but no text label.",
         suggestedFix: "Add a text label to the tab (e.g. Label(\"Home\", systemImage: \"house\")) so people can identify the section.",
         platforms: [.iOS, .iPadOS, .tvOS, .visionOS],
+        tier: .modifier,
+        isAutoFixable: false
+    )
+
+    /// Flags `.preferredColorScheme(.dark/.light)` that locks appearance app-wide.
+    public static let forcedColorScheme = HIGRuleDefinition(
+        id: "hig.forced-color-scheme",
+        message: "preferredColorScheme locks the appearance — the app won't follow the user's system Light/Dark choice.",
+        suggestedFix: "Remove .preferredColorScheme so the app follows the system appearance; if a specific view must be dark (e.g. a media player), scope it and add // HIG-EXEMPT:.",
+        platforms: .all,
+        tier: .modifier,
+        isAutoFixable: false
+    )
+
+    /// Flags an opaque `.toolbarBackground` color where a system material belongs.
+    public static let opaqueMaterial = HIGRuleDefinition(
+        id: "hig.opaque-material",
+        message: "Toolbar/bar uses an opaque color background instead of a system material — it won't establish the platform's layered visual hierarchy.",
+        suggestedFix: "Use a system material (.regularMaterial, .thinMaterial, …) or .automatic for the toolbar background instead of a solid Color.",
+        platforms: .all,
         tier: .modifier,
         isAutoFixable: false
     )

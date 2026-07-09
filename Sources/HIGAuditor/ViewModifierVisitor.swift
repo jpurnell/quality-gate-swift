@@ -8,9 +8,10 @@ import QualityGateCore
 /// Phase 2 rules:
 /// - `hig.toolbar-tooltips`: Button in ToolbarItem without .help()
 /// - `hig.keyboard-shortcuts`: Primary toolbar button without .keyboardShortcut()
-/// - `hig.context-menus`: List/ForEach items without .contextMenu
-/// - `hig.semantic-colors`: Hardcoded Color literals in View bodies
+/// - `hig.context-menus`: data-driven List without .contextMenu (advisory)
 /// - `hig.toolbar-placement`: ToolbarItem without explicit placement
+/// - `hig.secure-field` / `hig.text-input-content-type` / `hig.searchable` / `hig.tab-item-label`
+/// - `hig.forced-color-scheme` / `hig.opaque-material`
 final class ViewModifierVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
@@ -32,13 +33,6 @@ final class ViewModifierVisitor: SyntaxVisitor {
     private var listHasForEach = false
     private var listHasDataArgument = false
     private var listItemLine: Int = 0
-
-    /// Hardcoded color names that should use semantic alternatives.
-    private static let flaggedColors: Set<String> = [
-        "blue", "red", "green", "orange", "purple", "pink", "yellow", "brown",
-        "cyan", "indigo", "mint", "teal",
-    ]
-
 
     init(
         fileName: String,
@@ -77,7 +71,8 @@ final class ViewModifierVisitor: SyntaxVisitor {
             }
         }
 
-        checkSemanticColors(node)
+        checkForcedColorScheme(node)
+        checkOpaqueMaterial(node)
         checkSecureField(node)
         checkTextInputContentType(node)
         checkSearchable(node)
@@ -238,55 +233,55 @@ final class ViewModifierVisitor: SyntaxVisitor {
         listDepth -= 1
     }
 
-    // MARK: - Semantic Colors
+    // MARK: - Foundations
 
-    private func checkSemanticColors(_ node: FunctionCallExprSyntax) {
-        guard !activePlatforms.isDisjoint(with: HIGRules.semanticColors.platforms) else { return }
+    private static let materials: Set<String> = [
+        "ultraThinMaterial", "thinMaterial", "regularMaterial", "thickMaterial", "ultraThickMaterial", "bar",
+    ]
 
-        if let member = node.calledExpression.as(MemberAccessExprSyntax.self) {
-            let memberName = member.declName.baseName.text
-
-            if let base = member.base?.as(DeclReferenceExprSyntax.self),
-               base.baseName.text == "Color",
-               Self.flaggedColors.contains(memberName) {
-                let location = node.startLocation(converter: converter)
-                if checkExemption(near: location.line, ruleId: HIGRules.semanticColors.id) == nil {
-                    diagnostics.append(Diagnostic(
-                        severity: .note,
-                        message: HIGRules.semanticColors.message,
-                        filePath: fileName,
-                        lineNumber: location.line,
-                        columnNumber: location.column,
-                        ruleId: HIGRules.semanticColors.id,
-                        suggestedFix: HIGRules.semanticColors.suggestedFix
-                    ))
-                }
-            }
+    /// `hig.forced-color-scheme`: `.preferredColorScheme(.dark/.light)` locks appearance.
+    private func checkForcedColorScheme(_ node: FunctionCallExprSyntax) {
+        guard !activePlatforms.isDisjoint(with: HIGRules.forcedColorScheme.platforms) else { return }
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "preferredColorScheme",
+              let arg = node.arguments.first,
+              let scheme = arg.expression.as(MemberAccessExprSyntax.self),
+              ["dark", "light"].contains(scheme.declName.baseName.text) else {
+            return
         }
+        emit(HIGRules.forcedColorScheme, at: node)
+    }
 
-        if let baseRef = node.calledExpression.as(DeclReferenceExprSyntax.self),
-           baseRef.baseName.text == "Color" {
-            let hasRGBArgs = node.arguments.contains { arg in
-                arg.label?.text == "red" || arg.label?.text == "hue"
-            }
-            let hasSRGBArgs = node.arguments.contains { arg in
-                arg.label?.text == ".sRGB" || arg.label?.text == "colorSpace"
-            }
-            if hasRGBArgs || hasSRGBArgs {
-                let location = node.startLocation(converter: converter)
-                if checkExemption(near: location.line, ruleId: HIGRules.semanticColors.id) == nil {
-                    diagnostics.append(Diagnostic(
-                        severity: .note,
-                        message: HIGRules.semanticColors.message,
-                        filePath: fileName,
-                        lineNumber: location.line,
-                        columnNumber: location.column,
-                        ruleId: HIGRules.semanticColors.id,
-                        suggestedFix: HIGRules.semanticColors.suggestedFix
-                    ))
-                }
-            }
+    /// `hig.opaque-material`: an opaque `Color` toolbar background where a material belongs.
+    private func checkOpaqueMaterial(_ node: FunctionCallExprSyntax) {
+        guard !activePlatforms.isDisjoint(with: HIGRules.opaqueMaterial.platforms) else { return }
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "toolbarBackground",
+              let firstArg = node.arguments.first else {
+            return
         }
+        // A system material is fine.
+        if let matMember = firstArg.expression.as(MemberAccessExprSyntax.self),
+           Self.materials.contains(matMember.declName.baseName.text) {
+            return
+        }
+        // Flag an explicit Color (Color(...) or Color.X). Bare members like .visible
+        // (a Visibility, not a color) are conservatively ignored.
+        if Self.isColorExpr(firstArg.expression) {
+            emit(HIGRules.opaqueMaterial, at: node)
+        }
+    }
+
+    private static func isColorExpr(_ expr: ExprSyntax) -> Bool {
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+            return ref.baseName.text == "Color"
+        }
+        if let member = expr.as(MemberAccessExprSyntax.self),
+           let base = member.base?.as(DeclReferenceExprSyntax.self) {
+            return base.baseName.text == "Color"
+        }
+        return false
     }
 
     // MARK: - Input rules
@@ -410,35 +405,6 @@ final class ViewModifierVisitor: SyntaxVisitor {
     private static func matchesKeyword(_ text: String, _ keywords: Set<String>) -> Bool {
         let lower = text.lowercased()
         return keywords.contains { lower.contains($0) }
-    }
-
-    // MARK: - MemberAccess for static Color properties (Color.blue, Color.red, etc.)
-
-    override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        guard !activePlatforms.isDisjoint(with: HIGRules.semanticColors.platforms) else {
-            return .visitChildren
-        }
-
-        if let base = node.base?.as(DeclReferenceExprSyntax.self),
-           base.baseName.text == "Color" {
-            let memberName = node.declName.baseName.text
-            if Self.flaggedColors.contains(memberName) {
-                let location = node.startLocation(converter: converter)
-                if checkExemption(near: location.line, ruleId: HIGRules.semanticColors.id) == nil {
-                    diagnostics.append(Diagnostic(
-                        severity: .note,
-                        message: HIGRules.semanticColors.message,
-                        filePath: fileName,
-                        lineNumber: location.line,
-                        columnNumber: location.column,
-                        ruleId: HIGRules.semanticColors.id,
-                        suggestedFix: HIGRules.semanticColors.suggestedFix
-                    ))
-                }
-            }
-        }
-
-        return .visitChildren
     }
 
     // MARK: - Helpers
