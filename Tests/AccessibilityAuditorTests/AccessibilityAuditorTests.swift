@@ -365,6 +365,65 @@ struct AccessibilityAuditorTests {
         #expect(color.isEmpty)
     }
 
+    @Test("Colored interpolation with no text (color-only meaning) triggers warning")
+    func cliColorOnlyMeaning() async throws {
+        let source = """
+        import SwiftCLIKit
+
+        func report(_ status: String) {
+            print("\\u{001B}[31m\\(status)\\u{001B}[0m")
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ColorOnly.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.cli.color-only-meaning" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Colored output with a text marker is not color-only")
+    func cliColoredWithText() async throws {
+        let source = """
+        import SwiftCLIKit
+
+        func report(_ status: String) {
+            print("\\u{001B}[31merror: \\(status)\\u{001B}[0m")
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ColoredText.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.cli.color-only-meaning" }
+        #expect(hits.isEmpty)
+    }
+
+    @Test("Cursor/screen control without a terminal check triggers warning")
+    func cliCursorControlNoTty() async throws {
+        let source = """
+        import SwiftCLIKit
+
+        func clearScreen() {
+            print("\\u{001B}[2J")
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Cursor.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.cli.cursor-control-no-tty" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Cursor control with an isatty guard passes")
+    func cliCursorControlGuarded() async throws {
+        let source = """
+        import SwiftCLIKit
+        import Foundation
+
+        func clearScreen() {
+            if isatty(STDOUT_FILENO) != 0 {
+                print("\\u{001B}[2J")
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CursorOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.cli.cursor-control-no-tty" }
+        #expect(hits.isEmpty)
+    }
+
     @Test("Non-frontend file (no CLI/SwiftUI import) is not scanned for CLI color")
     func cliNonFrontendSkipped() async throws {
         let source = """
