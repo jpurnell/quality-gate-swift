@@ -37,7 +37,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "FixedFont.swift")
-        let fixedFont = result.diagnostics.filter { $0.ruleId == "fixed-font-size" }
+        let fixedFont = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
         #expect(fixedFont.count == 1)
         #expect(fixedFont.first?.severity == .warning)
         #expect(fixedFont.first?.suggestedFix?.contains("semantic text style") == true)
@@ -55,7 +55,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "SemanticFont.swift")
-        let fixedFont = result.diagnostics.filter { $0.ruleId == "fixed-font-size" }
+        let fixedFont = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
         #expect(fixedFont.isEmpty)
     }
 
@@ -78,7 +78,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "Animation.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.count >= 1)
         #expect(motion.first?.suggestedFix?.contains("accessibilityReduceMotion") == true)
     }
@@ -101,7 +101,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "AnimationOK.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.isEmpty)
     }
 
@@ -119,7 +119,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "AnimMod.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.count >= 1)
     }
 
@@ -137,7 +137,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "Image.swift")
-        let labels = result.diagnostics.filter { $0.ruleId == "missing-accessibility-label" }
+        let labels = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-label" }
         #expect(labels.count == 1)
         #expect(labels.first?.suggestedFix?.contains("accessibilityLabel") == true)
     }
@@ -155,7 +155,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "ImageOK.swift")
-        let labels = result.diagnostics.filter { $0.ruleId == "missing-accessibility-label" }
+        let labels = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-label" }
         #expect(labels.isEmpty)
     }
 
@@ -172,7 +172,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "Decorative.swift")
-        let labels = result.diagnostics.filter { $0.ruleId == "missing-accessibility-label" }
+        let labels = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-label" }
         #expect(labels.isEmpty)
     }
 
@@ -191,7 +191,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "Exempt.swift")
-        let fixedFont = result.diagnostics.filter { $0.ruleId == "fixed-font-size" }
+        let fixedFont = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
         #expect(fixedFont.isEmpty)
     }
 
@@ -215,7 +215,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "ScopeAware.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.isEmpty, "Scope-aware check should find reduceMotion in the same body closure")
     }
 
@@ -239,7 +239,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "DiffScope.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.count >= 1, "Should flag animation when reduceMotion is in a different function scope")
     }
 
@@ -261,7 +261,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "RadiusFast.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.isEmpty, "Fast-path radius check should still find nearby reduceMotion")
     }
 
@@ -282,7 +282,7 @@ struct AccessibilityAuditorTests {
         }
         """
         let result = try await auditor.auditSource(source, fileName: "AnimModScope.swift")
-        let motion = result.diagnostics.filter { $0.ruleId == "missing-reduce-motion" }
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
         #expect(motion.isEmpty, "Scope-aware check should find reduceMotion for .animation() modifier too")
     }
 

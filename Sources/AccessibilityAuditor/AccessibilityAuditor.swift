@@ -2,35 +2,24 @@ import Foundation
 #if canImport(os)
 import os
 #endif
+import AccessibilityCore
+import AccessibilitySwiftUI
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
 
-/// Scans SwiftUI source files for accessibility violations.
+/// Audits source files for accessibility violations across UI frontends.
 ///
-/// Checks are organized by the ability group they serve:
+/// This is the orchestrator: for each source file it resolves which UI frontend(s)
+/// apply (via ``FrontendResolver``), then runs the matching ``AccessibilityDetector``s
+/// and collects their diagnostics. Today the SwiftUI detector is wired in; CLI and other
+/// frontends plug into the same dispatch.
 ///
-/// | Feature              | Low vision    | Blind          | Color blind         | Motor          | Hearing        |
-/// |:---------------------|:--------------|:---------------|:--------------------|:---------------|:---------------|
-/// | VoiceOver labels     | -             | Primary UI     | -                   | -              | -              |
-/// | Dynamic Type         | Text scales   | -              | -                   | Larger targets | -              |
-/// | High Contrast        | Sharper edges | -              | Differentiation     | -              | -              |
-/// | Color-blind patterns | -             | -              | Shapes, not color   | -              | -              |
-/// | Reduce Motion        | Simplified    | -              | -                   | Less distract. | -              |
-/// | Switch Control       | -             | -              | -                   | Full playable  | -              |
-/// | AudioNarrator        | Supplement    | Primary output | -                   | -              | -              |
-/// | Visual indicators    | -             | -              | -                   | -              | Icons for SFX  |
-/// | Haptic cues          | Supplement    | Orientation    | -                   | -              | Audio sub.     |
-/// | Closed captions      | -             | -              | -                   | -              | Text for all   |
+/// ## Rules (SwiftUI)
 ///
-/// ## Rules
-///
-/// - `missing-accessibility-label`: Image or icon-only Button without `.accessibilityLabel()`
-/// - `fixed-font-size`: `.font(.system(size:))` instead of semantic text styles
-/// - `missing-reduce-motion`: `withAnimation` / `.animation()` without `accessibilityReduceMotion` check
-/// - `color-only-differentiation`: `.foregroundColor()` / `.foregroundStyle()` without pattern/shape companion
-/// - `missing-accessibility-hint`: Interactive views without `.accessibilityHint()`
-/// - `hardcoded-color-string`: Hardcoded color literals instead of asset catalog / adaptive colors
+/// - `a11y.swiftui.fixed-font-size`: `.font(.system(size:))` instead of semantic text styles
+/// - `a11y.swiftui.missing-reduce-motion`: `withAnimation` / `.animation()` without `accessibilityReduceMotion` check
+/// - `a11y.swiftui.missing-accessibility-label`: `Image` without `.accessibilityLabel()`
 public struct AccessibilityAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "AccessibilityAuditor")
 
@@ -40,8 +29,13 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Accessibility Auditor"
 
+    /// The per-frontend detectors this auditor dispatches to.
+    private let detectors: [any AccessibilityDetector]
+
     /// Creates a new AccessibilityAuditor instance.
-    public init() {}
+    public init() {
+        self.detectors = [SwiftUIAccessibilityDetector()]
+    }
 
     /// Run the accessibility audit on the current directory.
     public func check(configuration: Configuration) async throws -> CheckResult {
@@ -164,269 +158,36 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         fileName: String,
         configuration: Configuration
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let sourceFile = Parser.parse(source: source)
-        let visitor = AccessibilityVisitor(
+        let frontends = FrontendResolver.resolve(importedModules: Self.importedModules(in: source))
+        guard !frontends.isEmpty else { return ([], []) }
+
+        let unit = SourceUnit(
             fileName: fileName,
             source: source,
-            exemptionPatterns: configuration.safetyExemptions,
-            tree: sourceFile
+            exemptionPatterns: configuration.safetyExemptions
         )
-        visitor.walk(sourceFile)
-        return (visitor.diagnostics, visitor.overrides)
-    }
-}
 
-// MARK: - Syntax Visitor
-
-final class AccessibilityVisitor: SyntaxVisitor {
-    let fileName: String
-    let source: String
-    let exemptionPatterns: [String]
-    let sourceLines: [String]
-    let converter: SourceLocationConverter
-    var diagnostics: [Diagnostic] = []
-    var overrides: [DiagnosticOverride] = []
-
-    init(fileName: String, source: String, exemptionPatterns: [String], tree: SourceFileSyntax) {
-        self.fileName = fileName
-        self.source = source
-        self.exemptionPatterns = exemptionPatterns
-        self.sourceLines = source.components(separatedBy: .newlines)
-        self.converter = SourceLocationConverter(fileName: fileName, tree: tree)
-        super.init(viewMode: .sourceAccurate)
-    }
-
-    // MARK: - Rule: fixed-font-size
-
-    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        checkFixedFontSize(node)
-        checkWithAnimationMissingReduceMotion(node)
-        return .visitChildren
-    }
-
-    /// Detects `.font(.system(size: N))` — should use semantic text styles
-    /// for Dynamic Type support (Low vision, Motor).
-    private func checkFixedFontSize(_ node: FunctionCallExprSyntax) {
-        // Match: .system(size: ...)
-        guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
-              memberAccess.declName.baseName.text == "system" else {
-            return
+        var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
+        for detector in detectors where frontends.contains(detector.frontend) {
+            let result = detector.detect(in: unit)
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
         }
-
-        let hasSize = node.arguments.contains { arg in
-            arg.label?.text == "size"
-        }
-        guard hasSize else { return }
-
-        let location = node.startLocation(
-            converter: converter
-        )
-        if let override = overrideIfExempted(line: location.line, ruleId: "fixed-font-size") {
-            overrides.append(override)
-            return
-        }
-
-        diagnostics.append(Diagnostic(
-            severity: .warning,
-            message: "Fixed font size detected. Users who need larger text (low vision) or larger tap targets (motor) won't benefit from Dynamic Type.",
-            filePath: fileName,
-            lineNumber: location.line,
-            columnNumber: location.column,
-            ruleId: "fixed-font-size",
-            suggestedFix: "Use a semantic text style instead: .font(.body), .font(.headline), .font(.caption), etc. These scale automatically with the user's Dynamic Type setting."
-        ))
+        return (diagnostics, overrides)
     }
 
-    /// Detects `withAnimation { ... }` without a nearby
-    /// `accessibilityReduceMotion` check.
-    private func checkWithAnimationMissingReduceMotion(_ node: FunctionCallExprSyntax) {
-        guard let ref = node.calledExpression.as(DeclReferenceExprSyntax.self),
-              ref.baseName.text == "withAnimation" else {
-            return
-        }
-
-        let location = node.startLocation(
-            converter: converter
-        )
-        if let override = overrideIfExempted(line: location.line, ruleId: "missing-reduce-motion") {
-            overrides.append(override)
-            return
-        }
-
-        if hasReduceMotionCheck(for: node) { return }
-
-        diagnostics.append(Diagnostic(
-            severity: .warning,
-            message: "withAnimation used without an accessibilityReduceMotion check. Users with motion sensitivity (low vision, vestibular disorders) or motor difficulties may need reduced or no animation.",
-            filePath: fileName,
-            lineNumber: location.line,
-            columnNumber: location.column,
-            ruleId: "missing-reduce-motion",
-            suggestedFix: "Guard with: @Environment(\\.accessibilityReduceMotion) var reduceMotion — then use withAnimation(reduceMotion ? nil : .default) { ... } or skip the animation entirely."
-        ))
-    }
-
-    // MARK: - Rule: missing-accessibility-label (via member access modifiers)
-
-    override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        checkAnimationModifier(node)
-        return .visitChildren
-    }
-
-    /// Detects `.animation(...)` modifier without nearby reduceMotion check.
-    private func checkAnimationModifier(_ node: MemberAccessExprSyntax) {
-        guard node.declName.baseName.text == "animation" else { return }
-
-        let location = node.period.startLocation(
-            converter: converter
-        )
-        if let override = overrideIfExempted(line: location.line, ruleId: "missing-reduce-motion") {
-            overrides.append(override)
-            return
-        }
-
-        if hasReduceMotionCheck(for: node) { return }
-
-        diagnostics.append(Diagnostic(
-            severity: .warning,
-            message: ".animation() modifier used without an accessibilityReduceMotion check. Users with motion sensitivity may need reduced or no animation.",
-            filePath: fileName,
-            lineNumber: location.line,
-            columnNumber: location.column,
-            ruleId: "missing-reduce-motion",
-            suggestedFix: "Guard with: @Environment(\\.accessibilityReduceMotion) var reduceMotion — then conditionally apply: .animation(reduceMotion ? nil : .default, value: ...)"
-        ))
-    }
-
-    // MARK: - Rule: Image without accessibilityLabel
-
-    override func visit(_ node: LabeledExprSyntax) -> SyntaxVisitorContinueKind {
-        checkImageWithoutLabel(node)
-        return .visitChildren
-    }
-
-    /// Detects `Image(systemName:)` or `Image("name")` that isn't followed
-    /// by `.accessibilityLabel()` in the same modifier chain.
-    private func checkImageWithoutLabel(_ node: LabeledExprSyntax) {
-        // We check at the FunctionCallExpr level for Image(...)
-        guard let call = node.parent?.parent?.as(FunctionCallExprSyntax.self),
-              let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
-              ref.baseName.text == "Image" else {
-            return
-        }
-
-        // Walk up the modifier chain looking for .accessibilityLabel
-        if hasModifierInChain(from: call, named: "accessibilityLabel") { return }
-        if hasModifierInChain(from: call, named: "accessibilityHidden") { return }
-
-        let location = call.startLocation(
-            converter: converter
-        )
-        if let override = overrideIfExempted(line: location.line, ruleId: "missing-accessibility-label") {
-            overrides.append(override)
-            return
-        }
-
-        // Only flag once per Image call (check we're the first argument)
-        guard node == call.arguments.first else { return }
-
-        diagnostics.append(Diagnostic(
-            severity: .warning,
-            message: "Image without .accessibilityLabel() or .accessibilityHidden(true). VoiceOver users (blind) will hear the raw image name or nothing. Screen reader is the primary UI for blind users.",
-            filePath: fileName,
-            lineNumber: location.line,
-            columnNumber: location.column,
-            ruleId: "missing-accessibility-label",
-            suggestedFix: "Add .accessibilityLabel(\"description\") for meaningful images, or .accessibilityHidden(true) for purely decorative images."
-        ))
-    }
-
-    // MARK: - Helpers
-
-    private func hasReduceMotionCheck(for node: some SyntaxProtocol) -> Bool {
-        let location = node.startLocation(converter: converter)
-
-        // Fast path: check ±10 line radius
-        if hasNearbyReduceMotionCheck(around: location.line) { return true }
-
-        // Scope walk: check each enclosing scope up to the function boundary
-        var current: Syntax? = Syntax(node)
-        while let parent = current?.parent {
-            let isFuncBoundary = parent.is(FunctionDeclSyntax.self) ||
-                parent.is(AccessorDeclSyntax.self)
-            let isScopeBoundary = isFuncBoundary ||
-                parent.is(ClosureExprSyntax.self) ||
-                parent.is(AccessorBlockSyntax.self)
-
-            if isScopeBoundary {
-                let startLoc = parent.startLocation(converter: converter)
-                let endLoc = parent.endLocation(converter: converter)
-                if searchLines(from: startLoc.line, to: endLoc.line) {
-                    return true
-                }
-                if isFuncBoundary { return false }
+    /// Extracts the set of imported module names from a Swift source file.
+    private static func importedModules(in source: String) -> Set<String> {
+        let tree = Parser.parse(source: source)
+        var modules: Set<String> = []
+        for statement in tree.statements {
+            guard let importDecl = statement.item.as(ImportDeclSyntax.self),
+                  let first = importDecl.path.first else {
+                continue
             }
-            current = parent
+            modules.insert(first.name.text)
         }
-
-        return false
-    }
-
-    private func searchLines(from startLine: Int, to endLine: Int) -> Bool {
-        let start = max(0, startLine - 1)
-        let end = min(sourceLines.count - 1, endLine - 1)
-        guard start <= end else { return false }
-        for i in start...end {
-            let content = sourceLines[i]
-            if content.contains("reduceMotion") || content.contains("accessibilityReduceMotion") {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func hasNearbyReduceMotionCheck(around line: Int, radius: Int = 10) -> Bool {
-        let start = max(0, line - radius - 1)
-        let end = min(sourceLines.count - 1, line + radius - 1)
-        for i in start...end {
-            let content = sourceLines[i]
-            if content.contains("reduceMotion") || content.contains("accessibilityReduceMotion") {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func hasModifierInChain(from node: some SyntaxProtocol, named modifier: String) -> Bool {
-        // Walk up through function call expressions looking for .modifier(...)
-        var current: Syntax? = Syntax(node)
-        while let parent = current?.parent {
-            if let call = parent.as(FunctionCallExprSyntax.self),
-               let member = call.calledExpression.as(MemberAccessExprSyntax.self),
-               member.declName.baseName.text == modifier {
-                return true
-            }
-            current = parent
-        }
-        return false
-    }
-
-    private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
-        let linesToCheck = [line - 1, line]
-            .filter { $0 >= 1 && $0 <= sourceLines.count }
-        for lineNum in linesToCheck {
-            let lineContent = sourceLines[lineNum - 1]
-            for pattern in exemptionPatterns {
-                if lineContent.contains(pattern) {
-                    return DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: lineContent.trimmingCharacters(in: .whitespaces),
-                        filePath: fileName,
-                        lineNumber: line
-                    )
-                }
-            }
-        }
-        return nil
+        return modules
     }
 }
