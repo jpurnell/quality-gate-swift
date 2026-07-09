@@ -197,6 +197,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.1.0"),
+        .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.2.0"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
@@ -671,18 +672,15 @@ let package = Package(
         .target(
             name: "IJSSensor",
             dependencies: [
-                .product(name: "QualityGateTypes", package: "quality-gate-types"),
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
             ]
-        ),
-        .testTarget(
-            name: "IJSSensorTests",
-            dependencies: ["IJSSensor"]
         ),
 
         .target(
             name: "IJSAggregator",
             dependencies: [
                 "IJSSensor",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "Yams", package: "Yams"),
             ]
         ),
