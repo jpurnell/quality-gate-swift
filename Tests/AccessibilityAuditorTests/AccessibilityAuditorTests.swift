@@ -464,6 +464,134 @@ struct AccessibilityAuditorTests {
         #expect(hits.isEmpty)
     }
 
+    // MARK: - hardcoded-color-string
+
+    @Test("Hardcoded RGB Color triggers warning")
+    func hardcodedRGBColor() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").background(Color(red: 0.1, green: 0.2, blue: 0.3))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "RGB.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Hardcoded white Color triggers warning")
+    func hardcodedWhiteColor() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").foregroundColor(Color(white: 0.9))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "White.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Asset-catalog and system colors pass")
+    func adaptiveColorsPass() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi")
+                    .background(Color("Brand"))
+                    .foregroundColor(Color(.systemBackground))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Adaptive.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hits.isEmpty)
+    }
+
+    // MARK: - color-only-differentiation
+
+    @Test("Condition-selected color with no differentiator triggers warning")
+    func colorOnlyState() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let isError = true
+            var body: some View {
+                Text("Status").foregroundColor(isError ? .red : .green)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ColorOnly.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Color state with a Differentiate-Without-Color guard passes")
+    func colorStateWithGuard() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let isError = true
+            @Environment(\\.accessibilityDifferentiateWithoutColor) var differentiateWithoutColor
+            var body: some View {
+                Text("Status").foregroundColor(isError ? .red : .green)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ColorGuard.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
+        #expect(hits.isEmpty)
+    }
+
+    // MARK: - missing-accessibility-hint
+
+    @Test("Labeled custom tap control without a hint triggers warning")
+    func missingHint() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Play")
+                    .onTapGesture { }
+                    .accessibilityLabel("Play")
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Hint.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-hint" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Labeled custom control with a hint passes")
+    func hintPresent() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Play")
+                    .onTapGesture { }
+                    .accessibilityLabel("Play")
+                    .accessibilityHint("Plays the track")
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "HintOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-hint" }
+        #expect(hits.isEmpty)
+    }
+
     // MARK: - Checker metadata
 
     @Test("Checker has correct id and name")

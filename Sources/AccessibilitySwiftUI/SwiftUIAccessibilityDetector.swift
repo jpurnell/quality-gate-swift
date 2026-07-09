@@ -10,6 +10,9 @@ enum SwiftUIAccessibilityRule {
     static let missingAccessibilityLabel = "a11y.swiftui.missing-accessibility-label"
     static let customFontNoRelativeTo = "a11y.swiftui.custom-font-no-relativeto"
     static let tapGestureMissingButtonTrait = "a11y.swiftui.tap-gesture-missing-button-trait"
+    static let hardcodedColor = "a11y.swiftui.hardcoded-color-string"
+    static let colorOnlyDifferentiation = "a11y.swiftui.color-only-differentiation"
+    static let missingAccessibilityHint = "a11y.swiftui.missing-accessibility-hint"
 }
 
 /// Detects accessibility violations in SwiftUI source.
@@ -67,7 +70,134 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         checkWithAnimationMissingReduceMotion(node)
         checkCustomFontNoRelativeTo(node)
         checkTapGestureMissingButtonTrait(node)
+        checkHardcodedColor(node)
+        checkColorOnlyDifferentiation(node)
+        checkMissingAccessibilityHint(node)
         return .visitChildren
+    }
+
+    /// Detects hardcoded `Color(...)` initializers (RGB / white / HSB / hex) that bypass
+    /// Dark Mode and contrast adaptation. Asset-catalog and system colors are left alone.
+    private func checkHardcodedColor(_ node: FunctionCallExprSyntax) {
+        guard let ref = node.calledExpression.as(DeclReferenceExprSyntax.self),
+              ref.baseName.text == "Color" else {
+            return
+        }
+        let componentLabels: Set<String> = ["red", "green", "blue", "white", "hue", "saturation", "brightness", "hex"]
+        let hasComponent = node.arguments.contains { arg in
+            guard let label = arg.label?.text else { return false }
+            return componentLabels.contains(label)
+        }
+        guard hasComponent else { return }
+
+        let location = node.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.hardcodedColor) {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Hardcoded color value bypasses Dark Mode and contrast adaptation. — \(AccessibilityPrinciple.respectVisualPrefs.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.hardcodedColor,
+            suggestedFix: "Use an asset-catalog color (Color(\"Name\")) or a system/semantic color (Color(.systemBackground), .primary) so it adapts to appearance and accessibility settings."
+        ))
+    }
+
+    /// Detects a color-only state signal: a `.foregroundColor`/`.foregroundStyle`/`.tint`
+    /// whose value is a condition-selected color, with no Differentiate-Without-Color guard
+    /// in the file. Color must not be the sole differentiator (Color blind).
+    private func checkColorOnlyDifferentiation(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              ["foregroundColor", "foregroundStyle", "tint"].contains(member.declName.baseName.text) else {
+            return
+        }
+        guard let firstArg = node.arguments.first,
+              let (thenExpr, elseExpr) = Self.ternaryBranches(firstArg.expression),
+              Self.looksLikeColor(thenExpr),
+              Self.looksLikeColor(elseExpr) else {
+            return
+        }
+        // Respect an explicit Differentiate Without Color path anywhere in the file.
+        if source.contains("accessibilityDifferentiateWithoutColor") || source.contains("differentiateWithoutColor") {
+            return
+        }
+
+        let location = member.period.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.colorOnlyDifferentiation) {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "State conveyed by color alone (a condition selects between colors) with no shape/text/symbol companion. — \(AccessibilityPrinciple.notColorAlone.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.colorOnlyDifferentiation,
+            suggestedFix: "Add a non-color differentiator (an SF Symbol, shape, or text label that also changes with state), or gate on @Environment(\\.accessibilityDifferentiateWithoutColor)."
+        ))
+    }
+
+    /// Detects a deliberately-labeled custom tap control (`.onTapGesture` + `.accessibilityLabel`)
+    /// that lacks an `.accessibilityHint` describing the result of the action.
+    private func checkMissingAccessibilityHint(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "onTapGesture" else {
+            return
+        }
+        guard hasModifierInChain(from: node, named: "accessibilityLabel") else { return }
+        if hasModifierInChain(from: node, named: "accessibilityHint") { return }
+
+        let location = member.period.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.missingAccessibilityHint) {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Labeled custom control has no accessibilityHint — VoiceOver users may not know what activating it does. — \(AccessibilityPrinciple.textAlternative.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.missingAccessibilityHint,
+            suggestedFix: "Add .accessibilityHint(\"...\") describing the result of the action for non-obvious controls."
+        ))
+    }
+
+    /// Extracts the then/else branches of a ternary, handling both the folded
+    /// `TernaryExprSyntax` and the unfolded `SequenceExprSyntax` form that
+    /// `SwiftParser.parse` produces by default (`[cond, UnresolvedTernaryExpr(then), else]`).
+    private static func ternaryBranches(_ expr: ExprSyntax) -> (ExprSyntax, ExprSyntax)? {
+        if let ternary = expr.as(TernaryExprSyntax.self) {
+            return (ternary.thenExpression, ternary.elseExpression)
+        }
+        if let seq = expr.as(SequenceExprSyntax.self) {
+            let elements = Array(seq.elements)
+            guard let idx = elements.firstIndex(where: { $0.is(UnresolvedTernaryExprSyntax.self) }),
+                  let unresolved = elements[idx].as(UnresolvedTernaryExprSyntax.self),
+                  idx + 1 < elements.count else {
+                return nil
+            }
+            return (unresolved.thenExpression, elements[idx + 1])
+        }
+        return nil
+    }
+
+    /// Heuristic: an expression that resolves to a color — a member access (`.red`,
+    /// `Color.red`) or a `Color(...)` initializer.
+    private static func looksLikeColor(_ expr: ExprSyntax) -> Bool {
+        if expr.is(MemberAccessExprSyntax.self) { return true }
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let ref = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+            return ref.baseName.text == "Color"
+        }
+        return false
     }
 
     /// Detects `Font.custom(_:size:)` without the `relativeTo:` overload — a custom font

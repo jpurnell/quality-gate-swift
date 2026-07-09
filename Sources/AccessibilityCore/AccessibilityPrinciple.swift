@@ -17,6 +17,8 @@ public enum AccessibilityPrinciple: Sendable {
     /// Custom interactive elements must be operable and identifiable by assistive tech
     /// (e.g. a tappable view needs a button trait so VoiceOver announces it as actionable).
     case operableAltInput
+    /// Meaning must never be conveyed by color alone (also use text, shape, or a symbol).
+    case notColorAlone
 
     /// A concise citation of the Apple HIG guidance this principle is grounded in.
     ///
@@ -33,6 +35,8 @@ public enum AccessibilityPrinciple: Sendable {
             return "Apple HIG — Accessibility: adapt to the user's settings; honor color/appearance preferences (CLI: the NO_COLOR convention)"
         case .operableAltInput:
             return "Apple HIG — VoiceOver: add labels and traits to any custom elements your app defines"
+        case .notColorAlone:
+            return "Apple HIG — Accessibility: convey information with more than color alone (use text, shapes, or symbols too)"
         }
     }
 }
