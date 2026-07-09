@@ -303,6 +303,79 @@ struct AccessibilityAuditorTests {
         #expect(motion.isEmpty, "Scope-aware check should find reduceMotion for .animation() modifier too")
     }
 
+    // MARK: - CLI: no-color-not-respected
+
+    @Test("ANSI color without a color-preference guard triggers warning")
+    func cliAnsiColorUnguarded() async throws {
+        let source = """
+        import ArgumentParser
+
+        func printError() {
+            print("\\u{001B}[31mError\\u{001B}[0m")
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Colors.swift")
+        let color = result.diagnostics.filter { $0.ruleId == "a11y.cli.no-color-not-respected" }
+        #expect(color.count == 1)
+        #expect(color.first?.message.contains("NO_COLOR") == true)
+    }
+
+    @Test("Truecolor ANSI (38;2;r;g;b) without a guard triggers warning")
+    func cliTruecolorUnguarded() async throws {
+        let source = """
+        import SwiftCLIKit
+
+        func highlight() -> String {
+            return "\\u{001B}[38;2;255;165;0m"
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Truecolor.swift")
+        let color = result.diagnostics.filter { $0.ruleId == "a11y.cli.no-color-not-respected" }
+        #expect(color.count == 1)
+    }
+
+    @Test("ANSI color with a NO_COLOR guard passes")
+    func cliAnsiColorGuarded() async throws {
+        let source = """
+        import ArgumentParser
+        import Foundation
+
+        func printError() {
+            if ProcessInfo.processInfo.environment["NO_COLOR"] == nil {
+                print("\\u{001B}[31mError\\u{001B}[0m")
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Guarded.swift")
+        let color = result.diagnostics.filter { $0.ruleId == "a11y.cli.no-color-not-respected" }
+        #expect(color.isEmpty)
+    }
+
+    @Test("Cursor-control ANSI without color is not flagged")
+    func cliCursorControlOnly() async throws {
+        let source = """
+        import ArgumentParser
+
+        func clearScreen() {
+            print("\\u{001B}[2J")
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Clear.swift")
+        let color = result.diagnostics.filter { $0.ruleId == "a11y.cli.no-color-not-respected" }
+        #expect(color.isEmpty)
+    }
+
+    @Test("Non-frontend file (no CLI/SwiftUI import) is not scanned for CLI color")
+    func cliNonFrontendSkipped() async throws {
+        let source = """
+        import Foundation
+
+        func p() { print("\\u{001B}[31mx\\u{001B}[0m") }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Plain.swift")
+        #expect(result.diagnostics.isEmpty)
+    }
+
     // MARK: - Checker metadata
 
     @Test("Checker has correct id and name")

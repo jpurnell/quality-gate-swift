@@ -4,6 +4,7 @@ import os
 #endif
 import AccessibilityCore
 import AccessibilitySwiftUI
+import AccessibilityCLI
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -34,7 +35,7 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
 
     /// Creates a new AccessibilityAuditor instance.
     public init() {
-        self.detectors = [SwiftUIAccessibilityDetector()]
+        self.detectors = [SwiftUIAccessibilityDetector(), CLIAccessibilityDetector()]
     }
 
     /// Run the accessibility audit on the current directory.

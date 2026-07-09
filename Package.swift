@@ -384,10 +384,20 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AccessibilityCLI",
+            dependencies: [
+                "AccessibilityCore",
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .target(
             name: "AccessibilityAuditor",
             dependencies: [
                 "AccessibilityCore",
                 "AccessibilitySwiftUI",
+                "AccessibilityCLI",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

@@ -12,6 +12,8 @@ public enum AccessibilityPrinciple: Sendable {
     case scalableText
     /// Motion must honor the Reduce Motion accessibility setting.
     case respectMotionPref
+    /// The user's visual/appearance preferences (color, contrast) must be honored.
+    case respectVisualPrefs
 
     /// A concise citation of the Apple HIG guidance this principle is grounded in.
     ///
@@ -24,6 +26,8 @@ public enum AccessibilityPrinciple: Sendable {
             return "Apple HIG — Typography: use built-in text styles so text supports Dynamic Type"
         case .respectMotionPref:
             return "Apple HIG — Accessibility: reduce automatic and repetitive animations when Reduce Motion is on"
+        case .respectVisualPrefs:
+            return "Apple HIG — Accessibility: adapt to the user's settings; honor color/appearance preferences (CLI: the NO_COLOR convention)"
         }
     }
 }
