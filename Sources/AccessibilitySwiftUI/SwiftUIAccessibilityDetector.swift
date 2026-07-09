@@ -8,6 +8,8 @@ enum SwiftUIAccessibilityRule {
     static let fixedFontSize = "a11y.swiftui.fixed-font-size"
     static let missingReduceMotion = "a11y.swiftui.missing-reduce-motion"
     static let missingAccessibilityLabel = "a11y.swiftui.missing-accessibility-label"
+    static let customFontNoRelativeTo = "a11y.swiftui.custom-font-no-relativeto"
+    static let tapGestureMissingButtonTrait = "a11y.swiftui.tap-gesture-missing-button-trait"
 }
 
 /// Detects accessibility violations in SwiftUI source.
@@ -63,7 +65,64 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         checkFixedFontSize(node)
         checkWithAnimationMissingReduceMotion(node)
+        checkCustomFontNoRelativeTo(node)
+        checkTapGestureMissingButtonTrait(node)
         return .visitChildren
+    }
+
+    /// Detects `Font.custom(_:size:)` without the `relativeTo:` overload — a custom font
+    /// with a fixed size does not scale with Dynamic Type (Low vision).
+    private func checkCustomFontNoRelativeTo(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "custom" else {
+            return
+        }
+        let hasSize = node.arguments.contains { $0.label?.text == "size" }
+        let hasRelativeTo = node.arguments.contains { $0.label?.text == "relativeTo" }
+        // `fixedSize:` (no `size:` label) is a deliberate opt-out and is left alone.
+        guard hasSize, !hasRelativeTo else { return }
+
+        let location = node.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.customFontNoRelativeTo) {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Custom font uses a fixed size (no relativeTo:) and won't scale with Dynamic Type. — \(AccessibilityPrinciple.scalableText.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.customFontNoRelativeTo,
+            suggestedFix: "Use Font.custom(_:size:relativeTo:) so the custom font scales with Dynamic Type, e.g. .font(.custom(\"Name\", size: 15, relativeTo: .body))."
+        ))
+    }
+
+    /// Detects `.onTapGesture` on a view that lacks `.accessibilityAddTraits(.isButton)` —
+    /// VoiceOver won't announce a bare tappable view as an actionable control (Blind, Motor).
+    private func checkTapGestureMissingButtonTrait(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "onTapGesture" else {
+            return
+        }
+        if hasModifierInChain(from: node, named: "accessibilityAddTraits") { return }
+
+        let location = member.period.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.tapGestureMissingButtonTrait) {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "onTapGesture without a button trait — VoiceOver won't announce this custom control as actionable. — \(AccessibilityPrinciple.operableAltInput.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.tapGestureMissingButtonTrait,
+            suggestedFix: "Add .accessibilityAddTraits(.isButton) to the tappable view (and an .accessibilityLabel if it has no text)."
+        ))
     }
 
     /// Detects `.font(.system(size: N))` — should use semantic text styles

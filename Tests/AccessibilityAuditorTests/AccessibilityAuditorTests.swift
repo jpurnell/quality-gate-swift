@@ -376,6 +376,94 @@ struct AccessibilityAuditorTests {
         #expect(result.diagnostics.isEmpty)
     }
 
+    // MARK: - A-1: custom-font-no-relativeto
+
+    @Test("Custom font with fixed size (no relativeTo) triggers warning")
+    func customFontNoRelativeTo() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").font(.custom("Inter", size: 15))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CustomFont.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.custom-font-no-relativeto" }
+        #expect(hits.count == 1)
+        #expect(hits.first?.message.contains("Dynamic Type") == true)
+    }
+
+    @Test("Custom font with relativeTo passes")
+    func customFontWithRelativeTo() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").font(.custom("Inter", size: 15, relativeTo: .body))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CustomFontOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.custom-font-no-relativeto" }
+        #expect(hits.isEmpty)
+    }
+
+    @Test("Custom font with explicit fixedSize is intentional and passes")
+    func customFontFixedSize() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").font(.custom("Inter", fixedSize: 15))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "FixedSize.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.custom-font-no-relativeto" }
+        #expect(hits.isEmpty)
+    }
+
+    // MARK: - A-2: tap-gesture-missing-button-trait
+
+    @Test("onTapGesture without a button trait triggers warning")
+    func tapGestureMissingButtonTrait() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Tap me").onTapGesture { }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Tap.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.tap-gesture-missing-button-trait" }
+        #expect(hits.count == 1)
+        #expect(hits.first?.message.contains("VoiceOver") == true)
+    }
+
+    @Test("onTapGesture with accessibilityAddTraits(.isButton) passes")
+    func tapGestureWithButtonTrait() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Tap me")
+                    .onTapGesture { }
+                    .accessibilityAddTraits(.isButton)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "TapOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.tap-gesture-missing-button-trait" }
+        #expect(hits.isEmpty)
+    }
+
     // MARK: - Checker metadata
 
     @Test("Checker has correct id and name")
