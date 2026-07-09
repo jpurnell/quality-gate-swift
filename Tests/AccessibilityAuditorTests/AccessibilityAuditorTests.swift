@@ -592,6 +592,148 @@ struct AccessibilityAuditorTests {
         #expect(hits.isEmpty)
     }
 
+    // MARK: - A-3: decorative-image-not-hidden
+
+    @Test("Decorative background image without hidden triggers warning (not the label rule)")
+    func decorativeImageNotHidden() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").background(Image("texture"))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Decor.swift")
+        let decorative = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.decorative-image-not-hidden" }
+        let label = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-label" }
+        #expect(decorative.count == 1)
+        #expect(label.isEmpty, "decorative image should not also trip the label rule")
+    }
+
+    @Test("Decorative image with accessibilityHidden passes")
+    func decorativeImageHidden() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").background(Image("texture")).accessibilityHidden(true)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "DecorOK.swift")
+        let decorative = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.decorative-image-not-hidden" }
+        #expect(decorative.isEmpty)
+    }
+
+    // MARK: - A-4: material-no-reduce-transparency
+
+    @Test("Material without a Reduce Transparency guard triggers warning")
+    func materialNoReduceTransparency() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").background(.ultraThinMaterial)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Material.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.material-no-reduce-transparency" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Material with a Reduce Transparency guard passes")
+    func materialWithGuard() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @Environment(\\.accessibilityReduceTransparency) var reduceTransparency
+            var body: some View {
+                Text("Hi").background(.ultraThinMaterial)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "MaterialOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.material-no-reduce-transparency" }
+        #expect(hits.isEmpty)
+    }
+
+    // MARK: - A-5: standard-shortcut-override
+
+    @Test("Command + reserved key shortcut triggers warning")
+    func standardShortcutOverride() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Button("Copy") { }.keyboardShortcut("c", modifiers: .command)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Shortcut.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("Non-reserved key and multi-modifier combos pass")
+    func nonReservedShortcut() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Button("K") { }.keyboardShortcut("k", modifiers: .command)
+                Button("Shift-C") { }.keyboardShortcut("c", modifiers: [.command, .shift])
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ShortcutOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(hits.isEmpty)
+    }
+
+    // MARK: - A-6: hit-target-too-small
+
+    @Test("Button with a sub-44pt frame triggers warning")
+    func hitTargetTooSmall() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Button("x") { }.frame(width: 20, height: 20)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Hit.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hit-target-too-small" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("44pt frame, padded button, and non-button frames pass")
+    func hitTargetOK() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Button("a") { }.frame(width: 44, height: 44)
+                Button("b") { }.padding().frame(width: 20, height: 20)
+                Text("c").frame(width: 10, height: 10)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "HitOK.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hit-target-too-small" }
+        #expect(hits.isEmpty)
+    }
+
     // MARK: - Checker metadata
 
     @Test("Checker has correct id and name")

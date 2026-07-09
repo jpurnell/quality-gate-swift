@@ -19,6 +19,10 @@ public enum AccessibilityPrinciple: Sendable {
     case operableAltInput
     /// Meaning must never be conveyed by color alone (also use text, shape, or a symbol).
     case notColorAlone
+    /// Don't repurpose standard system keyboard shortcuts for custom actions.
+    case keyboardConsistency
+    /// Interactive targets must meet the platform minimum hit size.
+    case sufficientTarget
 
     /// A concise citation of the Apple HIG guidance this principle is grounded in.
     ///
@@ -37,6 +41,10 @@ public enum AccessibilityPrinciple: Sendable {
             return "Apple HIG — VoiceOver: add labels and traits to any custom elements your app defines"
         case .notColorAlone:
             return "Apple HIG — Accessibility: convey information with more than color alone (use text, shapes, or symbols too)"
+        case .keyboardConsistency:
+            return "Apple HIG — Keyboards: don't repurpose standard keyboard shortcuts for custom actions"
+        case .sufficientTarget:
+            return "Apple HIG — Accessibility: offer sufficiently sized controls (at least 44x44 pt)"
         }
     }
 }

@@ -13,6 +13,10 @@ enum SwiftUIAccessibilityRule {
     static let hardcodedColor = "a11y.swiftui.hardcoded-color-string"
     static let colorOnlyDifferentiation = "a11y.swiftui.color-only-differentiation"
     static let missingAccessibilityHint = "a11y.swiftui.missing-accessibility-hint"
+    static let decorativeImageNotHidden = "a11y.swiftui.decorative-image-not-hidden"
+    static let materialNoReduceTransparency = "a11y.swiftui.material-no-reduce-transparency"
+    static let standardShortcutOverride = "a11y.swiftui.standard-shortcut-override"
+    static let hitTargetTooSmall = "a11y.swiftui.hit-target-too-small"
 }
 
 /// Detects accessibility violations in SwiftUI source.
@@ -73,7 +77,147 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         checkHardcodedColor(node)
         checkColorOnlyDifferentiation(node)
         checkMissingAccessibilityHint(node)
+        checkMaterialNoReduceTransparency(node)
+        checkStandardShortcutOverride(node)
+        checkHitTargetTooSmall(node)
         return .visitChildren
+    }
+
+    /// Detects a translucent material or `.blur` without a Reduce Transparency guard in
+    /// the file — people who enable Reduce Transparency need a solid fallback.
+    private func checkMaterialNoReduceTransparency(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self) else { return }
+        let name = member.declName.baseName.text
+        let materials: Set<String> = ["ultraThinMaterial", "thinMaterial", "regularMaterial", "thickMaterial", "ultraThickMaterial"]
+
+        var isTransparencyEffect = false
+        if name == "blur" {
+            isTransparencyEffect = true
+        } else if ["background", "fill", "foregroundStyle", "overlay"].contains(name),
+                  let arg = node.arguments.first,
+                  let materialMember = arg.expression.as(MemberAccessExprSyntax.self),
+                  materials.contains(materialMember.declName.baseName.text) {
+            isTransparencyEffect = true
+        }
+        guard isTransparencyEffect else { return }
+        if source.contains("accessibilityReduceTransparency") || source.contains("reduceTransparency") { return }
+
+        let location = member.period.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.materialNoReduceTransparency) {
+            overrides.append(override)
+            return
+        }
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Translucent material/blur without honoring Reduce Transparency — provide a solid fallback. — \(AccessibilityPrinciple.respectVisualPrefs.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.materialNoReduceTransparency,
+            suggestedFix: "Read @Environment(\\.accessibilityReduceTransparency) and use a solid color background when it is on."
+        ))
+    }
+
+    /// Detects `.keyboardShortcut` binding a system-reserved key with Command — likely
+    /// overriding standard system behavior rather than using the standard command.
+    private func checkStandardShortcutOverride(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "keyboardShortcut" else {
+            return
+        }
+        let reservedKeys: Set<String> = ["c", "v", "x", "z", "a", "s", "f", "w", "q", "n", "p", "h", "m", ","]
+        guard let firstArg = node.arguments.first,
+              let keyLiteral = firstArg.expression.as(StringLiteralExprSyntax.self),
+              let key = keyLiteral.representedLiteralValue,
+              reservedKeys.contains(key.lowercased()) else {
+            return
+        }
+        // Only Command-only bindings (absent modifiers default to .command); leave
+        // multi-modifier combos (usually custom app shortcuts) alone.
+        let modifiersArg = node.arguments.first { $0.label?.text == "modifiers" }
+        let isCommandOnly: Bool
+        if let modifiersArg {
+            isCommandOnly = modifiersArg.expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text == "command"
+        } else {
+            isCommandOnly = true
+        }
+        guard isCommandOnly else { return }
+
+        let location = member.period.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.standardShortcutOverride) {
+            overrides.append(override)
+            return
+        }
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Binds a system-reserved shortcut (Command-\(key.uppercased())). Verify you aren't overriding standard system behavior. — \(AccessibilityPrinciple.keyboardConsistency.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.standardShortcutOverride,
+            suggestedFix: "Prefer the standard command (e.g. CommandGroup / .cut/.copy/.paste) instead of rebinding a reserved shortcut on a custom control."
+        ))
+    }
+
+    /// Detects a `Button` constrained to a fixed frame smaller than 44x44 pt with no
+    /// compensating `.padding` — too small a hit target for many people.
+    private func checkHitTargetTooSmall(_ node: FunctionCallExprSyntax) {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "frame" else {
+            return
+        }
+        // Both width and height present and below the 44pt floor.
+        guard let width = Self.numericArg(node, label: "width"), width < 44,
+              let height = Self.numericArg(node, label: "height"), height < 44 else {
+            return
+        }
+        // Walk the base chain: only Button controls, and skip when padding compensates.
+        var base: ExprSyntax? = member.base
+        var isButton = false
+        var hasPadding = false
+        while let expr = base {
+            if let call = expr.as(FunctionCallExprSyntax.self) {
+                if let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+                   ref.baseName.text == "Button" {
+                    isButton = true
+                    break
+                }
+                if let innerMember = call.calledExpression.as(MemberAccessExprSyntax.self) {
+                    if innerMember.declName.baseName.text == "padding" { hasPadding = true }
+                    base = innerMember.base
+                    continue
+                }
+            }
+            base = expr.as(MemberAccessExprSyntax.self)?.base
+        }
+        guard isButton, !hasPadding else { return }
+
+        let location = member.period.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.hitTargetTooSmall) {
+            overrides.append(override)
+            return
+        }
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Button constrained below the 44x44 pt minimum hit target. — \(AccessibilityPrinciple.sufficientTarget.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.hitTargetTooSmall,
+            suggestedFix: "Give the control at least a 44x44 pt tappable area (increase the frame, or add .padding / .contentShape to extend the hit region)."
+        ))
+    }
+
+    /// Returns the numeric literal value of a labeled argument, if present and a plain number.
+    private static func numericArg(_ node: FunctionCallExprSyntax, label: String) -> Double? {
+        guard let arg = node.arguments.first(where: { $0.label?.text == label }) else { return nil }
+        if let intLit = arg.expression.as(IntegerLiteralExprSyntax.self) {
+            return Double(intLit.literal.text)
+        }
+        if let floatLit = arg.expression.as(FloatLiteralExprSyntax.self) {
+            return Double(floatLit.literal.text)
+        }
+        return nil
     }
 
     /// Detects hardcoded `Color(...)` initializers (RGB / white / HSB / hex) that bypass
@@ -366,6 +510,14 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             return
         }
 
+        // A-3: an Image used as a `.background`/`.overlay` is decorative — it should be
+        // hidden from VoiceOver, not labeled. Handle it separately so the two rules don't
+        // both fire on the same image.
+        if isBackgroundOrOverlayArgument(call) {
+            checkDecorativeImageNotHidden(call, firstArg: node)
+            return
+        }
+
         // Walk up the modifier chain looking for .accessibilityLabel
         if hasModifierInChain(from: call, named: "accessibilityLabel") { return }
         if hasModifierInChain(from: call, named: "accessibilityHidden") { return }
@@ -390,6 +542,39 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             ruleId: SwiftUIAccessibilityRule.missingAccessibilityLabel,
             suggestedFix: "Add .accessibilityLabel(\"description\") for meaningful images, or .accessibilityHidden(true) for purely decorative images."
         ))
+    }
+
+    /// A decorative image (`.background`/`.overlay`) should be hidden from VoiceOver.
+    private func checkDecorativeImageNotHidden(_ call: FunctionCallExprSyntax, firstArg: LabeledExprSyntax) {
+        if hasModifierInChain(from: call, named: "accessibilityHidden") { return }
+        guard firstArg == call.arguments.first else { return }
+
+        let location = call.startLocation(converter: converter)
+        if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.decorativeImageNotHidden) {
+            overrides.append(override)
+            return
+        }
+        diagnostics.append(Diagnostic(
+            severity: .warning,
+            message: "Decorative image (background/overlay) not hidden from VoiceOver — it adds noise for screen-reader users. — \(AccessibilityPrinciple.textAlternative.higAnchor)",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: SwiftUIAccessibilityRule.decorativeImageNotHidden,
+            suggestedFix: "Add .accessibilityHidden(true) to the decorative image, or use Image(decorative:)."
+        ))
+    }
+
+    /// True when the given `Image(...)` call is an argument to a `.background`/`.overlay`
+    /// modifier (i.e. it's decorative by position).
+    private func isBackgroundOrOverlayArgument(_ call: FunctionCallExprSyntax) -> Bool {
+        guard let labeledExpr = call.parent?.as(LabeledExprSyntax.self),
+              let list = labeledExpr.parent?.as(LabeledExprListSyntax.self),
+              let enclosing = list.parent?.as(FunctionCallExprSyntax.self),
+              let member = enclosing.calledExpression.as(MemberAccessExprSyntax.self) else {
+            return false
+        }
+        return ["background", "overlay"].contains(member.declName.baseName.text)
     }
 
     // MARK: - Helpers
