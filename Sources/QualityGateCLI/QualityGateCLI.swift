@@ -153,91 +153,14 @@ struct QualityGateCLI: AsyncParsableCommand {
             }
         }
         // CLI flag overrides config (v5).
-        if autoBuildXcode && !configuration.unreachableAutoBuildXcode {
-            configuration = Configuration(
-                parallelWorkers: configuration.parallelWorkers,
-                excludePatterns: configuration.excludePatterns,
-                safetyExemptions: configuration.safetyExemptions,
-                enabledCheckers: configuration.enabledCheckers,
-                buildConfiguration: configuration.buildConfiguration,
-                testFilter: configuration.testFilter,
-                docTarget: configuration.docTarget,
-                docCoverageThreshold: configuration.docCoverageThreshold,
-                unreachableAutoBuildXcode: true,
-                xcodeScheme: configuration.xcodeScheme,
-                xcodeDestination: configuration.xcodeDestination,
-                concurrency: configuration.concurrency,
-                pointerEscape: configuration.pointerEscape,
-                security: configuration.security,
-                status: configuration.status,
-                swiftVersion: configuration.swiftVersion,
-                memoryBuilder: configuration.memoryBuilder,
-                logging: configuration.logging,
-                dependencyAudit: configuration.dependencyAudit,
-                releaseReadiness: configuration.releaseReadiness,
-                fpSafety: configuration.fpSafety,
-                stochasticDeterminism: configuration.stochasticDeterminism,
-                memoryLifecycle: configuration.memoryLifecycle,
-                mcpReadiness: configuration.mcpReadiness,
-                build: configuration.build,
-                xcodeBuild: configuration.xcodeBuild,
-                consistency: configuration.consistency,
-                overrides: configuration.overrides
-            )
-        }
-
-        if let thresholdOverride = threshold {
-            configuration.complexity = ComplexityAnalyzerConfig(
-                cognitiveThreshold: thresholdOverride,
-                reportTopN: configuration.complexity.reportTopN,
-                moduleThresholds: configuration.complexity.moduleThresholds,
-                emitToCorpus: configuration.complexity.emitToCorpus,
-                callGraphEnabled: configuration.complexity.callGraphEnabled,
-                callGraphMaxDepth: configuration.complexity.callGraphMaxDepth,
-                knownCosts: configuration.complexity.knownCosts
-            )
-        }
-
-        if let corpusPathOverride = telemetryCorpusPath {
-            let c = configuration.consistency
-            configuration = Configuration(
-                parallelWorkers: configuration.parallelWorkers,
-                excludePatterns: configuration.excludePatterns,
-                safetyExemptions: configuration.safetyExemptions,
-                enabledCheckers: configuration.enabledCheckers,
-                buildConfiguration: configuration.buildConfiguration,
-                testFilter: configuration.testFilter,
-                docTarget: configuration.docTarget,
-                docCoverageThreshold: configuration.docCoverageThreshold,
-                unreachableAutoBuildXcode: configuration.unreachableAutoBuildXcode,
-                xcodeScheme: configuration.xcodeScheme,
-                xcodeDestination: configuration.xcodeDestination,
-                concurrency: configuration.concurrency,
-                pointerEscape: configuration.pointerEscape,
-                security: configuration.security,
-                status: configuration.status,
-                swiftVersion: configuration.swiftVersion,
-                memoryBuilder: configuration.memoryBuilder,
-                logging: configuration.logging,
-                dependencyAudit: configuration.dependencyAudit,
-                releaseReadiness: configuration.releaseReadiness,
-                fpSafety: configuration.fpSafety,
-                stochasticDeterminism: configuration.stochasticDeterminism,
-                memoryLifecycle: configuration.memoryLifecycle,
-                mcpReadiness: configuration.mcpReadiness,
-                build: configuration.build,
-                xcodeBuild: configuration.xcodeBuild,
-                consistency: ConsistencyCheckerConfig(
-                    corpusPath: corpusPathOverride,
-                    projectID: c.projectID,
-                    consistencyThreshold: c.consistencyThreshold,
-                    defaultRiskTier: c.defaultRiskTier,
-                    scorerWeights: c.scorerWeights,
-                    exemptions: c.exemptions
-                ),
-                overrides: configuration.overrides
-            )
-        }
+        // CLI flags override config through one testable seam (Phase 0.2):
+        // ConfigurationOverrideIsolationTests proves each override touches
+        // exactly its own field.
+        configuration = configuration.applying(CLIOverrides(
+            autoBuildXcode: autoBuildXcode,
+            threshold: threshold,
+            telemetryCorpusPath: telemetryCorpusPath
+        ))
 
         // Create override processor from configuration.
         let overrideProcessor = OverrideProcessor(

@@ -17,15 +17,15 @@ import Yams
 /// ```
 public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
     /// Weight for cluster match scoring.
-    public let clusterMatch: Double
+    public var clusterMatch: Double
     /// Weight for anomaly pattern scoring.
-    public let anomalyPattern: Double
+    public var anomalyPattern: Double
     /// Weight for unaddressed policy scoring.
-    public let unaddressedPolicy: Double
+    public var unaddressedPolicy: Double
     /// Weight for recurrence bonus scoring.
-    public let recurrenceBonus: Double
+    public var recurrenceBonus: Double
     /// Weight for suppression pattern scoring.
-    public let suppressionPattern: Double
+    public var suppressionPattern: Double
 
     /// Default scorer weight configuration.
     public static let defaults = ScorerWeightsConfig(
@@ -67,17 +67,17 @@ public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
 /// ```
 public struct ConsistencyCheckerConfig: Sendable, Equatable {
     /// Path to the IJS corpus directory. nil means IJS is not configured.
-    public let corpusPath: String?
+    public var corpusPath: String?
     /// Project identifier for the corpus. nil derives from the working directory name.
-    public let projectID: String?
+    public var projectID: String?
     /// Consistency score below this threshold triggers a warning. Default: 0.7.
-    public let consistencyThreshold: Double
+    public var consistencyThreshold: Double
     /// Default risk tier raw value (1–4) for telemetry metadata. Default: 2 (operational).
-    public let defaultRiskTier: Int
+    public var defaultRiskTier: Int
     /// Custom scorer weights. nil uses ScorerWeights.defaults.
-    public let scorerWeights: ScorerWeightsConfig?
+    public var scorerWeights: ScorerWeightsConfig?
     /// Module or path patterns exempt from consistency checks.
-    public let exemptions: [String]
+    public var exemptions: [String]
 
     /// Creates a consistency checker configuration with the specified values.
     public init(
@@ -121,17 +121,17 @@ extension ConsistencyCheckerConfig: Codable {
 /// Per-checker configuration for ConcurrencyAuditor.
 public struct ConcurrencyAuditorConfig: Sendable, Equatable {
     /// Comment keyword that suppresses unchecked-Sendable / nonisolated-unsafe rules.
-    public let justificationKeyword: String
+    public var justificationKeyword: String
     /// Module names that are allowed to keep `@preconcurrency import` even if first-party.
-    public let allowPreconcurrencyImports: [String]
+    public var allowPreconcurrencyImports: [String]
     /// Whether to run the optional Pass 2 using IndexStoreDB for cross-file Sendable validation.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
     /// Whether to enable isolation-depth tracking for the `sendable-crosses-isolation` rule.
     /// Off by default for performance.
-    public let trackIsolationDepth: Bool
+    public var trackIsolationDepth: Bool
     /// Whether the `cancellation-checkpoint-after-loop` rule emits `.error` (strict)
     /// instead of the default `.warning`. Off by default for incremental adoption.
-    public let cancellationCheckpointStrict: Bool
+    public var cancellationCheckpointStrict: Bool
 
     /// Creates a concurrency auditor configuration with the given options.
     public init(
@@ -172,7 +172,7 @@ extension ConcurrencyAuditorConfig: Codable {
 /// Per-checker configuration for PointerEscapeAuditor.
 public struct PointerEscapeAuditorConfig: Sendable, Equatable {
     /// Function names allowed to receive a borrowed pointer (escape suppression).
-    public let allowedEscapeFunctions: [String]
+    public var allowedEscapeFunctions: [String]
 
     /// Creates a pointer-escape auditor configuration with the given options.
     public init(allowedEscapeFunctions: [String] = []) {
@@ -209,16 +209,16 @@ extension PointerEscapeAuditorConfig: Codable {
 /// ```
 public struct SecurityAuditorConfig: Sendable, Equatable {
     /// Which security rules to enable. Empty means all rules are enabled.
-    public let enabledRules: [String]
+    public var enabledRules: [String]
 
     /// Regex patterns for variable names that indicate secrets.
-    public let secretPatterns: [String]
+    public var secretPatterns: [String]
 
     /// Hosts allowed to use http:// (e.g. localhost test servers).
-    public let allowedHTTPHosts: [String]
+    public var allowedHTTPHosts: [String]
 
     /// SQL-executing function names that trigger the sql-injection rule.
-    public let sqlFunctionNames: [String]
+    public var sqlFunctionNames: [String]
 
     /// Creates a security auditor configuration with the given options.
     public init(
@@ -274,19 +274,19 @@ extension SecurityAuditorConfig: Codable {
 /// ```
 public struct StatusAuditorConfig: Sendable, Equatable {
     /// Path to development-guidelines directory relative to project root.
-    public let guidelinesPath: String
+    public var guidelinesPath: String
 
     /// Path to Master Plan relative to the guidelines directory.
-    public let masterPlanPath: String
+    public var masterPlanPath: String
 
     /// Minimum source lines to consider a module "implemented" (not a stub).
-    public let stubThresholdLines: Int
+    public var stubThresholdLines: Int
 
     /// Maximum allowed percentage difference between documented and actual test counts.
-    public let testCountDriftPercent: Int
+    public var testCountDriftPercent: Int
 
     /// Maximum days since "Last Updated" before flagging staleness.
-    public let lastUpdatedStaleDays: Int
+    public var lastUpdatedStaleDays: Int
 
     /// Creates a status auditor configuration with the given options.
     public init(
@@ -337,10 +337,10 @@ extension StatusAuditorConfig: Codable {
 /// ```
 public struct SwiftVersionConfig: Sendable, Equatable {
     /// Minimum required swift-tools-version (e.g. "6.2").
-    public let minimum: String
+    public var minimum: String
 
     /// Whether to also check and report the local compiler version.
-    public let checkCompiler: Bool
+    public var checkCompiler: Bool
 
     /// Creates a Swift version configuration with the given options.
     public init(
@@ -372,7 +372,7 @@ extension SwiftVersionConfig: Codable {
 /// Per-checker configuration for MemoryBuilder.
 public struct MemoryBuilderConfig: Sendable, Equatable {
     /// Relative path to the development-guidelines directory.
-    public let guidelinesPath: String
+    public var guidelinesPath: String
 
     /// Creates a memory builder configuration with the given options.
     public init(guidelinesPath: String = "development-guidelines") {
@@ -410,16 +410,16 @@ extension MemoryBuilderConfig: Codable {
 /// ```
 public struct LoggingAuditorConfig: Sendable, Equatable {
     /// Project type: "application" enables all rules, "cli" skips print-statement and no-os-logger-import, "library" skips the auditor entirely.
-    public let projectType: String
+    public var projectType: String
 
     /// Comment keyword that suppresses silent-try warnings.
-    public let silentTryKeyword: String
+    public var silentTryKeyword: String
 
     /// Function names where `try?` is considered safe (fire-and-forget patterns).
-    public let allowedSilentTryFunctions: [String]
+    public var allowedSilentTryFunctions: [String]
 
     /// Additional logger type names beyond os.Logger (e.g. project-specific wrappers).
-    public let customLoggerNames: [String]
+    public var customLoggerNames: [String]
 
     /// Creates a logging auditor configuration with the given options.
     public init(
@@ -463,16 +463,16 @@ extension LoggingAuditorConfig: Codable {
 /// Per-checker configuration for DependencyAuditor.
 public struct DependencyAuditorConfig: Sendable, Equatable {
     /// Maximum major versions behind latest before flagging.
-    public let maxMajorVersionsBehind: Int
+    public var maxMajorVersionsBehind: Int
 
     /// Branch pins that are explicitly allowed.
-    public let allowBranchPins: [String]
+    public var allowBranchPins: [String]
 
     /// Skip network calls to check latest tags.
-    public let offlineMode: Bool
+    public var offlineMode: Bool
 
     /// Additional module names to treat as valid (e.g., Xcode-only targets, bridging modules).
-    public let additionalKnownModules: [String]
+    public var additionalKnownModules: [String]
 
     /// Creates a dependency auditor configuration with the given options.
     public init(
@@ -510,7 +510,7 @@ extension DependencyAuditorConfig: Codable {
 /// Per-checker configuration for SubmoduleAuditor.
 public struct SubmoduleAuditorConfig: Sendable, Equatable, Codable {
     /// Package checkout names to skip (e.g. third-party packages with public submodules).
-    public let allowedPackages: [String]
+    public var allowedPackages: [String]
 
     /// Creates a submodule auditor configuration.
     public init(allowedPackages: [String] = []) {
@@ -534,22 +534,22 @@ public struct SubmoduleAuditorConfig: Sendable, Equatable, Codable {
 /// Per-checker configuration for ReleaseReadinessAuditor.
 public struct ReleaseReadinessAuditorConfig: Sendable, Equatable {
     /// Path to CHANGELOG file relative to project root.
-    public let changelogPath: String
+    public var changelogPath: String
 
     /// Path to README file relative to project root.
-    public let readmePath: String
+    public var readmePath: String
 
     /// Whether TODO/FIXME in source files require issue references.
-    public let requireIssueReference: Bool
+    public var requireIssueReference: Bool
 
     /// Additional marker patterns to flag beyond TODO/FIXME/HACK/XXX.
-    public let additionalMarkers: [String]
+    public var additionalMarkers: [String]
 
     /// Whether to error when the latest CHANGELOG version has no matching git tag.
-    public let checkVersionTagParity: Bool
+    public var checkVersionTagParity: Bool
 
     /// Whether to error when a README-advertised dependency version has no matching git tag.
-    public let checkDependencyResolvability: Bool
+    public var checkDependencyResolvability: Bool
 
     /// Creates a release readiness auditor configuration with the given options.
     public init(
@@ -594,10 +594,10 @@ extension ReleaseReadinessAuditorConfig: Codable {
 /// Per-checker configuration for FloatingPointSafetyAuditor.
 public struct FloatingPointSafetyAuditorConfig: Sendable, Equatable {
     /// Files to exclude from FP safety checks.
-    public let allowedFiles: [String]
+    public var allowedFiles: [String]
 
     /// Whether to check for unguarded division.
-    public let checkDivisionGuards: Bool
+    public var checkDivisionGuards: Bool
 
     /// Creates a floating-point safety auditor configuration with the given options.
     public init(
@@ -629,16 +629,16 @@ extension FloatingPointSafetyAuditorConfig: Codable {
 /// Per-checker configuration for StochasticDeterminismAuditor.
 public struct StochasticDeterminismConfig: Sendable, Equatable {
     /// Function names exempt from seed requirement.
-    public let exemptFunctions: [String]
+    public var exemptFunctions: [String]
 
     /// Files exempt from stochastic checks.
-    public let exemptFiles: [String]
+    public var exemptFiles: [String]
 
     /// Whether to flag collection `.shuffled()` without `using:` parameter.
-    public let flagCollectionShuffle: Bool
+    public var flagCollectionShuffle: Bool
 
     /// Whether to flag global C-style random state (`drand48`, `arc4random`).
-    public let flagGlobalState: Bool
+    public var flagGlobalState: Bool
 
     /// Creates a stochastic determinism configuration with the given options.
     public init(
@@ -679,21 +679,21 @@ extension StochasticDeterminismConfig: Codable {
 /// temporal analog of stochastic (randomness) determinism.
 public struct TemporalDeterminismConfig: Sendable, Equatable {
     /// Type names (or substrings) exempt from the simulated-source rule.
-    public let exemptTypes: [String]
+    public var exemptTypes: [String]
 
     /// Function names exempt from the wall-clock-assertion rule.
-    public let exemptFunctions: [String]
+    public var exemptFunctions: [String]
 
     /// File path substrings exempt from all temporal checks.
-    public let exemptFiles: [String]
+    public var exemptFiles: [String]
 
     /// Whether to flag wall-clock reads stamped as timestamps inside
     /// simulation/synthetic/mock types (`temporal-simulated-wall-clock`).
-    public let flagSimulatedWallClock: Bool
+    public var flagSimulatedWallClock: Bool
 
     /// Whether to flag assertions on measured wall-clock elapsed time in tests
     /// (`temporal-wall-clock-assertion`).
-    public let flagWallClockAssertion: Bool
+    public var flagWallClockAssertion: Bool
 
     /// Creates a temporal determinism configuration with the given options.
     public init(
@@ -738,10 +738,10 @@ extension TemporalDeterminismConfig: Codable {
 /// scheduler-dependent behavior. See ``FlipDetector``.
 public struct FlipDetectorConfig: Sendable, Equatable, Codable {
     /// Whether flip detection runs after the test suite. On by default.
-    public let enabled: Bool
+    public var enabled: Bool
 
     /// When true, a detected flip is an `.error` (fails the gate) instead of a `.warning`.
-    public let strict: Bool
+    public var strict: Bool
 
     /// Creates a flip-detector configuration with the given options.
     public init(enabled: Bool = true, strict: Bool = false) {
@@ -775,16 +775,16 @@ public struct FlipDetectorConfig: Sendable, Equatable, Codable {
 /// per-release / nightly cadence, not per-commit — `runs == 1` is a no-op.
 public struct StressTestConfig: Sendable, Equatable, Codable {
     /// Number of times to re-run each timing-tagged test. `1` disables stress mode.
-    public let runs: Int
+    public var runs: Int
 
     /// Whether to run the repetitions under background CPU contention (best-effort).
-    public let contention: Bool
+    public var contention: Bool
 
     /// When true, an intra-batch flip is an `.error` instead of a `.warning`.
-    public let strict: Bool
+    public var strict: Bool
 
     /// Comment marker that identifies a timing-sensitive test.
-    public let marker: String
+    public var marker: String
 
     /// Creates a stress-test configuration with the given options.
     public init(runs: Int = 1, contention: Bool = false, strict: Bool = false, marker: String = "// TIMING:") {
@@ -815,22 +815,22 @@ public struct StressTestConfig: Sendable, Equatable, Codable {
 /// Per-checker configuration for MemoryLifecycleGuard.
 public struct MemoryLifecycleConfig: Sendable, Equatable {
     /// Property name patterns that indicate delegate/parent references.
-    public let delegatePatterns: [String]
+    public var delegatePatterns: [String]
 
     /// Whether to require Task cancellation in deinit.
-    public let requireTaskCancellation: Bool
+    public var requireTaskCancellation: Bool
 
     /// Files exempt from lifecycle checks.
-    public let exemptFiles: [String]
+    public var exemptFiles: [String]
 
     /// Type names whose construction inside loops requires autoreleasepool.
-    public let heavyFrameworkTypes: [String]
+    public var heavyFrameworkTypes: [String]
 
     /// File patterns exempt from the loop-growth rule.
-    public let loopGrowthExemptPatterns: [String]
+    public var loopGrowthExemptPatterns: [String]
 
     /// Whether to run the optional Pass 2 using IndexStoreDB for cross-file lifecycle validation.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
 
     /// Creates a memory lifecycle configuration with the given options.
     public init(
@@ -878,16 +878,16 @@ extension MemoryLifecycleConfig: Codable {
 /// Per-checker configuration for MCPReadinessAuditor.
 public struct MCPReadinessConfig: Sendable, Equatable {
     /// Whether the MCP readiness checker is enabled.
-    public let enabled: Bool
+    public var enabled: Bool
 
     /// Minimum character length for tool and property descriptions.
-    public let minDescriptionLength: Int
+    public var minDescriptionLength: Int
 
     /// Additional source directories to scan for MCP tools.
-    public let additionalPaths: [String]
+    public var additionalPaths: [String]
 
     /// Source directories to exclude from scanning.
-    public let excludePaths: [String]
+    public var excludePaths: [String]
 
     /// Creates an MCP readiness configuration with the given options.
     public init(
@@ -925,25 +925,25 @@ extension MCPReadinessConfig: Codable {
 /// Per-checker configuration for AppIntentsAuditor.
 public struct AppIntentsReadinessConfig: Sendable, Equatable {
     /// Whether the App Intents readiness checker is enabled.
-    public let enabled: Bool
+    public var enabled: Bool
 
     /// Minimum character length for intent and parameter descriptions.
-    public let minDescriptionLength: Int
+    public var minDescriptionLength: Int
 
     /// Source directories to exclude from scanning.
-    public let excludePaths: [String]
+    public var excludePaths: [String]
 
     /// Whether to require AppShortcutsProvider when intents exist.
-    public let requireShortcutsProvider: Bool
+    public var requireShortcutsProvider: Bool
 
     /// Whether to audit AppEntity conformances for queries and display.
-    public let auditEntities: Bool
+    public var auditEntities: Bool
 
     /// Whether to audit AppEnum conformances for display and assistant annotations.
-    public let auditEnums: Bool
+    public var auditEnums: Bool
 
     /// Whether to use IndexStoreDB for cross-file conformance resolution.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
 
     /// Creates an App Intents readiness configuration with the given options.
     public init(
@@ -1004,9 +1004,9 @@ extension AppIntentsReadinessConfig: Codable {
 /// ```
 public struct KnownCostEntry: Sendable, Equatable, Codable {
     /// Function name or pattern to match (e.g., "DatabaseClient.fetch", "Cache.lookup").
-    public let pattern: String
+    public var pattern: String
     /// The known Big-O cost (e.g., "O(n)", "O(1)", "O(n log n)").
-    public let cost: String
+    public var cost: String
 
     /// Creates a known cost entry with the specified pattern and cost.
     public init(pattern: String, cost: String) {
@@ -1034,37 +1034,37 @@ public struct KnownCostEntry: Sendable, Equatable, Codable {
 /// ```
 public struct ComplexityAnalyzerConfig: Sendable, Equatable {
     /// Default cognitive complexity threshold for flagging functions.
-    public let cognitiveThreshold: Int
+    public var cognitiveThreshold: Int
 
     /// Number of top-complexity functions to include in reports.
-    public let reportTopN: Int
+    public var reportTopN: Int
 
     /// Per-module threshold overrides (module name to threshold).
-    public let moduleThresholds: [String: Int]
+    public var moduleThresholds: [String: Int]
 
     /// Whether to emit complexity data to the IJS corpus.
-    public let emitToCorpus: Bool
+    public var emitToCorpus: Bool
 
     /// Whether to enable call-graph amplification (cross-function cost composition).
-    public let callGraphEnabled: Bool
+    public var callGraphEnabled: Bool
 
     /// Maximum transitive depth for call-graph amplification (1 = direct calls only).
-    public let callGraphMaxDepth: Int
+    public var callGraphMaxDepth: Int
 
     /// User-declared function costs for project-specific or third-party operations.
-    public let knownCosts: [KnownCostEntry]
+    public var knownCosts: [KnownCostEntry]
 
     /// Whether to run the optional Pass 2 using IndexStoreDB for cross-module complexity resolution.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
 
     /// Whether to enable cross-module cognitive complexity amplification in Pass 2.
-    public let crossModuleAmplification: Bool
+    public var crossModuleAmplification: Bool
 
     /// Maximum transitive depth for cross-module amplification (1 = direct cross-module calls only).
-    public let crossModuleMaxDepth: Int
+    public var crossModuleMaxDepth: Int
 
     /// Amplified cognitive complexity threshold for cross-module warnings.
-    public let amplifiedCognitiveThreshold: Int
+    public var amplifiedCognitiveThreshold: Int
 
     /// Creates a complexity analyzer configuration with the given options.
     public init(
@@ -1141,39 +1141,39 @@ public struct LegibilityAnalyzerConfig: Sendable, Equatable {
     /// Whether to run the optional IndexStore pass for the semantic module graph.
     /// When false (or when no fresh index exists) the analyzer falls back to the
     /// declared `Package.swift` dependency graph and skips per-symbol rules.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
 
     /// Number of highest-ranked central-but-unoriented modules to report.
-    public let centralUnorientedTopN: Int
+    public var centralUnorientedTopN: Int
 
     /// Minimum fan-in for a module to be considered "load-bearing" (central).
-    public let minFanInForCentral: Int
+    public var minFanInForCentral: Int
 
     /// Whether to flag live `public` symbols referenced only within their module.
-    public let flagOverPublicSymbols: Bool
+    public var flagOverPublicSymbols: Bool
 
     /// Whether to flag dependency cycles between modules.
-    public let flagCycles: Bool
+    public var flagCycles: Bool
 
     /// Whether to emit the reading-order / module-map documentation artifact.
-    public let emitReadingOrderArtifact: Bool
+    public var emitReadingOrderArtifact: Bool
 
     /// Where the JSON/Markdown map artifact is written (nil → default location).
-    public let artifactPath: String?
+    public var artifactPath: String?
 
     /// Modules excluded from all legibility rules (e.g. generated targets).
-    public let exemptModules: Set<String>
+    public var exemptModules: Set<String>
 
     /// Over-public symbols acknowledged out of band (fully-qualified names).
-    public let exemptSymbols: Set<String>
+    public var exemptSymbols: Set<String>
 
     /// Inline marker that acknowledges an intentional over-public symbol.
-    public let reservedMarker: String
+    public var reservedMarker: String
 
     /// Whether to emit per-module orientation cards to the IJS corpus (consumed by
     /// the dashboard's module-orientation section). Only takes effect when a
     /// corpus path is configured.
-    public let emitToCorpus: Bool
+    public var emitToCorpus: Bool
 
     /// Creates a legibility analyzer configuration with the given options.
     public init(
@@ -1246,16 +1246,16 @@ extension LegibilityAnalyzerConfig: Codable {
 /// ```
 public struct XcodeBuildCheckerConfig: Sendable, Equatable {
     /// Path to `.xcodeproj` (relative to project root).
-    public let project: String?
+    public var project: String?
 
     /// Path to `.xcworkspace` (takes precedence over `project`).
-    public let workspace: String?
+    public var workspace: String?
 
     /// Xcode scheme to build. nil auto-detects the first scheme.
-    public let scheme: String?
+    public var scheme: String?
 
     /// Simulator destinations to build for. Empty uses `generic/platform=macOS`.
-    public let destinations: [String]
+    public var destinations: [String]
 
     /// Creates an Xcode build checker configuration with the given options.
     public init(
@@ -1296,7 +1296,7 @@ extension XcodeBuildCheckerConfig: Codable {
 /// is used to validate mutual-cycle findings from the syntactic Pass 1.
 public struct RecursionAuditorConfig: Sendable, Equatable {
     /// Whether to use IndexStoreDB for USR-based call graph resolution.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
 
     /// Creates a recursion auditor configuration with the given options.
     public init(useIndexStore: Bool = true) {
@@ -1333,10 +1333,10 @@ extension RecursionAuditorConfig: Codable {
 /// ```
 public struct DocCoverageConfig: Sendable, Codable, Equatable {
     /// Whether to run the optional Pass 2 using IndexStoreDB for inherited-doc detection and usage-priority ranking.
-    public let useIndexStore: Bool
+    public var useIndexStore: Bool
 
     /// Whether to include references from test targets when computing usage-priority rankings.
-    public let includeTestReferences: Bool
+    public var includeTestReferences: Bool
 
     /// Creates a documentation coverage configuration with the given options.
     public init(
@@ -1380,7 +1380,7 @@ public struct BuildCheckerConfig: Sendable, Equatable {
     /// Per-expression type-check millisecond limit passed to the compiler
     /// via `-Xfrontend -solver-expression-time-threshold`.
     /// nil means no limit (compiler default).
-    public let solverExpressionTimeThreshold: Int?
+    public var solverExpressionTimeThreshold: Int?
 
     /// Creates a build checker configuration with the given options.
     public init(solverExpressionTimeThreshold: Int? = nil) {
@@ -1462,116 +1462,116 @@ public struct Configuration: Sendable, Codable, Equatable {
 
     /// Number of parallel workers for test execution.
     /// If nil, defaults to 80% of system cores.
-    public let parallelWorkers: Int?
+    public var parallelWorkers: Int?
 
     /// Glob patterns for files/directories to exclude from checks.
-    public let excludePatterns: [String]
+    public var excludePatterns: [String]
 
     /// Path prefixes for vendor/third-party code.
     ///
     /// Diagnostics in these paths are demoted to `.note` severity so they
     /// remain visible for tracking without failing the gate.
-    public let vendorPaths: [String]
+    public var vendorPaths: [String]
 
     /// Comment patterns that suppress safety warnings.
-    public let safetyExemptions: [String]
+    public var safetyExemptions: [String]
 
     /// Checkers to run. Empty means all checkers are enabled.
-    public let enabledCheckers: [String]
+    public var enabledCheckers: [String]
 
     /// Build configuration to use (debug or release). Defaults to debug.
-    public let buildConfiguration: String?
+    public var buildConfiguration: String?
 
     /// Test filter pattern for running specific tests.
-    public let testFilter: String?
+    public var testFilter: String?
 
     /// Documentation target for DocC linting.
     /// If nil, auto-detects the first library product target from Package.swift.
-    public let docTarget: String?
+    public var docTarget: String?
 
     /// Minimum documentation coverage percentage (0-100).
     /// If nil, any undocumented public API triggers a warning.
     /// If set, coverage below threshold triggers failure, otherwise passes.
-    public let docCoverageThreshold: Int?
+    public var docCoverageThreshold: Int?
 
     /// v5: Opt in to driving `xcodebuild build` automatically when the
     /// `unreachable` checker can't find a fresh DerivedData index store
     /// for an Xcode project. Default: false (slow + side-effect-y).
-    public let unreachableAutoBuildXcode: Bool
+    public var unreachableAutoBuildXcode: Bool
 
     /// v5: Override the auto-detected scheme for `xcodebuild`. nil ⇒
     /// pick the first scheme reported by `xcodebuild -list -json`.
-    public let xcodeScheme: String?
+    public var xcodeScheme: String?
 
     /// v5: Override the auto-build destination. Default
     /// `"generic/platform=macOS"`.
-    public let xcodeDestination: String?
+    public var xcodeDestination: String?
 
     /// Per-checker configuration for RecursionAuditor.
-    public let recursion: RecursionAuditorConfig
+    public var recursion: RecursionAuditorConfig
 
     /// Per-checker configuration for ConcurrencyAuditor.
-    public let concurrency: ConcurrencyAuditorConfig
+    public var concurrency: ConcurrencyAuditorConfig
 
     /// Per-checker configuration for PointerEscapeAuditor.
-    public let pointerEscape: PointerEscapeAuditorConfig
+    public var pointerEscape: PointerEscapeAuditorConfig
 
     /// Per-checker configuration for SecurityVisitor (within SafetyAuditor).
-    public let security: SecurityAuditorConfig
+    public var security: SecurityAuditorConfig
 
     /// Per-checker configuration for StatusAuditor.
-    public let status: StatusAuditorConfig
+    public var status: StatusAuditorConfig
 
     /// Per-checker configuration for SwiftVersionChecker.
-    public let swiftVersion: SwiftVersionConfig
+    public var swiftVersion: SwiftVersionConfig
 
     /// Per-checker configuration for MemoryBuilder.
-    public let memoryBuilder: MemoryBuilderConfig
+    public var memoryBuilder: MemoryBuilderConfig
 
     /// Per-checker configuration for LoggingAuditor.
-    public let logging: LoggingAuditorConfig
+    public var logging: LoggingAuditorConfig
 
     /// Per-checker configuration for DependencyAuditor.
-    public let dependencyAudit: DependencyAuditorConfig
+    public var dependencyAudit: DependencyAuditorConfig
 
     /// Per-checker configuration for SubmoduleAuditor.
-    public let submoduleAudit: SubmoduleAuditorConfig
+    public var submoduleAudit: SubmoduleAuditorConfig
 
     /// Per-checker configuration for ReleaseReadinessAuditor.
-    public let releaseReadiness: ReleaseReadinessAuditorConfig
+    public var releaseReadiness: ReleaseReadinessAuditorConfig
 
     /// Per-checker configuration for FloatingPointSafetyAuditor.
-    public let fpSafety: FloatingPointSafetyAuditorConfig
+    public var fpSafety: FloatingPointSafetyAuditorConfig
 
     /// Per-checker configuration for StochasticDeterminismAuditor.
-    public let stochasticDeterminism: StochasticDeterminismConfig
+    public var stochasticDeterminism: StochasticDeterminismConfig
 
     /// Configuration for the temporal determinism auditor.
-    public let temporalDeterminism: TemporalDeterminismConfig
+    public var temporalDeterminism: TemporalDeterminismConfig
 
     /// Configuration for the test-outcome flip detector (within TestRunner).
-    public let flipDetector: FlipDetectorConfig
+    public var flipDetector: FlipDetectorConfig
 
     /// Configuration for deliberate stress runs of timing-tagged tests (within TestRunner).
-    public let stress: StressTestConfig
+    public var stress: StressTestConfig
 
     /// Per-checker configuration for MemoryLifecycleGuard.
-    public let memoryLifecycle: MemoryLifecycleConfig
+    public var memoryLifecycle: MemoryLifecycleConfig
 
     /// Per-checker configuration for MCPReadinessAuditor.
-    public let mcpReadiness: MCPReadinessConfig
+    public var mcpReadiness: MCPReadinessConfig
 
     /// Per-checker configuration for AppIntentsAuditor.
-    public let appIntentsReadiness: AppIntentsReadinessConfig
+    public var appIntentsReadiness: AppIntentsReadinessConfig
 
     /// Per-checker configuration for BuildChecker.
-    public let build: BuildCheckerConfig
+    public var build: BuildCheckerConfig
 
     /// Per-checker configuration for XcodeBuildChecker.
-    public let xcodeBuild: XcodeBuildCheckerConfig
+    public var xcodeBuild: XcodeBuildCheckerConfig
 
     /// Per-checker configuration for ConsistencyChecker (IJS).
-    public let consistency: ConsistencyCheckerConfig
+    public var consistency: ConsistencyCheckerConfig
 
     /// Per-checker configuration for ComplexityAnalyzer (advisory).
     public var complexity: ComplexityAnalyzerConfig
@@ -1580,13 +1580,13 @@ public struct Configuration: Sendable, Codable, Equatable {
     public var legibility: LegibilityAnalyzerConfig
 
     /// Per-checker configuration for DocCoverageChecker.
-    public let docCoverage: DocCoverageConfig
+    public var docCoverage: DocCoverageConfig
 
     /// Per-rule severity overrides from configuration.
     ///
     /// Keys are rule IDs (e.g. `"safety.force-unwrap"`) or wildcard patterns
     /// (e.g. `"safety.*"`). Applied after checkers return results, before reporting.
-    public let overrides: [String: SeverityOverride]
+    public var overrides: [String: SeverityOverride]
 
     /// Creates a new configuration with the specified values.
     public init(
