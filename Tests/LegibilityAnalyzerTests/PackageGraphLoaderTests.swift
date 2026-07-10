@@ -76,4 +76,25 @@ struct PackageGraphLoaderTests {
         #expect(PackageGraphLoader.parseTargets(packageSource: "").isEmpty)
         #expect(PackageGraphLoader.declaredGraph(packageSource: "no targets here").modules.isEmpty)
     }
+
+    @Test("a dependency-less target still appears in the graph and reading order")
+    func isolatedTargetIsAModule() {
+        let single = """
+        let package = Package(
+            name: "Demo",
+            targets: [
+                .target(name: "Demo")
+            ]
+        )
+        """
+        let graph = PackageGraphLoader.declaredGraph(packageSource: single)
+        #expect(graph.modules == ["Demo"])
+        #expect(graph.topologicalReadingOrder() == ["Demo"])
+    }
+
+    @Test("every first-party target is a module even when only others depend on it")
+    func allTargetsAreModules() {
+        let graph = PackageGraphLoader.declaredGraph(packageSource: manifest, includingTestTargets: false)
+        #expect(graph.modules == ["Core", "Feature", "App"])
+    }
 }

@@ -68,12 +68,12 @@ enum PackageGraphLoader {
         }
         let firstParty = Set(targets.map(\.name))
 
+        // Every first-party target is a node — a dependency-less target is
+        // still a module a reader must meet (single-module packages are the
+        // common case for `orient`).
         var edges: [String: Set<String>] = [:]
         for target in targets {
-            let internalDeps = target.dependencies.filter { firstParty.contains($0) }
-            if !internalDeps.isEmpty {
-                edges[target.name] = Set(internalDeps)
-            }
+            edges[target.name] = Set(target.dependencies.filter { firstParty.contains($0) })
         }
         return ModuleGraph(edges: edges)
     }

@@ -153,9 +153,11 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         let packageDependsOn = packageSource.map(PackageGraphLoader.externalPackageDependencies) ?? []
 
         // Package "what it does": the `// legibility:description:` comment in
-        // Package.swift → the Master Plan Mission → nil.
+        // Package.swift → the Master Plan Mission → the README lead (Phase 1:
+        // repos without our conventions still get prose) → nil.
         let packageSummary = packageSource.flatMap(PackageGraphLoader.packageDescription)
             ?? masterPlan.flatMap(MasterPlanReader.mission)
+            ?? readmeLead(cwd: cwd)
 
         return OrientationReport(
             projectID: projectID,
@@ -164,6 +166,88 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
             packageDependsOn: packageDependsOn,
             packageSummary: packageSummary
         )
+    }
+
+    /// The output format for ``orientDocument(configuration:packageName:watermarked:format:)``.
+    public enum OrientFormat: String, Sendable {
+        /// One-page human-readable Markdown.
+        case markdown = "md"
+        /// Deterministic pretty JSON.
+        case json
+    }
+
+    /// Builds the self-contained `orient` page for the package at the current
+    /// directory — the zero-config onboarding pipeline (Phase 1 §3).
+    ///
+    /// Same graph resolution as ``check(configuration:)`` (semantic when an
+    /// index store already exists and `useIndexStore` is on, declared graph
+    /// otherwise), but no diagnostics, no artifact writes, no corpus.
+    ///
+    /// - Parameters:
+    ///   - configuration: The effective configuration for the analyzed package.
+    ///   - packageName: Display name for the page heading.
+    ///   - watermarked: true when the analyzed repo declares no config of its
+    ///     own — the output then carries the §2b provenance watermark.
+    ///   - format: Markdown or JSON.
+    /// - Returns: The rendered document.
+    /// - Throws: An encoding error for the JSON format only.
+    public func orientDocument(
+        configuration: Configuration,
+        packageName: String,
+        watermarked: Bool,
+        format: OrientFormat
+    ) async throws -> String {
+        let config = configuration.legibility
+        let cwd = FileManager.default.currentDirectoryPath
+
+        var graph = loadDeclaredGraph(cwd: cwd, config: config)
+        var overPublic: [OverPublicOccurrence] = []
+        if config.useIndexStore,
+           let semantic = await resolveSemantics(configuration: configuration, cwd: cwd) {
+            if !semantic.graph.modules.isEmpty {
+                graph = Self.filterExempt(semantic.graph, exemptModules: config.exemptModules)
+            }
+            overPublic = semantic.overPublic
+        }
+        let orientation = discoverOrientation(cwd: cwd, modules: graph.modules)
+        let map = LegibilityMapBuilder.build(
+            graph: graph,
+            orientation: orientation,
+            overPublicByModule: Self.countByModule(overPublic)
+        )
+
+        let packageSource = loadPackageSource(cwd: cwd)
+        let masterPlan = loadMasterPlan(cwd: cwd, config: configuration.status)
+        let summary = packageSource.flatMap(PackageGraphLoader.packageDescription)
+            ?? masterPlan.flatMap(MasterPlanReader.mission)
+            ?? readmeLead(cwd: cwd)
+        let builtFrom = packageSource.map(PackageGraphLoader.externalPackageDependencies) ?? []
+
+        let document = OrientDocument(
+            packageName: packageName,
+            summary: summary,
+            builtFrom: builtFrom,
+            map: map,
+            watermarked: watermarked
+        )
+        switch format {
+        case .markdown:
+            return OrientRenderer.markdown(document)
+        case .json:
+            return try OrientRenderer.json(document)
+        }
+    }
+
+    /// The README's first meaningful paragraph, or nil when absent.
+    private func readmeLead(cwd: String) -> String? {
+        let path = (cwd as NSString).appendingPathComponent("README.md")
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        do {
+            return READMELeadExtractor.lead(from: try String(contentsOfFile: path, encoding: .utf8))
+        } catch {
+            Self.logger.warning("Failed to read README.md: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Reads the project's Master Plan markdown, or `nil` when absent/unreadable.

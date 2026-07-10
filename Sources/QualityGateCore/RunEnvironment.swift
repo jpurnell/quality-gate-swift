@@ -66,11 +66,11 @@ public enum RunEnvironment: Sendable, Equatable {
         }
     }
 
-    /// Whole-component containment check shared with ``WriteGuard``:
-    /// standardizes both sides (so `..` traversal is resolved) and matches on
-    /// path components, so a sibling like `/work/upstream-notes` is never
-    /// mistaken for `/work/upstream`.
-    static func path(_ url: URL, isInside root: URL) -> Bool {
+    /// Whole-component containment check shared with ``WriteGuard`` and the
+    /// CLI's output-path validation: standardizes both sides (so `..`
+    /// traversal is resolved) and matches on path components, so a sibling
+    /// like `/work/upstream-notes` is never mistaken for `/work/upstream`.
+    public static func path(_ url: URL, isInside root: URL) -> Bool {
         let target = url.standardizedFileURL.pathComponents
         let repo = root.standardizedFileURL.pathComponents
         return target.count >= repo.count && Array(target.prefix(repo.count)) == repo
