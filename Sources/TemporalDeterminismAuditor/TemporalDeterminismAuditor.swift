@@ -1,34 +1,16 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
 import QualityGateCore
-import SwiftSyntax
-import SwiftParser
 
-/// Scans Swift source for hidden nondeterminism sourced from wall-clock time.
+/// The quality-gate adapter for VigilKit's temporal-determinism engine.
 ///
-/// This is the temporal analog of the ``StochasticDeterminismAuditor``: where
-/// that auditor bans nondeterminism from randomness, this one bans
-/// nondeterminism from reading the wall clock in places where results must be
-/// reproducible.
+/// The analysis itself — `TemporalVisitor`, `TemporalScan`, and
+/// `TemporalDeterminismConfig` — lives in swift-vigil (Phase 4 extraction,
+/// move-not-fork: one implementation, two products; this monolith is
+/// downstream of the extraction). This wrapper binds the engine to the
+/// `QualityChecker` protocol and the gate's `Configuration`.
 ///
-/// Detected rules:
-/// - `temporal-simulated-wall-clock` — a simulation/synthetic/mock type stamps a
-///   wall-clock read (`ContinuousClock.now`, `Date()`, …) as a timestamp value.
-///   Simulated data must derive time from a logical origin, or its output
-///   spacing tracks scheduler jitter instead of the intended interval.
-/// - `temporal-wall-clock-assertion` — a test asserts on *measured elapsed
-///   wall-clock time* against a numeric threshold, which flakes under load.
-///
-/// ## Suppression
-///
-/// Add `// temporal:exempt` on a source line to suppress temporal diagnostics on
-/// that line. Add `// TIMING:` on an assertion line to declare an intentional
-/// wall-clock performance test (exempts `temporal-wall-clock-assertion`).
+/// Rules and suppression markers are documented on `TemporalScan`.
 public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
-    private static let logger = Logger(subsystem: "com.quality-gate", category: "TemporalDeterminismAuditor")
-
     /// Unique identifier for this checker.
     public let id = "temporal-determinism"
     /// Human-readable display name for this checker.
@@ -46,36 +28,25 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
     ///   found, `.passed` otherwise.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
-        let config = configuration.temporalDeterminism
-
-        var allDiagnostics: [Diagnostic] = []
-        var allOverrides: [DiagnosticOverride] = []
-
-        for dir in ["Sources", "Tests"] {
-            let path = (currentDir as NSString).appendingPathComponent(dir)
-            guard fileManager.fileExists(atPath: path) else { continue } // SAFETY: CLI reads local project dirs from cwd
-            let result = auditDirectory(at: path, config: config)
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-        }
-
+        let scan = TemporalScan.scanDirectories(
+            root: FileManager.default.currentDirectoryPath,
+            config: configuration.temporalDeterminism
+        )
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .warning
+        let status: CheckResult.Status = scan.findings.diagnostics.isEmpty ? .passed : .warning
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: allDiagnostics,
-            overrides: allOverrides,
+            diagnostics: scan.findings.diagnostics,
+            overrides: scan.findings.overrides,
             duration: duration
         )
     }
 
-    /// Audits a single source string. Useful for testing or single-file analysis
-    /// without filesystem access. The `fileName` determines which rule runs:
-    /// a path containing `/Tests/` runs the assertion rule, otherwise the
-    /// simulated-source rule.
+    /// Audits a single source string. Useful for testing or single-file
+    /// analysis without filesystem access. The `fileName` determines which
+    /// rule runs: a path containing `/Tests/` runs the assertion rule,
+    /// otherwise the simulated-source rule.
     ///
     /// - Parameters:
     ///   - source: The Swift source code to analyze.
@@ -88,61 +59,16 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let result = auditSourceCode(source, fileName: fileName, config: configuration.temporalDeterminism)
+        let findings = TemporalScan.scanSource(
+            source, fileName: fileName, config: configuration.temporalDeterminism)
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .warning
+        let status: CheckResult.Status = findings.diagnostics.isEmpty ? .passed : .warning
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: result.diagnostics,
-            overrides: result.overrides,
+            diagnostics: findings.diagnostics,
+            overrides: findings.overrides,
             duration: duration
         )
-    }
-
-    // MARK: - Private
-
-    private func auditDirectory(
-        at path: String,
-        config: TemporalDeterminismConfig
-    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
-        var diagnostics: [Diagnostic] = []
-        var overrides: [DiagnosticOverride] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-            if config.exemptFiles.contains(where: { fullPath.contains($0) }) { continue }
-            do {
-                let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let result = auditSourceCode(source, fileName: fullPath, config: config)
-                diagnostics.append(contentsOf: result.diagnostics)
-                overrides.append(contentsOf: result.overrides)
-            } catch {
-                Self.logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                continue
-            }
-        }
-        return (diagnostics, overrides)
-    }
-
-    private func auditSourceCode(
-        _ source: String,
-        fileName: String,
-        config: TemporalDeterminismConfig
-    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let sourceLines = source.components(separatedBy: "\n")
-        let tree = Parser.parse(source: source)
-        let converter = SourceLocationConverter(fileName: fileName, tree: tree)
-        let visitor = TemporalVisitor(
-            filePath: fileName,
-            converter: converter,
-            sourceLines: sourceLines,
-            config: config
-        )
-        visitor.walk(tree)
-        return (visitor.diagnostics, visitor.overrides)
     }
 }

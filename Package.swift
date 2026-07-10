@@ -197,6 +197,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.1.0"),
+        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.2.0"),
         .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.2.0"),
@@ -210,6 +211,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
+                .product(name: "VigilKit", package: "swift-vigil"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
             exclude: ["QualityGateCore.docc"]
