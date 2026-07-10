@@ -83,7 +83,8 @@ enum TelemetryEmission {
             consistencyScore: consistencyScore,
             complianceCount: complianceCount,
             commitSHA: provenance.headSHA,
-            runScope: runScope
+            runScope: runScope,
+            gateBuild: GateBuild(commit: BuildStamp.gitCommit, buildDate: BuildStamp.buildDate)
         )
 
         let calibrations = CalibrationClassifier.classify(

@@ -56,7 +56,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, BuildInfo.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -161,6 +161,23 @@ struct QualityGateCLI: AsyncParsableCommand {
             threshold: threshold,
             telemetryCorpusPath: telemetryCorpusPath
         ))
+
+        // Stale-binary self-check (0.6): a stale installed binary silently
+        // runs old rules. Repos ratchet minimumGateVersion when they depend
+        // on new ones; the hook (--strict) then refuses to run stale.
+        switch GateVersionCheck.check(minimum: configuration.minimumGateVersion, buildDate: BuildStamp.buildDate) {
+        case .noPin, .satisfied:
+            break
+        case .stale(let installed, let required):
+            print("⚠ Stale gate binary: built \(installed), but this repo requires minimumGateVersion \(required).")
+            print("  Rebuild and reinstall the gate (make install) before trusting results.")
+            if strict {
+                print("ERROR: refusing to run a stale gate under --strict.")
+                throw ExitCode(1)
+            }
+        case .unparseablePin(let pin):
+            print("⚠ minimumGateVersion '\(pin)' is not a date (YYYY-MM-DD or ISO8601) — pin ignored.")
+        }
 
         // Create override processor from configuration.
         let overrideProcessor = OverrideProcessor(

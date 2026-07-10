@@ -1596,6 +1596,11 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// (e.g. `"safety.*"`). Applied after checkers return results, before reporting.
     public var overrides: [String: SeverityOverride]
 
+    /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
+    /// A stale installed binary warns — or fails under `--strict` — instead of
+    /// silently running old rules (Phase 0.6). nil means no pin.
+    public var minimumGateVersion: String?
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -1635,8 +1640,10 @@ public struct Configuration: Sendable, Codable, Equatable {
         complexity: ComplexityAnalyzerConfig = .default,
         legibility: LegibilityAnalyzerConfig = .default,
         docCoverage: DocCoverageConfig = .default,
-        overrides: [String: SeverityOverride] = [:]
+        overrides: [String: SeverityOverride] = [:],
+        minimumGateVersion: String? = nil
     ) {
+        self.minimumGateVersion = minimumGateVersion
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
         self.vendorPaths = vendorPaths
@@ -1775,6 +1782,7 @@ extension Configuration {
         case legibility
         case docCoverage
         case overrides
+        case minimumGateVersion
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -1819,5 +1827,6 @@ extension Configuration {
         legibility = try container.decodeIfPresent(LegibilityAnalyzerConfig.self, forKey: .legibility) ?? .default
         docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
+        minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }
