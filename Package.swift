@@ -834,6 +834,12 @@ let package = Package(
             ],
             exclude: ["README.md", "QualityGateCLI.docc"]
         ),
+        // Phase 1 acceptance: exercises the built `quality-gate` binary
+        // against fixture upstream repos (foreign mode's read-only promise).
+        .testTarget(
+            name: "ForeignModeAcceptanceTests",
+            dependencies: ["QualityGateCLI"]
+        ),
 
         // MARK: - IJS MCP Server
         .executableTarget(

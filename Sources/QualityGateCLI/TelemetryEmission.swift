@@ -21,10 +21,14 @@ enum TelemetryEmission {
     /// Emits metadata, calibrations, work-events, and sidecar reports to the
     /// configured corpus. Best-effort by contract: a telemetry failure must
     /// never fail the gate.
+    ///
+    /// `identityKind` distinguishes foreign runs (Phase 1): they record under
+    /// the upstream identity but dashboards group them separately.
     static func emit(
         configuration: Configuration,
         results: [CheckResult],
         runScope: RunScope,
+        identityKind: IdentityKind = .resident,
         verbose: Bool
     ) async {
         guard let corpusPath = configuration.consistency.corpusPath else { return }
@@ -84,7 +88,8 @@ enum TelemetryEmission {
             complianceCount: complianceCount,
             commitSHA: provenance.headSHA,
             runScope: runScope,
-            gateBuild: GateBuild(commit: BuildStamp.gitCommit, buildDate: BuildStamp.buildDate)
+            gateBuild: GateBuild(commit: BuildStamp.gitCommit, buildDate: BuildStamp.buildDate),
+            identityKind: identityKind
         )
 
         let calibrations = CalibrationClassifier.classify(

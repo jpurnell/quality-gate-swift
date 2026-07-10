@@ -442,6 +442,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 configuration: configuration,
                 results: allResults,
                 runScope: runScope,
+                identityKind: runEnvironment.isForeign ? .foreign : .resident,
                 verbose: verbose
             )
         } else if verbose {
