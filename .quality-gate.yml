@@ -42,3 +42,7 @@ ijs:
   decisionOwner: "jpurnell"
   defaultRiskTier: 2
   remoteURL: "git@github.com:jpurnell/org-judgement-corpus.git"
+
+# Phase 0.6: refuse to run a binary older than this under --strict.
+# Ratchet when the repo starts depending on new gate rules.
+minimumGateVersion: "2026-07-10"
