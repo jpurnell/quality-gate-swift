@@ -59,6 +59,7 @@ public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
 /// consistency:
 ///   corpusPath: .ijs-corpus
 ///   projectID: quality-gate-swift
+///   useRemoteIdentity: false
 ///   consistencyThreshold: 0.7
 ///   defaultRiskTier: 2
 ///   exemptions: ["Generated/**"]
@@ -78,6 +79,10 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
     public var scorerWeights: ScorerWeightsConfig?
     /// Module or path patterns exempt from consistency checks.
     public var exemptions: [String]
+    /// Derive the corpus projectID from the normalized git remote instead of
+    /// the directory basename (Phase 0.4). Default false for one release so
+    /// portfolios migrate deliberately via `migrate-corpus-identity`.
+    public var useRemoteIdentity: Bool
 
     /// Creates a consistency checker configuration with the specified values.
     public init(
@@ -86,7 +91,8 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
         consistencyThreshold: Double = 0.7,
         defaultRiskTier: Int = 2,
         scorerWeights: ScorerWeightsConfig? = nil,
-        exemptions: [String] = []
+        exemptions: [String] = [],
+        useRemoteIdentity: Bool = false
     ) {
         self.corpusPath = corpusPath
         self.projectID = projectID
@@ -94,6 +100,7 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
         self.defaultRiskTier = defaultRiskTier
         self.scorerWeights = scorerWeights
         self.exemptions = exemptions
+        self.useRemoteIdentity = useRemoteIdentity
     }
 
     /// Default consistency checker configuration.
@@ -102,7 +109,7 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
 
 extension ConsistencyCheckerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions
+        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions, useRemoteIdentity
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -115,6 +122,7 @@ extension ConsistencyCheckerConfig: Codable {
         defaultRiskTier = try container.decodeIfPresent(Int.self, forKey: .defaultRiskTier) ?? defaults.defaultRiskTier
         scorerWeights = try container.decodeIfPresent(ScorerWeightsConfig.self, forKey: .scorerWeights) ?? defaults.scorerWeights
         exemptions = try container.decodeIfPresent([String].self, forKey: .exemptions) ?? defaults.exemptions
+        useRemoteIdentity = try container.decodeIfPresent(Bool.self, forKey: .useRemoteIdentity) ?? defaults.useRemoteIdentity
     }
 }
 

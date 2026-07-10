@@ -112,6 +112,27 @@ struct ConfigurationTests {
         #expect(config.enabledCheckers == ["safety"])
     }
 
+    @Test("useRemoteIdentity decodes from YAML and defaults to false")
+    func useRemoteIdentityFlag() async throws {
+        #expect(Configuration().consistency.useRemoteIdentity == false)
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let configPath = tempDir.appendingPathComponent(".quality-gate-identity-\(UUID().uuidString).yml")
+        let yaml = """
+        consistency:
+          corpusPath: .ijs-corpus
+          useRemoteIdentity: true
+        """
+        try yaml.write(to: configPath, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: configPath) // silent: best-effort temp cleanup
+        }
+
+        let config = try Configuration.load(from: configPath.path)
+        #expect(config.consistency.useRemoteIdentity == true)
+        #expect(config.consistency.corpusPath == ".ijs-corpus")
+    }
+
     @Test("Configuration returns default when file not found")
     func returnsDefaultWhenFileNotFound() throws {
         let config = try Configuration.load(from: "/nonexistent/.quality-gate.yml")

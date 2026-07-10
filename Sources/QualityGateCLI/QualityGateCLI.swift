@@ -56,7 +56,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, BuildInfo.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, BuildInfo.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -361,8 +361,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Emit telemetry to IJS corpus if configured
         if let corpusPath = configuration.consistency.corpusPath {
             let ijsConfig = configuration.consistency
-            let projectID = ijsConfig.projectID
-                ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+            let projectID = EffectiveProjectID.resolve(consistency: ijsConfig)
             let riskTier = RiskTier(rawValue: ijsConfig.defaultRiskTier) ?? .operational
             let consistencyResult = allResults.first { $0.checkerId == "consistency" }
             let consistencyScore = consistencyResult?.diagnostics
@@ -509,8 +508,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             return
         }
 
-        let projectID = configuration.consistency.projectID
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+        let projectID = EffectiveProjectID.resolve(consistency: configuration.consistency)
         let isCI = ProcessInfo.processInfo.environment["CI"] != nil
 
         let record = SkipRecord(

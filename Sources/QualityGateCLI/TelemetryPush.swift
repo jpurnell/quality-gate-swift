@@ -47,8 +47,7 @@ struct TelemetryPush: AsyncParsableCommand {
         }
 
         let effectiveProjectID = projectID
-            ?? configuration.consistency.projectID
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+            ?? EffectiveProjectID.resolve(consistency: configuration.consistency)
 
         let riskTier = RiskTier(rawValue: configuration.consistency.defaultRiskTier) ?? .operational
         let corpus = CorpusPath(basePath: effectiveCorpusPath, projectID: effectiveProjectID)

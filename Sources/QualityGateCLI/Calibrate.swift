@@ -87,8 +87,7 @@ struct Calibrate: AsyncParsableCommand {
             throw ExitCode(1)
         }
 
-        let projectID = configuration.consistency.projectID
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+        let projectID = EffectiveProjectID.resolve(consistency: configuration.consistency)
         let corpus = CorpusPath(basePath: effectiveCorpusPath, projectID: projectID)
         let writer = TelemetryWriter()
 
