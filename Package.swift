@@ -786,11 +786,24 @@ let package = Package(
             ]
         ),
 
+        // MARK: - CI parity (Phase 2)
+        .target(
+            name: "GateCI",
+            dependencies: [
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+            ]
+        ),
+        .testTarget(
+            name: "GateCITests",
+            dependencies: ["GateCI"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
                 "QualityGateCore",
+                "GateCI",
                 "SafetyAuditor",
                 "BuildChecker",
                 "TestRunner",
@@ -838,6 +851,12 @@ let package = Package(
         // against fixture upstream repos (foreign mode's read-only promise).
         .testTarget(
             name: "ForeignModeAcceptanceTests",
+            dependencies: ["QualityGateCLI"]
+        ),
+        // Phase 2 acceptance: local run and `ci` run of the same fixture
+        // must produce byte-identical diagnostics (the parity guarantee).
+        .testTarget(
+            name: "CIParityTests",
             dependencies: ["QualityGateCLI"]
         ),
 

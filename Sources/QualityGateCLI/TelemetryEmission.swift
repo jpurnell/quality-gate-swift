@@ -3,6 +3,7 @@ import Foundation
 import os
 #endif
 import ComplexityAnalyzer
+import GateCI
 import IJSSensor
 import IJSAggregator
 import LegibilityAnalyzer
@@ -89,7 +90,12 @@ enum TelemetryEmission {
             commitSHA: provenance.headSHA,
             runScope: runScope,
             gateBuild: GateBuild(commit: BuildStamp.gitCommit, buildDate: BuildStamp.buildDate),
-            identityKind: identityKind
+            identityKind: identityKind,
+            // Verified identity when a CI provider attests the run (Phase 2);
+            // host attribution otherwise, so the second-writer tripwire can
+            // tell machines apart.
+            ciIdentity: CIIdentityProbe.detect(environment: ProcessInfo.processInfo.environment),
+            host: ProcessInfo.processInfo.hostName
         )
 
         let calibrations = CalibrationClassifier.classify(

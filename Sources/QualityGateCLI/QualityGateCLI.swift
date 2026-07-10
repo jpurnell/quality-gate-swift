@@ -56,7 +56,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -112,6 +112,12 @@ struct QualityGateCLI: AsyncParsableCommand {
 
     @Option(name: .customLong("telemetry-corpus-path"), help: "Override corpus path for telemetry (useful for CI)")
     var telemetryCorpusPath: String?
+
+    @Option(name: .customLong("sarif-output"), help: "Also write a SARIF report to this path (in addition to the primary format)")
+    var sarifOutput: String?
+
+    @Option(name: .customLong("summary-output"), help: "Also write a JSON summary to this path (in addition to the primary format)")
+    var summaryOutput: String?
 
     /// The active Swift toolchain version string, folded into the cache's gate identity so a
     /// compiler change invalidates cached results. Returns "" on failure (still a stable key).
@@ -426,6 +432,12 @@ struct QualityGateCLI: AsyncParsableCommand {
         var outputStream = StandardOutputStream()
         try reporter.report(allResults, to: &outputStream)
 
+        // Machine-readable artifacts alongside the primary format (Phase 2:
+        // `quality-gate ci` turns these on; any caller may). Best-effort —
+        // an artifact write failure is logged, never fails the gate itself.
+        writeArtifactReport(format: .sarif, to: sarifOutput, results: allResults)
+        writeArtifactReport(format: .json, to: summaryOutput, results: allResults)
+
         // One post-run telemetry step for every configured invocation (0.1):
         // full runs and --check subsets both record, tagged with their scope
         // so gate statistics stay honest downstream.
@@ -463,6 +475,25 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Exit with appropriate code
         if hasFailure && !fix {
             throw ExitCode(1)
+        }
+    }
+
+    /// Renders results in `format` and writes them to `path`, creating parent
+    /// directories. Best-effort: a failure is logged and printed, never
+    /// thrown — a missing artifact must not change the gate's verdict.
+    private func writeArtifactReport(format: OutputFormat, to path: String?, results: [CheckResult]) {
+        guard let path else { return }
+        var rendered = ""
+        do {
+            try WriteGuard.validate(path: path)
+            try ReporterFactory.create(for: format).report(results, to: &rendered)
+            let url = URL(fileURLWithPath: path)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true) // SAFETY: caller-requested artifact directory
+            try rendered.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            Self.logger.warning("Failed to write \(format.rawValue, privacy: .public) artifact to \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            print("⚠ Could not write \(format.rawValue) artifact to \(path): \(error.localizedDescription)")
         }
     }
 
