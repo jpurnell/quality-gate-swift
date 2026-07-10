@@ -60,6 +60,44 @@ struct WriterCensusSummaryTests {
         #expect(census?.standingWarning?.contains("Phase 3") == true)
     }
 
+    @Test("advisory runs never count toward the gate pass rate")
+    func advisoryRunsExcluded() {
+        let passing = TimestampedRun(
+            metadata: CheckResultMetadata(
+                projectID: "test",
+                timestamp: base.addingTimeInterval(-86_400),
+                environment: .local,
+                decisionOwner: "jpurnell",
+                results: [CheckResult(checkerId: "safety", status: .passed, diagnostics: [], duration: .milliseconds(1))],
+                overrides: [],
+                riskTier: .operational,
+                ethicalFlags: [],
+                consistencyScore: nil,
+                gateMode: .advisory
+            )
+        )
+        let failing = TimestampedRun(
+            metadata: CheckResultMetadata(
+                projectID: "test",
+                timestamp: base.addingTimeInterval(-2 * 86_400),
+                environment: .local,
+                decisionOwner: "jpurnell",
+                results: [CheckResult(checkerId: "safety", status: .failed, diagnostics: [], duration: .milliseconds(1))],
+                overrides: [],
+                riskTier: .operational,
+                ethicalFlags: [],
+                consistencyScore: nil
+            )
+        )
+        let summary = ProjectSummary.compute(
+            projectID: "test", from: [passing, failing], censusDate: base)
+        // The advisory pass is invisible to gate stats: one standard run,
+        // and it failed.
+        #expect(summary.runCount == 1)
+        #expect(summary.latestPassed == false)
+        #expect(abs(summary.passRate - 0.0) < 1e-6)
+    }
+
     @Test("an old second writer outside the window stays quiet")
     func expiredWriterQuiet() {
         let summary = ProjectSummary.compute(

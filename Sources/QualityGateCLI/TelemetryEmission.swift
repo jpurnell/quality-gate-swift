@@ -30,6 +30,7 @@ enum TelemetryEmission {
         results: [CheckResult],
         runScope: RunScope,
         identityKind: IdentityKind = .resident,
+        gateMode: GateMode = .standard,
         verbose: Bool
     ) async {
         guard let corpusPath = configuration.consistency.corpusPath else { return }
@@ -95,7 +96,8 @@ enum TelemetryEmission {
             // host attribution otherwise, so the second-writer tripwire can
             // tell machines apart.
             ciIdentity: CIIdentityProbe.detect(environment: ProcessInfo.processInfo.environment),
-            host: ProcessInfo.processInfo.hostName
+            host: ProcessInfo.processInfo.hostName,
+            gateMode: gateMode
         )
 
         let calibrations = CalibrationClassifier.classify(

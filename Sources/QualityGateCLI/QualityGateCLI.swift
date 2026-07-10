@@ -107,6 +107,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Force resident mode even when the repo has no config and an overlay exists.")
     var resident: Bool = false
 
+    @Flag(name: .customLong("advisory-all"), help: "Trial mode: run everything, downgrade every error/warning to a note, exit 0. Recorded as gateMode: advisory — never counts as a green gate.")
+    var advisoryAll: Bool = false
+
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
 
@@ -343,7 +346,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Unset → the default (active processor count).
         let benchConcurrency = ProcessInfo.processInfo.environment["QG_BENCH_CONCURRENCY"].flatMap(Int.init)
         let runner = benchConcurrency.map(CheckerRunner.init(maxConcurrency:)) ?? CheckerRunner()
-        let allResults = await runner.run(
+        var allResults = await runner.run(
             checkers: checkersToRun,
             configuration: configuration,
             strict: strict,
@@ -356,6 +359,13 @@ struct QualityGateCLI: AsyncParsableCommand {
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
             }
         )
+        // Trial mode (Phase 4 §3): the survey transform — findings visible,
+        // nothing gates. Applied before reporting so terminal/SARIF/telemetry
+        // all see the same downgraded truth.
+        if advisoryAll {
+            allResults = AdvisoryDowngrade.apply(to: allResults)
+            print("ℹ️  Trial mode (--advisory-all): findings reported as notes; nothing gates this run.")
+        }
         let hasFailure = allResults.contains { result in
             if result.status == .failed { return true }
             if strict && result.status == .warning { return true }
@@ -455,6 +465,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 results: allResults,
                 runScope: runScope,
                 identityKind: runEnvironment.isForeign ? .foreign : .resident,
+                gateMode: advisoryAll ? .advisory : .standard,
                 verbose: verbose
             )
         } else if verbose {

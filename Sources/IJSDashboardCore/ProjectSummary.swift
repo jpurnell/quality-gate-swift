@@ -67,9 +67,12 @@ public struct ProjectSummary: Sendable {
 
         let sortedRuns = runs.sorted { $0.metadata.timestamp < $1.metadata.timestamp }
 
-        // Gate-level statistics count full runs only (0.1): a green subset
-        // run must not count as a green gate.
-        let fullRuns = sortedRuns.filter { $0.metadata.runScope == .full }
+        // Gate-level statistics count full, standard-mode runs only: a green
+        // subset run is not a green gate (0.1), and an advisory survey is not
+        // a gate at all (Phase 4 §3).
+        let fullRuns = sortedRuns.filter {
+            $0.metadata.runScope == .full && $0.metadata.gateMode == .standard
+        }
         let passingCount = fullRuns.filter { run in
             run.metadata.results.allSatisfy { $0.status.isPassing }
         }.count
