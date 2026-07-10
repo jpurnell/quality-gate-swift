@@ -28,22 +28,21 @@ struct Doctor: AsyncParsableCommand {
         print("  built:      \(BuildStamp.buildDate)")
         print("  binary:     \(CheckerFingerprint.runningExecutablePath())")
 
-        // Config provenance (Phase 1's overlay model reuses this line).
+        // Config provenance — layered resolution (Phase 1): repo → overlay
+        // → user-global → built-in, attributed per section.
         print("Config:")
         let fm = FileManager.default
         let loadedConfiguration: Configuration
-        if fm.fileExists(atPath: config) { // SAFETY: read-only check on configured path
-            do {
-                loadedConfiguration = try Configuration.load(from: config)
-                print("  source:     \(config)")
-            } catch {
-                Self.logger.warning("doctor.config-unparseable: \(error.localizedDescription, privacy: .public)")
-                loadedConfiguration = Configuration()
-                print("  source:     \(config) (unparseable: \(error.localizedDescription)) — defaults in effect")
+        do {
+            let resolution = try LayeredConfig.resolve(repoConfigPath: config)
+            loadedConfiguration = resolution.configuration
+            for line in resolution.provenance.renderTable().split(separator: "\n", omittingEmptySubsequences: false) {
+                print("  \(line)")
             }
-        } else {
+        } catch {
+            Self.logger.warning("doctor.config-unparseable: \(error.localizedDescription, privacy: .public)")
             loadedConfiguration = Configuration()
-            print("  source:     built-in defaults (\(config) not found)")
+            print("  source:     \(config) (unparseable: \(error.localizedDescription)) — defaults in effect")
         }
 
         // Pin status against this binary.

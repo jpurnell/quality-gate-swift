@@ -56,7 +56,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -141,10 +141,19 @@ struct QualityGateCLI: AsyncParsableCommand {
             return
         }
 
-        // Load configuration
+        // Load configuration through the layered resolver (Phase 1):
+        // repo `.quality-gate.yml` → overlay → user-global → defaults,
+        // first hit per section. With no overlay or global config on disk
+        // this is byte-for-byte the old repo-only load.
         var configuration: Configuration
         do {
-            configuration = try Configuration.load(from: config)
+            let resolution = try LayeredConfig.resolve(repoConfigPath: config)
+            configuration = resolution.configuration
+            if verbose, resolution.provenance.overlayConfigPath != nil
+                || resolution.provenance.userGlobalConfigPath != nil {
+                print("Config layers in effect (run `quality-gate config` for detail):")
+                print(resolution.provenance.renderTable())
+            }
         } catch {
             Self.logger.warning("Failed to load configuration from \(self.config, privacy: .public): \(error.localizedDescription, privacy: .public). Using defaults.")
             configuration = Configuration()
