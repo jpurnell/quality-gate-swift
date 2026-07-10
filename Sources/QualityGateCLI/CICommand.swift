@@ -1,5 +1,8 @@
 import ArgumentParser
 import Foundation
+#if canImport(os)
+import os
+#endif
 import GateCI
 import QualityGateCore
 
@@ -12,6 +15,8 @@ import QualityGateCore
 /// result cache, UTC, strict by default, SARIF + JSON summary artifacts
 /// always produced.
 struct CICommand: AsyncParsableCommand {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "CICommand")
+
     static let configuration = CommandConfiguration(
         commandName: "ci",
         abstract: "Run the gate with CI-appropriate deterministic defaults (same core path as every other run)."
@@ -33,6 +38,9 @@ struct CICommand: AsyncParsableCommand {
     @Option(name: .customLong("checkers"), parsing: .upToNextOption, help: "Specific checkers to run (passthrough to --check; defaults to the standard set)")
     var checkers: [String] = []
 
+    @Option(name: .customLong("corpus-remote"), help: "Git remote of the telemetry corpus: cloned before the run, telemetry pushed after (interim transport, Phase 2 §4)")
+    var corpusRemote: String?
+
     func run() async throws {
         guard let indexMode = CIRunPlan.IndexMode(rawValue: index) else {
             print("ERROR: --index must be 'none' or 'build'")
@@ -48,13 +56,58 @@ struct CICommand: AsyncParsableCommand {
             setenv(key, value, 1)
         }
 
+        // Interim CI telemetry transport (Phase 2 §4): clone the corpus
+        // before the run so telemetry writes land in the clone.
+        var transport: CorpusGitTransport?
+        var corpusRoot: URL?
+        if let corpusRemote {
+            let cloneDir = URL(fileURLWithPath: outputDir, isDirectory: true)
+                .appendingPathComponent("corpus", isDirectory: true)
+            let gitTransport = CorpusGitTransport(remote: corpusRemote, workdir: cloneDir)
+            corpusRoot = try gitTransport.prepare()
+            transport = gitTransport
+            print("[ijs] Corpus cloned from \(corpusRemote)")
+        }
+
         // Re-enter the standard run path — parity by construction.
         var arguments = plan.gateArguments
+        if let corpusRoot {
+            arguments.append(contentsOf: ["--telemetry-corpus-path", corpusRoot.path])
+        }
         if !checkers.isEmpty {
             arguments.append("--check")
             arguments.append(contentsOf: checkers)
         }
         var gate = try QualityGateCLI.parse(arguments)
-        try await gate.run()
+        var gateError: Error?
+        do {
+            try await gate.run()
+        } catch {
+            // Held, logged, and rethrown after the publish step below — the
+            // corpus must receive a red run's telemetry too.
+            Self.logger.warning("Gate run failed; publishing telemetry before rethrowing: \(error.localizedDescription, privacy: .public)")
+            gateError = error
+        }
+
+        // Publish after the run, pass or fail — a red run's telemetry is
+        // exactly the data the corpus exists to hold. Publish failure is
+        // logged, never masks the gate verdict (fail-open).
+        if let transport {
+            do {
+                let identity = CIIdentityProbe.detect(
+                    environment: ProcessInfo.processInfo.environment)
+                let message = identity.map {
+                    "telemetry: \($0.repository)@\(String($0.commit.prefix(8))) via \($0.provider) run \($0.workflowRunID)"
+                } ?? "telemetry: quality-gate ci run"
+                try transport.publish(message: message)
+                print("[ijs] Telemetry pushed to corpus remote")
+            } catch {
+                Self.logger.warning("Corpus publish failed (telemetry retained locally): \(error.localizedDescription, privacy: .public)")
+                print("⚠ Corpus publish failed — telemetry retained in \(outputDir)/corpus: \(error.localizedDescription)")
+            }
+        }
+        if let gateError {
+            throw gateError
+        }
     }
 }
