@@ -21,11 +21,15 @@ mkdir -p "$DIST"
 for ARCH in arm64 x86_64; do
     echo "→ Building release binary (${ARCH})"
     swift build -c release --product quality-gate --arch "$ARCH"
-    BIN=".build/${ARCH}-apple-macosx/release/quality-gate"
+    # Ask SPM where the products landed — the path differs between the
+    # classic (.build/<triple>/release) and swiftbuild (.build/out/Products)
+    # backends, and hardcoding either broke once already.
+    BIN_DIR="$(swift build -c release --product quality-gate --arch "$ARCH" --show-bin-path | tail -1)"
+    BIN="${BIN_DIR}/quality-gate"
     echo "→ Signing (${ARCH})"
     codesign -s - --force --options runtime "$BIN"
     echo "→ Packaging (${ARCH})"
-    tar -czf "$DIST/quality-gate-macos-${ARCH}.tar.gz" -C "$(dirname "$BIN")" quality-gate
+    tar -czf "$DIST/quality-gate-macos-${ARCH}.tar.gz" -C "$BIN_DIR" quality-gate
 done
 
 echo "→ Verifying artifacts"
