@@ -210,19 +210,25 @@ public enum PortfolioTUIView: Sendable {
         var cells = ""
         let padding = max(0, timelineWidth - recentRuns.count)
         if padding > 0 {
-            cells += ANSICodes.dim + String(repeating: "\u{2500}", count: padding) + ANSICodes.reset
+            let bar = String(repeating: "\u{2500}", count: padding)
+            cells += colorEnabled ? ANSICodes.dim + bar + ANSICodes.reset : bar
         }
         for run in recentRuns {
             let results = run.metadata.results
             guard !results.isEmpty else {
-                cells += ANSICodes.dim + "\u{2591}" + ANSICodes.reset
+                cells += colorEnabled ? ANSICodes.dim + "\u{2591}" + ANSICodes.reset : "\u{2591}"
                 continue
             }
             let passingCount = results.filter { $0.status.isPassing }.count
             let rate = Double(passingCount) / Double(results.count)
-            cells += healthColor(rate) + "\u{2588}" + ANSICodes.reset
+            cells += colorEnabled ? healthColor(rate) + "\u{2588}" + ANSICodes.reset : "\u{2588}"
         }
         return cells
+    }
+
+    /// False when the user opted out of color via the NO_COLOR convention (no-color.org).
+    private static var colorEnabled: Bool {
+        ProcessInfo.processInfo.environment["NO_COLOR"] == nil
     }
 
     private static func healthColor(_ rate: Double) -> String {
@@ -232,7 +238,7 @@ public enum PortfolioTUIView: Sendable {
         } else if pct >= 75 {
             return ANSICodes.fg(.yellow)
         } else if pct >= 60 {
-            return "\u{001B}[38;2;255;165;0m"
+            return ANSICodes.fgRGB(255, 165, 0)
         } else {
             return ANSICodes.fg(.red)
         }
