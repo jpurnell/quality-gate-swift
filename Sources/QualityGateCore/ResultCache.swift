@@ -46,6 +46,10 @@ public struct ResultCache: Sendable {
     }
 
     private func writeEntry(_ result: CheckResult, checkerId: String, fingerprint: String) throws {
+        // WriteGuard backstop (Phase 1): in foreign mode the CLI points the
+        // cache at the overlay; a directory still inside the analyzed repo is
+        // a bug, and store() degrades it to a silent cache miss.
+        try WriteGuard.validate(path: directory.path)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) // SAFETY: CLI tool creates its local cache directory
         let data = try JSONEncoder().encode(result)
         try data.write(to: entryURL(checkerId: checkerId, fingerprint: fingerprint))

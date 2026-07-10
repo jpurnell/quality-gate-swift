@@ -101,6 +101,12 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Never compile a project to produce an index store; index-backed checkers reuse an existing store or degrade to AST-only. Use for fast portfolio sweeps that must not build.")
     var noIndexBuild: Bool = false
 
+    @Flag(name: .long, help: "Force foreign mode: the repo is analyzed read-only, every write redirects to the overlay (~/.quality-gate/overlays/<identity>/), and --fix is refused.")
+    var foreign: Bool = false
+
+    @Flag(name: .long, help: "Force resident mode even when the repo has no config and an overlay exists.")
+    var resident: Bool = false
+
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
 
@@ -146,9 +152,19 @@ struct QualityGateCLI: AsyncParsableCommand {
         // first hit per section. With no overlay or global config on disk
         // this is byte-for-byte the old repo-only load.
         var configuration: Configuration
+        var configProvenance: ConfigProvenance?
+        var overlayDirectory: URL?
+        var hasRepoConfig = true
         do {
             let resolution = try LayeredConfig.resolve(repoConfigPath: config)
             configuration = resolution.configuration
+            configProvenance = resolution.provenance
+            hasRepoConfig = resolution.provenance.repoConfigPath != nil
+            // Auto-detection requires a real overlay config; forcing foreign
+            // only requires somewhere to redirect writes to.
+            if resolution.hasOverlayConfig || foreign {
+                overlayDirectory = resolution.overlayDirectory
+            }
             if verbose, resolution.provenance.overlayConfigPath != nil
                 || resolution.provenance.userGlobalConfigPath != nil {
                 print("Config layers in effect (run `quality-gate config` for detail):")
@@ -170,6 +186,30 @@ struct QualityGateCLI: AsyncParsableCommand {
             threshold: threshold,
             telemetryCorpusPath: telemetryCorpusPath
         ))
+
+        // Run environment (Phase 1): resident behaves as always; foreign
+        // redirects every write into the overlay and enforces read-only
+        // analysis structurally (WriteGuard + Maintainer's Promise).
+        let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let runEnvironment = RunEnvironment.detect(
+            repoRoot: repoRoot,
+            hasRepoConfig: hasRepoConfig,
+            overlayDirectory: overlayDirectory,
+            forceForeign: foreign,
+            forceResident: resident)
+        if runEnvironment.isForeign {
+            if fix {
+                print("ERROR: --fix is refused in foreign mode — the findings are yours, the code isn't.")
+                throw ExitCode(1)
+            }
+            // Backstop for writers below the CLI (same pattern as QG_NO_INDEX_BUILD).
+            setenv(WriteGuard.environmentVariable, runEnvironment.repoRoot.path, 1)
+            if configuration.legibility.artifactPath == nil {
+                configuration.legibility.artifactPath =
+                    runEnvironment.artifactsRoot.appendingPathComponent("legibility").path
+            }
+            print("🔒 Foreign mode: \(runEnvironment.repoRoot.path) is analyzed read-only; writes → \(runEnvironment.artifactsRoot.deletingLastPathComponent().path)")
+        }
 
         // Stale-binary self-check (0.6): a stale installed binary silently
         // runs old rules. Repos ratchet minimumGateVersion when they depend
@@ -279,12 +319,14 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Incremental result cache: checkers that opt in via `cacheInputs` skip re-running when
         // their inputs are byte-identical to a prior run. The gate identity (binary + toolchain)
         // is folded into every key, so a gate rebuild or compiler change invalidates all entries.
-        let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let gateHash = CheckerFingerprint.gateIdentityHash(
             executablePath: CheckerFingerprint.runningExecutablePath(),
             toolchainVersion: Self.toolchainVersion()
         )
-        let resultCache = ResultCache.standard(projectRoot: projectRoot)
+        // Cache location resolves through the run environment: the repo's
+        // .build when resident, the overlay's cache dir when foreign.
+        let resultCache = ResultCache(
+            directory: runEnvironment.cacheRoot.appendingPathComponent("quality-gate-cache"))
 
         // Run checkers concurrently (bounded by core count), preserving checker order.
         // Overrides are applied via `transform` so pass/fail — and the continueOnFailure
@@ -387,15 +429,24 @@ struct QualityGateCLI: AsyncParsableCommand {
         // One post-run telemetry step for every configured invocation (0.1):
         // full runs and --check subsets both record, tagged with their scope
         // so gate statistics stay honest downstream.
+        //
+        // Foreign runs are silent by default (Phase 1 §2b): nothing about an
+        // analyzed project is recorded anywhere unless the *overlay itself*
+        // configured the corpus — a repo- or user-global corpus path never
+        // captures a repo that isn't yours as a side effect.
         let runScope: RunScope = (check.isEmpty || check.contains("all"))
             ? .full
             : .subset(checkers: effectiveCheckers)
-        await TelemetryEmission.emit(
-            configuration: configuration,
-            results: allResults,
-            runScope: runScope,
-            verbose: verbose
-        )
+        if !runEnvironment.isForeign || configProvenance?.origin(of: "consistency") == .overlay {
+            await TelemetryEmission.emit(
+                configuration: configuration,
+                results: allResults,
+                runScope: runScope,
+                verbose: verbose
+            )
+        } else if verbose {
+            print("\n[ijs] Foreign mode: telemetry silent (corpus not configured by the overlay)")
+        }
 
         // Suggest --fix when status fails and --fix wasn't used
         if hasFailure && !fix {

@@ -349,6 +349,10 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         let basePath = config.artifactPath ?? (cwd as NSString).appendingPathComponent(".build/legibility")
         let fileManager = FileManager.default
         do {
+            // WriteGuard backstop (Phase 1): in foreign mode the CLI redirects
+            // artifactPath into the overlay; a path that still lands in the
+            // analyzed repo is a bug this trap refuses to paper over.
+            try WriteGuard.validate(path: basePath)
             // SAFETY: CLI tool writes its advisory artifact under the project's .build directory.
             try fileManager.createDirectory(atPath: basePath, withIntermediateDirectories: true)
             let jsonPath = (basePath as NSString).appendingPathComponent("legibility-map.json")

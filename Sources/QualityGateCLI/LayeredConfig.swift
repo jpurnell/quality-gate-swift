@@ -18,6 +18,11 @@ enum LayeredConfig {
         let provenance: ConfigProvenance
         /// The identity slug that keyed the overlay lookup.
         let identity: String
+        /// This project's overlay directory (derivable whether or not it
+        /// exists on disk yet — forced foreign mode needs somewhere to write).
+        let overlayDirectory: URL
+        /// Whether an overlay `config.yml` actually exists on disk.
+        let hasOverlayConfig: Bool
     }
 
     /// Resolves configuration for the current working directory.
@@ -35,6 +40,11 @@ enum LayeredConfig {
             overlayConfigURL: store.overlayConfigURL(for: identity),
             userGlobalConfigURL: store.userGlobalConfigURL)
         let (configuration, provenance) = try resolver.resolve()
-        return Resolution(configuration: configuration, provenance: provenance, identity: identity)
+        return Resolution(
+            configuration: configuration,
+            provenance: provenance,
+            identity: identity,
+            overlayDirectory: store.overlayDirectory(for: identity),
+            hasOverlayConfig: store.hasOverlay(for: identity))
     }
 }

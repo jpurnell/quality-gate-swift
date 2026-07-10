@@ -24,6 +24,10 @@ public enum QualityGateError: Error, Sendable, LocalizedError {
     /// An external command timed out.
     case processTimeout(command: String, timeout: Duration)
 
+    /// A foreign-mode run attempted to write inside the analyzed repository
+    /// (Phase 1 WriteGuard — the Maintainer's Promise, enforced).
+    case writeGuardViolation(path: String)
+
     /// User-friendly error description.
     public var errorDescription: String? {
         switch self {
@@ -40,6 +44,8 @@ public enum QualityGateError: Error, Sendable, LocalizedError {
         case .processTimeout(let command, let timeout):
             let seconds = Double(timeout.components.seconds)
             return "Command '\(command)' timed out after \(seconds) seconds"
+        case .writeGuardViolation(let path):
+            return "WriteGuard: foreign run attempted to write inside the analyzed repo: \(path)"
         }
     }
 }
