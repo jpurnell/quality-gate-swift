@@ -19,8 +19,13 @@ public struct ProjectSummary: Sendable {
     public let latestCheckerPassed: [String: Bool]
     /// Total number of overrides across all runs.
     public let totalOverrides: Int
-    /// Number of runs analyzed.
+    /// Number of full gate runs analyzed. Pass rate and latest status are
+    /// computed over these only — a green subset run is not a green gate.
     public let runCount: Int
+    /// Number of subset (`--check <subset>`) runs. Shown as "(+M partial)";
+    /// they inform per-checker rates but never the gate pass rate. Defaulted
+    /// so the memberwise initializer stays source-compatible.
+    public var partialRunCount: Int = 0
     /// The lifecycle state of the project.
     public let lifecycle: ProjectLifecycle
     /// Product-composition orientation (built-from / relied-on-by / role), if a
@@ -58,13 +63,16 @@ public struct ProjectSummary: Sendable {
 
         let sortedRuns = runs.sorted { $0.metadata.timestamp < $1.metadata.timestamp }
 
-        let passingCount = sortedRuns.filter { run in
+        // Gate-level statistics count full runs only (0.1): a green subset
+        // run must not count as a green gate.
+        let fullRuns = sortedRuns.filter { $0.metadata.runScope == .full }
+        let passingCount = fullRuns.filter { run in
             run.metadata.results.allSatisfy { $0.status.isPassing }
         }.count
-        let runTotal = Double(sortedRuns.count)
+        let runTotal = Double(fullRuns.count)
         let passRate = runTotal > 0 ? Double(passingCount) / runTotal : 0
 
-        let latestRun = sortedRuns.last
+        let latestRun = fullRuns.last
         let latestPassed = latestRun.map { run in
             run.metadata.results.allSatisfy { $0.status.isPassing }
         } ?? false
@@ -99,7 +107,7 @@ public struct ProjectSummary: Sendable {
 
         let totalOverrides = sortedRuns.reduce(0) { $0 + $1.metadata.overrides.count }
 
-        return ProjectSummary(
+        var summary = ProjectSummary(
             projectID: projectID,
             passRate: passRate,
             latestPassed: latestPassed,
@@ -107,9 +115,11 @@ public struct ProjectSummary: Sendable {
             checkerPassRates: checkerPassRates,
             latestCheckerPassed: latestCheckerPassed,
             totalOverrides: totalOverrides,
-            runCount: sortedRuns.count,
+            runCount: fullRuns.count,
             lifecycle: lifecycle,
             orientation: orientation
         )
+        summary.partialRunCount = sortedRuns.count - fullRuns.count
+        return summary
     }
 }

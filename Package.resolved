@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "git@github.com:jpurnell/quality-gate-corpus-kit.git",
       "state" : {
-        "revision" : "839701f43e9b63977f5fcdaebe0b96a3dbd620d2",
-        "version" : "1.3.1"
+        "revision" : "c759b99e08b499549b6f4c21f6a813cfbfac5da0",
+        "version" : "1.4.0"
       }
     },
     {

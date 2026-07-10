@@ -105,9 +105,75 @@ struct ProjectSummaryTests {
         #expect(summary.lifecycle == .sunset)
         #expect(summary.runCount == 0)
     }
+
+    // MARK: - Run scope honesty (0.1)
+
+    @Test("A green subset run must not move the pass rate or the latest gate status")
+    func subsetRunsDoNotMovePassRate() {
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["safety": true], scope: .full),
+            makeScopedRun(index: 1, checkers: ["safety": false], scope: .full),
+            makeScopedRun(index: 2, checkers: ["legibility": true], scope: .subset(checkers: ["legibility"])),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        #expect(abs(summary.passRate - 0.5) < 1e-6)
+        #expect(summary.latestPassed == false)
+        #expect(summary.runCount == 2)
+        #expect(summary.partialRunCount == 1)
+    }
+
+    @Test("Subset runs are real evidence for the checkers that ran")
+    func subsetRunsInformCheckerRates() {
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["safety": true, "legibility": false], scope: .full),
+            makeScopedRun(index: 1, checkers: ["legibility": true], scope: .subset(checkers: ["legibility"])),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        let legibilityRate = summary.checkerPassRates["legibility"] ?? -1
+        #expect(abs(legibilityRate - 0.5) < 1e-6)
+        #expect(summary.latestCheckerPassed["legibility"] == true)
+    }
+
+    @Test("An all-subset history has no full runs to rate")
+    func allSubsetHistory() {
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["legibility": true], scope: .subset(checkers: ["legibility"])),
+            makeScopedRun(index: 1, checkers: ["safety": true], scope: .subset(checkers: ["safety"])),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        #expect(summary.runCount == 0)
+        #expect(summary.partialRunCount == 2)
+        #expect(abs(summary.passRate - 0.0) < 1e-6)
+        #expect(summary.latestPassed == false)
+    }
 }
 
 // MARK: - Helpers
+
+private func makeScopedRun(index: Int, checkers: [String: Bool], scope: RunScope) -> TimestampedRun {
+    let results = checkers.map { id, passed in
+        CheckResult(
+            checkerId: id,
+            status: passed ? .passed : .failed,
+            diagnostics: [],
+            duration: .milliseconds(100)
+        )
+    }
+    return TimestampedRun(
+        metadata: CheckResultMetadata(
+            projectID: "test",
+            timestamp: Date(timeIntervalSince1970: Double(1747267200 + index * 3600)),
+            environment: .local,
+            decisionOwner: "test",
+            results: results,
+            overrides: [],
+            riskTier: .operational,
+            ethicalFlags: [],
+            consistencyScore: nil,
+            runScope: scope
+        )
+    )
+}
 
 private func makeRuns(statuses: [Bool], overrideCountPerRun: Int = 0) -> [TimestampedRun] {
     statuses.enumerated().map { index, allPassed in

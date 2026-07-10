@@ -358,124 +358,18 @@ struct QualityGateCLI: AsyncParsableCommand {
         var outputStream = StandardOutputStream()
         try reporter.report(allResults, to: &outputStream)
 
-        // Emit telemetry to IJS corpus if configured
-        if let corpusPath = configuration.consistency.corpusPath {
-            let ijsConfig = configuration.consistency
-            let projectID = EffectiveProjectID.resolve(consistency: ijsConfig)
-            let riskTier = RiskTier(rawValue: ijsConfig.defaultRiskTier) ?? .operational
-            let consistencyResult = allResults.first { $0.checkerId == "consistency" }
-            let consistencyScore = consistencyResult?.diagnostics
-                .first { $0.ruleId == "consistency-score" }
-                .flatMap { diag -> Double? in
-                    let parts = diag.message.split(separator: " ")
-                    guard let idx = parts.firstIndex(of: "score:"),
-                          idx + 1 < parts.count else { return nil }
-                    return Double(parts[idx + 1])
-                }
-
-            let isCI = ProcessInfo.processInfo.environment["CI"] != nil
-            let author = ProcessInfo.processInfo.environment["USER"] ?? "local"
-            let allOverrides = allResults.flatMap(\.overrides)
-            let complianceCount = allResults.map(\.complianceRecords.count).reduce(0, +)
-            let overrideRecords = allOverrides.map { override in
-                OverrideRecord(
-                    diagnosticOverride: override,
-                    author: author,
-                    riskTier: riskTier,
-                    authorityLevel: riskTier.requiredAuthority
-                )
-            }
-
-            let runTimestamp = Date()
-
-            // Capture git provenance so metric snapshots can be joined to the
-            // human work behind them. Best-effort: a provenance failure must
-            // never fail the gate.
-            let gatedProjectDir = FileManager.default.currentDirectoryPath
-            let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
-            let writer = TelemetryWriter()
-            // silent: an unreadable work-log just means no baseline SHA — provenance is best-effort
-            let lastRecordedSHA = (try? await writer.readWorkLog(from: corpus))?
-                .last(where: { $0.commitSHA != nil })?.commitSHA
-            let provenance = GitProvenance.capture(
-                repoPath: gatedProjectDir,
-                sinceSHA: lastRecordedSHA
-            )
-
-            let metadata = CheckResultMetadata(
-                projectID: projectID,
-                timestamp: runTimestamp,
-                environment: isCI ? .ci : .local,
-                decisionOwner: author,
-                results: allResults,
-                overrides: overrideRecords,
-                riskTier: riskTier,
-                ethicalFlags: [],
-                consistencyScore: consistencyScore,
-                complianceCount: complianceCount,
-                commitSHA: provenance.headSHA
-            )
-
-            let calibrations = CalibrationClassifier.classify(
-                overrides: allOverrides,
-                decisionOwner: author,
-                practitioner: author,
-                riskTier: riskTier,
-                timestamp: runTimestamp
-            )
-
-            // Record the work-event that produced this run's metrics. Idempotent
-            // by (day, SHA). Best-effort: never fail the gate on a write issue.
-            let workEvent = WorkEvent(
-                date: runTimestamp,
-                commitSHA: provenance.headSHA,
-                commitSubjects: provenance.subjects,
-                changelogDelta: provenance.changelogDelta,
-                sessionSummary: provenance.sessionSummary
-            )
-            do {
-                try await writer.writeWorkEvent(workEvent, to: corpus)
-            } catch {
-                Self.logger.warning("Work-log write failed: \(error.localizedDescription, privacy: .public)")
-            }
-
-            do {
-                try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
-
-                if configuration.complexity.emitToCorpus {
-                    let analyzer = ComplexityAnalyzer()
-                    let records = analyzer.scanProject(configuration: configuration)
-                    let report = ComplexityTelemetryEmitter.buildReport(
-                        from: records,
-                        projectID: projectID,
-                        timestamp: metadata.timestamp,
-                        threshold: configuration.complexity.cognitiveThreshold
-                    )
-                    try await writer.writeComplexityReport(report, to: corpus)
-                }
-
-                if configuration.legibility.emitToCorpus {
-                    let orientationReport = await LegibilityAnalyzer().orientationReport(
-                        configuration: configuration,
-                        timestamp: metadata.timestamp,
-                        projectID: projectID
-                    )
-                    try await writer.writeOrientationReport(orientationReport, to: corpus)
-                }
-
-                if verbose {
-                    print("\n[ijs] Telemetry written to \(corpus.projectDirectory)")
-                    if !calibrations.isEmpty {
-                        print("[ijs] \(calibrations.count) calibration(s) auto-generated")
-                    }
-                }
-            } catch {
-                Self.logger.warning("Telemetry write failed: \(error.localizedDescription, privacy: .public)")
-                if verbose {
-                    print("\n[ijs] Telemetry write failed: \(error.localizedDescription)")
-                }
-            }
-        }
+        // One post-run telemetry step for every configured invocation (0.1):
+        // full runs and --check subsets both record, tagged with their scope
+        // so gate statistics stay honest downstream.
+        let runScope: RunScope = (check.isEmpty || check.contains("all"))
+            ? .full
+            : .subset(checkers: effectiveCheckers)
+        await TelemetryEmission.emit(
+            configuration: configuration,
+            results: allResults,
+            runScope: runScope,
+            verbose: verbose
+        )
 
         // Suggest --fix when status fails and --fix wasn't used
         if hasFailure && !fix {

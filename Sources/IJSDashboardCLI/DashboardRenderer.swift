@@ -160,7 +160,8 @@ public enum DashboardRenderer: Sendable {
         lines.append("")
         lines.append("  Status:     \(status)")
         lines.append("  Pass Rate:  \(formatPercent(project.passRate))")
-        lines.append("  Runs:       \(project.runCount)")
+        let partialSuffix = project.partialRunCount > 0 ? " full (+\(project.partialRunCount) partial)" : ""
+        lines.append("  Runs:       \(project.runCount)\(partialSuffix)")
         lines.append("  Overrides:  \(project.totalOverrides)")
         lines.append("")
 
