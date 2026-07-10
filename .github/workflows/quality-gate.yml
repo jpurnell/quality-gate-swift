@@ -2,77 +2,52 @@ name: Quality Gate (Self)
 
 # quality-gate-swift dogfoods itself — every improvement is validated
 # against its own codebase before it can propagate to consuming projects.
+#
+# Phase 2 migration (2026-07-10): the previous version of this workflow ran
+# on GitHub-hosted macos-latest and was disabled "to conserve GitHub Actions
+# minutes" — the 10× private-repo multiplier in action. It now targets
+# self-hosted runners (Phase2_CIParity.md §3b: hosted macOS on private repos,
+# never) and uses the canonical `quality-gate ci` entrypoint, so this run is
+# byte-for-byte the local gate (CIParityTests proves it). The hand-rolled
+# corpus checkout/push (PAT + retry loop) is replaced by
+# `ci --corpus-remote` with a write-scoped deploy key (§4) — same semantics,
+# one implementation, tested.
+#
+# Trigger stays workflow_dispatch until a self-hosted runner is registered —
+# a push trigger with no live runner queues every push (~24h) and reads as
+# failure. Flip to push/PR once Settings → Actions → Runners shows a healthy
+# runner (§3c).
 
 on:
-  # Daily audit and push-time checks run locally via launchd and pre-push hook.
-  # CI is disabled to conserve GitHub Actions minutes.
   workflow_dispatch:
 
 permissions:
   contents: read
+  security-events: write   # SARIF upload to code scanning
 
 jobs:
   quality-gate:
-    runs-on: macos-latest
+    runs-on: [self-hosted, macos, quality-gate]
     env:
       CI: "true"
     steps:
       - uses: actions/checkout@v4
 
-      - uses: maxim-lobanov/setup-xcode@v1
+      - name: Build quality-gate (this repo IS the gate)
+        run: swift build -c release --product quality-gate
+
+      - name: Run quality-gate ci
+        run: .build/release/quality-gate ci --output-dir .quality-gate-ci
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          xcode-version: latest-stable
+          sarif_file: .quality-gate-ci/quality-gate.sarif
 
-      - name: Build quality-gate
-        run: swift build -c release
-
-      - name: Checkout corpus
-        if: github.event_name != 'pull_request'
-        uses: actions/checkout@v4
+      - name: Upload summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          repository: jpurnell/org-judgement-corpus
-          ref: main
-          token: ${{ secrets.CORPUS_PUSH_TOKEN }}
-          path: _corpus
-
-      - name: Run quality gate against self
-        run: >-
-          .build/release/quality-gate --check all
-          --exclude build
-          --exclude test
-          --exclude disk-clean
-          --exclude unreachable
-          --exclude doc-lint
-          --exclude swift-version
-          --exclude memory-builder
-          --strict --continue-on-failure
-          --verbose
-          ${{ github.event_name != 'pull_request' && '--corpus-path _corpus' || '' }}
-        timeout-minutes: 10
-
-      - name: Push telemetry to corpus
-        if: github.event_name != 'pull_request'
-        working-directory: _corpus
-        run: |
-          git config user.name "quality-gate[bot]"
-          git config user.email "quality-gate[bot]@users.noreply.github.com"
-          git add -A
-
-          if git diff --cached --quiet; then
-            echo "No telemetry changes to commit."
-            exit 0
-          fi
-
-          COMMIT_MSG="telemetry: quality-gate-swift@$(echo ${{ github.sha }} | cut -c1-7)"
-
-          for attempt in 1 2 3; do
-            git commit -m "$COMMIT_MSG" || true
-            if git push origin main; then
-              echo "Telemetry pushed (attempt $attempt)."
-              exit 0
-            fi
-            echo "Conflict (attempt $attempt/3), rebasing..."
-            git pull --rebase origin main
-          done
-
-          echo "::warning::Telemetry push failed after 3 attempts."
+          name: quality-gate-summary
+          path: .quality-gate-ci/
