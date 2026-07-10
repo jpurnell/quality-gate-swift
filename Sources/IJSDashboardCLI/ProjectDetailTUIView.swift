@@ -72,6 +72,16 @@ public enum ProjectDetailTUIView: Sendable {
         let statusStyled = ANSICodes.bold + ANSICodes.fg(statusColor) + status + ANSICodes.reset
 
         buf.appendLine(boxRow("", width: width))
+        // Second-writer tripwire (Phase 2 §4b): the standing warning is the
+        // first thing a reader sees until Phase 3 controls exist.
+        if let census = project.writerCensus, census.tripped {
+            let writers = census.persons.joined(separator: ", ")
+            let styled = ANSICodes.bold + ANSICodes.fg(.yellow)
+                + "⚠ MULTI-WRITER (\(writers)) — Phase 3 controls required"
+                + ANSICodes.reset
+            buf.appendLine(boxRow("  " + styled, width: width))
+            buf.appendLine(boxRow("", width: width))
+        }
         buf.appendLine(boxRow("  Status:      " + statusStyled, width: width))
 
         let pctStr = formatPercent(project.passRate)

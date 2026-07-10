@@ -151,6 +151,23 @@ enum TelemetryEmission {
                     print("[ijs] \(calibrations.count) calibration(s) auto-generated")
                 }
             }
+
+            // Second-writer tripwire (Phase 2 §4b): a standing warning on
+            // every run once a second distinct person appears in the window.
+            // Warning-only by design — the transition is surfaced, never
+            // blocked. Failure to census must never fail the gate.
+            do {
+                let windowStart = runTimestamp.addingTimeInterval(
+                    -Double(WriterCensus.defaultWindowDays) * 86_400)
+                let recent = try await writer.readMetadata(
+                    from: corpus, startDate: windowStart, endDate: runTimestamp)
+                let census = WriterCensus.census(of: recent, now: runTimestamp)
+                if let warning = census.standingWarning {
+                    print("\n\(warning)")
+                }
+            } catch {
+                logger.warning("Second-writer census failed: \(error.localizedDescription, privacy: .public)")
+            }
         } catch {
             logger.warning("Telemetry write failed: \(error.localizedDescription, privacy: .public)")
             if verbose {

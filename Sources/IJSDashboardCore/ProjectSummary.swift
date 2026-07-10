@@ -32,6 +32,9 @@ public struct ProjectSummary: Sendable {
     /// cross-package orientation report is available for this project. Defaulted so
     /// the memberwise initializer stays source-compatible with existing callers.
     public var orientation: ModuleOrientationCard? = nil
+    /// Second-writer tripwire result over the loaded runs (Phase 2 §4b).
+    /// Defaulted for memberwise source-compatibility.
+    public var writerCensus: WriterCensus? = nil
 
     /// Computes a summary from a series of timestamped runs.
     ///
@@ -44,7 +47,8 @@ public struct ProjectSummary: Sendable {
         projectID: String,
         from runs: [TimestampedRun],
         lifecycle: ProjectLifecycle = .active,
-        orientation: ModuleOrientationCard? = nil
+        orientation: ModuleOrientationCard? = nil,
+        censusDate: Date = Date()
     ) -> ProjectSummary {
         guard !runs.isEmpty else {
             return ProjectSummary(
@@ -120,6 +124,10 @@ public struct ProjectSummary: Sendable {
             orientation: orientation
         )
         summary.partialRunCount = sortedRuns.count - fullRuns.count
+        // Second-writer tripwire (Phase 2 §4b): all loaded runs feed the
+        // census; the standing warning renders until Phase 3 controls exist.
+        summary.writerCensus = WriterCensus.census(
+            of: sortedRuns.map(\.metadata), now: censusDate)
         return summary
     }
 }

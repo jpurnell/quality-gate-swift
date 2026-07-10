@@ -124,6 +124,51 @@ struct TUIViewTests {
         #expect(output.contains("Relied on by: IconquerApp, IconquerCLI"))
     }
 
+    /// Builds a census the same way production does — through the metadata.
+    private func makeCensus(owners: [String]) -> WriterCensus {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let metadata = owners.map { owner in
+            CheckResultMetadata(
+                projectID: "fixture",
+                timestamp: now,
+                environment: .local,
+                decisionOwner: owner,
+                results: [],
+                overrides: [],
+                riskTier: .operational,
+                ethicalFlags: [],
+                consistencyScore: nil,
+                host: "\(owner)-machine.local")
+        }
+        return WriterCensus.census(of: metadata, now: now)
+    }
+
+    @Test("Detail overview surfaces the second-writer standing warning")
+    func detailMultiWriterWarning() {
+        var summary = makeProjectSummary(id: "shared-project", passRate: 0.9)
+        summary.writerCensus = makeCensus(owners: ["jpurnell", "contributor"])
+        var state = DashboardState(projectIDs: ["shared-project"])
+        state.handleInput(.enter)
+
+        let output = ProjectDetailTUIView.render(
+            project: summary, trends: [], runs: [], state: state, width: 100)
+        #expect(output.contains("MULTI-WRITER"))
+        #expect(output.contains("contributor, jpurnell"))
+        #expect(output.contains("Phase 3 controls required"))
+    }
+
+    @Test("Detail overview stays quiet for a single-writer project")
+    func detailSingleWriterQuiet() {
+        var summary = makeProjectSummary(id: "solo-project", passRate: 0.9)
+        summary.writerCensus = makeCensus(owners: ["jpurnell"])
+        var state = DashboardState(projectIDs: ["solo-project"])
+        state.handleInput(.enter)
+
+        let output = ProjectDetailTUIView.render(
+            project: summary, trends: [], runs: [], state: state, width: 100)
+        #expect(!output.contains("MULTI-WRITER"))
+    }
+
     @Test("Detail overview tab shows status and pass rate")
     func detailOverviewTab() {
         let summary = makeProjectSummary(id: "test", passRate: 0.9)
