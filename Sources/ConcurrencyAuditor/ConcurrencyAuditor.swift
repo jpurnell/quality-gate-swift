@@ -163,11 +163,15 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
             sourceLines: sourceLines,
             firstPartyModules: firstPartyModules,
             allowPreconcurrencyImports: allowPreconcurrencyImports,
-            justificationKeyword: justificationKeyword,
-            cancellationCheckpointStrict: cancellationCheckpointStrict
+            justificationKeyword: justificationKeyword
         )
         visitor.walk(tree)
-        return (visitor.diagnostics, visitor.overrides)
+        // cancellation-checkpoint-after-loop runs from VigilKit (Phase 4
+        // extraction) — same rule, one implementation, composed per file.
+        let cancellation = CancellationScan.scanSource(
+            source, fileName: fileName, strict: cancellationCheckpointStrict)
+        return (visitor.diagnostics + cancellation.diagnostics,
+                visitor.overrides + cancellation.overrides)
     }
 
     // MARK: - Pass 2 (index-backed)

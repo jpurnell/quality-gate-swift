@@ -28,7 +28,6 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     let firstPartyModules: Set<String>
     let allowPreconcurrencyImports: Set<String>
     let justificationKeyword: String
-    let cancellationCheckpointStrict: Bool
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
@@ -42,9 +41,6 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     private var storedPropertyStack: [Set<String>] = []
     /// Stack of "is this enclosing type @MainActor" flags, used by deinit rule.
     private var typeIsolationStack: [IsolationContext] = []
-    /// Stack of "does the enclosing function-like body use a cancellation checkpoint"
-    /// flags, one per nested function/init/deinit. Gates the `cancellation-checkpoint-after-loop` rule.
-    private var functionCancellationStack: [Bool] = []
 
     init(
         fileName: String,
@@ -52,8 +48,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         sourceLines: [String],
         firstPartyModules: Set<String>,
         allowPreconcurrencyImports: Set<String>,
-        justificationKeyword: String,
-        cancellationCheckpointStrict: Bool = false
+        justificationKeyword: String
     ) {
         self.fileName = fileName
         self.converter = converter
@@ -61,14 +56,12 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         self.firstPartyModules = firstPartyModules
         self.allowPreconcurrencyImports = allowPreconcurrencyImports
         self.justificationKeyword = justificationKeyword
-        self.cancellationCheckpointStrict = cancellationCheckpointStrict
         super.init(viewMode: .sourceAccurate)
     }
 
     private var currentIsolation: IsolationContext { isolationStack.last ?? .none }
     private var currentTypeIsolation: IsolationContext { typeIsolationStack.last ?? .none }
     private var currentStoredProperties: Set<String> { storedPropertyStack.last ?? [] }
-    private var currentFunctionUsesCancellation: Bool { functionCancellationStack.last ?? false }
 
     // MARK: Type decls
 
@@ -151,27 +144,22 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         let isolation: IsolationContext = hasMainActorAttribute(node.attributes) ? .mainActor : currentIsolation
         isolationStack.append(isolation)
-        functionCancellationStack.append(bodyUsesCancellation(node.body))
         return .visitChildren
     }
     override func visitPost(_ node: FunctionDeclSyntax) {
         isolationStack.removeLast()
-        functionCancellationStack.removeLast()
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         isolationStack.append(currentIsolation)
-        functionCancellationStack.append(bodyUsesCancellation(node.body))
         return .visitChildren
     }
     override func visitPost(_ node: InitializerDeclSyntax) {
         isolationStack.removeLast()
-        functionCancellationStack.removeLast()
     }
 
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         isolationStack.append(currentIsolation)
-        functionCancellationStack.append(bodyUsesCancellation(node.body))
         // Rule: @MainActor deinit touches state
         if currentTypeIsolation == .mainActor, let body = node.body {
             checkDeinitTouchesState(body: body, declStartLine: startLine(of: Syntax(node)))
@@ -180,44 +168,10 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     }
     override func visitPost(_ node: DeinitializerDeclSyntax) {
         isolationStack.removeLast()
-        functionCancellationStack.removeLast()
     }
 
-    // MARK: For-in loops (cancellation-checkpoint-after-loop)
-
-    override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
-        // Only `for await` / `for try await` loops can exit silently on cancellation.
-        guard node.awaitKeyword != nil else { return .visitChildren }
-        // Scope to functions that demonstrably treat cancellation as semantic.
-        guard currentFunctionUsesCancellation else { return .visitChildren }
-
-        let loopLine = startLine(of: Syntax(node))
-
-        // Escape hatch: `// concurrency:exempt` on (or just above) the loop line.
-        if lineHasCancellationExempt(loopLine) {
-            overrides.append(DiagnosticOverride(
-                ruleId: "concurrency.cancellation-checkpoint-after-loop",
-                justification: "// concurrency:exempt",
-                filePath: fileName,
-                lineNumber: loopLine
-            ))
-            return .visitChildren
-        }
-
-        if loopReachesDependentCodeWithoutCheck(node) {
-            let severity: Diagnostic.Severity = cancellationCheckpointStrict ? .error : .warning
-            diagnostics.append(Diagnostic(
-                severity: severity,
-                message: "cancelled iteration ends quietly (nil), not by throwing — a loop exit is a stage boundary; check cancellation before exit-reason-dependent code",
-                filePath: fileName,
-                lineNumber: loopLine,
-                columnNumber: 1,
-                ruleId: "concurrency.cancellation-checkpoint-after-loop",
-                suggestedFix: "Insert `try Task.checkCancellation()` immediately after the loop, before any code whose correctness depends on why the loop exited."
-            ))
-        }
-        return .visitChildren
-    }
+    // cancellation-checkpoint-after-loop moved to VigilKit.CancellationScan
+    // (Phase 4 extraction); ConcurrencyAuditor composes it per file.
 
     // MARK: Variable / accessor
 
@@ -300,64 +254,6 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         return .visitChildren
     }
 
-    // MARK: - cancellation-checkpoint-after-loop helpers
-
-    /// True if the given function-like body references a cancellation checkpoint
-    /// (`Task.checkCancellation()` call or `Task.isCancelled` read) anywhere.
-    private func bodyUsesCancellation(_ body: CodeBlockSyntax?) -> Bool {
-        guard let body else { return false }
-        return syntaxReferencesCancellation(Syntax(body))
-    }
-
-    /// True if `node`'s subtree contains a `Task.checkCancellation` or `Task.isCancelled`
-    /// member access. Precise (AST) — ignores the same words in strings/comments.
-    private func syntaxReferencesCancellation(_ node: Syntax) -> Bool {
-        final class Detector: SyntaxVisitor {
-            var found = false
-            override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                let member = node.declName.baseName.text
-                if member == "isCancelled" || member == "checkCancellation",
-                   let base = node.base?.as(DeclReferenceExprSyntax.self),
-                   base.baseName.text == "Task" {
-                    found = true
-                }
-                return .visitChildren
-            }
-        }
-        let detector = Detector(viewMode: .sourceAccurate)
-        detector.walk(node)
-        return detector.found
-    }
-
-    /// Walks the statements that follow `loop` in its enclosing block. Returns true if
-    /// the first non-`defer` statement is reached without an intervening cancellation
-    /// check — i.e. exit-reason-dependent code runs on the silent cancellation path.
-    private func loopReachesDependentCodeWithoutCheck(_ loop: ForStmtSyntax) -> Bool {
-        guard let item = loop.parent?.as(CodeBlockItemSyntax.self),
-              let list = item.parent?.as(CodeBlockItemListSyntax.self) else { return false }
-        var afterLoop = false
-        for sibling in list {
-            if !afterLoop {
-                if sibling.id == item.id { afterLoop = true }
-                continue
-            }
-            // `defer` runs on every exit path — pure cleanup, allowed before a check.
-            if case .stmt(let stmt) = sibling.item, stmt.is(DeferStmtSyntax.self) { continue }
-            // A cancellation check (guard/if on isCancelled, or checkCancellation) makes the tail safe.
-            if syntaxReferencesCancellation(Syntax(sibling)) { return false }
-            // First exit-reason-dependent statement reached with no check.
-            return true
-        }
-        return false
-    }
-
-    /// True if the loop line (or the line directly above) carries `// concurrency:exempt`.
-    private func lineHasCancellationExempt(_ line: Int) -> Bool {
-        for index in [line - 1, line - 2] where index >= 0 && index < sourceLines.count {
-            if sourceLines[index].contains("// concurrency:exempt") { return true }
-        }
-        return false
-    }
 
     // MARK: - Per-rule helpers
 
