@@ -1,5 +1,5 @@
 {
-  "originHash" : "8b4759b8bf91a4ab6ba81336345e72c6a50bcb9c3bd0cb150df221db860c3bea",
+  "originHash" : "87b45526aa90e9ddfd1cdb94495b7182336727ac722231af6c1488c692191184",
   "pins" : [
     {
       "identity" : "businessmath",
@@ -195,8 +195,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-vigil.git",
       "state" : {
-        "revision" : "7ad9d70e34e80914ac0b796e3f6b1283817d0132",
-        "version" : "0.4.0"
+        "revision" : "929e9bd72e6f48dd54eddcd720f060185db628bf",
+        "version" : "0.6.0"
       }
     },
     {

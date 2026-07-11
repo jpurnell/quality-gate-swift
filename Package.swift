@@ -197,7 +197,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.3.0"),
-        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.4.0"),
+        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.6.0"),
         .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.2.0"),
