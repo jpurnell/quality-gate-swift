@@ -57,7 +57,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -135,6 +135,58 @@ struct QualityGateCLI: AsyncParsableCommand {
             Self.logger.warning("Could not probe toolchain version for cache identity: \(error.localizedDescription, privacy: .public)")
             return ""
         }
+    }
+
+    /// The full checker registry (order matters for output), shared by the
+    /// main run and `adopt` so a baseline is recorded by exactly the gate
+    /// that will later enforce it.
+    static func checkerRegistry(configuration: Configuration) -> [any QualityChecker] {
+        return [
+            BuildChecker(),
+            TestRunner(),
+            SafetyAuditor(),
+            DocLinter(),
+            DocCoverageChecker(),
+            UnreachableCodeAuditor(),
+            RecursionAuditor(),
+            ConcurrencyAuditor(
+                firstPartyModules: PackageManifestParser.firstPartyTargets(at: FileManager.default.currentDirectoryPath),
+                allowPreconcurrencyImports: Set(configuration.concurrency.allowPreconcurrencyImports),
+                justificationKeyword: configuration.concurrency.justificationKeyword,
+                cancellationCheckpointStrict: configuration.concurrency.cancellationCheckpointStrict
+            ),
+            PointerEscapeAuditor(
+                allowedEscapeFunctions: Set(configuration.pointerEscape.allowedEscapeFunctions)
+            ),
+            MemoryBuilder(
+                guidelinesPath: configuration.memoryBuilder.guidelinesPath
+            ),
+            AccessibilityAuditor(),
+            StatusAuditor(),
+            SwiftVersionChecker(),
+            LoggingAuditor(config: configuration.logging),
+            TestQualityAuditor(),
+            ContextAuditor(),
+            DependencyAuditor(),
+            SubmoduleAuditor(),
+            ReleaseReadinessAuditor(),
+            FloatingPointSafetyAuditor(),
+            StochasticDeterminismAuditor(),
+            TemporalDeterminismAuditor(),
+            MemoryLifecycleGuard(),
+            MCPReadinessAuditor(),
+            ProcessSafetyAuditor(),
+            ComplexityAnalyzer(),
+            LegibilityAnalyzer(),
+            HIGAuditor(),
+            AppIntentsAuditor(),
+            ConsistencyChecker(),
+            XcodeBuildChecker(),
+            DiskCleaner()
+
+            // Tier-2 plugins (Phase 4b): advisory by default, origin-tagged,
+            // failure is a finding — never a crash.
+        ] + configuration.plugins.map { PluginChecker(plugin: $0) as any QualityChecker }
     }
 
     func run() async throws {
@@ -245,52 +297,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         )
 
         // Build the full checker registry (order matters for output)
-        let allCheckers: [any QualityChecker] = [
-            BuildChecker(),
-            TestRunner(),
-            SafetyAuditor(),
-            DocLinter(),
-            DocCoverageChecker(),
-            UnreachableCodeAuditor(),
-            RecursionAuditor(),
-            ConcurrencyAuditor(
-                firstPartyModules: PackageManifestParser.firstPartyTargets(at: FileManager.default.currentDirectoryPath),
-                allowPreconcurrencyImports: Set(configuration.concurrency.allowPreconcurrencyImports),
-                justificationKeyword: configuration.concurrency.justificationKeyword,
-                cancellationCheckpointStrict: configuration.concurrency.cancellationCheckpointStrict
-            ),
-            PointerEscapeAuditor(
-                allowedEscapeFunctions: Set(configuration.pointerEscape.allowedEscapeFunctions)
-            ),
-            MemoryBuilder(
-                guidelinesPath: configuration.memoryBuilder.guidelinesPath
-            ),
-            AccessibilityAuditor(),
-            StatusAuditor(),
-            SwiftVersionChecker(),
-            LoggingAuditor(config: configuration.logging),
-            TestQualityAuditor(),
-            ContextAuditor(),
-            DependencyAuditor(),
-            SubmoduleAuditor(),
-            ReleaseReadinessAuditor(),
-            FloatingPointSafetyAuditor(),
-            StochasticDeterminismAuditor(),
-            TemporalDeterminismAuditor(),
-            MemoryLifecycleGuard(),
-            MCPReadinessAuditor(),
-            ProcessSafetyAuditor(),
-            ComplexityAnalyzer(),
-            LegibilityAnalyzer(),
-            HIGAuditor(),
-            AppIntentsAuditor(),
-            ConsistencyChecker(),
-            XcodeBuildChecker(),
-            DiskCleaner()
-
-            // Tier-2 plugins (Phase 4b): advisory by default, origin-tagged,
-            // failure is a finding — never a crash.
-        ] + configuration.plugins.map { PluginChecker(plugin: $0) as any QualityChecker }
+        let allCheckers = Self.checkerRegistry(configuration: configuration)
 
         // Determine effective checkers: --check all | --check X Y | config | defaults.
         // Destructive maintenance checkers (disk-clean) are opt-in even under "all".
@@ -363,6 +370,23 @@ struct QualityGateCLI: AsyncParsableCommand {
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
             }
         )
+        // Decaying baseline (Phase 4c §3): recorded debts become notes with
+        // their expiry visible; expired debts return as re-verify warnings;
+        // new findings gate. Applied before trial mode so both transforms
+        // see honest inputs. A ledger read failure is loud, never silent.
+        let baselinePath = ".quality-gate-baseline.json"
+        if FileManager.default.fileExists(atPath: baselinePath) { // SAFETY: read-only check at repo root
+            do {
+                let ledger = try BaselineLedger.load(from: baselinePath)
+                let applied = BaselineLedger.apply(ledger: ledger, to: allResults, now: Date())
+                allResults = applied.results
+                print("ℹ️  Baseline: \(applied.summary.baselined) debt(s) covered, \(applied.summary.expired) EXPIRED (re-verify), \(applied.summary.newFindings) new finding(s) gating.")
+            } catch {
+                Self.logger.error("Baseline ledger unreadable at \(baselinePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                print("⚠ Baseline ledger unreadable (\(error.localizedDescription)) — running WITHOUT baseline coverage.")
+            }
+        }
+
         // Trial mode (Phase 4 §3): the survey transform — findings visible,
         // nothing gates. Applied before reporting so terminal/SARIF/telemetry
         // all see the same downgraded truth.

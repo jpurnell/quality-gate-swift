@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import Synchronization
 import QualityGateCore
 
@@ -9,6 +12,8 @@ import QualityGateCore
 /// `plugin-error` diagnostic. The runner itself never throws past its
 /// boundary and never crashes the gate.
 public enum PluginRunner {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PluginRunner")
+
 
     /// The outcome of one plugin invocation.
     public enum Outcome: Sendable {
@@ -78,6 +83,7 @@ public enum PluginRunner {
         do {
             payload = try JSONEncoder().encode(request)
         } catch {
+            logger.warning("plugin request encoding failed: \(error.localizedDescription, privacy: .public)")
             return .launchFailed(reason: "request encoding failed: \(error.localizedDescription)")
         }
         return invoke(
@@ -106,6 +112,7 @@ public enum PluginRunner {
         do {
             try process.run()
         } catch {
+            logger.warning("plugin launch failed: \(error.localizedDescription, privacy: .public)")
             return .launchFailed(reason: error.localizedDescription)
         }
 

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **Phase 4 (in progress)**: swift-vigil extraction (public, MIT — temporal determinism, flip detection, stress analysis, cancellation checkpoints; the monolith consumes VigilKit), the Tier-2 plugin overlay (contract in quality-gate-types 1.2.0/1.3.0; vigil as first consumer; PluginRunner/PluginChecker with advisory-by-default trust rules), `--advisory-all` trial mode with `gateMode` honesty, and the decaying baseline (`quality-gate adopt`, content-hash matched, everything expires). Full entries at phase completion.
+
+## [2026.07.10] — 2026-07-10
+
+First pinned binary release (arm64/x86_64, for quality-gate-action). Contains everything below this heading through Phases 0–2.
+
 - **Phase 2 CI parity (workstreams 2.1–2.5)**: enforcement that travels — one canonical run path for hook, manual, and CI, with parity proven byte-for-byte rather than promised.
   - **2.1 `quality-gate ci` + verified identity** (`fa155b7`): `CIRunPlan` is the determinism contract as a value — no index build unless the workflow opts in, cache off, UTC, strict by default, SARIF + JSON summary artifacts always. The subcommand re-enters the standard run path via the same parse the CLI uses (parity by construction). CorpusKit 1.8.0 adds `CIIdentity` — the first provider-verified identity in the ecosystem — plus `host` attribution for asserted runs; telemetry records both. Passthrough is `--checkers` (ArgumentParser matches parent options after subcommand names, silently shadowing a same-named child `--check` — observed, documented in code).
   - **2.2 The parity harness** (`fa155b7`): local manual run and `ci` run of a findings-producing fixture yield byte-identical SARIF after path normalization; consecutive `ci` runs byte-identical. The phase's acceptance criterion, in the suite permanently.
