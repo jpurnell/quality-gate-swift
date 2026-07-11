@@ -1429,6 +1429,59 @@ public struct PluginConfig: Sendable, Equatable, Codable {
     }
 }
 
+/// One Tier-1 declarative custom rule (Phase 4b): a line regex declared in
+/// `.quality-gate.yml`, no code required — SwiftLint `custom_rules` parity.
+///
+/// Custom rules are the user's own policy, so gating is theirs to declare:
+/// the configured `severity` is exactly what gates (`error` fails the run).
+/// Findings report under the rule's `id` with `origin: custom-rule`.
+public struct CustomRuleConfig: Sendable, Equatable, Codable {
+    /// Rule identifier — the `ruleId` on every finding (e.g. `house.no-print`).
+    public var id: String
+    /// Line regex (NSRegularExpression syntax) that constitutes a violation.
+    public var pattern: String
+    /// Path globs the rule applies to. Empty means every Swift source.
+    public var include: [String]
+    /// Path globs the rule never applies to. Exclude wins over include.
+    public var exclude: [String]
+    /// The message shown for each finding.
+    public var message: String
+    /// Declared severity — and therefore gating. Default `warning`.
+    public var severity: Diagnostic.Severity
+
+    /// Creates a custom rule entry.
+    public init(
+        id: String,
+        pattern: String,
+        include: [String] = [],
+        exclude: [String] = [],
+        message: String,
+        severity: Diagnostic.Severity = .warning
+    ) {
+        self.id = id
+        self.pattern = pattern
+        self.include = include
+        self.exclude = exclude
+        self.message = message
+        self.severity = severity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, pattern, include, exclude, message, severity
+    }
+
+    /// Decodes with defaults for absent optional keys.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        pattern = try container.decode(String.self, forKey: .pattern)
+        include = try container.decodeIfPresent([String].self, forKey: .include) ?? []
+        exclude = try container.decodeIfPresent([String].self, forKey: .exclude) ?? []
+        message = try container.decode(String.self, forKey: .message)
+        severity = try container.decodeIfPresent(Diagnostic.Severity.self, forKey: .severity) ?? .warning
+    }
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -1459,6 +1512,13 @@ public struct PluginConfig: Sendable, Equatable, Codable {
 ///   allowedEscapeFunctions:
 ///     - vDSP_fft_zip
 ///     - vDSP_fft_zop
+/// customRules:
+///   - id: house.no-print
+///     pattern: 'print\('
+///     exclude:
+///       - "Tests/"
+///     message: "use os.Logger, not print()"
+///     severity: warning
 /// ```
 public struct Configuration: Sendable, Codable, Equatable {
 
@@ -1593,6 +1653,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Tier-2 executable plugins (Phase 4b). Empty by default.
     public var plugins: [PluginConfig]
 
+    /// Tier-1 declarative custom rules (Phase 4b). Empty by default.
+    public var customRules: [CustomRuleConfig]
+
     /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
     /// A stale installed binary warns — or fails under `--strict` — instead of
     /// silently running old rules (Phase 0.6). nil means no pin.
@@ -1639,6 +1702,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         docCoverage: DocCoverageConfig = .default,
         overrides: [String: SeverityOverride] = [:],
         plugins: [PluginConfig] = [],
+        customRules: [CustomRuleConfig] = [],
         minimumGateVersion: String? = nil
     ) {
         self.minimumGateVersion = minimumGateVersion
@@ -1681,6 +1745,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.docCoverage = docCoverage
         self.overrides = overrides
         self.plugins = plugins
+        self.customRules = customRules
     }
 
     /// The effective number of workers, either from config or computed.
@@ -1782,6 +1847,7 @@ extension Configuration {
         case docCoverage
         case overrides
         case plugins
+        case customRules
         case minimumGateVersion
     }
 
@@ -1828,6 +1894,7 @@ extension Configuration {
         docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
+        customRules = try container.decodeIfPresent([CustomRuleConfig].self, forKey: .customRules) ?? []
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }

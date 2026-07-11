@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- **Phase 4 (in progress)**: swift-vigil extraction (public, MIT — temporal determinism, flip detection, stress analysis, cancellation checkpoints; the monolith consumes VigilKit), the Tier-2 plugin overlay (contract in quality-gate-types 1.2.0/1.3.0; vigil as first consumer; PluginRunner/PluginChecker with advisory-by-default trust rules), `--advisory-all` trial mode with `gateMode` honesty, and the decaying baseline (`quality-gate adopt`, content-hash matched, everything expires). Full entries at phase completion.
+- **Phase 4 (in progress)**: swift-vigil extraction (public, MIT — temporal determinism, flip detection, stress analysis, cancellation checkpoints; the monolith consumes VigilKit), the Tier-2 plugin overlay (contract in quality-gate-types 1.2.0/1.3.0; vigil as first consumer; PluginRunner/PluginChecker with advisory-by-default trust rules), Tier-1 declarative custom rules (`customRules:` in `.quality-gate.yml` — line regex, include/exclude globs, `// custom:exempt` recorded not silent, `origin: custom-rule`, gating by each rule's declared severity), `--advisory-all` trial mode with `gateMode` honesty, the decaying baseline (`quality-gate adopt`, content-hash matched, everything expires), and `orient --as html` (self-contained shareable report). Full entries at phase completion.
 
 ## [2026.07.10] — 2026-07-10
 

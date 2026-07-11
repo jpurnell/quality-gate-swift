@@ -187,6 +187,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             // Tier-2 plugins (Phase 4b): advisory by default, origin-tagged,
             // failure is a finding — never a crash.
         ] + configuration.plugins.map { PluginChecker(plugin: $0) as any QualityChecker }
+        // Tier-1 custom rules (Phase 4b): present only when declared — the
+        // user's own policy, gating by each rule's declared severity.
+        + (configuration.customRules.isEmpty ? [] : [CustomRulesChecker()])
     }
 
     func run() async throws {
