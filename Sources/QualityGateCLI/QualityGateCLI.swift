@@ -37,6 +37,7 @@ import HIGAuditor
 import AppIntentsAuditor
 import XcodeBuildChecker
 import ConsistencyChecker
+import GatePlugins
 import IJSSensor
 import IJSAggregator
 
@@ -286,7 +287,10 @@ struct QualityGateCLI: AsyncParsableCommand {
             ConsistencyChecker(),
             XcodeBuildChecker(),
             DiskCleaner()
-        ]
+
+            // Tier-2 plugins (Phase 4b): advisory by default, origin-tagged,
+            // failure is a finding — never a crash.
+        ] + configuration.plugins.map { PluginChecker(plugin: $0) as any QualityChecker }
 
         // Determine effective checkers: --check all | --check X Y | config | defaults.
         // Destructive maintenance checkers (disk-clean) are opt-in even under "all".

@@ -74,4 +74,18 @@ struct AdvisoryDowngradeTests {
     func emptyIsEmpty() {
         #expect(AdvisoryDowngrade.apply(to: []).isEmpty)
     }
+
+    @Test("provenance survives the downgrade (plugin findings keep their origin)")
+    func originSurvives() {
+        let result = CheckResult(
+            checkerId: "vigil",
+            status: .failed,
+            diagnostics: [Diagnostic(
+                severity: .error, message: "planted",
+                ruleId: "fixture.rule", origin: "plugin/fixture")],
+            duration: .milliseconds(1))
+        let downgraded = AdvisoryDowngrade.apply(to: [result])
+        #expect(downgraded[0].diagnostics[0].severity == .note)
+        #expect(downgraded[0].diagnostics[0].origin == "plugin/fixture")
+    }
 }

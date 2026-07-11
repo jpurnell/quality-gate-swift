@@ -30,7 +30,8 @@ public enum AdvisoryDowngrade {
                         lineNumber: diagnostic.lineNumber,
                         columnNumber: diagnostic.columnNumber,
                         ruleId: diagnostic.ruleId,
-                        suggestedFix: diagnostic.suggestedFix)
+                        suggestedFix: diagnostic.suggestedFix,
+                        origin: diagnostic.origin)
                 },
                 overrides: result.overrides,
                 complianceRecords: result.complianceRecords,

@@ -1381,6 +1381,54 @@ public enum SeverityOverride: String, Sendable, Codable, Equatable {
     case off
 }
 
+
+/// One Tier-2 executable plugin (Phase 4b): any binary speaking the
+/// quality-gate plugin contract (JSON over stdio).
+///
+/// Advisory by default — `gates: true` is an explicit, per-plugin decision.
+/// The plugin's `config:` block is passed through verbatim, uninterpreted.
+public struct PluginConfig: Sendable, Equatable, Codable {
+    /// Display / origin-tag name (also the checker id in reports).
+    public var name: String
+    /// Executable path. Nil discovers `quality-gate-plugin-<name>` on PATH.
+    public var run: String?
+    /// Whether this plugin's findings may gate. Default false (advisory).
+    public var gates: Bool
+    /// Verbatim configuration forwarded in the check request.
+    public var config: JSONValue?
+    /// Wall-clock budget for one check invocation, in seconds.
+    public var timeoutSeconds: Int
+
+    /// Creates a plugin entry.
+    public init(
+        name: String,
+        run: String? = nil,
+        gates: Bool = false,
+        config: JSONValue? = nil,
+        timeoutSeconds: Int = 60
+    ) {
+        self.name = name
+        self.run = run
+        self.gates = gates
+        self.config = config
+        self.timeoutSeconds = timeoutSeconds
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, run, gates, config, timeoutSeconds
+    }
+
+    /// Decodes with defaults for absent optional keys.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        run = try container.decodeIfPresent(String.self, forKey: .run)
+        gates = try container.decodeIfPresent(Bool.self, forKey: .gates) ?? false
+        config = try container.decodeIfPresent(JSONValue.self, forKey: .config)
+        timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? 60
+    }
+}
+
 /// Project-specific configuration for quality checks.
 ///
 /// Configuration can be loaded from a `.quality-gate.yml` file in the project root,
@@ -1542,6 +1590,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// (e.g. `"safety.*"`). Applied after checkers return results, before reporting.
     public var overrides: [String: SeverityOverride]
 
+    /// Tier-2 executable plugins (Phase 4b). Empty by default.
+    public var plugins: [PluginConfig]
+
     /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
     /// A stale installed binary warns — or fails under `--strict` — instead of
     /// silently running old rules (Phase 0.6). nil means no pin.
@@ -1587,6 +1638,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         legibility: LegibilityAnalyzerConfig = .default,
         docCoverage: DocCoverageConfig = .default,
         overrides: [String: SeverityOverride] = [:],
+        plugins: [PluginConfig] = [],
         minimumGateVersion: String? = nil
     ) {
         self.minimumGateVersion = minimumGateVersion
@@ -1628,6 +1680,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.legibility = legibility
         self.docCoverage = docCoverage
         self.overrides = overrides
+        self.plugins = plugins
     }
 
     /// The effective number of workers, either from config or computed.
@@ -1728,6 +1781,7 @@ extension Configuration {
         case legibility
         case docCoverage
         case overrides
+        case plugins
         case minimumGateVersion
     }
 
@@ -1773,6 +1827,7 @@ extension Configuration {
         legibility = try container.decodeIfPresent(LegibilityAnalyzerConfig.self, forKey: .legibility) ?? .default
         docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
+        plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }
