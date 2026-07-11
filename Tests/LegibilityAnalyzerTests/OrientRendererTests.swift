@@ -91,3 +91,61 @@ struct OrientRendererTests {
         #expect(json.contains("SuperKit"))
     }
 }
+
+/// Phase 4 §2 — the shareable single-file HTML report.
+@Suite("OrientRenderer HTML")
+struct OrientRendererHTMLTests {
+
+    private func fixture(watermarked: Bool) -> OrientDocument {
+        OrientDocument(
+            packageName: "SuperKit",
+            summary: "A networking layer for people who hate networking layers.",
+            builtFrom: ["swift-syntax"],
+            map: LegibilityMap(
+                readingOrder: ["Core", "App"],
+                cards: [ModuleCard(moduleName: "Core", fanIn: 1, weightedFanIn: 3, fanOut: 0,
+                                   hasOrientationDoc: true, overPublicCount: 0, role: "foundation")],
+                cycles: [["A", "B"]]),
+            watermarked: watermarked)
+    }
+
+    @Test("html is a self-contained single file: inline style, no external refs")
+    func selfContained() {
+        let html = OrientRenderer.html(fixture(watermarked: false))
+        #expect(html.contains("<style>"))
+        #expect(!html.contains("http://"))
+        #expect(!html.contains("https://"))
+        #expect(!html.contains("src="))
+    }
+
+    @Test("html carries name, summary, order, cards, cycles")
+    func content() {
+        let html = OrientRenderer.html(fixture(watermarked: false))
+        #expect(html.contains("SuperKit"))
+        #expect(html.contains("A networking layer for people who hate networking layers."))
+        #expect(html.contains("Core"))
+        #expect(html.contains("foundation"))
+        #expect(html.contains("swift-syntax"))
+        #expect(html.contains("A → B"))
+    }
+
+    @Test("the watermark renders exactly when foreign")
+    func watermark() {
+        #expect(OrientRenderer.html(fixture(watermarked: true))
+            .contains("does not represent the project&#39;s own quality standard"))
+        #expect(!OrientRenderer.html(fixture(watermarked: false))
+            .contains("does not represent"))
+    }
+
+    @Test("package names are HTML-escaped")
+    func escaping() {
+        let doc = OrientDocument(
+            packageName: "a<b & c>d",
+            summary: nil, builtFrom: [],
+            map: LegibilityMap(readingOrder: [], cards: [], cycles: []),
+            watermarked: false)
+        let html = OrientRenderer.html(doc)
+        #expect(html.contains("a&lt;b &amp; c&gt;d"))
+        #expect(!html.contains("a<b & c>d"))
+    }
+}

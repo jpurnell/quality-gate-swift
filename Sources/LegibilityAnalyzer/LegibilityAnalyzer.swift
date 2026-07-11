@@ -174,6 +174,8 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         case markdown = "md"
         /// Deterministic pretty JSON.
         case json
+        /// A self-contained single-file HTML report.
+        case html
     }
 
     /// Builds the self-contained `orient` page for the package at the current
@@ -235,6 +237,8 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
             return OrientRenderer.markdown(document)
         case .json:
             return try OrientRenderer.json(document)
+        case .html:
+            return OrientRenderer.html(document)
         }
     }
 

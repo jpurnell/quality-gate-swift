@@ -78,6 +78,71 @@ enum OrientRenderer {
         return lines.joined(separator: "\n")
     }
 
+    /// A self-contained single-file HTML report — the shareable artifact
+    /// (Phase 4 §2). Inline CSS, no external references, safe to attach to a
+    /// PR or open from disk.
+    static func html(_ document: OrientDocument) -> String {
+        let name = escaped(document.packageName)
+        var body: [String] = []
+        body.append("<h1>\(name)</h1>")
+        if let summary = document.summary {
+            body.append("<p class=\"summary\">\(escaped(summary))</p>")
+        }
+        if !document.builtFrom.isEmpty {
+            body.append("<p><strong>Built from:</strong> \(document.builtFrom.map(escaped).joined(separator: ", "))</p>")
+        }
+        body.append("<h2>Reading Order</h2>")
+        body.append("<p>Study these modules in order — the most foundational first:</p>")
+        body.append("<ol>")
+        for module in document.map.readingOrder {
+            body.append("<li>\(escaped(module))</li>")
+        }
+        body.append("</ol>")
+        if !document.map.cards.isEmpty {
+            body.append("<h2>Module Cards</h2>")
+            body.append("<table><thead><tr><th>Module</th><th>Role (inferred)</th><th>Relied on by</th><th>Depends on</th><th>Oriented</th><th>Over-public</th></tr></thead><tbody>")
+            for card in document.map.cards {
+                let oriented = card.hasOrientationDoc ? "✓" : "—"
+                body.append("<tr><td>\(escaped(card.moduleName))</td><td>\(escaped(card.role))</td><td>\(card.fanIn)</td><td>\(card.fanOut)</td><td>\(oriented)</td><td>\(card.overPublicCount)</td></tr>")
+            }
+            body.append("</tbody></table>")
+        }
+        if !document.map.cycles.isEmpty {
+            body.append("<h2>Dependency Cycles</h2>")
+            body.append("<p>These modules cannot be read in isolation — break them for a clean order:</p><ul>")
+            for cycle in document.map.cycles {
+                body.append("<li>\(cycle.sorted().map(escaped).joined(separator: " → "))</li>")
+            }
+            body.append("</ul>")
+        }
+        if document.watermarked {
+            body.append("<footer><em>\(escaped(watermarkText))</em></footer>")
+        }
+        return """
+        <meta charset="utf-8">
+        <title>\(name) — reading order</title>
+        <style>
+        body { font: 16px/1.5 -apple-system, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; color: #24313C; }
+        h1 { border-bottom: 2px solid #24313C; padding-bottom: .3rem; }
+        .summary { font-size: 1.1rem; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #B7C1C7; padding: .35rem .6rem; text-align: left; }
+        th { background: #EDF0F1; }
+        footer { margin-top: 2rem; border-top: 1px solid #B7C1C7; padding-top: .8rem; color: #5A6B76; }
+        </style>
+        \(body.joined(separator: "\n"))
+        """
+    }
+
+    /// Minimal HTML entity escaping for text nodes and attributes.
+    static func escaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
     /// Deterministic pretty JSON (sorted keys) of the full document.
     static func json(_ document: OrientDocument) throws -> String {
         let encoder = JSONEncoder()

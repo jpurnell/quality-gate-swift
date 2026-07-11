@@ -23,10 +23,14 @@ struct Orient: AsyncParsableCommand {
     @Argument(help: "Path to the package root (default: current directory)")
     var path: String = "."
 
-    @Option(name: .long, help: "Output format: md or json")
+    // Named --as, not --format: the root command declares --format, and
+    // ArgumentParser matches parent options after the subcommand name, so a
+    // same-named child option is silently shadowed (the ci --check lesson,
+    // relearned here when --format html wrote ORIENT.md).
+    @Option(name: .customLong("as"), help: "Output format: md, json, or html")
     var format: String = "md"
 
-    @Option(name: .long, help: "Write ORIENT.md / orient.json into this directory instead of stdout")
+    @Option(name: .long, help: "Write ORIENT.md / orient.json / orient.html into this directory instead of stdout")
     var output: String?
 
     @Flag(name: .long, help: "Use an existing index store for semantic fan-in (never builds one)")
@@ -34,7 +38,7 @@ struct Orient: AsyncParsableCommand {
 
     func run() async throws {
         guard let orientFormat = LegibilityAnalyzer.OrientFormat(rawValue: format) else {
-            print("ERROR: --format must be 'md' or 'json'")
+            print("ERROR: --as must be 'md', 'json', or 'html'")
             throw ExitCode(1)
         }
 
@@ -79,7 +83,12 @@ struct Orient: AsyncParsableCommand {
             return
         }
         let outputDir = URL(fileURLWithPath: output, isDirectory: true).standardizedFileURL
-        let fileName = orientFormat == .markdown ? "ORIENT.md" : "orient.json"
+        let fileName: String
+        switch orientFormat {
+        case .markdown: fileName = "ORIENT.md"
+        case .json: fileName = "orient.json"
+        case .html: fileName = "orient.html"
+        }
         let destination = outputDir.appendingPathComponent(fileName)
         // The read-only promise holds even for explicit --output: refuse to
         // drop artifacts inside a repo that isn't set up for them.
