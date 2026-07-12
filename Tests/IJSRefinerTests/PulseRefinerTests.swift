@@ -117,7 +117,7 @@ struct PulseRefinerTests {
 
     @Test("buildSnapshots: 3 records on 2 dates produces 2 snapshots")
     func buildSnapshots() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(timestamp: makeDate("2026-04-27T10:00:00"), passed: true),
             makeMetadata(timestamp: makeDate("2026-04-27T14:00:00"), passed: false, failedCheckerIds: ["SafetyAuditor"]),
@@ -138,7 +138,7 @@ struct PulseRefinerTests {
 
     @Test("analyzeTrends: 30 known values produce valid trends")
     func analyzeTrendsValid() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let snapshots: [DailySnapshot] = (0..<30).map { i in
             DailySnapshot(
                 date: makeDayDate("2026-04-\(String(format: "%02d", (i % 28) + 1))"),
@@ -157,7 +157,7 @@ struct PulseRefinerTests {
 
     @Test("analyzeTrends: 10 values produce preliminary trends")
     func analyzeTrendsPreliminary() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let snapshots: [DailySnapshot] = (0..<10).map { i in
             DailySnapshot(
                 date: makeDayDate("2026-04-\(String(format: "%02d", i + 1))"),
@@ -176,7 +176,7 @@ struct PulseRefinerTests {
 
     @Test("detectAnomalies: outlier in 30-day baseline flagged")
     func detectAnomaliesOutlier() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let baselineValues: [Double] = [0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11,
                                         0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11,
                                         0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11]
@@ -201,7 +201,7 @@ struct PulseRefinerTests {
 
     @Test("detectAnomalies: positive anomaly (exceptional pass rate)")
     func detectAnomaliesPositive() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let baselineValues: [Double] = [0.67, 0.72, 0.68, 0.74, 0.66, 0.71, 0.73, 0.69, 0.70, 0.65,
                                         0.72, 0.68, 0.74, 0.67, 0.71, 0.73, 0.69, 0.70, 0.66, 0.75,
                                         0.67, 0.72, 0.68, 0.74, 0.66, 0.71, 0.73, 0.69, 0.70, 0.65]
@@ -225,7 +225,7 @@ struct PulseRefinerTests {
 
     @Test("detectAnomalies: preliminary baseline carries validity")
     func detectAnomaliesPreliminaryBaseline() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let baselineValues: [Double] = [0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11,
                                         0.09, 0.10, 0.08, 0.11, 0.10]
         let baselineTrend = TrendAnalysis.compute(metric: "overrideRate", values: baselineValues)!
@@ -250,7 +250,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: 3 occurrences of same ruleId forms cluster")
     func detectClustersBasic() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<3).map { _ in
             makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["ConcurrencyAuditor"])
@@ -269,7 +269,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: present in previous clusters increments count but needs 3 for recurring")
     func detectClustersRecurring() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = [
             makeMetadata(projectID: "project-a", timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"]),
@@ -296,7 +296,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: not recurring with only 1 prior appearance (consecutiveAppearances=2)")
     func detectClustersNotRecurringAfterOnePrior() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<2).map { _ in
             makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"])
@@ -322,7 +322,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: recurring after 3 consecutive appearances across 2+ projects")
     func detectClustersRecurringAfterThree() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = [
             makeMetadata(projectID: "project-a", timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"]),
@@ -349,7 +349,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: not recurring when only 1 project affected despite 3+ appearances")
     func detectClustersNotRecurringSingleProject() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<2).map { _ in
             makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"])
@@ -375,7 +375,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: new cluster starts at consecutiveAppearances=1")
     func detectClustersNewClusterStartsAtOne() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<3).map { _ in
             makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["ConcurrencyAuditor"])
@@ -390,7 +390,7 @@ struct PulseRefinerTests {
 
     @Test("detectClusters: prior cluster without consecutiveAppearances defaults to 1")
     func detectClustersLegacyPriorDefaults() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<2).map { _ in
             makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["SafetyAuditor"])
@@ -417,7 +417,7 @@ struct PulseRefinerTests {
 
     @Test("Dominant root cause picks highest count, ties broken lexicographically")
     func dominantRootCause() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDate("2026-04-28T10:00:00")
         let metadata = (0..<3).map { _ in
             makeMetadata(timestamp: date, passed: false, failedCheckerIds: ["ConcurrencyAuditor"])
@@ -443,7 +443,7 @@ struct PulseRefinerTests {
                 .appendingPathComponent("ijs-refiner-test-\(UUID().uuidString)").path,
             projectID: "test-project"
         )
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
 
         for day in 21...27 {
             let ts = makeDate("2026-04-\(day)T10:00:00")
@@ -471,7 +471,7 @@ struct PulseRefinerTests {
                 .appendingPathComponent("ijs-refiner-empty-\(UUID().uuidString)").path,
             projectID: "empty-project"
         )
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
 
         let pulse = try await refiner.refine(
             from: [corpus],

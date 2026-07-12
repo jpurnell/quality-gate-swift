@@ -58,7 +58,7 @@ struct WeightedScoringTests {
 
     @Test("All checkers pass produces score of 1.0")
     func allPass() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
                 timestamp: makeDate("2026-05-01T10:00:00"),
@@ -74,7 +74,7 @@ struct WeightedScoringTests {
 
     @Test("Safety checker failure causes large score drop")
     func safetyFailure() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
                 timestamp: makeDate("2026-05-01T10:00:00"),
@@ -94,7 +94,7 @@ struct WeightedScoringTests {
 
     @Test("Informational checker failure causes small score drop")
     func informationalFailure() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
                 timestamp: makeDate("2026-05-01T10:00:00"),
@@ -114,7 +114,7 @@ struct WeightedScoringTests {
 
     @Test("Multiple runs averaged across metadata entries")
     func averageAcrossRuns() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
                 timestamp: makeDate("2026-05-01T10:00:00"),
@@ -139,7 +139,7 @@ struct WeightedScoringTests {
 
     @Test("Empty metadata produces no scores")
     func emptyMetadata() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let scores = await refiner.computeWeightedScores(
             projectMetadata: ["test-project": []]
         )

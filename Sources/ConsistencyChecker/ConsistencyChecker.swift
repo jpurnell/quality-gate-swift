@@ -56,9 +56,9 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         let projectID = config.projectID
             ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
         let corpus = CorpusPath(basePath: corpusBasePath, projectID: projectID)
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
 
-        guard let pulse = try await writer.readLatestPulse(from: corpus) else {
+        guard let pulse = try await writer.readLatestPulse(from: corpus, beforeWeek: nil) else {
             return makeResult(
                 startTime: startTime,
                 status: .passed,

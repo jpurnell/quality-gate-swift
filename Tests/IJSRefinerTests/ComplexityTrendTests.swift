@@ -9,7 +9,7 @@ struct ComplexityTrendTests {
 
     @Test("Builds complexity snapshots from reports grouped by date")
     func buildComplexitySnapshots() async {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let reports = [
             makeReport(day: "2026-05-14", median: 4, p90: 10, max: 18, patterns: 2, aboveThreshold: 1),
             makeReport(day: "2026-05-15", median: 5, p90: 11, max: 20, patterns: 3, aboveThreshold: 2),
@@ -26,7 +26,7 @@ struct ComplexityTrendTests {
 
     @Test("Analyzes complexity trends from snapshots")
     func analyzeComplexityTrends() async throws {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let snapshots = (0..<7).map { i in
             ComplexitySnapshot(
                 date: "2026-05-\(10 + i)",
@@ -48,7 +48,7 @@ struct ComplexityTrendTests {
 
     @Test("Detects emerging and resolved patterns between windows")
     func detectPatternChanges() async {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
 
         let baseline = [
             makeReport(day: "2026-05-01", patterns: ["containsInFilter", "sortInLoop"]),
@@ -70,7 +70,7 @@ struct ComplexityTrendTests {
 
     @Test("Empty reports produce empty trends")
     func emptyReports() async {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let snapshots = await refiner.buildComplexitySnapshots(from: [], scope: "test")
         #expect(snapshots.isEmpty)
         let trends = await refiner.analyzeComplexityTrends(from: [])
@@ -79,7 +79,7 @@ struct ComplexityTrendTests {
 
     @Test("Detects complexity-based violation clusters from recurring patterns")
     func detectComplexityClusters() async throws {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let reports = [
             makeReport(day: "2026-05-10", patterns: ["containsInFilter", "sortInLoop"]),
             makeReport(day: "2026-05-11", patterns: ["containsInFilter", "quadraticStringConcat"]),
@@ -101,7 +101,7 @@ struct ComplexityTrendTests {
 
     @Test("Complexity clusters require 3 consecutive appearances and 2+ projects for recurring")
     func complexityClustersRecurring() async {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let reports = [
             makeReport(day: "2026-05-14", patterns: ["containsInFilter", "sortInLoop"], projectID: "project-a"),
             makeReport(day: "2026-05-15", patterns: ["containsInFilter", "sortInLoop"], projectID: "project-b"),
@@ -133,7 +133,7 @@ struct ComplexityTrendTests {
 
     @Test("Aggregates patterns across multiple projects for cross-project detection")
     func crossProjectPatternAggregation() async {
-        let refiner = PulseRefiner(writer: TelemetryWriter())
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let projectAReports = [
             makeReport(day: "2026-05-10", patterns: ["containsInFilter", "sortInLoop"], projectID: "project-a"),
             makeReport(day: "2026-05-11", patterns: ["containsInFilter"], projectID: "project-a"),

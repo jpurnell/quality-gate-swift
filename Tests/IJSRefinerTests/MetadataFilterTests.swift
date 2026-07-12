@@ -60,7 +60,7 @@ struct MetadataFilterTests {
 
     @Test("Filters out single-checker debug runs")
     func filtersSingleCheckerRuns() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [String: [CheckResultMetadata]] = [
             "proj": [
                 makeMetadata(timestamp: makeDate("2026-05-26T03:25:13"), checkerCount: 1),
@@ -76,7 +76,7 @@ struct MetadataFilterTests {
 
     @Test("Keeps runs with exactly minimumCheckerCount checkers")
     func keepsBoundaryCheckerCount() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [String: [CheckResultMetadata]] = [
             "proj": [
                 makeMetadata(timestamp: makeDate("2026-05-26T10:00:00"), checkerCount: 4),
@@ -91,7 +91,7 @@ struct MetadataFilterTests {
 
     @Test("All partial runs removes project from scoring")
     func allPartialRemovesProject() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [String: [CheckResultMetadata]] = [
             "proj": [
                 makeMetadata(timestamp: makeDate("2026-05-26T03:25:13"), checkerCount: 1),
@@ -106,7 +106,7 @@ struct MetadataFilterTests {
 
     @Test("Keeps only latest run per calendar day")
     func deduplicatesToLatestPerDay() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [String: [CheckResultMetadata]] = [
             "proj": [
                 makeMetadata(timestamp: makeDate("2026-05-26T03:25:13"), checkerCount: 20,
@@ -128,7 +128,7 @@ struct MetadataFilterTests {
 
     @Test("Preserves runs across different days")
     func preservesDifferentDays() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [String: [CheckResultMetadata]] = [
             "proj": [
                 makeMetadata(timestamp: makeDate("2026-05-25T10:00:00"), checkerCount: 20),
@@ -143,7 +143,7 @@ struct MetadataFilterTests {
 
     @Test("Sorts deduplicated runs chronologically")
     func sortedChronologically() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [String: [CheckResultMetadata]] = [
             "proj": [
                 makeMetadata(timestamp: makeDate("2026-05-27T10:00:00"), checkerCount: 20),
@@ -162,7 +162,7 @@ struct MetadataFilterTests {
 
     @Test("WineTaster 4 scenario: 23 runs, most partial, produces clean score")
     func wineTasterScenario() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         var runs: [CheckResultMetadata] = []
         // 1 pass with 1 checker (debug)
         runs.append(makeMetadata(timestamp: makeDate("2026-05-26T02:56:18"), checkerCount: 1))

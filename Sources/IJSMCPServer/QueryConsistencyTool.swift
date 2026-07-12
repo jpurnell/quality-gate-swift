@@ -50,7 +50,7 @@ struct QueryConsistencyTool: MCPToolHandler, Sendable {
             return .success(text: "No telemetry runs found for project '\(projectID)'.")
         }
 
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let report = await auditor.audit(metadata: latestRun.metadata, against: pulse)
 

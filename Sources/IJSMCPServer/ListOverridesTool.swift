@@ -48,7 +48,7 @@ struct ListOverridesTool: MCPToolHandler, Sendable {
         let sinceDays = args.getIntOptional("since_days") ?? 90
 
         let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
 
         let endDate = Date()
         let startDate = Calendar.current.date(byAdding: .day, value: -sinceDays, to: endDate)

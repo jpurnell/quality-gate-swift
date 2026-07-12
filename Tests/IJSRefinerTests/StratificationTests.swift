@@ -40,7 +40,7 @@ struct StratificationTests {
 
     @Test("Project with recent runs classified as active")
     func recentRunsActive() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let windowEnd = makeDayDate("2026-05-07")
         let snapshots: [String: [DailySnapshot]] = [
             "proj-a": [
@@ -57,7 +57,7 @@ struct StratificationTests {
 
     @Test("Project with no runs in 30+ days classified as dormant")
     func noRecentRunsDormant() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let windowEnd = makeDayDate("2026-06-01")
         let snapshots: [String: [DailySnapshot]] = [
             "proj-b": [
@@ -72,7 +72,7 @@ struct StratificationTests {
 
     @Test("Project with runs 21-29 days ago classified as atRisk")
     func runsInAtRiskWindow() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let windowEnd = makeDayDate("2026-05-28")
         let snapshots: [String: [DailySnapshot]] = [
             "proj-c": [
@@ -89,7 +89,7 @@ struct StratificationTests {
 
     @Test("Project with fewer than 3 runs classified as firstContact")
     func fewRunsFirstContact() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let windowEnd = makeDayDate("2026-05-07")
         let snapshots: [String: [DailySnapshot]] = [
             "proj-d": [
@@ -104,7 +104,7 @@ struct StratificationTests {
 
     @Test("classifyProjects respects tierOverride from manifest")
     func tierOverrideRespected() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let windowEnd = makeDayDate("2026-06-05")
         let snapshots: [String: [DailySnapshot]] = [
             "stale-project": [
@@ -128,7 +128,7 @@ struct StratificationTests {
 
     @Test("classifyProjects uses computed tier when no override")
     func noOverrideUsesComputed() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let windowEnd = makeDayDate("2026-06-05")
         let snapshots: [String: [DailySnapshot]] = [
             "stale-project": [
@@ -151,7 +151,7 @@ struct StratificationTests {
 
     @Test("Group snapshots merge member project data by date")
     func groupSnapshotsMerge() async {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let date = makeDayDate("2026-05-01")
         let snapshots: [String: [DailySnapshot]] = [
             "proj-a": [DailySnapshot(

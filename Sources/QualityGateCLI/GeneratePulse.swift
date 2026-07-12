@@ -101,10 +101,10 @@ struct GeneratePulse: AsyncParsableCommand {
             print("[ijs] Lookback: \(lookbackDays) days")
         }
 
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let refiner = PulseRefiner(writer: writer)
 
-        let previousPulse = try await writer.readLatestPulse(from: corpusPaths[0])
+        let previousPulse = try await writer.readLatestPulse(from: corpusPaths[0], beforeWeek: nil)
 
         let pulse = try await refiner.refine(
             from: corpusPaths,

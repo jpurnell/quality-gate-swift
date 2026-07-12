@@ -71,7 +71,21 @@ enum TelemetryEmission {
         // never fail the gate.
         let gatedProjectDir = FileManager.default.currentDirectoryPath
         let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
-        let writer = TelemetryWriter()
+        // Phase 3a §8: enforcement-path writes ride the fail-open transport.
+        // A down/unreachable corpus spools to ~/.quality-gate/spool/ and each
+        // emission starts by draining whatever a prior outage left behind.
+        let writer = SpoolingCorpusTransport(
+            upstream: DirectCorpusTransport(),
+            spoolDirectory: OverlayStore.standard().root
+                .appendingPathComponent("spool", isDirectory: true))
+        do {
+            let drained = try await writer.drainSpool()
+            if drained > 0 {
+                print("[ijs] Drained \(drained) spooled write(s) from a previous outage.")
+            }
+        } catch {
+            logger.warning("Spool drain failed: \(error.localizedDescription, privacy: .public)")
+        }
         // silent: an unreadable work-log just means no baseline SHA — provenance is best-effort
         let lastRecordedSHA = (try? await writer.readWorkLog(from: corpus))?
             .last(where: { $0.commitSHA != nil })?.commitSHA

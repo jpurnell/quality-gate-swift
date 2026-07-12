@@ -12,7 +12,7 @@ import IJSRefiner
 /// anomaly patterns, and unaddressed policy proposals.
 public actor PolicyDiscoveryAuditor {
 
-    private let writer: TelemetryWriter
+    private let writer: any CorpusTransport
     private let exemptions: [ConsistencyExemption]
     private let scorer: ConsistencyScorer
 
@@ -22,7 +22,7 @@ public actor PolicyDiscoveryAuditor {
     ///   - exemptions: Documented exemptions to suppress specific findings.
     ///   - scorer: The consistency scorer. Defaults to one with default weights.
     public init(
-        writer: TelemetryWriter,
+        writer: any CorpusTransport,
         exemptions: [ConsistencyExemption] = [],
         scorer: ConsistencyScorer = ConsistencyScorer()
     ) {
@@ -38,7 +38,7 @@ public actor PolicyDiscoveryAuditor {
         metadata: CheckResultMetadata,
         against corpusPath: CorpusPath
     ) async throws -> ConsistencyReport {
-        guard let pulse = try await writer.readLatestPulse(from: corpusPath) else {
+        guard let pulse = try await writer.readLatestPulse(from: corpusPath, beforeWeek: nil) else {
             return ConsistencyReport(
                 projectID: metadata.projectID,
                 timestamp: metadata.timestamp,

@@ -177,7 +177,7 @@ struct PulseStatisticalMaturityIntegrationTests {
         let manifest = try CorpusManifest.load(from: manifestURL)
 
         // --- Step 5: Run refine() ---
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let pulse = try await refiner.refine(
             from: [corpusActive, corpusFirstContact, corpusDormant],
             windowStart: windowStart,
@@ -342,7 +342,7 @@ struct PulseStatisticalMaturityIntegrationTests {
         )
         try await writer.write(metadata: md, calibrations: [], to: corpusAtRisk)
 
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
 
         // The run on May 11 is before windowStart (May 26), so it falls into baseline only.
         // classifyProjects looks at projectSnapshots built from window metadata only.
@@ -397,7 +397,7 @@ struct PulseStatisticalMaturityIntegrationTests {
             try await writer.write(metadata: md, calibrations: [], to: corpusMixed)
         }
 
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let pulse = try await refiner.refine(
             from: [corpusPerfect, corpusMixed],
             windowStart: windowStart,

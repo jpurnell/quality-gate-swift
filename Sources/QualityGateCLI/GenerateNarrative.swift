@@ -86,7 +86,7 @@ struct GenerateNarrative: AsyncParsableCommand {
         // Load per-project work-logs (Phase 1 telemetry) so the narrative can
         // attribute metric movements to the work that produced them. Best-effort:
         // a missing or unreadable work-log for a project is simply skipped.
-        let workWriter = TelemetryWriter()
+        let workWriter = DirectCorpusTransport()
         var workLogsByProject: [String: [WorkEvent]] = [:]
         for project in pulse.projects {
             let projectCorpus = CorpusPath(basePath: effectivePath, projectID: project)
@@ -153,7 +153,7 @@ struct GenerateNarrative: AsyncParsableCommand {
         try fullNarrative.write(toFile: narrativePath, atomically: true, encoding: .utf8)
 
         let updatedPulse = pulse.withNarrative(narrativeBody)
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let corpusPath = CorpusPath(basePath: effectivePath, projectID: pulse.projects.first ?? "corpus")
         try await writer.writePulse(updatedPulse, to: corpusPath)
 

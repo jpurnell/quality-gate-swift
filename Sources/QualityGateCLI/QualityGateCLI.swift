@@ -60,7 +60,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self, ReVerify.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -580,7 +580,11 @@ struct QualityGateCLI: AsyncParsableCommand {
 
         do {
             let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
-            let writer = TelemetryWriter()
+            // Skips are judgments — they ride the fail-open spool (3a §8).
+            let writer = SpoolingCorpusTransport(
+                upstream: DirectCorpusTransport(),
+                spoolDirectory: OverlayStore.standard().root
+                    .appendingPathComponent("spool", isDirectory: true))
             try await writer.writeSkip(record, to: corpus)
             print("[ijs] Skip recorded to corpus for \(projectID)")
         } catch {

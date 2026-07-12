@@ -51,7 +51,7 @@ struct TelemetryPush: AsyncParsableCommand {
 
         let riskTier = RiskTier(rawValue: configuration.consistency.defaultRiskTier) ?? .operational
         let corpus = CorpusPath(basePath: effectiveCorpusPath, projectID: effectiveProjectID)
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
 
         let metadata: CheckResultMetadata
 

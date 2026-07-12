@@ -111,7 +111,7 @@ struct RecordCalibrationTool: MCPToolHandler, Sendable {
         )
 
         let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
 
         let emptyMetadata = CheckResultMetadata(
             projectID: projectID,

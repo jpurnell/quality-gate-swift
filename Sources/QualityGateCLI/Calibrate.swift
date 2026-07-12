@@ -89,7 +89,7 @@ struct Calibrate: AsyncParsableCommand {
 
         let projectID = EffectiveProjectID.resolve(consistency: configuration.consistency)
         let corpus = CorpusPath(basePath: effectiveCorpusPath, projectID: projectID)
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
 
         let now = Date()
         guard let windowStart = Calendar.current.date(byAdding: .day, value: -windowDays, to: now) else {
@@ -109,7 +109,7 @@ struct Calibrate: AsyncParsableCommand {
     // MARK: - Status
 
     private func runStatus(
-        writer: TelemetryWriter,
+        writer: any CorpusTransport,
         corpus: CorpusPath,
         windowStart: Date,
         windowEnd: Date
@@ -148,7 +148,7 @@ struct Calibrate: AsyncParsableCommand {
     // MARK: - Coverage
 
     private func runCoverage(
-        writer: TelemetryWriter,
+        writer: any CorpusTransport,
         corpus: CorpusPath,
         windowStart: Date,
         windowEnd: Date
@@ -208,7 +208,7 @@ struct Calibrate: AsyncParsableCommand {
         "unclassified": .diagnosis,
     ]
 
-    private func runReclassify(writer: TelemetryWriter, corpus: CorpusPath) async throws {
+    private func runReclassify(writer: any CorpusTransport, corpus: CorpusPath) async throws {
         guard let ruleId, let rootCause, let rationale else { return }
 
         let location = file ?? "unknown file"

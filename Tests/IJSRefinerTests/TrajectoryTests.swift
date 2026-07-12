@@ -58,7 +58,7 @@ struct TrajectoryTests {
 
     @Test("Improving trend produces positive slope")
     func improvingTrend() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         // Early runs fail safety, later runs pass everything
         let metadata: [CheckResultMetadata] = [
             makeMetadata(timestamp: makeDate("2026-05-01T10:00:00"),
@@ -84,7 +84,7 @@ struct TrajectoryTests {
 
     @Test("Declining trend produces negative slope")
     func decliningTrend() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         // Start with all passing, end with failures
         let metadata: [CheckResultMetadata] = [
             makeMetadata(timestamp: makeDate("2026-05-01T10:00:00"),
@@ -110,7 +110,7 @@ struct TrajectoryTests {
 
     @Test("Insufficient data with fewer than 2 runs")
     func insufficientData() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata: [CheckResultMetadata] = [
             makeMetadata(timestamp: makeDate("2026-05-01T10:00:00"),
                          passedCheckerIds: ["safety"],
@@ -129,7 +129,7 @@ struct TrajectoryTests {
 
     @Test("Inflection detected with 6+ data points and direction change")
     func inflectionDetection() async throws {
-        let refiner = PulseRefiner(writer: writer)
+        let refiner = PulseRefiner(writer: DirectCorpusTransport())
         // First half improving (fail -> pass), second half declining (pass -> fail)
         let metadata: [CheckResultMetadata] = [
             // First half: improving

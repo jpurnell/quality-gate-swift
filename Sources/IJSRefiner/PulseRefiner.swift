@@ -15,11 +15,11 @@ public actor PulseRefiner {
     static let logger = Logger(subsystem: "com.quality-gate", category: "PulseRefiner")
     static let minimumConsecutiveAppearances = 3
     static let minimumAffectedProjectsForRecurring = 2
-    private let writer: TelemetryWriter
+    private let writer: any CorpusTransport
 
     /// Creates a new pulse refiner.
-    /// - Parameter writer: The telemetry writer for corpus I/O.
-    public init(writer: TelemetryWriter) {
+    /// - Parameter writer: The corpus transport for I/O (Phase 3a seam).
+    public init(writer: any CorpusTransport) {
         self.writer = writer
     }
 

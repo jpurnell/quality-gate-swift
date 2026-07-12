@@ -137,7 +137,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("No pulse returns empty findings and score 1.0")
     func noPulseGracefulDegradation() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let corpus = CorpusPath(
             basePath: FileManager.default.temporaryDirectory
@@ -156,7 +156,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Cluster match: failed ruleId matching ViolationCluster produces finding")
     func clusterMatchProducesFinding() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(violationClusters: [
             makeCluster(ruleId: "concurrency.unchecked-sendable")
@@ -174,7 +174,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Cluster match: non-recurring cluster produces non-recurring finding")
     func clusterMatchNonRecurring() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(violationClusters: [
             makeCluster(ruleId: "safety.force-unwrap", isRecurring: false)
@@ -190,7 +190,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Cluster match: passing result does not trigger finding")
     func clusterMatchPassingNoFinding() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(violationClusters: [
             makeCluster(ruleId: "concurrency.unchecked-sendable")
@@ -203,7 +203,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Cluster match: unmatched ruleId produces no finding")
     func clusterMatchUnmatchedRuleId() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(violationClusters: [
             makeCluster(ruleId: "safety.force-unwrap")
@@ -221,7 +221,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Anomaly match: failed checker matching negative anomaly metric produces finding")
     func anomalyMatchProducesFinding() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(anomalies: [
             makeAnomaly(metric: "failuresByChecker.ConcurrencyAuditor", direction: .negative)
@@ -238,7 +238,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Anomaly match: positive anomaly does not trigger finding")
     func anomalyMatchPositiveNoFinding() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(anomalies: [
             makeAnomaly(metric: "failuresByChecker.ConcurrencyAuditor", direction: .positive)
@@ -256,7 +256,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Unaddressed policy: ruleId still failing that has a proposed policy produces finding")
     func unaddressedPolicyProducesFinding() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(
             proposedPolicyUpdates: ["concurrency.unchecked-sendable: Require justification comment"]
@@ -272,7 +272,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Unaddressed policy: no match when ruleId not in policy string")
     func unaddressedPolicyNoMatch() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(
             proposedPolicyUpdates: ["safety.force-unwrap: Ban force unwraps"]
@@ -290,7 +290,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Exemption suppresses specific matchType finding")
     func exemptionSuppressesMatchType() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let exemption = ConsistencyExemption(
             ruleId: "concurrency.unchecked-sendable",
             matchType: .clusterMatch,
@@ -313,7 +313,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Nil matchType exemption suppresses all match types for ruleId")
     func exemptionNilMatchTypeSuppressesAll() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let exemption = ConsistencyExemption(
             ruleId: "concurrency.unchecked-sendable",
             matchType: nil,
@@ -336,7 +336,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Exemption for one matchType does not suppress other match types")
     func exemptionDoesNotSuppressOtherTypes() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let exemption = ConsistencyExemption(
             ruleId: "concurrency.unchecked-sendable",
             matchType: .clusterMatch,
@@ -364,7 +364,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Report consistency score reflects findings")
     func reportScoreReflectsFindings() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(violationClusters: [
             makeCluster(ruleId: "concurrency.unchecked-sendable", isRecurring: true)
@@ -380,7 +380,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Empty findings produce score 1.0")
     func emptyFindingsScoreOne() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse()
         let metadata = makeMetadata(results: [makePassingResult()])
@@ -393,7 +393,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Multiple match types from same gate run")
     func multipleMatchTypes() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(
             violationClusters: [makeCluster(ruleId: "concurrency.unchecked-sendable")],
@@ -413,7 +413,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Report captures pulse week label")
     func reportCapturesPulseWeekLabel() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let pulse = makePulse(weekLabel: "2026-W17")
         let metadata = makeMetadata()
@@ -457,7 +457,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Suppression detected: prior 10, current 8, 5 overrides → rate 2/7 = 0.28 → flag")
     func suppressionHighOverrideRatio() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let ruleId = "concurrency.unchecked-sendable"
         let pulse = makePulse(violationClusters: [
@@ -477,7 +477,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("No suppression: prior 10, current 5, 0 overrides → rate 1.0 → no flag")
     func noSuppressionAllFixes() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let ruleId = "concurrency.unchecked-sendable"
         let pulse = makePulse(violationClusters: [
@@ -495,7 +495,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Boundary: prior 10, current 9, 1 override → rate 1/2 = 0.5 → no flag (not < 0.5)")
     func suppressionBoundaryNotTriggered() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let ruleId = "concurrency.unchecked-sendable"
         let pulse = makePulse(violationClusters: [
@@ -514,7 +514,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("No suppression: cluster without prior occurrence count is skipped")
     func suppressionNoPriorCount() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let ruleId = "concurrency.unchecked-sendable"
         let pulse = makePulse(violationClusters: [
@@ -533,7 +533,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("No suppression: only 1 override does not meet threshold")
     func suppressionSingleOverrideBelowThreshold() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let auditor = PolicyDiscoveryAuditor(writer: writer)
         let ruleId = "concurrency.unchecked-sendable"
         let pulse = makePulse(violationClusters: [
@@ -552,7 +552,7 @@ struct PolicyDiscoveryAuditorTests {
 
     @Test("Suppression exemption suppresses suppression finding")
     func suppressionExempted() async throws {
-        let writer = TelemetryWriter()
+        let writer = DirectCorpusTransport()
         let ruleId = "concurrency.unchecked-sendable"
         let exemption = ConsistencyExemption(
             ruleId: ruleId,

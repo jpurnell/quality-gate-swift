@@ -18,14 +18,37 @@ public struct BaselineRecord: Sendable, Codable, Equatable {
     public let recordedAt: Date
     /// When the debt comes due.
     public let expiresAt: Date
+    /// Who last consciously extended this debt past an expiry (Phase 3a §7).
+    /// Nil for records never re-affirmed; absent in legacy ledgers.
+    public let reAffirmedBy: String?
 
     /// Creates a record.
-    public init(ruleId: String, contentHash: String, filePath: String?, recordedAt: Date, expiresAt: Date) {
+    public init(
+        ruleId: String, contentHash: String, filePath: String?,
+        recordedAt: Date, expiresAt: Date, reAffirmedBy: String? = nil
+    ) {
         self.ruleId = ruleId
         self.contentHash = contentHash
         self.filePath = filePath
         self.recordedAt = recordedAt
         self.expiresAt = expiresAt
+        self.reAffirmedBy = reAffirmedBy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ruleId, contentHash, filePath, recordedAt, expiresAt, reAffirmedBy
+    }
+
+    /// Decodes a record; ledgers written before re-affirmation existed
+    /// decode with no attribution.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ruleId = try container.decode(String.self, forKey: .ruleId)
+        contentHash = try container.decode(String.self, forKey: .contentHash)
+        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+        recordedAt = try container.decode(Date.self, forKey: .recordedAt)
+        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
+        reAffirmedBy = try container.decodeIfPresent(String.self, forKey: .reAffirmedBy)
     }
 }
 
@@ -205,6 +228,42 @@ public struct BaselineLedger: Sendable, Equatable {
             ruleId: diagnostic.ruleId,
             suggestedFix: diagnostic.suggestedFix,
             origin: "baseline")
+    }
+
+    // MARK: - Re-verify queue (Phase 3a §7 — L12's interaction surface)
+
+    /// The records past expiry, oldest expiry first — the debts awaiting a
+    /// conscious decision.
+    public func reVerifyQueue(now: Date) -> [BaselineRecord] {
+        records.filter { $0.expiresAt <= now }.sorted { $0.expiresAt < $1.expiresAt }
+    }
+
+    /// Re-affirms the chosen debts: re-dated to now, expiry pushed out by
+    /// the decay window, and attributed — extending a debt is a judgment,
+    /// and judgments carry names. Records not chosen are untouched.
+    public func reAffirming(
+        contentHashes: Set<String>,
+        decayDays: Int,
+        now: Date,
+        attributedTo person: String
+    ) -> BaselineLedger {
+        let updated = records.map { record -> BaselineRecord in
+            guard contentHashes.contains(record.contentHash) else { return record }
+            return BaselineRecord(
+                ruleId: record.ruleId,
+                contentHash: record.contentHash,
+                filePath: record.filePath,
+                recordedAt: now,
+                expiresAt: now.addingTimeInterval(Double(decayDays) * 86_400),
+                reAffirmedBy: person)
+        }
+        return BaselineLedger(records: updated)
+    }
+
+    /// Retires the chosen debts: the records go, and any finding they were
+    /// covering returns to the gate on the next run.
+    public func retiring(contentHashes: Set<String>) -> BaselineLedger {
+        BaselineLedger(records: records.filter { !contentHashes.contains($0.contentHash) })
     }
 
     // MARK: - Persistence
