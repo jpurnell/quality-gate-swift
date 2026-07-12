@@ -1656,6 +1656,15 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Tier-1 declarative custom rules (Phase 4b). Empty by default.
     public var customRules: [CustomRuleConfig]
 
+    /// Idiom-rule knobs (Phase 4c §1). Defaults match SwiftLint's head.
+    public var idiom: IdiomConfig
+
+    /// Smell-metric thresholds (Phase 4c §4).
+    public var smells: SmellConfig
+
+    /// Duplicate-code detection knobs (Phase 4c §2).
+    public var duplication: DuplicationConfig
+
     /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
     /// A stale installed binary warns — or fails under `--strict` — instead of
     /// silently running old rules (Phase 0.6). nil means no pin.
@@ -1703,6 +1712,9 @@ public struct Configuration: Sendable, Codable, Equatable {
         overrides: [String: SeverityOverride] = [:],
         plugins: [PluginConfig] = [],
         customRules: [CustomRuleConfig] = [],
+        idiom: IdiomConfig = IdiomConfig(),
+        smells: SmellConfig = SmellConfig(),
+        duplication: DuplicationConfig = DuplicationConfig(),
         minimumGateVersion: String? = nil
     ) {
         self.minimumGateVersion = minimumGateVersion
@@ -1746,6 +1758,9 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.overrides = overrides
         self.plugins = plugins
         self.customRules = customRules
+        self.idiom = idiom
+        self.smells = smells
+        self.duplication = duplication
     }
 
     /// The effective number of workers, either from config or computed.
@@ -1848,6 +1863,9 @@ extension Configuration {
         case overrides
         case plugins
         case customRules
+        case idiom
+        case smells
+        case duplication
         case minimumGateVersion
     }
 
@@ -1895,6 +1913,9 @@ extension Configuration {
         overrides = try container.decodeIfPresent([String: SeverityOverride].self, forKey: .overrides) ?? [:]
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         customRules = try container.decodeIfPresent([CustomRuleConfig].self, forKey: .customRules) ?? []
+        idiom = try container.decodeIfPresent(IdiomConfig.self, forKey: .idiom) ?? IdiomConfig()
+        smells = try container.decodeIfPresent(SmellConfig.self, forKey: .smells) ?? SmellConfig()
+        duplication = try container.decodeIfPresent(DuplicationConfig.self, forKey: .duplication) ?? DuplicationConfig()
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }

@@ -35,6 +35,13 @@ public struct ProjectSummary: Sendable {
     /// Second-writer tripwire result over the loaded runs (Phase 2 §4b).
     /// Defaulted for memberwise source-compatibility.
     public var writerCensus: WriterCensus? = nil
+    /// Baseline-ledger counts from every run that applied one, oldest first —
+    /// the debt burn-down series (Phase 4c §3). Empty when no run had a
+    /// ledger. Defaulted for memberwise source-compatibility.
+    public var baselineBurnDown: [BaselineSnapshot] = []
+
+    /// The most recent run's baseline counts, when a ledger is in play.
+    public var latestBaseline: BaselineSnapshot? { baselineBurnDown.last }
 
     /// Computes a summary from a series of timestamped runs.
     ///
@@ -131,6 +138,9 @@ public struct ProjectSummary: Sendable {
         // census; the standing warning renders until Phase 3 controls exist.
         summary.writerCensus = WriterCensus.census(
             of: sortedRuns.map(\.metadata), now: censusDate)
+        // Decaying baseline (Phase 4c §3): every ledgered run feeds the
+        // burn-down series — debts trend to zero or expire loudly.
+        summary.baselineBurnDown = sortedRuns.compactMap(\.metadata.baseline)
         return summary
     }
 }

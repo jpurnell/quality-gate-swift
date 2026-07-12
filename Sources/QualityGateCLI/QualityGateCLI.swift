@@ -38,6 +38,9 @@ import AppIntentsAuditor
 import XcodeBuildChecker
 import ConsistencyChecker
 import GatePlugins
+import IdiomAuditor
+import SmellPack
+import DuplicationAuditor
 import IJSSensor
 import IJSAggregator
 
@@ -57,7 +60,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -182,7 +185,12 @@ struct QualityGateCLI: AsyncParsableCommand {
             AppIntentsAuditor(),
             ConsistencyChecker(),
             XcodeBuildChecker(),
-            DiskCleaner()
+            DiskCleaner(),
+            // Major-points parity (Phase 4c): advisory posture — notes by
+            // default, config-tunable up; the gate blocks on correctness.
+            IdiomAuditor(config: configuration.idiom),
+            SmellPack(config: configuration.smells),
+            DuplicationAuditor(config: configuration.duplication)
 
             // Tier-2 plugins (Phase 4b): advisory by default, origin-tagged,
             // failure is a finding — never a crash.
@@ -378,11 +386,16 @@ struct QualityGateCLI: AsyncParsableCommand {
         // new findings gate. Applied before trial mode so both transforms
         // see honest inputs. A ledger read failure is loud, never silent.
         let baselinePath = ".quality-gate-baseline.json"
+        var baselineSnapshot: BaselineSnapshot?
         if FileManager.default.fileExists(atPath: baselinePath) { // SAFETY: read-only check at repo root
             do {
                 let ledger = try BaselineLedger.load(from: baselinePath)
                 let applied = BaselineLedger.apply(ledger: ledger, to: allResults, now: Date())
                 allResults = applied.results
+                baselineSnapshot = BaselineSnapshot(
+                    baselined: applied.summary.baselined,
+                    expired: applied.summary.expired,
+                    newFindings: applied.summary.newFindings)
                 print("ℹ️  Baseline: \(applied.summary.baselined) debt(s) covered, \(applied.summary.expired) EXPIRED (re-verify), \(applied.summary.newFindings) new finding(s) gating.")
             } catch {
                 Self.logger.error("Baseline ledger unreadable at \(baselinePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -497,6 +510,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 runScope: runScope,
                 identityKind: runEnvironment.isForeign ? .foreign : .resident,
                 gateMode: advisoryAll ? .advisory : .standard,
+                baseline: baselineSnapshot,
                 verbose: verbose
             )
         } else if verbose {

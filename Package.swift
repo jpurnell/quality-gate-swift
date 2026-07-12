@@ -169,6 +169,19 @@ let package = Package(
             name: "ConsistencyChecker",
             targets: ["ConsistencyChecker"]
         ),
+        // Major-points parity (Phase 4c)
+        .library(
+            name: "IdiomAuditor",
+            targets: ["IdiomAuditor"]
+        ),
+        .library(
+            name: "DuplicationAuditor",
+            targets: ["DuplicationAuditor"]
+        ),
+        .library(
+            name: "SmellPack",
+            targets: ["SmellPack"]
+        ),
         // Dashboard
         .library(
             name: "IJSDashboardCore",
@@ -798,6 +811,44 @@ let package = Package(
             dependencies: ["GatePlugins"]
         ),
 
+        // MARK: - Major-points parity (Phase 4c)
+        .target(
+            name: "IdiomAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "IdiomAuditorTests",
+            dependencies: ["IdiomAuditor"]
+        ),
+        .target(
+            name: "DuplicationAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "DuplicationAuditorTests",
+            dependencies: ["DuplicationAuditor"]
+        ),
+        .target(
+            name: "SmellPack",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "SmellPackTests",
+            dependencies: ["SmellPack"]
+        ),
+
         // MARK: - CI parity (Phase 2)
         .target(
             name: "GateCI",
@@ -817,6 +868,9 @@ let package = Package(
                 "QualityGateCore",
                 "GateCI",
                 "GatePlugins",
+                "IdiomAuditor",
+                "SmellPack",
+                "DuplicationAuditor",
                 "SafetyAuditor",
                 "BuildChecker",
                 "TestRunner",

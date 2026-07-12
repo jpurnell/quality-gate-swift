@@ -169,6 +169,36 @@ struct TUIViewTests {
         #expect(!output.contains("MULTI-WRITER"))
     }
 
+    @Test("Detail overview renders the baseline debt burn-down when a ledger is in play")
+    func detailBaselineBurnDown() {
+        var summary = makeProjectSummary(id: "adopted-project", passRate: 0.9)
+        summary.baselineBurnDown = [
+            BaselineSnapshot(baselined: 42, expired: 0, newFindings: 0),
+            BaselineSnapshot(baselined: 38, expired: 1, newFindings: 0),
+            BaselineSnapshot(baselined: 31, expired: 2, newFindings: 1),
+        ]
+        var state = DashboardState(projectIDs: ["adopted-project"])
+        state.handleInput(.enter)
+
+        let output = ProjectDetailTUIView.render(
+            project: summary, trends: [], runs: [], state: state, width: 100)
+        #expect(output.contains("Baseline:"))
+        #expect(output.contains("31 debt(s)"))
+        #expect(output.contains("2 EXPIRED"))
+        #expect(output.contains("42 → 38 → 31"))
+    }
+
+    @Test("Detail overview shows no baseline line without a ledger")
+    func detailNoBaselineLine() {
+        let summary = makeProjectSummary(id: "unadopted-project", passRate: 0.9)
+        var state = DashboardState(projectIDs: ["unadopted-project"])
+        state.handleInput(.enter)
+
+        let output = ProjectDetailTUIView.render(
+            project: summary, trends: [], runs: [], state: state, width: 100)
+        #expect(!output.contains("Baseline:"))
+    }
+
     @Test("Detail overview tab shows status and pass rate")
     func detailOverviewTab() {
         let summary = makeProjectSummary(id: "test", passRate: 0.9)

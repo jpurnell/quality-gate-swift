@@ -95,6 +95,24 @@ public enum ProjectDetailTUIView: Sendable {
         buf.appendLine(boxRow("  Runs:        \(project.runCount)", width: width))
         buf.appendLine(boxRow("  Overrides:   \(project.totalOverrides)", width: width))
 
+        // Decaying baseline (Phase 4c §3): recorded debt is visible until it
+        // burns down — and expiry is louder than coverage.
+        if let baseline = project.latestBaseline {
+            var line = "  Baseline:    \(baseline.baselined) debt(s)"
+            if baseline.expired > 0 {
+                line += " · " + ANSICodes.bold + ANSICodes.fg(.yellow)
+                    + "\(baseline.expired) EXPIRED" + ANSICodes.reset
+            }
+            if baseline.newFindings > 0 {
+                line += " · \(baseline.newFindings) new gating"
+            }
+            let trail = project.baselineBurnDown.suffix(6).map { "\($0.baselined)" }
+            if trail.count > 1 {
+                line += " · burn-down " + trail.joined(separator: " → ")
+            }
+            buf.appendLine(boxRow(line, width: width))
+        }
+
         if let worst = project.worstChecker {
             buf.appendLine(boxRow("  Worst:       \(worst)", width: width))
         }

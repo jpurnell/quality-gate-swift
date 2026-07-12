@@ -1,5 +1,5 @@
 {
-  "originHash" : "87b45526aa90e9ddfd1cdb94495b7182336727ac722231af6c1488c692191184",
+  "originHash" : "2dd85bf3900a42856b874d27cd550d504725c07785bc4d4de6efad571d93eb13",
   "pins" : [
     {
       "identity" : "businessmath",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "git@github.com:jpurnell/quality-gate-corpus-kit.git",
       "state" : {
-        "revision" : "196fc57d685bb412443426b360b3b54dd657bb1a",
-        "version" : "1.10.0"
+        "revision" : "e028e46f46178b336513c9f18cb5db3a8fc29ff2",
+        "version" : "1.11.0"
       }
     },
     {

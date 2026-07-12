@@ -25,12 +25,15 @@ enum TelemetryEmission {
     ///
     /// `identityKind` distinguishes foreign runs (Phase 1): they record under
     /// the upstream identity but dashboards group them separately.
+    /// `baseline` carries the applied ledger's counts (Phase 4c §3) so the
+    /// dashboard can render debt as a burn-down; nil when no ledger ran.
     static func emit(
         configuration: Configuration,
         results: [CheckResult],
         runScope: RunScope,
         identityKind: IdentityKind = .resident,
         gateMode: GateMode = .standard,
+        baseline: BaselineSnapshot? = nil,
         verbose: Bool
     ) async {
         guard let corpusPath = configuration.consistency.corpusPath else { return }
@@ -97,7 +100,8 @@ enum TelemetryEmission {
             // tell machines apart.
             ciIdentity: CIIdentityProbe.detect(environment: ProcessInfo.processInfo.environment),
             host: ProcessInfo.processInfo.hostName,
-            gateMode: gateMode
+            gateMode: gateMode,
+            baseline: baseline
         )
 
         let calibrations = CalibrationClassifier.classify(
