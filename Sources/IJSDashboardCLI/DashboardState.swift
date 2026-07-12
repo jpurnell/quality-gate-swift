@@ -1,3 +1,4 @@
+import CorpusService
 import Foundation
 import IJSSensor
 
@@ -12,6 +13,7 @@ public enum DashboardView: Sendable, Equatable {
     case portfolio
     case projectDetail
     case groupDetail
+    case reviews
 }
 
 /// The column by which the portfolio project list is sorted.
@@ -127,6 +129,8 @@ enum TextEntryPurpose: Sendable, Equatable {
     case acknowledgeReason(itemIndex: Int)
     /// One step of the calibrate wizard, with answers collected so far.
     case calibrate(step: CalibrateStep, collected: [CalibrateStep: String])
+    /// The rejection reason for the review with the given id.
+    case rejectReason(reviewID: String)
 }
 
 /// A request to override a project's tier, produced by the Status tab picker.
@@ -156,6 +160,36 @@ public enum DashboardInput: Sendable {
     case character(Character)
     case backspace
     case calibrate
+    case reviews
+    case approve
+    case reject
+}
+
+/// A confirmed approve/reject on a pending review, consumed by the app
+/// event loop (Phase 3b §3). The queue enforces the distinct-second-identity
+/// rule; this only carries the human's intent.
+public struct ReviewActionRequest: Sendable, Equatable {
+    /// What the reviewer decided.
+    public enum Action: Sendable, Equatable {
+        /// Approve the held judgment.
+        case approve
+        /// Reject it, with the reviewer's reason.
+        case reject
+    }
+
+    /// The review being acted on.
+    public let reviewID: String
+    /// The decision.
+    public let action: Action
+    /// The rejection reason (nil for approvals).
+    public let reason: String?
+
+    /// Creates a review action request.
+    public init(reviewID: String, action: Action, reason: String?) {
+        self.reviewID = reviewID
+        self.action = action
+        self.reason = reason
+    }
 }
 
 /// Navigation state for the interactive TUI dashboard.
@@ -224,6 +258,12 @@ public struct DashboardState: Sendable {
     public private(set) var pendingCalibration: CalibrationRequest?
     /// One-line feedback from the last consumed action, rendered by the view.
     public var statusMessage: String?
+    /// Pending reviews shown in the Reviews view (Phase 3b §3).
+    public private(set) var reviewRows: [PendingReview] = []
+    /// Index of the selected review.
+    public private(set) var selectedReviewIndex: Int = 0
+    /// Set when a reviewer approves/rejects. The event loop consumes this.
+    public private(set) var pendingReviewAction: ReviewActionRequest?
 
     /// Whether a text-entry session owns keyboard input right now.
     public var isTextEntryActive: Bool { textEntrySession != nil }
@@ -242,6 +282,7 @@ public struct DashboardState: Sendable {
         switch textEntrySession?.purpose {
         case .acknowledgeReason: return "Acknowledge reason"
         case .calibrate(let step, _): return step.prompt
+        case .rejectReason: return "Rejection reason"
         case nil: return nil
         }
     }
@@ -255,6 +296,16 @@ public struct DashboardState: Sendable {
 
     /// Clears a consumed acknowledge request.
     public mutating func clearPendingAcknowledge() { pendingAcknowledge = nil }
+
+    /// Replaces the review rows (set by the app from the review store) and
+    /// clamps the selection.
+    public mutating func setReviewRows(_ rows: [PendingReview]) {
+        reviewRows = rows
+        selectedReviewIndex = min(selectedReviewIndex, max(0, rows.count - 1))
+    }
+
+    /// Clears a consumed review action.
+    public mutating func clearPendingReviewAction() { pendingReviewAction = nil }
 
     /// Clears a consumed calibration request.
     public mutating func clearPendingCalibration() { pendingCalibration = nil }
@@ -354,6 +405,33 @@ public struct DashboardState: Sendable {
             handleDetailInput(input)
         case .groupDetail:
             handleGroupDetailInput(input)
+        case .reviews:
+            handleReviewsInput(input)
+        }
+    }
+
+    /// The Reviews view (Phase 3b §3): pending judgments awaiting a second
+    /// identity. Approve is one keystroke; reject demands a reason.
+    private mutating func handleReviewsInput(_ input: DashboardInput) {
+        switch input {
+        case .escape, .quit:
+            currentView = .portfolio
+            statusMessage = nil
+            scrollOffset = 0
+        case .arrowDown:
+            guard !reviewRows.isEmpty else { return }
+            selectedReviewIndex = min(selectedReviewIndex + 1, reviewRows.count - 1)
+        case .arrowUp:
+            selectedReviewIndex = max(selectedReviewIndex - 1, 0)
+        case .approve:
+            guard selectedReviewIndex < reviewRows.count else { return }
+            pendingReviewAction = ReviewActionRequest(
+                reviewID: reviewRows[selectedReviewIndex].id, action: .approve, reason: nil)
+        case .reject:
+            guard selectedReviewIndex < reviewRows.count else { return }
+            textEntrySession = (.rejectReason(reviewID: reviewRows[selectedReviewIndex].id), "")
+        default:
+            break
         }
     }
 
@@ -390,6 +468,10 @@ public struct DashboardState: Sendable {
                     }
                     textEntrySession = nil
                 }
+            case .rejectReason(let reviewID):
+                pendingReviewAction = ReviewActionRequest(
+                    reviewID: reviewID, action: .reject, reason: text)
+                textEntrySession = nil
             }
         default:
             break // arrows etc. have no meaning inside a text field
@@ -472,6 +554,10 @@ public struct DashboardState: Sendable {
                     scrollOffset = 0
                 }
             }
+        case .reviews:
+            currentView = .reviews
+            selectedReviewIndex = 0
+            scrollOffset = 0
         case .reverseSort:
             sortAscending.toggle()
             if sortKey == .name { nameBaseAscending = sortAscending }

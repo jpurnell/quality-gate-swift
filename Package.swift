@@ -783,8 +783,10 @@ let package = Package(
                 "IJSSensor",
                 "IJSAggregator",
                 "JudgmentWorkbench",
+                "CorpusService",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+                .product(name: "Yams", package: "Yams"),
             ]
         ),
         .testTarget(

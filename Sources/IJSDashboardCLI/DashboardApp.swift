@@ -130,6 +130,8 @@ public enum DashboardApp: Sendable {
                             width: cols,
                             manifest: currentManifest
                         )
+                    case .reviews:
+                        frame = ReviewsTUIView.render(state: state, width: cols)
                     case .projectDetail:
                         guard let projectID = state.detailProjectID ?? state.selectedProjectID,
                               let project = sortedProjects.first(where: { $0.projectID == projectID }) else {
@@ -219,11 +221,29 @@ public enum DashboardApp: Sendable {
                     }
                 }
 
+                // The Reviews view mirrors the shared review store on every
+                // pass (cheap read; corpusd will serve this later).
+                if state.currentView == .reviews, let corpusPath {
+                    let rows = ReviewStore.pending(corpusPath: corpusPath)
+                    if rows != state.reviewRows {
+                        state.setReviewRows(rows)
+                        needsRedraw = true
+                    }
+                }
+
+                // Approve/reject from the Reviews view — the queue enforces
+                // the distinct-second-identity rule; we surface its verdict.
+                if let action = state.pendingReviewAction {
+                    consumeReviewAction(action, corpusPath: corpusPath, state: &state)
+                    state.clearPendingReviewAction()
+                    needsRedraw = true
+                }
+
                 // Acknowledge-in-place: write the marker at the flagged
-                // location. The ComplianceRecord materializes on the next
-                // gate run — say so instead of pretending it is instant.
+                // location. Governed rules (review policy) hold for a second
+                // identity instead of writing immediately.
                 if let request = state.pendingAcknowledge {
-                    consumeAcknowledge(request, allRuns: currentAllRuns, state: &state)
+                    consumeAcknowledge(request, allRuns: currentAllRuns, corpusPath: corpusPath, state: &state)
                     state.clearPendingAcknowledge()
                     needsRedraw = true
                 }
@@ -288,10 +308,13 @@ public enum DashboardApp: Sendable {
     }
 
     /// Applies a confirmed acknowledge: writes the marker at the flagged
-    /// location via the workbench core, honest about when the record lands.
+    /// location via the workbench core — unless the rule is governed by the
+    /// review policy, in which case the judgment holds for a distinct second
+    /// identity first (Phase 3b §3). Witnesses on escape hatches.
     private static func consumeAcknowledge(
         _ request: AcknowledgeRequest,
         allRuns: [String: [TimestampedRun]],
+        corpusPath: String?,
         state: inout DashboardState
     ) {
         guard let latest = allRuns[request.projectID]?
@@ -305,14 +328,53 @@ public enum DashboardApp: Sendable {
             return
         }
         let item = items[request.itemIndex]
-        do {
-            try FindingsInbox.acknowledge(item: item, reason: request.reason)
-            let file = (item.filePath as NSString).lastPathComponent
-            state.statusMessage = "Marker written at \(file):\(item.lineNumber) — the next gate run records it."
-        } catch {
-            logger.warning("Acknowledge failed for \(item.ruleId ?? "?", privacy: .public): \(error.localizedDescription, privacy: .public)")
-            state.statusMessage = "Acknowledge failed: \(error.localizedDescription)"
+
+        let decision = GovernedAcknowledge.decide(
+            policy: corpusPath.flatMap { ReviewStore.policy(corpusPath: $0) },
+            reviews: corpusPath.map { ReviewStore.all(corpusPath: $0) } ?? [],
+            ruleId: item.ruleId ?? "",
+            reason: request.reason)
+        switch decision {
+        case .writeMarker:
+            do {
+                try FindingsInbox.acknowledge(item: item, reason: request.reason)
+                let file = (item.filePath as NSString).lastPathComponent
+                state.statusMessage = "Marker written at \(file):\(item.lineNumber) — the next gate run records it."
+            } catch {
+                logger.warning("Acknowledge failed for \(item.ruleId ?? "?", privacy: .public): \(error.localizedDescription, privacy: .public)")
+                state.statusMessage = "Acknowledge failed: \(error.localizedDescription)"
+            }
+        case .submitForReview:
+            guard let corpusPath, let ruleId = item.ruleId else {
+                state.statusMessage = "Governed rule but no corpus configured — cannot hold for review."
+                return
+            }
+            let owner = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
+            state.statusMessage = ReviewStore.submit(
+                corpusPath: corpusPath, ruleId: ruleId,
+                justification: request.reason, by: owner)
+        case .awaitingSecondIdentity:
+            state.statusMessage = "Held — awaiting a second identity in the Reviews view (v)."
+        case .rejected(let by, let reason):
+            state.statusMessage = "Rejected by \(by): \(reason). The finding stands."
         }
+    }
+
+    /// Applies an approve/reject from the Reviews view through the queue,
+    /// which enforces the distinct-second-identity rule.
+    private static func consumeReviewAction(
+        _ action: ReviewActionRequest,
+        corpusPath: String?,
+        state: inout DashboardState
+    ) {
+        guard let corpusPath else {
+            state.statusMessage = "No corpus configured — reviews unavailable."
+            return
+        }
+        let reviewer = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
+        state.statusMessage = ReviewStore.apply(
+            action, corpusPath: corpusPath, reviewer: reviewer)
+        state.setReviewRows(ReviewStore.pending(corpusPath: corpusPath))
     }
 
     /// Writes the calibrate wizard's result to the corpus as a
@@ -506,6 +568,12 @@ public enum DashboardApp: Sendable {
             return .reverseSort
         case .character("c"), .character("C"):
             return .calibrate
+        case .character("v"), .character("V"):
+            return .reviews
+        case .character("a"), .character("A"):
+            return .approve
+        case .character("x"), .character("X"):
+            return .reject
         case .character("r"), .character("R"):
             return .reverseSort
         case .mouse(let event):
