@@ -83,6 +83,7 @@ public struct GovernedWriteHandler: Sendable {
     private let tokens: TokenStore?
     private let reviews: ReviewQueue
     private let policy: ReviewPolicy?
+    private let heldOperations: HeldOperationStore?
 
     /// Creates a handler over the queue and its governance stores.
     /// - Parameters:
@@ -90,16 +91,20 @@ public struct GovernedWriteHandler: Sendable {
     ///   - tokens: The token store, or `nil` for solo mode (no auth).
     ///   - reviews: Where governed overrides are held for a second identity.
     ///   - policy: The resolved review policy, or `nil` when none exists.
+    ///   - heldOperations: The spool that keeps a held write's artifact
+    ///     until its review is decided; `nil` keeps the review record only.
     public init(
         queue: CorpusWriteQueue,
         tokens: TokenStore?,
         reviews: ReviewQueue,
-        policy: ReviewPolicy?
+        policy: ReviewPolicy?,
+        heldOperations: HeldOperationStore? = nil
     ) {
         self.queue = queue
         self.tokens = tokens
         self.reviews = reviews
         self.policy = policy
+        self.heldOperations = heldOperations
     }
 
     /// Runs a request through the pipeline: auth → identity → schema
@@ -147,6 +152,18 @@ public struct GovernedWriteHandler: Sendable {
                     policy: policy,
                     now: now)
                 if case .held(let review) = disposition {
+                    // Spool the artifact itself, byte-faithful, so approval
+                    // can land exactly what the writer submitted. A spool
+                    // failure downgrades the hold to a rejection — accepting
+                    // a governed write we could not preserve would be worse.
+                    if let heldOperations {
+                        do {
+                            try await heldOperations.hold(request.operation, forReview: review.id)
+                        } catch {
+                            Self.logger.error("Spooling a held operation failed: \(String(describing: error), privacy: .public)")
+                            return .rejected(reason: "held-operation spool failed: \(String(describing: error))")
+                        }
+                    }
                     return .held(review)
                 }
             } catch {
@@ -185,6 +202,47 @@ public struct GovernedWriteHandler: Sendable {
             throw GovernedWriteError.reviewNotApproved(review.id)
         }
         return try await queue.enqueue(operation)
+    }
+
+    /// What became of a resolve pass over one held review.
+    public enum Resolution: Sendable, Equatable {
+        /// The review was approved; the original operation is applied.
+        case applied(QueuedReceipt)
+        /// The review was rejected; the held artifact is discarded.
+        case discarded(rejectedBy: String)
+        /// The review is still pending — nothing applied, nothing lost.
+        case stillPending
+        /// No operation is spooled for this review (already consumed, or
+        /// the handler holds no spool).
+        case nothingHeld
+    }
+
+    /// Resolves one held review against the spool: approval lands the
+    /// original artifact through ``applyApproved(_:operation:)``, rejection
+    /// discards it, pending waits. Idempotent — a consumed entry resolves
+    /// to ``Resolution/nothingHeld``.
+    /// - Parameters:
+    ///   - reviewID: The review to resolve.
+    ///   - now: The evaluation timestamp for the queue receipt.
+    public func resolve(reviewID: String, now: Date = Date()) async throws -> Resolution {
+        guard let heldOperations,
+              let operation = await heldOperations.operation(forReview: reviewID) else {
+            return .nothingHeld
+        }
+        guard let review = await reviews.review(id: reviewID) else {
+            return .stillPending
+        }
+        switch review.state {
+        case .pending:
+            return .stillPending
+        case .approved:
+            let receipt = try await applyApproved(review, operation: operation)
+            try await heldOperations.discard(reviewID: reviewID)
+            return .applied(receipt)
+        case .rejected(let by, _, _):
+            try await heldOperations.discard(reviewID: reviewID)
+            return .discarded(rejectedBy: by)
+        }
     }
 
     // MARK: - Validation

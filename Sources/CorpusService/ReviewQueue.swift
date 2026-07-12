@@ -135,6 +135,13 @@ public actor ReviewQueue {
         try transition(id: id, by: identity) { .rejected(by: identity, at: now, reason: reason) }
     }
 
+    /// The review with the given id, in whatever state — the resolve
+    /// loop's lookup.
+    /// - Parameter id: The review id.
+    public func review(id: String) -> PendingReview? {
+        reviews.first { $0.id == id }
+    }
+
     /// The reviews still awaiting a second identity, oldest first.
     public func pending() -> [PendingReview] {
         reviews

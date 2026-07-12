@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- Nothing yet — 3b continues (corpusd daemon core next; HTTP binding pending the roseclub toolchain parity check).
+- **Held-operation spool (3b)**: a governed write that goes `.held` now persists its artifact byte-faithful (`HeldOperationStore`, one JSON per review id) until the review is decided — `GovernedWriteHandler.resolve(reviewID:)` applies the ORIGINAL operation on approval, discards on rejection, waits on pending, and is idempotent. A spool failure downgrades the hold to a rejection: accepting a governed write we could not preserve would be worse. "Held, never lost" is now a claim about the artifact, not just the review record. Next: the corpusd daemon shell (see `05_SUMMARIES/2026-07-12_HANDOFF.md`); HTTP binding pending the roseclub toolchain parity check.
 
 ## [2026.07.12] — 2026-07-12
 

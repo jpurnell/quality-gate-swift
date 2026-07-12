@@ -7,7 +7,7 @@ import Foundation
 /// project the write targets; ``GovernedWriteHandler`` validates that the
 /// declared project matches the artifact's own before the operation reaches
 /// the queue.
-public enum CorpusWriteOperation: Sendable {
+public enum CorpusWriteOperation: Sendable, Codable {
     /// A gate run's metadata and any judgment calibrations.
     case metadata(CheckResultMetadata, calibrations: [JudgmentCalibration], projectID: String)
     /// A work event upserted into the project's work log.
