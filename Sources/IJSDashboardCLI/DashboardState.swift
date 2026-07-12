@@ -30,14 +30,103 @@ public enum SortKey: Sendable, Equatable, CaseIterable {
 public enum DetailTab: Int, Sendable, Equatable, CaseIterable {
     case summary = 0
     case checkers
+    case inbox
 
     /// The label shown for this tab in the detail-view tab bar.
     var label: String {
         switch self {
         case .summary: return "Summary"
         case .checkers: return "Checkers"
+        case .inbox: return "Inbox"
         }
     }
+}
+
+/// One advisory finding shown in the findings inbox (Phase 3a §7).
+public struct InboxRow: Sendable, Equatable {
+    /// The rule that produced the finding.
+    public let ruleId: String
+    /// The finding's message.
+    public let message: String
+    /// Absolute path of the flagged file.
+    public let filePath: String
+    /// 1-based flagged line.
+    public let lineNumber: Int
+    /// Whether the rule has an acknowledgment marker path.
+    public let acknowledgeable: Bool
+
+    /// Creates an inbox row.
+    public init(ruleId: String, message: String, filePath: String, lineNumber: Int, acknowledgeable: Bool) {
+        self.ruleId = ruleId
+        self.message = message
+        self.filePath = filePath
+        self.lineNumber = lineNumber
+        self.acknowledgeable = acknowledgeable
+    }
+}
+
+/// A confirmed acknowledge action, consumed by the app event loop — the
+/// reason becomes the marker comment at the flagged location.
+public struct AcknowledgeRequest: Sendable, Equatable {
+    /// The project whose finding is acknowledged.
+    public let projectID: String
+    /// Index into the inbox rows at confirmation time.
+    public let itemIndex: Int
+    /// The human's reason — written into the marker where syntax allows.
+    public let reason: String
+
+    /// Creates an acknowledge request.
+    public init(projectID: String, itemIndex: Int, reason: String) {
+        self.projectID = projectID
+        self.itemIndex = itemIndex
+        self.reason = reason
+    }
+}
+
+/// The calibrate wizard's steps, in prompt order (Phase 3a §7).
+public enum CalibrateStep: Int, Sendable, Equatable, CaseIterable {
+    case ruleId = 0
+    case rationale
+    case proximateCause
+    case rootCause
+    case failedStep
+    case dissent
+    case riskTier
+
+    /// The prompt shown for this step.
+    public var prompt: String {
+        switch self {
+        case .ruleId: return "Rule id (e.g. safety.force-unwrap)"
+        case .rationale: return "Override rationale"
+        case .proximateCause: return "Proximate cause"
+        case .rootCause: return "Root cause (one adjective)"
+        case .failedStep: return "Failed 5-step stage (goals/problems/diagnosis/design/doing)"
+        case .dissent: return "Red-team dissent — why this might be wrong"
+        case .riskTier: return "Risk tier (1-4)"
+        }
+    }
+}
+
+/// A completed calibrate wizard, consumed by the app event loop.
+public struct CalibrationRequest: Sendable, Equatable {
+    /// The project being calibrated.
+    public let projectID: String
+    /// The wizard's collected answers, keyed by step.
+    public let fields: [CalibrateStep: String]
+
+    /// Creates a calibration request.
+    public init(projectID: String, fields: [CalibrateStep: String]) {
+        self.projectID = projectID
+        self.fields = fields
+    }
+}
+
+/// What an active text-entry session is collecting.
+enum TextEntryPurpose: Sendable, Equatable {
+    /// The acknowledge reason for the inbox item at the given index.
+    case acknowledgeReason(itemIndex: Int)
+    /// One step of the calibrate wizard, with answers collected so far.
+    case calibrate(step: CalibrateStep, collected: [CalibrateStep: String])
 }
 
 /// A request to override a project's tier, produced by the Status tab picker.
@@ -64,6 +153,9 @@ public enum DashboardInput: Sendable {
     case click(row: Int, column: Int)
     case cycleSort
     case reverseSort
+    case character(Character)
+    case backspace
+    case calibrate
 }
 
 /// Navigation state for the interactive TUI dashboard.
@@ -120,6 +212,52 @@ public struct DashboardState: Sendable {
     public private(set) var selectedLabelIndex: Int?
     /// Set when the user navigates to a different label; cleared by `clearLabelChanged()`.
     public private(set) var labelChanged: Bool = false
+    /// The current project's advisory findings shown on the Inbox tab.
+    public private(set) var inboxRows: [InboxRow] = []
+    /// Index of the selected inbox row.
+    public private(set) var selectedInboxIndex: Int = 0
+    /// The active text-entry session, if any (acknowledge reason / calibrate).
+    private var textEntrySession: (purpose: TextEntryPurpose, buffer: String)?
+    /// Set when an acknowledge is confirmed. The event loop consumes this.
+    public private(set) var pendingAcknowledge: AcknowledgeRequest?
+    /// Set when the calibrate wizard completes. The event loop consumes this.
+    public private(set) var pendingCalibration: CalibrationRequest?
+    /// One-line feedback from the last consumed action, rendered by the view.
+    public var statusMessage: String?
+
+    /// Whether a text-entry session owns keyboard input right now.
+    public var isTextEntryActive: Bool { textEntrySession != nil }
+
+    /// The text typed so far in the active session (empty when inactive).
+    public var textEntryBuffer: String { textEntrySession?.buffer ?? "" }
+
+    /// The calibrate wizard's current step, nil when not calibrating.
+    public var calibrateStep: CalibrateStep? {
+        if case .calibrate(let step, _) = textEntrySession?.purpose { return step }
+        return nil
+    }
+
+    /// The prompt for the active text-entry session, for the view.
+    public var textEntryPrompt: String? {
+        switch textEntrySession?.purpose {
+        case .acknowledgeReason: return "Acknowledge reason"
+        case .calibrate(let step, _): return step.prompt
+        case nil: return nil
+        }
+    }
+
+    /// Replaces the inbox rows (set by the app when the detail subject or
+    /// its latest run changes) and clamps the selection.
+    public mutating func setInboxRows(_ rows: [InboxRow]) {
+        inboxRows = rows
+        selectedInboxIndex = min(selectedInboxIndex, max(0, rows.count - 1))
+    }
+
+    /// Clears a consumed acknowledge request.
+    public mutating func clearPendingAcknowledge() { pendingAcknowledge = nil }
+
+    /// Clears a consumed calibration request.
+    public mutating func clearPendingCalibration() { pendingCalibration = nil }
 
     /// The visible rows in the portfolio view, combining groups and projects.
     public var visibleRows: [PortfolioRow] {
@@ -203,6 +341,12 @@ public struct DashboardState: Sendable {
 
     /// Processes a keyboard input, updating view, selection, and tab state.
     public mutating func handleInput(_ input: DashboardInput) {
+        // An active text-entry session owns all input (a typed "q" is a
+        // character, not quit) — the workbench's one hard routing rule.
+        if textEntrySession != nil {
+            handleTextEntryInput(input)
+            return
+        }
         switch currentView {
         case .portfolio:
             handlePortfolioInput(input)
@@ -210,6 +354,45 @@ public struct DashboardState: Sendable {
             handleDetailInput(input)
         case .groupDetail:
             handleGroupDetailInput(input)
+        }
+    }
+
+    /// Routes input into the active text-entry session.
+    private mutating func handleTextEntryInput(_ input: DashboardInput) {
+        guard var session = textEntrySession else { return }
+        switch input {
+        case .character(let ch):
+            session.buffer.append(ch)
+            textEntrySession = session
+        case .backspace:
+            if !session.buffer.isEmpty { session.buffer.removeLast() }
+            textEntrySession = session
+        case .escape:
+            textEntrySession = nil
+        case .enter:
+            let text = session.buffer.trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { return } // required — stay on the step
+            switch session.purpose {
+            case .acknowledgeReason(let itemIndex):
+                if let projectID = detailProjectID ?? selectedProjectID {
+                    pendingAcknowledge = AcknowledgeRequest(
+                        projectID: projectID, itemIndex: itemIndex, reason: text)
+                }
+                textEntrySession = nil
+            case .calibrate(let step, var collected):
+                collected[step] = text
+                if let next = CalibrateStep(rawValue: step.rawValue + 1) {
+                    textEntrySession = (.calibrate(step: next, collected: collected), "")
+                } else {
+                    if let projectID = detailProjectID ?? selectedProjectID {
+                        pendingCalibration = CalibrationRequest(
+                            projectID: projectID, fields: collected)
+                    }
+                    textEntrySession = nil
+                }
+            }
+        default:
+            break // arrows etc. have no meaning inside a text field
         }
     }
 
@@ -344,11 +527,27 @@ public struct DashboardState: Sendable {
         case .enter:
             if selectedTab == .summary {
                 tierPickerActive = true
+            } else if selectedTab == .inbox {
+                // Acknowledge-in-place: only rules with a marker path open
+                // the reason prompt; the reason becomes the marker comment.
+                guard selectedInboxIndex < inboxRows.count,
+                      inboxRows[selectedInboxIndex].acknowledgeable else { return }
+                textEntrySession = (.acknowledgeReason(itemIndex: selectedInboxIndex), "")
             }
+        case .calibrate:
+            textEntrySession = (.calibrate(step: .ruleId, collected: [:]), "")
         case .arrowDown:
-            scrollOffset += 1
+            if selectedTab == .inbox, !inboxRows.isEmpty {
+                selectedInboxIndex = min(selectedInboxIndex + 1, inboxRows.count - 1)
+            } else {
+                scrollOffset += 1
+            }
         case .arrowUp:
-            scrollOffset = max(0, scrollOffset - 1)
+            if selectedTab == .inbox, !inboxRows.isEmpty {
+                selectedInboxIndex = max(selectedInboxIndex - 1, 0)
+            } else {
+                scrollOffset = max(0, scrollOffset - 1)
+            }
         case .scrollDown:
             scrollOffset += 3
         case .scrollUp:
@@ -368,8 +567,10 @@ public struct DashboardState: Sendable {
     }
 
     /// Moves the active tab by `delta`, clamped to the tab range (no wrap), and
-    /// resets the scroll offset when the tab actually changes.
+    /// resets the scroll offset when the tab actually changes. Stale action
+    /// feedback does not follow the user to another tab.
     private mutating func switchTab(by delta: Int) {
+        statusMessage = nil
         let allTabs = DetailTab.allCases
         let targetIndex = min(max(selectedTab.rawValue + delta, 0), allTabs.count - 1)
         let target = allTabs[targetIndex]

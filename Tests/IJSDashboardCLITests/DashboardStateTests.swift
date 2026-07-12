@@ -97,9 +97,9 @@ struct DashboardStateTests {
 
     // MARK: - Tab Navigation
 
-    @Test("Detail view has exactly two tabs: summary and checkers")
+    @Test("Detail view has exactly three tabs: summary, checkers, inbox")
     func detailTabCases() {
-        #expect(DetailTab.allCases == [.summary, .checkers])
+        #expect(DetailTab.allCases == [.summary, .checkers, .inbox])
     }
 
     @Test("Right arrow moves to the next tab and clamps at the last")
@@ -109,8 +109,10 @@ struct DashboardStateTests {
         #expect(state.selectedTab == .summary)
         state.handleInput(.arrowRight)
         #expect(state.selectedTab == .checkers)
+        state.handleInput(.arrowRight)
+        #expect(state.selectedTab == .inbox)
         state.handleInput(.arrowRight) // clamps — no wrap
-        #expect(state.selectedTab == .checkers)
+        #expect(state.selectedTab == .inbox)
     }
 
     @Test("Left arrow moves to the previous tab and clamps at the first")

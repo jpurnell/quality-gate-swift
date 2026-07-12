@@ -174,6 +174,15 @@ let package = Package(
             name: "IdiomAuditor",
             targets: ["IdiomAuditor"]
         ),
+        // Judgment workbench (Phase 3a §7) + trust service core (Phase 3b)
+        .library(
+            name: "JudgmentWorkbench",
+            targets: ["JudgmentWorkbench"]
+        ),
+        .library(
+            name: "CorpusService",
+            targets: ["CorpusService"]
+        ),
         .library(
             name: "DuplicationAuditor",
             targets: ["DuplicationAuditor"]
@@ -773,6 +782,7 @@ let package = Package(
                 "IJSDashboardCore",
                 "IJSSensor",
                 "IJSAggregator",
+                "JudgmentWorkbench",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
             ]
@@ -849,6 +859,33 @@ let package = Package(
             dependencies: ["SmellPack"]
         ),
 
+        // MARK: - Judgment workbench (Phase 3a §7)
+        .target(
+            name: "JudgmentWorkbench",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+            ]
+        ),
+        .testTarget(
+            name: "JudgmentWorkbenchTests",
+            dependencies: ["JudgmentWorkbench", "IdiomAuditor", "SmellPack", "GatePlugins"]
+        ),
+
+        // MARK: - Trust service core (Phase 3b)
+        .target(
+            name: "CorpusService",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "Crypto", package: "swift-crypto"),
+            ]
+        ),
+        .testTarget(
+            name: "CorpusServiceTests",
+            dependencies: ["CorpusService"]
+        ),
+
         // MARK: - CI parity (Phase 2)
         .target(
             name: "GateCI",
@@ -868,6 +905,7 @@ let package = Package(
                 "QualityGateCore",
                 "GateCI",
                 "GatePlugins",
+                "CorpusService",
                 "IdiomAuditor",
                 "SmellPack",
                 "DuplicationAuditor",

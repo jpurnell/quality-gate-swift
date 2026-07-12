@@ -37,14 +37,56 @@ public enum ProjectDetailTUIView: Sendable {
             renderStatus(into: &buf, project: project, state: state, width: width, pulse: pulse, manifest: manifest)
         case .checkers:
             renderCheckers(into: &buf, project: project, runs: runs, width: width)
+        case .inbox:
+            renderInbox(into: &buf, state: state, width: width)
         }
 
         buf.appendLine(DashboardChrome.sectionRule(width: width))
 
-        let helpLine = ANSICodes.dim + "  \u{2190}/\u{2192} Switch tabs  \u{2191}/\u{2193} Scroll  Esc Back  q Quit" + ANSICodes.reset
-        buf.appendLine(helpLine)
+        // An active text-entry session renders its prompt where the help
+        // line normally sits — the field is the interaction.
+        if let prompt = state.textEntryPrompt {
+            let entry = "  \(prompt): \(state.textEntryBuffer)█"
+            buf.appendLine(ANSICodes.bold + entry + ANSICodes.reset)
+        } else {
+            var help = "  \u{2190}/\u{2192} Switch tabs  \u{2191}/\u{2193} Scroll  c Calibrate  Esc Back  q Quit"
+            if state.selectedTab == .inbox {
+                help = "  \u{2191}/\u{2193} Select  Enter Acknowledge  c Calibrate  Esc Back  q Quit"
+            }
+            buf.appendLine(ANSICodes.dim + help + ANSICodes.reset)
+        }
+        if let status = state.statusMessage {
+            buf.appendLine(ANSICodes.fg(.green) + "  \(status)" + ANSICodes.reset)
+        }
 
         return buf.raw
+    }
+
+    // MARK: - Inbox Tab (Phase 3a §7)
+
+    /// The findings inbox: the latest run's advisory findings, selectable,
+    /// acknowledgeable in place when the rule has a marker path.
+    private static func renderInbox(into buf: inout ScreenBuffer, state: DashboardState, width: Int) {
+        buf.appendLine(boxRow("", width: width))
+        guard !state.inboxRows.isEmpty else {
+            buf.appendLine(boxRow("  Inbox is empty — the latest run reported no advisory findings.", width: width))
+            buf.appendLine(boxRow("", width: width))
+            return
+        }
+        for (index, row) in state.inboxRows.enumerated() {
+            let file = (row.filePath as NSString).lastPathComponent
+            let ack = row.acknowledgeable ? "" : "  (no marker path)"
+            let line = "  \(row.ruleId)  \(file):\(row.lineNumber)\(ack)"
+            let message = "      \(row.message)"
+            if index == state.selectedInboxIndex {
+                buf.appendLine(boxRow(ANSICodes.bold + ANSICodes.fg(.cyan) + line + ANSICodes.reset, width: width))
+                buf.appendLine(boxRow(ANSICodes.fg(.cyan) + message + ANSICodes.reset, width: width))
+            } else {
+                buf.appendLine(boxRow(line, width: width))
+                buf.appendLine(boxRow(ANSICodes.dim + message + ANSICodes.reset, width: width))
+            }
+        }
+        buf.appendLine(boxRow("", width: width))
     }
 
     // MARK: - Tab Bar
