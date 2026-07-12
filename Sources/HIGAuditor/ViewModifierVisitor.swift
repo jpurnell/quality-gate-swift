@@ -309,7 +309,8 @@ final class ViewModifierVisitor: SyntaxVisitor {
         let name = extractCalledName(node)
         guard name == "TextField" || name == "SecureField",
               let label = firstStringLiteralArgument(node),
-              Self.matchesKeyword(label, Self.typedContentKeywords) else {
+              Self.matchesKeyword(label, Self.typedContentKeywords),
+              !Self.looksLikeExampleList(label) else {
             return
         }
         if hasAncestorModifier(from: node, named: "keyboardType") { return }
@@ -405,6 +406,19 @@ final class ViewModifierVisitor: SyntaxVisitor {
     private static func matchesKeyword(_ text: String, _ keywords: Set<String>) -> Bool {
         let lower = text.lowercased()
         return keywords.contains { lower.contains($0) }
+    }
+
+    /// True when a placeholder reads as an illustrative list of examples rather than
+    /// naming the field's own purpose — e.g. `"e.g. Price, Battery Life, Rating"`. A
+    /// content-type keyword that only appears inside such a list is not the field's
+    /// semantic type, so demanding a keyboard/content-type hint would be a false positive.
+    private static let exampleListPrefixes = ["e.g", "eg.", "eg ", "ex.", "ex:", "example", "for example", "such as", "i.e"]
+    private static func looksLikeExampleList(_ label: String) -> Bool {
+        let lower = label.lowercased().trimmingCharacters(in: .whitespaces)
+        if exampleListPrefixes.contains(where: { lower.hasPrefix($0) }) { return true }
+        // Three or more comma-separated items reads as an enumeration of examples,
+        // not a single-purpose field label.
+        return lower.split(separator: ",").count >= 3
     }
 
     // MARK: - Helpers

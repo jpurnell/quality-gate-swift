@@ -268,6 +268,47 @@ struct HIGAuditorTests {
         #expect(!result.diagnostics.contains { $0.ruleId == "hig.forced-color-scheme" })
     }
 
+    // MARK: - Foundations: text-input-content-type
+
+    @Test("Flags a typed URL field missing content-type hints")
+    func textInputContentTypeFlagged() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var serverURL = ""
+            var body: some View { TextField("Server URL", text: $serverURL) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.text-input-content-type" })
+    }
+
+    @Test("Does not flag when a keyword appears only in a placeholder example list")
+    func textInputContentTypeExampleListIgnored() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var name = ""
+            var body: some View { TextField("e.g. Price, Battery Life, Rating", text: $name) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(!result.diagnostics.contains { $0.ruleId == "hig.text-input-content-type" })
+    }
+
+    @Test("Still flags a genuine single-purpose Price field")
+    func textInputContentTypePriceFieldStillFlagged() {
+        let source = """
+        import SwiftUI
+        struct ContentView: View {
+            @State var price = ""
+            var body: some View { TextField("Price", text: $price) }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .iOS)
+        #expect(result.diagnostics.contains { $0.ruleId == "hig.text-input-content-type" })
+    }
+
     // MARK: - Foundations: opaque-material
 
     @Test("Flags opaque Color toolbar background")
