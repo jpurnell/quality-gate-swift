@@ -33,7 +33,10 @@ struct CorpusTrendChartView: View {
             subtitle: "Daily · last \(snapshots.count) days",
             theme: .house
         )
-        spec.periods = CorpusTrend.thinnedLabels(spec.periods)
+        // Thin the x-axis labels natively (BusinessMath-UI 0.5.0): the chart draws
+        // ~a handful of evenly-spaced labels but keeps every period's full date for
+        // ticks and hover tooltips.
+        spec.xLabels = .auto
         return spec
     }
 }

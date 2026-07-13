@@ -173,20 +173,6 @@ struct PortfolioSceneTests {
         #expect(wrap)   // narrative wraps
     }
 
-    @Test("corpus-trend x-axis labels thin to ~maxLabels, keeping first and last")
-    func trendLabelThinning() {
-        let labels = (0..<29).map { "d\($0)" }
-        let thinned = CorpusTrend.thinnedLabels(labels, maxLabels: 6)
-        #expect(thinned.count == 29)                       // same length; blanks between
-        #expect(thinned[0] == "d0")                        // first kept
-        #expect(thinned.last == "d28")                     // last kept
-        #expect(thinned[1] == "")                          // in-between blanked
-        let kept = thinned.filter { !$0.isEmpty }
-        #expect(kept.count >= 5 && kept.count <= 8)        // roughly maxLabels
-        // A short series is left untouched.
-        #expect(CorpusTrend.thinnedLabels(["a", "b", "c"], maxLabels: 6) == ["a", "b", "c"])
-    }
-
 #if canImport(SwiftUI)
     @Test("narrative Markdown splits into headings, rules, and joined paragraphs")
     func narrativeMarkdownBlocks() {

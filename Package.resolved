@@ -1,5 +1,5 @@
 {
-  "originHash" : "1854317cb4529acb4257fd4e9c2d00baeab70868ae9fd7124d165fc2ec454fa8",
+  "originHash" : "bc77c54f06ecc73b3ae92cc93fe9d62cfe14474e2118f5865a6946580a57e44c",
   "pins" : [
     {
       "identity" : "businessmath",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/BusinessMath-UI",
       "state" : {
-        "revision" : "ca1dce1965d5af930b91f90d76c84250d6c56abf",
-        "version" : "0.4.0"
+        "revision" : "5cff545992af524889f8feecedd43393fe18761d",
+        "version" : "0.5.0"
       }
     },
     {
