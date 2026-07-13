@@ -57,7 +57,8 @@ enum PulseAnalytics {
         -> [(checker: String, passRate: Double, failures: Int)] {
         worst.map { checker in
             let rates = projects.compactMap { $0.checkerPassRates[checker] }
-            let mean = rates.isEmpty ? 0 : rates.reduce(0, +) / Double(rates.count) * 100
+            let count = rates.count
+            let mean = count > 0 ? rates.reduce(0, +) / Double(count) * 100 : 0
             return (checker, mean, failuresByChecker[checker] ?? 0)
         }
     }
