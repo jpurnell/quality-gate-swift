@@ -90,6 +90,45 @@ public enum PortfolioScene {
         return .vstack([.spacer])
     }
 
+    /// The Tiers / Trajectories / Groups analytical sections (between the corpus
+    /// trend and the violation clusters), all derived from the pulse.
+    public static func pulseAnalyticsScene(pulse: InstitutionalPulse?) -> Node {
+        guard let pulse else { return .vstack([.spacer]) }
+        var children: [Node] = []
+
+        if let tierLine = PulseAnalytics.tierLine(Array((pulse.projectTiers ?? [:]).values)) {
+            children.append(labeledSection("Tiers", [tierLine]))
+        }
+
+        if let trajectories = pulse.projectTrajectories, !trajectories.isEmpty,
+           let directionLine = PulseAnalytics.directionLine(trajectories.map(\.direction)) {
+            var lines = [directionLine]
+            let movers = PulseAnalytics.topMovers(trajectories.map { ($0.projectID, $0.slope) })
+            if !movers.isEmpty { lines.append("Top movers: " + movers.joined(separator: "   ")) }
+            children.append(labeledSection("Trajectories", lines))
+        }
+
+        let groups: [(String, Double, Int)] = (pulse.groupSnapshots ?? [:]).compactMap { name, snaps in
+            guard let latest = snaps.max(by: { $0.date < $1.date }) else { return nil }
+            let rate = PulseAnalytics.passRatePercent(passed: latest.passedRuns, total: latest.gateRuns)
+            let runs = snaps.reduce(0) { $0 + $1.gateRuns }
+            return (name, rate, runs)
+        }.sorted { $0.0 < $1.0 }
+        if !groups.isEmpty {
+            let lines = groups.map { PulseAnalytics.groupText(name: $0.0, passRate: $0.1, runs: $0.2) }
+            children.append(labeledSection("Groups", lines))
+        }
+
+        return .vstack(children.isEmpty ? [.spacer] : children)
+    }
+
+    /// A heading paragraph over indented body lines.
+    static func labeledSection(_ heading: String, _ lines: [String]) -> Node {
+        var nodes: [Node] = [Paragraph(text: heading).node(color: .secondaryLabel)]
+        for line in lines { nodes.append(Paragraph(text: "  \(line)").node(color: .label)) }
+        return .vstack(nodes)
+    }
+
     // MARK: - Pulse-derived sections
 
     /// The pulse header line: label · runs · pass% · overrides · consistency.

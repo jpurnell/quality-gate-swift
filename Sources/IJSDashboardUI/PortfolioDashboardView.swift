@@ -46,6 +46,8 @@ struct PortfolioDashboardView: View {
                     CorpusTrendChartView(snapshots: snapshots)
                 }
 
+                renderer.view(for: PortfolioScene.pulseAnalyticsScene(pulse: pulse))
+
                 if let clusters = pulse?.violationClusters, !clusters.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Violation Clusters").font(.headline)

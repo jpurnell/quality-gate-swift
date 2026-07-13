@@ -8,6 +8,7 @@
 import Testing
 import SwiftGUIKit
 import IJSDashboardCore
+import CorpusKit
 @testable import IJSDashboardUI
 
 @Suite("PortfolioScene")
@@ -109,6 +110,36 @@ struct PortfolioSceneTests {
             Issue.record("expected sections stack led by a heading"); return
         }
         #expect(heading == "Worst Checkers")
+    }
+
+    // MARK: Pulse analytics (tiers / trajectories / groups)
+
+    @Test("tier line counts by tier, best-first, omitting empties")
+    func tierLine() {
+        let tiers: [ProjectTier] = [.active, .active, .active, .baseline, .dormant]
+        #expect(PulseAnalytics.tierLine(tiers) == "3 active · 1 baseline · 1 dormant")
+        #expect(PulseAnalytics.tierLine([]) == nil)
+    }
+
+    @Test("direction line counts improving/stable/declining with arrows")
+    func directionLine() {
+        let directions: [TrajectoryDirection] = [.improving, .stable, .stable, .declining, .insufficient]
+        #expect(PulseAnalytics.directionLine(directions) == "↑ 1 improving · → 2 stable · ↓ 1 declining")
+        #expect(PulseAnalytics.directionLine([]) == nil)
+    }
+
+    @Test("top movers are the steepest by absolute slope, arrowed and rounded")
+    func topMovers() {
+        let movers = [("Alpha", 0.014), ("Beta", -0.013), ("Gamma", 0.002), ("Flat", 0.0)]
+        let top = PulseAnalytics.topMovers(movers, count: 2)
+        #expect(top == ["Alpha ↑0.014", "Beta ↓0.013"])   // steepest two; flat excluded
+    }
+
+    @Test("group text formats pass rate and runs; pass rate guards zero total")
+    func groupFormatting() {
+        #expect(PulseAnalytics.passRatePercent(passed: 8, total: 26).rounded() == 31)
+        #expect(PulseAnalytics.passRatePercent(passed: 0, total: 0) == 0)
+        #expect(PulseAnalytics.groupText(name: "BusinessMath", passRate: 31, runs: 26) == "BusinessMath: 31% (26 runs)")
     }
 
     // MARK: Pulse-derived sections

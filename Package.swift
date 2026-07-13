@@ -830,6 +830,7 @@ let package = Package(
                 "IJSDashboardCore",
                 .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
             ]
         ),
 
