@@ -8,6 +8,7 @@ import IJSSensor
 import IJSAggregator
 import IJSDashboardCore
 import IJSDashboardCLI
+import IJSDashboardUI
 
 struct Dashboard: AsyncParsableCommand {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "Dashboard")
@@ -31,6 +32,9 @@ struct Dashboard: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Export HTML report to pulse directory")
     var exportHtml: Bool = false
+
+    @Flag(name: .long, help: "Open the native SwiftUI dashboard window instead of the terminal UI")
+    var native: Bool = false
 
     @Option(name: .long, help: "Output path for HTML report (default: pulse directory)")
     var output: String?
@@ -193,6 +197,8 @@ struct Dashboard: AsyncParsableCommand {
             print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: projects))
         } else if summary {
             print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse))
+        } else if native {
+            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects)
         } else {
             DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }

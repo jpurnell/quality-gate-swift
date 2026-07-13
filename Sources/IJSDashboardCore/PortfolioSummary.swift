@@ -14,6 +14,23 @@ public struct PortfolioSummary: Sendable {
     /// Checker IDs sorted by aggregate pass rate (worst first).
     public let worstCheckers: [String]
 
+    /// Creates a portfolio summary directly. The ``compute(from:)`` factory is the
+    /// normal path; this initializer lets consumers (a dashboard UI, SwiftUI
+    /// previews, tests) build fixtures.
+    public init(
+        totalProjects: Int,
+        passingProjects: Int,
+        failingProjects: Int,
+        sunsetProjects: Int = 0,
+        worstCheckers: [String] = []
+    ) {
+        self.totalProjects = totalProjects
+        self.passingProjects = passingProjects
+        self.failingProjects = failingProjects
+        self.sunsetProjects = sunsetProjects
+        self.worstCheckers = worstCheckers
+    }
+
     /// Computes a portfolio summary from per-project summaries.
     ///
     /// Active and sunset projects are partitioned by their ``ProjectLifecycle`` state.

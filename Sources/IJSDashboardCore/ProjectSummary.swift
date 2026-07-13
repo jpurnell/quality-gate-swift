@@ -43,6 +43,39 @@ public struct ProjectSummary: Sendable {
     /// The most recent run's baseline counts, when a ledger is in play.
     public var latestBaseline: BaselineSnapshot? { baselineBurnDown.last }
 
+    /// Creates a summary directly. The ``compute(projectID:from:lifecycle:orientation:censusDate:)``
+    /// factory is the normal path from run data; this initializer lets consumers
+    /// (a dashboard UI, SwiftUI previews, tests) build fixtures without run telemetry.
+    public init(
+        projectID: String,
+        passRate: Double,
+        latestPassed: Bool,
+        worstChecker: String? = nil,
+        checkerPassRates: [String: Double] = [:],
+        latestCheckerPassed: [String: Bool] = [:],
+        totalOverrides: Int = 0,
+        runCount: Int,
+        partialRunCount: Int = 0,
+        lifecycle: ProjectLifecycle = .active,
+        orientation: ModuleOrientationCard? = nil,
+        writerCensus: WriterCensus? = nil,
+        baselineBurnDown: [BaselineSnapshot] = []
+    ) {
+        self.projectID = projectID
+        self.passRate = passRate
+        self.latestPassed = latestPassed
+        self.worstChecker = worstChecker
+        self.checkerPassRates = checkerPassRates
+        self.latestCheckerPassed = latestCheckerPassed
+        self.totalOverrides = totalOverrides
+        self.runCount = runCount
+        self.partialRunCount = partialRunCount
+        self.lifecycle = lifecycle
+        self.orientation = orientation
+        self.writerCensus = writerCensus
+        self.baselineBurnDown = baselineBurnDown
+    }
+
     /// Computes a summary from a series of timestamped runs.
     ///
     /// - Parameters:

@@ -222,7 +222,7 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.6.0"),
         .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.0.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
-        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.2.0"),
+        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
@@ -799,6 +799,24 @@ let package = Package(
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
             ]
         ),
+        .target(
+            name: "IJSDashboardUI",
+            dependencies: [
+                "IJSDashboardCore",
+                .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
+                .product(name: "SwiftGUIKitSwiftUI", package: "SwiftCLIKit"),
+                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+            ]
+        ),
+        .testTarget(
+            name: "IJSDashboardUITests",
+            dependencies: [
+                "IJSDashboardUI",
+                "IJSDashboardCore",
+                .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
+                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+            ]
+        ),
 
         // MARK: - Test Kit
         .target(
@@ -948,6 +966,7 @@ let package = Package(
                 "IJSRefiner",
                 "IJSDashboardCore",
                 "IJSDashboardCLI",
+                "IJSDashboardUI",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
