@@ -46,6 +46,50 @@ struct PortfolioSceneTests {
         #expect(cells[1] == ["Beta", "fail", "50%", "4"])
     }
 
+    @Test("worst-checkers section lists the top 5, heading first")
+    func worstCheckers() {
+        let node = PortfolioScene.worstCheckersSection(
+            ["unreachable", "doc-coverage", "test-quality", "doc-lint", "swift-version", "idiom"])
+        guard case let .stack(_, _, children)? = node else {
+            Issue.record("expected a stack, got \(String(describing: node))"); return
+        }
+        // 1 heading + 5 checkers (the 6th is dropped).
+        #expect(children.count == 6)
+        guard case let .paragraph(heading, _, _, _) = children[0].node else {
+            Issue.record("expected a heading paragraph"); return
+        }
+        #expect(heading == "Worst Checkers")
+        guard case let .paragraph(firstItem, _, _, _) = children[1].node else {
+            Issue.record("expected a checker line"); return
+        }
+        #expect(firstItem.contains("unreachable"))
+    }
+
+    @Test("worst-checkers section is nil when there are none")
+    func worstCheckersEmpty() {
+        #expect(PortfolioScene.worstCheckersSection([]) == nil)
+    }
+
+    @Test("the scene includes the worst-checkers section when present")
+    func sceneIncludesWorstCheckers() {
+        let p = PortfolioSummary(totalProjects: 2, passingProjects: 1, failingProjects: 1,
+                                 worstCheckers: ["safety", "logging"])
+        let scene = PortfolioScene.scene(portfolio: p, projects: projects)
+        guard case let .block(_, _, _, _, child) = scene,
+              case let .stack(_, _, children) = child else {
+            Issue.record("expected block>stack"); return
+        }
+        // The last child is the worst-checkers section (a nested stack).
+        let hasWorst = children.contains { child in
+            if case let .stack(_, _, inner) = child.node,
+               case let .paragraph(text, _, _, _) = inner.first?.node {
+                return text == "Worst Checkers"
+            }
+            return false
+        }
+        #expect(hasWorst)
+    }
+
     @Test("pass-rate percentage rounds to a whole number")
     func percentRounding() {
         #expect(PortfolioScene.percent(0.9) == "90%")

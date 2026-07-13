@@ -32,13 +32,28 @@ public enum PortfolioScene {
         let summaryLine =
             "\(portfolio.totalProjects) projects · \(portfolio.passingProjects) passing · \(portfolio.failingProjects) failing"
 
-        let body = Node.vstack([
+        var children: [Node] = [
             Paragraph(text: summaryLine).node(color: .secondaryLabel),
             Gauge(ratio: passRatio, label: "\(percent(passRatio)) passing").node(),
             projectsTable(projects),
-        ])
+        ]
+        if let worst = worstCheckersSection(portfolio.worstCheckers) {
+            children.append(worst)
+        }
 
-        return Block(title: "IJS Portfolio Dashboard").node(child: body)
+        return Block(title: "IJS Portfolio Dashboard").node(child: .vstack(children))
+    }
+
+    /// The "Worst Checkers" section: a heading over the (up to) five lowest-passing
+    /// checkers across the portfolio. Returns `nil` when there are none.
+    static func worstCheckersSection(_ checkers: [String]) -> Node? {
+        let top = Array(checkers.prefix(5))
+        guard !top.isEmpty else { return nil }
+        var lines: [Node] = [Paragraph(text: "Worst Checkers").node(color: .secondaryLabel)]
+        for checker in top {
+            lines.append(Paragraph(text: "  • \(checker)").node(color: .label))
+        }
+        return .vstack(lines)
     }
 
     /// The projects table: Project · Status · Pass Rate · Runs, one row per project.
