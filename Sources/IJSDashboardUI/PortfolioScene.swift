@@ -82,17 +82,12 @@ public enum PortfolioScene {
         return .vstack(children)
     }
 
-    /// The analytical sections between the projects table and the violation-cluster
-    /// table: worst checkers and the corpus trend. (Violation clusters render as a
-    /// native sortable table, and the narrative as native Markdown.)
+    /// The Worst Checkers section, between the projects table and the corpus-trend
+    /// chart. (The corpus trend is now a native editorial chart, violation clusters
+    /// a native table, and the narrative native Markdown.)
     public static func sectionsScene(portfolio: PortfolioSummary, pulse: InstitutionalPulse? = nil) -> Node {
-        var children: [Node] = []
-        if let worst = worstCheckersSection(portfolio.worstCheckers) { children.append(worst) }
-        if let pulse {
-            let trend = pulse.statistics.corpusSnapshots.map(snapshotPassRate)
-            if let trendSection = corpusTrendSection(passRates: trend) { children.append(trendSection) }
-        }
-        return .vstack(children.isEmpty ? [.spacer] : children)
+        if let worst = worstCheckersSection(portfolio.worstCheckers) { return worst }
+        return .vstack([.spacer])
     }
 
     // MARK: - Pulse-derived sections

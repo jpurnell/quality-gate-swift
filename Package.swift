@@ -221,7 +221,9 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.6.0"),
         .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.0.0"),
-		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.1.6"),
+		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
+        .package(url: "https://github.com/jpurnell/BusinessMath-UI", from: "0.4.0"),
+        .package(url: "https://github.com/jpurnell/BusinessMath-Adapters", from: "0.4.1"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.3.1"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
@@ -807,6 +809,9 @@ let package = Package(
                 .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
                 .product(name: "SwiftGUIKitSwiftUI", package: "SwiftCLIKit"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+                .product(name: "BusinessMath", package: "BusinessMath"),
+                .product(name: "BusinessMathUI", package: "BusinessMath-UI"),
+                .product(name: "BusinessMathAdapters", package: "BusinessMath-Adapters"),
             ]
         ),
         .executableTarget(

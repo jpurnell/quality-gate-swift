@@ -1,13 +1,40 @@
 {
-  "originHash" : "76eb5b56cbd3fcfaa00efeaa27d63559111e5397e5e9472b1273ecdb3a81eecb",
+  "originHash" : "1854317cb4529acb4257fd4e9c2d00baeab70868ae9fd7124d165fc2ec454fa8",
   "pins" : [
     {
       "identity" : "businessmath",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/BusinessMath",
       "state" : {
-        "revision" : "99efa49e2167ca51e57a4c484fd7d99fc106ee18",
-        "version" : "2.1.6"
+        "revision" : "fa84cd05fc90047fb4b9599cac6cc219be944e5a",
+        "version" : "2.3.1"
+      }
+    },
+    {
+      "identity" : "businessmath-adapters",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/BusinessMath-Adapters",
+      "state" : {
+        "revision" : "87a86bb4d9c388090c429ec813f9c6817a7c0c0f",
+        "version" : "0.4.1"
+      }
+    },
+    {
+      "identity" : "businessmath-maps",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/BusinessMath-Maps",
+      "state" : {
+        "revision" : "894f042089d5a4472d04e13d301cd0aa32498847",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "businessmath-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/BusinessMath-UI",
+      "state" : {
+        "revision" : "ca1dce1965d5af930b91f90d76c84250d6c56abf",
+        "version" : "0.4.0"
       }
     },
     {

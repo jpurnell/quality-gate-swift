@@ -102,17 +102,13 @@ struct PortfolioSceneTests {
         #expect(!hasTable)
         let hasGauge = headerChildren.contains { if case .gauge = $0.node { return true }; return false }
         #expect(hasGauge)
-        // Sections: contains the worst-checkers section.
-        guard case let .stack(_, _, sectionChildren) = PortfolioScene.sectionsScene(portfolio: p) else {
-            Issue.record("expected sections stack"); return
+        // Sections: the worst-checkers section (heading + bullets) directly —
+        // the corpus trend is now a native chart, not part of this scene.
+        guard case let .stack(_, _, sectionChildren) = PortfolioScene.sectionsScene(portfolio: p),
+              case let .paragraph(heading, _, _, _) = sectionChildren.first?.node else {
+            Issue.record("expected sections stack led by a heading"); return
         }
-        let hasWorst = sectionChildren.contains { child in
-            if case let .stack(_, _, inner) = child.node, case let .paragraph(text, _, _, _) = inner.first?.node {
-                return text == "Worst Checkers"
-            }
-            return false
-        }
-        #expect(hasWorst)
+        #expect(heading == "Worst Checkers")
     }
 
     // MARK: Pulse-derived sections
