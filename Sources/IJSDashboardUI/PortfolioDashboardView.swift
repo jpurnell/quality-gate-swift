@@ -34,7 +34,7 @@ struct PortfolioDashboardView: View {
 
                 renderer.view(for: PortfolioScene.headerScene(portfolio: portfolio, pulse: pulse))
 
-                ProjectsTableView(projects: projects)
+                ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [])
                     .frame(minHeight: 280, maxHeight: 460)
 
                 renderer.view(for: PortfolioScene.sectionsScene(portfolio: portfolio, pulse: pulse))

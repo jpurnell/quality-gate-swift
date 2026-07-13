@@ -142,6 +142,25 @@ struct PortfolioSceneTests {
         #expect(PulseAnalytics.groupText(name: "BusinessMath", passRate: 31, runs: 26) == "BusinessMath: 31% (26 runs)")
     }
 
+    // MARK: Anomaly formatting
+
+    @Test("anomaly cell: short metric + rounded |z| + direction arrow")
+    func anomalyCellText() {
+        #expect(AnomalyFormat.metricShort("passRate") == "pass")
+        #expect(AnomalyFormat.metricShort("overrideRate") == "ovrd")
+        #expect(AnomalyFormat.metricShort("mystery") == "myst")   // prefix(4)
+        #expect(AnomalyFormat.cellText(metric: "passRate", zScore: 2.43, isUp: true) == "pass z2.4↑")
+        #expect(AnomalyFormat.cellText(metric: "failureRate", zScore: -3.1, isUp: false) == "fail z3.1↓")
+    }
+
+    @Test("anomaly is good when pass rate rises or a bad metric falls")
+    func anomalyGoodness() {
+        #expect(AnomalyFormat.isGood(metric: "passRate", isUp: true))    // pass rate up = good
+        #expect(!AnomalyFormat.isGood(metric: "passRate", isUp: false))  // pass rate down = bad
+        #expect(AnomalyFormat.isGood(metric: "failureRate", isUp: false))// failures down = good
+        #expect(!AnomalyFormat.isGood(metric: "overrideRate", isUp: true))// overrides up = bad
+    }
+
     // MARK: Pulse-derived sections
 
     @Test("pulse header line carries label, runs, pass%, overrides, consistency")

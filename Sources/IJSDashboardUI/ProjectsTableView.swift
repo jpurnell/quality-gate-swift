@@ -11,6 +11,7 @@
 #if canImport(SwiftUI)
 import SwiftUI
 import IJSDashboardCore
+import CorpusKit
 
 struct ProjectsTableView: View {
 
@@ -21,18 +22,28 @@ struct ProjectsTableView: View {
         let passed: Bool
         let passRate: Double
         let runCount: Int
+        let anomaly: String        // "" when none
+        let anomalyMagnitude: Double
+        let anomalyGood: Bool
         var status: String { passed ? "pass" : "fail" }
         var passRatePercent: Int { Int((passRate * 100).rounded()) }
     }
 
     let projects: [ProjectSummary]
+    var anomalies: [StatisticalAnomaly] = []
 
     @State private var sortOrder: [KeyPathComparator<Row>] = [KeyPathComparator(\Row.project)]
 
     private var rows: [Row] {
-        projects
-            .map { Row(id: $0.projectID, project: $0.projectID, passed: $0.latestPassed,
-                       passRate: $0.passRate, runCount: $0.runCount) }
+        let lookup = AnomalyFormat.lookup(anomalies)
+        return projects
+            .map { project in
+                let cell = lookup[project.projectID]
+                return Row(id: project.projectID, project: project.projectID, passed: project.latestPassed,
+                           passRate: project.passRate, runCount: project.runCount,
+                           anomaly: cell?.text ?? "", anomalyMagnitude: cell?.magnitude ?? 0,
+                           anomalyGood: cell?.isGood ?? false)
+            }
             .sorted(using: sortOrder)
     }
 
@@ -49,7 +60,19 @@ struct ProjectsTableView: View {
             }
             TableColumn("Pass Rate", value: \.passRate) { Text("\($0.passRatePercent)%") }
             TableColumn("Runs", value: \.runCount) { Text("\($0.runCount)") }
+            TableColumn("Anomaly", value: \.anomalyMagnitude) { row in
+                Text(row.anomaly).foregroundStyle(Self.anomalyColor(row))
+            }
         }
+    }
+
+    /// Green when the anomaly is an improvement; otherwise redder as |z| grows.
+    private static func anomalyColor(_ row: Row) -> Color {
+        guard !row.anomaly.isEmpty else { return .secondary }
+        if row.anomalyGood { return .green }
+        if row.anomalyMagnitude > 2.576 { return .red }
+        if row.anomalyMagnitude >= 1.96 { return .orange }
+        return .secondary
     }
 }
 #endif
