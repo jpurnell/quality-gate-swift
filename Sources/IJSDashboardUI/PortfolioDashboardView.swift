@@ -40,8 +40,10 @@ struct PortfolioDashboardView: View {
                 renderer.view(for: PortfolioScene.sectionsScene(portfolio: portfolio, pulse: pulse))
 
                 if let snapshots = pulse?.statistics.corpusSnapshots, !snapshots.isEmpty {
+                    // No fixed height: EditorialChartView hardcodes its own plot
+                    // height (~300pt + furniture); constraining it smaller makes it
+                    // draw past its frame onto the next section.
                     CorpusTrendChartView(snapshots: snapshots)
-                        .frame(height: 240)
                 }
 
                 if let clusters = pulse?.violationClusters, !clusters.isEmpty {

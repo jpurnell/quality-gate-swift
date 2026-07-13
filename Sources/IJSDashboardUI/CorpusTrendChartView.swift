@@ -2,7 +2,7 @@
 // IJSDashboardUI
 //
 // The corpus pass-rate trend as a native editorial line chart (BusinessMath-UI's
-// EditorialChartView, FT theme), replacing the hand-rolled SwiftGUIKit sparkline.
+// EditorialChartView, house style), replacing the hand-rolled SwiftGUIKit sparkline.
 // Each daily snapshot becomes a (day, pass-rate%) point; `.line` shows the actual
 // percentage (not a rebased index), which is what a pass-rate metric wants.
 
@@ -25,7 +25,7 @@ struct CorpusTrendChartView: View {
             from: [LabeledSeries("Pass Rate", series)],
             title: "Corpus Pass Rate",
             subtitle: "Daily · last \(snapshots.count) days",
-            theme: .ft
+            theme: .house
         )
         EditorialChartView(spec: spec)
     }
