@@ -24,12 +24,25 @@ struct PortfolioDashboardView: View {
     private let renderer = SwiftUIRenderer()
 
     var body: some View {
-        // No outer ScrollView: the table renders as a `List`, which manages its
-        // own scrolling. Nesting a List in a ScrollView collapses it to zero
-        // height (the rows vanish), so the scene fills the window directly.
-        renderer.view(for: PortfolioScene.scene(portfolio: portfolio, projects: projects, pulse: pulse))
+        // The page is tall (table + trend + clusters + narrative), so it scrolls
+        // as a whole. The narrative is rendered natively as Markdown below the
+        // shared scene (excluded from the scene via includeNarrative: false).
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                renderer.view(for: PortfolioScene.scene(
+                    portfolio: portfolio, projects: projects, pulse: pulse, includeNarrative: false))
+                if let narrative = pulse?.narrative,
+                   !narrative.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Narrative").font(.headline)
+                        NarrativeMarkdownView(markdown: narrative)
+                    }
+                }
+            }
             .padding()
-            .frame(minWidth: 640, minHeight: 480, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(minWidth: 640, minHeight: 480)
     }
 }
 #endif

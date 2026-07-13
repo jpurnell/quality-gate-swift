@@ -152,6 +152,26 @@ struct PortfolioSceneTests {
         #expect(wrap)   // narrative wraps
     }
 
+#if canImport(SwiftUI)
+    @Test("narrative Markdown splits into headings, rules, and joined paragraphs")
+    func narrativeMarkdownBlocks() {
+        let md = "Intro line one.\nline two.\n\n---\n\n## Current Health\n\nBody paragraph."
+        let blocks = NarrativeMarkdown.blocks(from: md)
+        #expect(blocks == [
+            .paragraph("Intro line one. line two."),   // soft-wrapped lines joined
+            .rule,
+            .heading(level: 2, text: "Current Health"),
+            .paragraph("Body paragraph."),
+        ])
+    }
+
+    @Test("narrative Markdown ignores leading/trailing blank lines")
+    func narrativeMarkdownBlankLines() {
+        #expect(NarrativeMarkdown.blocks(from: "\n\n# Title\n\n") == [.heading(level: 1, text: "Title")])
+        #expect(NarrativeMarkdown.blocks(from: "   ").isEmpty)
+    }
+#endif
+
     @Test("pass-rate percentage rounds to a whole number")
     func percentRounding() {
         #expect(PortfolioScene.percent(0.9) == "90%")

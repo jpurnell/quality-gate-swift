@@ -30,7 +30,8 @@ public enum PortfolioScene {
     public static func scene(
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
-        pulse: InstitutionalPulse? = nil
+        pulse: InstitutionalPulse? = nil,
+        includeNarrative: Bool = true
     ) -> Node {
         let passRatio = portfolio.totalProjects > 0
             ? Double(portfolio.passingProjects) / Double(portfolio.totalProjects)
@@ -52,7 +53,12 @@ public enum PortfolioScene {
             let trend = pulse.statistics.corpusSnapshots.map(snapshotPassRate)
             if let trendSection = corpusTrendSection(passRates: trend) { children.append(trendSection) }
             if let clusters = violationClustersSection(clusterCells(pulse.violationClusters)) { children.append(clusters) }
-            if let narrativeSection = narrativeSection(pulse.narrative) { children.append(narrativeSection) }
+            // The native surface renders the narrative as real Markdown (headers,
+            // rules, inline styling) via NarrativeMarkdownView, so it is excluded
+            // here; the plain-text `narrativeSection` remains for the portable path.
+            if includeNarrative, let narrativeSection = narrativeSection(pulse.narrative) {
+                children.append(narrativeSection)
+            }
         }
 
         return Block(title: "IJS Portfolio Dashboard").node(child: .vstack(children))
