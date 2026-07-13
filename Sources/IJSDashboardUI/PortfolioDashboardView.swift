@@ -21,12 +21,12 @@ struct PortfolioDashboardView: View {
     private let renderer = SwiftUIRenderer()
 
     var body: some View {
-        ScrollView {
-            renderer.view(for: PortfolioScene.scene(portfolio: portfolio, projects: projects))
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(minWidth: 640, minHeight: 480)
+        // No outer ScrollView: the table renders as a `List`, which manages its
+        // own scrolling. Nesting a List in a ScrollView collapses it to zero
+        // height (the rows vanish), so the scene fills the window directly.
+        renderer.view(for: PortfolioScene.scene(portfolio: portfolio, projects: projects))
+            .padding()
+            .frame(minWidth: 640, minHeight: 480, alignment: .topLeading)
     }
 }
 #endif

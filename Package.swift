@@ -808,6 +808,15 @@ let package = Package(
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
             ]
         ),
+        .executableTarget(
+            name: "ijs-dashboard-preview",
+            dependencies: [
+                "IJSDashboardUI",
+                "IJSDashboardCore",
+                .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
+                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+            ]
+        ),
         .testTarget(
             name: "IJSDashboardUITests",
             dependencies: [
