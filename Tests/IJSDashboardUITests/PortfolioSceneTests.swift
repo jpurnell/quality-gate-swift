@@ -90,6 +90,31 @@ struct PortfolioSceneTests {
         #expect(hasWorst)
     }
 
+    @Test("header scene is summary + gauge (no projects table); sections holds worst checkers")
+    func headerAndSectionsSplit() {
+        let p = PortfolioSummary(totalProjects: 2, passingProjects: 1, failingProjects: 1,
+                                 worstCheckers: ["safety"])
+        // Header: a vstack with a summary paragraph and a gauge, but no table.
+        guard case let .stack(_, _, headerChildren) = PortfolioScene.headerScene(portfolio: p) else {
+            Issue.record("expected header stack"); return
+        }
+        let hasTable = headerChildren.contains { if case .table = $0.node { return true }; return false }
+        #expect(!hasTable)
+        let hasGauge = headerChildren.contains { if case .gauge = $0.node { return true }; return false }
+        #expect(hasGauge)
+        // Sections: contains the worst-checkers section.
+        guard case let .stack(_, _, sectionChildren) = PortfolioScene.sectionsScene(portfolio: p) else {
+            Issue.record("expected sections stack"); return
+        }
+        let hasWorst = sectionChildren.contains { child in
+            if case let .stack(_, _, inner) = child.node, case let .paragraph(text, _, _, _) = inner.first?.node {
+                return text == "Worst Checkers"
+            }
+            return false
+        }
+        #expect(hasWorst)
+    }
+
     // MARK: Pulse-derived sections
 
     @Test("pulse header line carries label, runs, pass%, overrides, consistency")

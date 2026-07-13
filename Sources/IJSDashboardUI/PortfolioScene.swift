@@ -64,6 +64,37 @@ public enum PortfolioScene {
         return Block(title: "IJS Portfolio Dashboard").node(child: .vstack(children))
     }
 
+    /// The one-line portfolio summary (projects / passing / failing).
+    static func summaryLine(_ portfolio: PortfolioSummary) -> String {
+        "\(portfolio.totalProjects) projects · \(portfolio.passingProjects) passing · \(portfolio.failingProjects) failing"
+    }
+
+    /// The header portion: summary line, optional pulse line, and the pass-rate
+    /// gauge — everything above the projects table. Used when the native surface
+    /// renders the table itself (as a sortable `Table`).
+    public static func headerScene(portfolio: PortfolioSummary, pulse: InstitutionalPulse? = nil) -> Node {
+        let passRatio = portfolio.totalProjects > 0
+            ? Double(portfolio.passingProjects) / Double(portfolio.totalProjects)
+            : 0
+        var children: [Node] = [Paragraph(text: summaryLine(portfolio)).node(color: .secondaryLabel)]
+        if let pulse { children.append(pulseHeaderLine(pulse)) }
+        children.append(Gauge(ratio: passRatio, label: "\(percent(passRatio)) passing").node())
+        return .vstack(children)
+    }
+
+    /// The analytical sections below the table: worst checkers, corpus trend, and
+    /// violation clusters (narrative is rendered natively as Markdown).
+    public static func sectionsScene(portfolio: PortfolioSummary, pulse: InstitutionalPulse? = nil) -> Node {
+        var children: [Node] = []
+        if let worst = worstCheckersSection(portfolio.worstCheckers) { children.append(worst) }
+        if let pulse {
+            let trend = pulse.statistics.corpusSnapshots.map(snapshotPassRate)
+            if let trendSection = corpusTrendSection(passRates: trend) { children.append(trendSection) }
+            if let clusters = violationClustersSection(clusterCells(pulse.violationClusters)) { children.append(clusters) }
+        }
+        return .vstack(children.isEmpty ? [.spacer] : children)
+    }
+
     // MARK: - Pulse-derived sections
 
     /// The pulse header line: label · runs · pass% · overrides · consistency.

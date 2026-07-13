@@ -24,13 +24,21 @@ struct PortfolioDashboardView: View {
     private let renderer = SwiftUIRenderer()
 
     var body: some View {
-        // The page is tall (table + trend + clusters + narrative), so it scrolls
-        // as a whole. The narrative is rendered natively as Markdown below the
-        // shared scene (excluded from the scene via includeNarrative: false).
+        // A native composition: the header and analytical sections come from the
+        // shared SwiftGUIKit scene; the projects table is a native, sortable,
+        // resizable `Table`; the narrative is native Markdown. The page scrolls as
+        // a whole, and the table gets a bounded height so it doesn't collapse.
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                renderer.view(for: PortfolioScene.scene(
-                    portfolio: portfolio, projects: projects, pulse: pulse, includeNarrative: false))
+                Text("IJS Portfolio Dashboard").font(.title2.bold())
+
+                renderer.view(for: PortfolioScene.headerScene(portfolio: portfolio, pulse: pulse))
+
+                ProjectsTableView(projects: projects)
+                    .frame(minHeight: 280, maxHeight: 460)
+
+                renderer.view(for: PortfolioScene.sectionsScene(portfolio: portfolio, pulse: pulse))
+
                 if let narrative = pulse?.narrative,
                    !narrative.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
