@@ -198,7 +198,7 @@ struct Dashboard: AsyncParsableCommand {
         } else if summary {
             print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse))
         } else if native {
-            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects)
+            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse)
         } else {
             DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }

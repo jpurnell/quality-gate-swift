@@ -90,6 +90,68 @@ struct PortfolioSceneTests {
         #expect(hasWorst)
     }
 
+    // MARK: Pulse-derived sections
+
+    @Test("pulse header line carries label, runs, pass%, overrides, consistency")
+    func pulseHeader() {
+        let node = PortfolioScene.pulseHeaderText(
+            label: "2026-07-13", runs: 2379, passRate: 10.5, overrides: 40, consistency: 0.97)
+        guard case let .paragraph(text, _, _, _) = node else { Issue.record("not a paragraph"); return }
+        #expect(text.contains("2026-07-13"))
+        #expect(text.contains("2379 runs"))
+        #expect(text.contains("10.5% pass"))
+        #expect(text.contains("40 overrides"))
+        #expect(text.contains("0.97"))
+    }
+
+    @Test("pulse header shows an em dash when consistency is missing")
+    func pulseHeaderNoConsistency() {
+        let node = PortfolioScene.pulseHeaderText(
+            label: "2026-W28", runs: 10, passRate: 100.0, overrides: 0, consistency: nil)
+        guard case let .paragraph(text, _, _, _) = node else { Issue.record("not a paragraph"); return }
+        #expect(text.contains("Consistency —"))
+    }
+
+    @Test("corpus trend is a heading + sparkline; nil when empty")
+    func corpusTrend() {
+        #expect(PortfolioScene.corpusTrendSection(passRates: []) == nil)
+        guard case let .stack(_, _, children)? = PortfolioScene.corpusTrendSection(passRates: [0.9, 0.8, 1.0]) else {
+            Issue.record("expected a stack"); return
+        }
+        guard case let .paragraph(heading, _, _, _) = children[0].node else { Issue.record("no heading"); return }
+        #expect(heading == "Corpus Trend (3d)")
+        guard case let .sparkline(data, _, _) = children[1].node else { Issue.record("no sparkline"); return }
+        #expect(data == [0.9, 0.8, 1.0])
+    }
+
+    @Test("violation clusters render as a 4-column table; nil when empty")
+    func violationClusters() {
+        #expect(PortfolioScene.violationClustersSection([]) == nil)
+        let cells = [["complexity.sortInLoop", "?", "7846x/12p", "N/A"]]
+        guard case let .stack(_, _, children)? = PortfolioScene.violationClustersSection(cells) else {
+            Issue.record("expected a stack"); return
+        }
+        guard case let .table(headers, _, rows, _, _, _, _, _, _) = children[1].node else {
+            Issue.record("no table"); return
+        }
+        #expect(headers == ["Rule", "Last Wk", "This Wk", "Current"])
+        #expect(rows == cells)
+    }
+
+    @Test("narrative renders as a heading + paragraph; nil when absent or blank")
+    func narrative() {
+        #expect(PortfolioScene.narrativeSection(nil) == nil)
+        #expect(PortfolioScene.narrativeSection("   \n ") == nil)
+        guard case let .stack(_, _, children)? = PortfolioScene.narrativeSection("The portfolio is healthy.") else {
+            Issue.record("expected a stack"); return
+        }
+        guard case let .paragraph(heading, _, _, _) = children[0].node else { Issue.record("no heading"); return }
+        #expect(heading == "Narrative")
+        guard case let .paragraph(body, _, wrap, _) = children[1].node else { Issue.record("no body"); return }
+        #expect(body == "The portfolio is healthy.")
+        #expect(wrap)   // narrative wraps
+    }
+
     @Test("pass-rate percentage rounds to a whole number")
     func percentRounding() {
         #expect(PortfolioScene.percent(0.9) == "90%")

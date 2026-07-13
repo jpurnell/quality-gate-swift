@@ -10,6 +10,7 @@
 import SwiftGUIKit
 import SwiftCLIKit
 import IJSDashboardCore
+import CorpusKit
 
 /// Builds the IJS portfolio overview scene from the shared `IJSDashboardCore`
 /// view models.
@@ -23,8 +24,14 @@ public enum PortfolioScene {
     /// - Parameters:
     ///   - portfolio: The cross-project rollup.
     ///   - projects: The per-project summaries (rendered as table rows).
+    ///   - pulse: The latest institutional pulse, if available. Unlocks the header
+    ///     line and the corpus-trend, violation-cluster, and narrative sections.
     /// - Returns: A ``Node`` scene tree.
-    public static func scene(portfolio: PortfolioSummary, projects: [ProjectSummary]) -> Node {
+    public static func scene(
+        portfolio: PortfolioSummary,
+        projects: [ProjectSummary],
+        pulse: InstitutionalPulse? = nil
+    ) -> Node {
         let passRatio = portfolio.totalProjects > 0
             ? Double(portfolio.passingProjects) / Double(portfolio.totalProjects)
             : 0
@@ -32,16 +39,101 @@ public enum PortfolioScene {
         let summaryLine =
             "\(portfolio.totalProjects) projects · \(portfolio.passingProjects) passing · \(portfolio.failingProjects) failing"
 
-        var children: [Node] = [
-            Paragraph(text: summaryLine).node(color: .secondaryLabel),
-            Gauge(ratio: passRatio, label: "\(percent(passRatio)) passing").node(),
-            projectsTable(projects),
-        ]
+        var children: [Node] = [Paragraph(text: summaryLine).node(color: .secondaryLabel)]
+        if let pulse {
+            children.append(pulseHeaderLine(pulse))
+        }
+        children.append(Gauge(ratio: passRatio, label: "\(percent(passRatio)) passing").node())
+        children.append(projectsTable(projects))
         if let worst = worstCheckersSection(portfolio.worstCheckers) {
             children.append(worst)
         }
+        if let pulse {
+            let trend = pulse.statistics.corpusSnapshots.map(snapshotPassRate)
+            if let trendSection = corpusTrendSection(passRates: trend) { children.append(trendSection) }
+            if let clusters = violationClustersSection(clusterCells(pulse.violationClusters)) { children.append(clusters) }
+            if let narrativeSection = narrativeSection(pulse.narrative) { children.append(narrativeSection) }
+        }
 
         return Block(title: "IJS Portfolio Dashboard").node(child: .vstack(children))
+    }
+
+    // MARK: - Pulse-derived sections
+
+    /// The pulse header line: label · runs · pass% · overrides · consistency.
+    static func pulseHeaderLine(_ pulse: InstitutionalPulse) -> Node {
+        let stats = pulse.statistics
+        return pulseHeaderText(
+            label: pulse.label ?? pulse.weekLabel,
+            runs: stats.totalGateRuns,
+            passRate: stats.passRate,          // already a 0–100 percentage
+            overrides: stats.totalOverrides,
+            consistency: stats.meanConsistencyScore
+        )
+    }
+
+    static func pulseHeaderText(label: String, runs: Int, passRate: Double, overrides: Int, consistency: Double?) -> Node {
+        let cons = consistency.map(twoDecimal) ?? "—"
+        let text = "Pulse \(label) · \(runs) runs · \(oneDecimal(passRate))% pass · \(overrides) overrides · Consistency \(cons)"
+        return Paragraph(text: text).node(color: .secondaryLabel)
+    }
+
+    /// The corpus pass-rate trend: a heading + sparkline. Nil when no history.
+    static func corpusTrendSection(passRates: [Double]) -> Node? {
+        guard !passRates.isEmpty else { return nil }
+        return .vstack([
+            Paragraph(text: "Corpus Trend (\(passRates.count)d)").node(color: .secondaryLabel),
+            Sparkline(data: passRates).node(),
+        ])
+    }
+
+    /// The top violation clusters: a heading + table. Nil when none.
+    static func violationClustersSection(_ cells: [[String]]) -> Node? {
+        guard !cells.isEmpty else { return nil }
+        let widths: [Layout.Constraint] = [.min(28), .fixed(12), .fixed(12), .fixed(10)]
+        return .vstack([
+            Paragraph(text: "Violation Clusters").node(color: .secondaryLabel),
+            .table(headers: ["Rule", "Last Wk", "This Wk", "Current"], widths: widths, cells: cells,
+                   selectedRow: nil, scrollOffset: 0, sort: nil,
+                   headerColor: .label, rowColor: .label, id: "portfolio.clusters"),
+        ])
+    }
+
+    /// The institutional narrative: a heading + wrapped paragraph. Nil when absent.
+    static func narrativeSection(_ narrative: String?) -> Node? {
+        guard let narrative, !narrative.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return .vstack([
+            Paragraph(text: "Narrative").node(color: .secondaryLabel),
+            Paragraph(text: narrative).node(color: .label),
+        ])
+    }
+
+    // MARK: - Pulse extraction helpers
+
+    /// A daily snapshot's pass rate (0…1), division-guarded.
+    static func snapshotPassRate(_ snapshot: DailySnapshot) -> Double {
+        snapshot.gateRuns > 0 ? Double(snapshot.passedRuns) / Double(snapshot.gateRuns) : 0
+    }
+
+    /// The top-5 violation clusters projected into table rows
+    /// (Rule · Last Wk · This Wk · Current), each count as "<occurrences>x/<projects>p".
+    static func clusterCells(_ clusters: [ViolationCluster]) -> [[String]] {
+        clusters.prefix(5).map { cluster in
+            let lastWeek = cluster.priorOccurrenceCount.map { "\($0)x/\(cluster.priorProjectCount ?? 0)p" } ?? "?"
+            let thisWeek = "\(cluster.occurrenceCount)x/\(cluster.affectedProjectCount)p"
+            let current = cluster.currentOccurrenceCount.map { "\($0)x/\(cluster.currentProjectCount ?? 0)p" } ?? "N/A"
+            return [cluster.ruleId, lastWeek, thisWeek, current]
+        }
+    }
+
+    /// Rounds to one decimal place (e.g. 10.5) without C-style formatting.
+    static func oneDecimal(_ value: Double) -> String {
+        "\((value * 10).rounded() / 10)"
+    }
+
+    /// Rounds to two decimal places (e.g. 0.97) without C-style formatting.
+    static func twoDecimal(_ value: Double) -> String {
+        "\((value * 100).rounded() / 100)"
     }
 
     /// The "Worst Checkers" section: a heading over the (up to) five lowest-passing

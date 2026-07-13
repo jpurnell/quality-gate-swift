@@ -803,6 +803,7 @@ let package = Package(
             name: "IJSDashboardUI",
             dependencies: [
                 "IJSDashboardCore",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
                 .product(name: "SwiftGUIKitSwiftUI", package: "SwiftCLIKit"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),

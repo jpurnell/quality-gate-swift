@@ -10,6 +10,7 @@ import SwiftUI
 import SwiftGUIKit
 import SwiftGUIKitSwiftUI
 import IJSDashboardCore
+import CorpusKit
 
 /// A native window body rendering the IJS portfolio overview.
 struct PortfolioDashboardView: View {
@@ -17,6 +18,8 @@ struct PortfolioDashboardView: View {
     let portfolio: PortfolioSummary
     /// The per-project summaries.
     let projects: [ProjectSummary]
+    /// The latest institutional pulse, if available.
+    let pulse: InstitutionalPulse?
 
     private let renderer = SwiftUIRenderer()
 
@@ -24,7 +27,7 @@ struct PortfolioDashboardView: View {
         // No outer ScrollView: the table renders as a `List`, which manages its
         // own scrolling. Nesting a List in a ScrollView collapses it to zero
         // height (the rows vanish), so the scene fills the window directly.
-        renderer.view(for: PortfolioScene.scene(portfolio: portfolio, projects: projects))
+        renderer.view(for: PortfolioScene.scene(portfolio: portfolio, projects: projects, pulse: pulse))
             .padding()
             .frame(minWidth: 640, minHeight: 480, alignment: .topLeading)
     }

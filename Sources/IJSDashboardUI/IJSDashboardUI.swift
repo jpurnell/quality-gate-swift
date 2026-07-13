@@ -11,6 +11,7 @@
 import SwiftUI
 import AppKit
 import IJSDashboardCore
+import CorpusKit
 
 /// The native dashboard surface.
 public enum IJSDashboardUI {
@@ -23,7 +24,11 @@ public enum IJSDashboardUI {
     ///   - portfolio: The cross-project rollup.
     ///   - projects: The per-project summaries.
     @MainActor
-    public static func launch(portfolio: PortfolioSummary, projects: [ProjectSummary]) {
+    public static func launch(
+        portfolio: PortfolioSummary,
+        projects: [ProjectSummary],
+        pulse: InstitutionalPulse? = nil
+    ) {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)   // a real windowed app, from a CLI process
 
@@ -35,7 +40,7 @@ public enum IJSDashboardUI {
         )
         window.title = "IJS Portfolio Dashboard"
         window.contentView = NSHostingView(
-            rootView: PortfolioDashboardView(portfolio: portfolio, projects: projects)
+            rootView: PortfolioDashboardView(portfolio: portfolio, projects: projects, pulse: pulse)
         )
         window.center()
         window.makeKeyAndOrderFront(nil)
