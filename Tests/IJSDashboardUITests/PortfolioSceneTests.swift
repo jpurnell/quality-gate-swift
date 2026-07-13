@@ -91,55 +91,63 @@ struct PortfolioSceneTests {
         #expect(hasWorst)
     }
 
-    @Test("header scene is summary + gauge (no projects table); sections holds worst checkers")
-    func headerAndSectionsSplit() {
-        let p = PortfolioSummary(totalProjects: 2, passingProjects: 1, failingProjects: 1,
-                                 worstCheckers: ["safety"])
-        // Header: a vstack with a summary paragraph and a gauge, but no table.
+    @Test("header scene is summary + gauge, no projects table")
+    func headerScene() {
+        let p = PortfolioSummary(totalProjects: 2, passingProjects: 1, failingProjects: 1)
         guard case let .stack(_, _, headerChildren) = PortfolioScene.headerScene(portfolio: p) else {
             Issue.record("expected header stack"); return
         }
-        let hasTable = headerChildren.contains { if case .table = $0.node { return true }; return false }
-        #expect(!hasTable)
-        let hasGauge = headerChildren.contains { if case .gauge = $0.node { return true }; return false }
-        #expect(hasGauge)
-        // Sections: the worst-checkers section (heading + bullets) directly —
-        // the corpus trend is now a native chart, not part of this scene.
-        guard case let .stack(_, _, sectionChildren) = PortfolioScene.sectionsScene(portfolio: p),
-              case let .paragraph(heading, _, _, _) = sectionChildren.first?.node else {
-            Issue.record("expected sections stack led by a heading"); return
-        }
-        #expect(heading == "Worst Checkers")
+        #expect(!headerChildren.contains { if case .table = $0.node { return true }; return false })
+        #expect(headerChildren.contains { if case .gauge = $0.node { return true }; return false })
     }
 
     // MARK: Pulse analytics (tiers / trajectories / groups)
 
-    @Test("tier line counts by tier, best-first, omitting empties")
-    func tierLine() {
+    @Test("tier counts are best-first, omitting empties")
+    func tierCounts() {
         let tiers: [ProjectTier] = [.active, .active, .active, .baseline, .dormant]
-        #expect(PulseAnalytics.tierLine(tiers) == "3 active · 1 baseline · 1 dormant")
-        #expect(PulseAnalytics.tierLine([]) == nil)
+        let counts = PulseAnalytics.tierCounts(tiers)
+        #expect(counts.map(\.tier) == [.active, .baseline, .dormant])   // active first, atRisk/firstContact absent
+        #expect(counts.map(\.count) == [3, 1, 1])
+        #expect(PulseAnalytics.tierCounts([]).isEmpty)
     }
 
-    @Test("direction line counts improving/stable/declining with arrows")
-    func directionLine() {
-        let directions: [TrajectoryDirection] = [.improving, .stable, .stable, .declining, .insufficient]
-        #expect(PulseAnalytics.directionLine(directions) == "↑ 1 improving · → 2 stable · ↓ 1 declining")
-        #expect(PulseAnalytics.directionLine([]) == nil)
+    @Test("direction counts are improving/stable/declining in fixed order, zeros included")
+    func directionCounts() {
+        let directions: [TrajectoryDirection] = [.improving, .stable, .stable, .insufficient]
+        let counts = PulseAnalytics.directionCounts(directions)
+        #expect(counts.map(\.direction) == [.improving, .stable, .declining])
+        #expect(counts.map(\.count) == [1, 2, 0])   // declining present as zero
     }
 
     @Test("top movers are the steepest by absolute slope, arrowed and rounded")
     func topMovers() {
         let movers = [("Alpha", 0.014), ("Beta", -0.013), ("Gamma", 0.002), ("Flat", 0.0)]
         let top = PulseAnalytics.topMovers(movers, count: 2)
-        #expect(top == ["Alpha ↑0.014", "Beta ↓0.013"])   // steepest two; flat excluded
+        #expect(top.map(\.id) == ["Alpha", "Beta"])
+        #expect(top.map(\.trajectory) == ["↑0.014", "↓0.013"])   // flat excluded
     }
 
-    @Test("group text formats pass rate and runs; pass rate guards zero total")
-    func groupFormatting() {
+    @Test("pass rate percentage guards zero total")
+    func passRatePercent() {
         #expect(PulseAnalytics.passRatePercent(passed: 8, total: 26).rounded() == 31)
         #expect(PulseAnalytics.passRatePercent(passed: 0, total: 0) == 0)
-        #expect(PulseAnalytics.groupText(name: "BusinessMath", passRate: 31, runs: 26) == "BusinessMath: 31% (26 runs)")
+    }
+
+    @Test("worst-checker stats mean the per-project pass rates and carry failure counts")
+    func worstCheckerStats() {
+        let projects = [
+            ProjectSummary(projectID: "A", passRate: 0.9, latestPassed: true,
+                           checkerPassRates: ["safety": 0.8], runCount: 5),
+            ProjectSummary(projectID: "B", passRate: 0.5, latestPassed: false,
+                           checkerPassRates: ["safety": 0.6], runCount: 3),
+        ]
+        let stats = PulseAnalytics.worstCheckerStats(
+            worst: ["safety"], projects: projects, failuresByChecker: ["safety": 12])
+        #expect(stats.count == 1)
+        #expect(stats[0].checker == "safety")
+        #expect(abs(stats[0].passRate - 70) < 0.001)   // mean of 80% and 60%
+        #expect(stats[0].failures == 12)
     }
 
     // MARK: Anomaly formatting

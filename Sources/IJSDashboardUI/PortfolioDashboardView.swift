@@ -23,6 +23,26 @@ struct PortfolioDashboardView: View {
 
     private let renderer = SwiftUIRenderer()
 
+    /// Worst checkers enriched with aggregate pass rate and pulse failure counts.
+    private var worstCheckerStats: [(checker: String, passRate: Double, failures: Int)] {
+        PulseAnalytics.worstCheckerStats(
+            worst: portfolio.worstCheckers,
+            projects: projects,
+            failuresByChecker: pulse?.statistics.failuresByChecker ?? [:]
+        )
+    }
+
+    /// Each group's latest-day pass rate and total run count, name-sorted.
+    private var groupSummaries: [(name: String, passRate: Double, runs: Int)] {
+        (pulse?.groupSnapshots ?? [:]).compactMap { name, snapshots in
+            guard let latest = snapshots.max(by: { $0.date < $1.date }) else { return nil }
+            let rate = PulseAnalytics.passRatePercent(passed: latest.passedRuns, total: latest.gateRuns)
+            let runs = snapshots.reduce(0) { $0 + $1.gateRuns }
+            return (name, rate, runs)
+        }
+        .sorted { $0.name < $1.name }
+    }
+
     var body: some View {
         // A native composition: the header and analytical sections come from the
         // shared SwiftGUIKit scene; the projects table is a native, sortable,
@@ -37,7 +57,7 @@ struct PortfolioDashboardView: View {
                 ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [])
                     .frame(minHeight: 280, maxHeight: 460)
 
-                renderer.view(for: PortfolioScene.sectionsScene(portfolio: portfolio, pulse: pulse))
+                WorstCheckersTable(stats: worstCheckerStats)
 
                 if let snapshots = pulse?.statistics.corpusSnapshots, !snapshots.isEmpty {
                     // No fixed height: EditorialChartView hardcodes its own plot
@@ -46,7 +66,10 @@ struct PortfolioDashboardView: View {
                     CorpusTrendChartView(snapshots: snapshots)
                 }
 
-                renderer.view(for: PortfolioScene.pulseAnalyticsScene(pulse: pulse))
+                TierCountsView(tiers: Array((pulse?.projectTiers ?? [:]).values))
+                TrajectoryCountsView(directions: pulse?.projectTrajectories?.map(\.direction) ?? [])
+                TopMoversTable(movers: pulse?.projectTrajectories?.map { ($0.projectID, $0.slope) } ?? [])
+                GroupsTable(groups: groupSummaries)
 
                 if let clusters = pulse?.violationClusters, !clusters.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {

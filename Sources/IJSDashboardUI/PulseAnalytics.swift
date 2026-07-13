@@ -1,45 +1,40 @@
 // PulseAnalytics.swift
 // IJSDashboardUI
 //
-// Pure formatting for the pulse-derived analytical sections (Tiers, Trajectories,
-// Groups) — free of SwiftUI and the charting libraries so they're unit-testable.
-// Each helper takes plain values; the scene does the trivial extraction from the
-// pulse types.
+// Pure, testable computation for the pulse-derived analytical sections (Tiers,
+// Trajectories, Groups, Worst Checkers) — free of SwiftUI and the charting
+// libraries. Each helper takes plain values / IJSDashboardCore + CorpusKit types;
+// the native views render the results as grids and tables.
 
 import Foundation
 import CorpusKit
+import IJSDashboardCore
 
 enum PulseAnalytics {
 
-    /// "44 active · 4 baseline · 1 firstContact · 4 dormant" — tier counts,
-    /// best-first, omitting empties. Nil when there are none.
-    static func tierLine(_ tiers: [ProjectTier]) -> String? {
-        guard !tiers.isEmpty else { return nil }
+    /// Present tiers with their counts, best-first (active → dormant).
+    static func tierCounts(_ tiers: [ProjectTier]) -> [(tier: ProjectTier, count: Int)] {
+        guard !tiers.isEmpty else { return [] }
         var counts: [ProjectTier: Int] = [:]
         for tier in tiers { counts[tier, default: 0] += 1 }
-        let parts = ProjectTier.allCases.sorted(by: >).compactMap { tier -> String? in
+        return ProjectTier.allCases.sorted(by: >).compactMap { tier in
             let count = counts[tier] ?? 0
-            return count > 0 ? "\(count) \(tier.rawValue)" : nil
+            return count > 0 ? (tier, count) : nil
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// "↑ 6 improving · → 42 stable · ↓ 4 declining" — trajectory direction counts.
-    static func directionLine(_ directions: [TrajectoryDirection]) -> String? {
-        guard !directions.isEmpty else { return nil }
+    /// Improving / stable / declining counts, in that fixed order (zeros included
+    /// so the grid always shows all three headers).
+    static func directionCounts(_ directions: [TrajectoryDirection]) -> [(direction: TrajectoryDirection, count: Int)] {
         var counts: [TrajectoryDirection: Int] = [:]
         for direction in directions { counts[direction, default: 0] += 1 }
-        let order: [(TrajectoryDirection, String)] = [(.improving, "↑"), (.stable, "→"), (.declining, "↓")]
-        let parts = order.compactMap { direction, arrow -> String? in
-            let count = counts[direction] ?? 0
-            return count > 0 ? "\(arrow) \(count) \(direction.rawValue)" : nil
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return [.improving, .stable, .declining].map { ($0, counts[$0] ?? 0) }
     }
 
-    /// The `count` projects with the steepest (absolute) slope, formatted
-    /// "ProjectID ↑0.014" / "↓0.013". Flat (zero-slope) movers are excluded.
-    static func topMovers(_ movers: [(id: String, slope: Double)], count: Int = 3) -> [String] {
+    /// The `count` steepest movers by |slope|, as (project, "↑0.014", |slope|).
+    /// Flat (zero-slope) movers are excluded.
+    static func topMovers(_ movers: [(id: String, slope: Double)], count: Int = 5)
+        -> [(id: String, trajectory: String, magnitude: Double)] {
         movers
             .filter { abs($0.slope) > 0 }
             .sorted { abs($0.slope) > abs($1.slope) }
@@ -47,7 +42,7 @@ enum PulseAnalytics {
             .map { mover in
                 let arrow = mover.slope >= 0 ? "↑" : "↓"
                 let magnitude = (abs(mover.slope) * 1000).rounded() / 1000
-                return "\(mover.id) \(arrow)\(magnitude)"
+                return (mover.id, "\(arrow)\(magnitude)", abs(mover.slope))
             }
     }
 
@@ -56,8 +51,14 @@ enum PulseAnalytics {
         total > 0 ? Double(passed) / Double(total) * 100 : 0
     }
 
-    /// "BusinessMath: 31% (26 runs)".
-    static func groupText(name: String, passRate: Double, runs: Int) -> String {
-        "\(name): \(Int(passRate.rounded()))% (\(runs) runs)"
+    /// Per-worst-checker stats: mean pass rate across projects (0–100) and total
+    /// failure count from the pulse.
+    static func worstCheckerStats(worst: [String], projects: [ProjectSummary], failuresByChecker: [String: Int])
+        -> [(checker: String, passRate: Double, failures: Int)] {
+        worst.map { checker in
+            let rates = projects.compactMap { $0.checkerPassRates[checker] }
+            let mean = rates.isEmpty ? 0 : rates.reduce(0, +) / Double(rates.count) * 100
+            return (checker, mean, failuresByChecker[checker] ?? 0)
+        }
     }
 }
