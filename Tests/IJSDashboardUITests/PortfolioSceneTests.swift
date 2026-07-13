@@ -170,6 +170,25 @@ struct PortfolioSceneTests {
         #expect(NarrativeMarkdown.blocks(from: "\n\n# Title\n\n") == [.heading(level: 1, text: "Title")])
         #expect(NarrativeMarkdown.blocks(from: "   ").isEmpty)
     }
+
+    @Test("narrative Markdown parses a pipe table, skipping the separator row")
+    func narrativeMarkdownTable() {
+        let md = """
+        ## Current Health at a Glance
+
+        | Dimension | Now |
+        |---|---|
+        | Passing projects | 52 / 53 (98.1%) |
+        | Failing projects | 1 — SwiftCLIKit |
+        """
+        let blocks = NarrativeMarkdown.blocks(from: md)
+        #expect(blocks == [
+            .heading(level: 2, text: "Current Health at a Glance"),
+            .table(
+                headers: ["Dimension", "Now"],
+                rows: [["Passing projects", "52 / 53 (98.1%)"], ["Failing projects", "1 — SwiftCLIKit"]]),
+        ])
+    }
 #endif
 
     @Test("pass-rate percentage rounds to a whole number")
