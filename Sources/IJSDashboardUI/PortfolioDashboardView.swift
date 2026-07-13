@@ -39,6 +39,14 @@ struct PortfolioDashboardView: View {
 
                 renderer.view(for: PortfolioScene.sectionsScene(portfolio: portfolio, pulse: pulse))
 
+                if let clusters = pulse?.violationClusters, !clusters.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Violation Clusters").font(.headline)
+                        ClustersTableView(clusters: clusters)
+                            .frame(minHeight: 120, maxHeight: 260)
+                    }
+                }
+
                 if let narrative = pulse?.narrative,
                    !narrative.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     VStack(alignment: .leading, spacing: 8) {

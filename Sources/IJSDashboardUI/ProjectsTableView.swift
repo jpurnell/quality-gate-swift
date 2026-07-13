@@ -38,7 +38,12 @@ struct ProjectsTableView: View {
 
     var body: some View {
         Table(rows, sortOrder: $sortOrder) {
-            TableColumn("Project", value: \.project) { Text($0.project) }
+            TableColumn("Project", value: \.project) {
+                // Middle truncation: prefix-sharing project families (e.g.
+                // BioFeedbackKit-EdgeBLE vs -HRBLE) differ at the end, so the tail
+                // must stay visible — matching the TUI dashboard.
+                Text($0.project).lineLimit(1).truncationMode(.middle)
+            }
             TableColumn("Status", value: \.status) { row in
                 Text(row.status).foregroundStyle(row.passed ? Color.green : Color.red)
             }
