@@ -58,18 +58,22 @@ public struct DashboardData: Sendable {
     public let groups: [String: [String]]
     /// Per-project advisory findings from the latest run, for the drill-down inbox.
     public let inbox: [String: [InboxFinding]]
+    /// Per-project daily pass-rate trend, for the drill-down trend chart.
+    public let trends: [String: [TrendPoint]]
 
     /// Creates the dashboard's loaded data.
     public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
                 pulse: InstitutionalPulse?, health: [String: [Double]],
                 groups: [String: [String]] = [:],
-                inbox: [String: [InboxFinding]] = [:]) {
+                inbox: [String: [InboxFinding]] = [:],
+                trends: [String: [TrendPoint]] = [:]) {
         self.portfolio = portfolio
         self.projects = projects
         self.pulse = pulse
         self.health = health
         self.groups = groups
         self.inbox = inbox
+        self.trends = trends
     }
 }
 
@@ -87,10 +91,15 @@ public enum DashboardLoader {
         // silent: an absent/unreadable manifest is non-fatal — fall back to empty.
         let manifest = (try? reader.loadManifest()) ?? CorpusManifest()
 
+        // silent: orientation reports are optional — their absence is non-fatal.
+        let orientationCards = (try? reader.loadAllOrientationReports())
+            .map { PortfolioOrientation.cards(from: $0, knownProjects: Set(allRuns.keys)) } ?? [:]
+
         let projects = allRuns
             .map { entry in
                 ProjectSummary.compute(projectID: entry.key, from: entry.value,
-                                       lifecycle: manifest.lifecycle(for: entry.key))
+                                       lifecycle: manifest.lifecycle(for: entry.key),
+                                       orientation: orientationCards[entry.key])
             }
             .sorted { $0.projectID < $1.projectID }
 
@@ -112,8 +121,12 @@ public enum DashboardLoader {
         // Inbox: advisory findings from each project's latest run (Phase 3a §7).
         let inbox = allRuns.mapValues { inboxFindings(fromLatestOf: $0) }
 
+        // Per-project daily pass-rate trend for the drill-down chart.
+        let trends = allRuns.mapValues { TrendComputer.dailyPassRate(from: $0) }
+
         return DashboardData(portfolio: portfolio, projects: projects, pulse: pulse,
-                             health: health, groups: manifest.groups, inbox: inbox)
+                             health: health, groups: manifest.groups, inbox: inbox,
+                             trends: trends)
     }
 
     /// The advisory findings from the most recent of `runs`, mapped to the

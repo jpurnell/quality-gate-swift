@@ -25,7 +25,7 @@ public struct ProjectDetailView: View {
 
     private let project: ProjectSummary
     private let pulse: InstitutionalPulse?
-    private let health: [Double]
+    private let trends: [TrendPoint]
     private let inbox: [InboxFinding]
 
     @State private var tab: Tab = .summary
@@ -34,13 +34,13 @@ public struct ProjectDetailView: View {
     /// - Parameters:
     ///   - project: The project's aggregated summary.
     ///   - pulse: The latest institutional pulse, for tier/score/trajectory.
-    ///   - health: The project's recent per-run pass-rate series, for the trend.
+    ///   - trends: The project's daily pass-rate trend, for the trend chart.
     ///   - inbox: Advisory findings from the project's latest run.
     public init(project: ProjectSummary, pulse: InstitutionalPulse?,
-                health: [Double] = [], inbox: [InboxFinding] = []) {
+                trends: [TrendPoint] = [], inbox: [InboxFinding] = []) {
         self.project = project
         self.pulse = pulse
-        self.health = health
+        self.trends = trends
         self.inbox = inbox
     }
 
@@ -185,13 +185,11 @@ public struct ProjectDetailView: View {
 
     @ViewBuilder
     private var trendSection: some View {
-        if health.count >= 2 {
+        if trends.count >= 2 {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Pass Rate Trend").font(.headline)
-                Sparkline(values: health)
-                    .frame(height: 44)
-                    .frame(maxWidth: 360)
-                Text("Direction: \(ProjectDetailFormat.trendDirection(health)) (\(health.count) runs)")
+                ProjectTrendChartView(points: trends)
+                Text("Direction: \(ProjectDetailFormat.trendDirection(trends.map(\.value))) (\(trends.count) days)")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -243,30 +241,6 @@ public struct ProjectDetailView: View {
     }
 }
 
-/// A minimal line sparkline for a 0…1 series — no charting-library dependency.
-private struct Sparkline: View {
-    let values: [Double]
-
-    var body: some View {
-        GeometryReader { geo in
-            let count = values.count
-            Path { path in
-                let divisor = CGFloat(count - 1)
-                guard divisor > 0 else { return }
-                let stepX = geo.size.width / divisor
-                for (index, value) in values.enumerated() {
-                    let clamped = min(max(value, 0), 1)
-                    let x = CGFloat(index) * stepX
-                    let y = geo.size.height * (1 - CGFloat(clamped))
-                    if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                    else { path.addLine(to: CGPoint(x: x, y: y)) }
-                }
-            }
-            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineJoin: .round))
-        }
-    }
-}
-
 /// The Checkers tab as a native sortable table.
 private struct CheckersDetailTable: View {
     let rows: [ProjectDetailFormat.CheckerRow]
@@ -295,19 +269,70 @@ private struct CheckersDetailTable: View {
 /// The Inbox tab as a native sortable table of advisory findings.
 private struct InboxTable: View {
     let findings: [InboxFinding]
-    @State private var sortOrder = [KeyPathComparator(\InboxFinding.ruleID)]
+
+    /// A row: a rule group (findings of one rule, disclosed beneath it) or one
+    /// finding. Group rows leave the finding-specific columns blank.
+    struct Node: Identifiable {
+        let id: String
+        let rule: String
+        let file: String
+        let line: Int
+        let lineText: String
+        let message: String
+        let acknowledgeable: Bool
+        let children: [Node]?
+        var isGroup: Bool { children != nil }
+    }
+
+    @State private var selection: Node.ID?
+    @State private var sortOrder = [KeyPathComparator(\Node.rule)]
 
     var body: some View {
-        Table(findings.sorted(using: sortOrder), sortOrder: $sortOrder) {
-            TableColumn("Rule", value: \.ruleID) { Text($0.ruleID).lineLimit(1).truncationMode(.middle) }
-            TableColumn("File", value: \.fileName) { Text($0.fileName).lineLimit(1).truncationMode(.middle) }
-            TableColumn("Line", value: \.lineNumber) { Text("\($0.lineNumber)").monospacedDigit() }
+        Table(of: Node.self, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Rule", value: \.rule) { node in
+                Text(node.rule).fontWeight(node.isGroup ? .semibold : .regular)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            TableColumn("File", value: \.file) { Text($0.file).lineLimit(1).truncationMode(.middle) }
+            TableColumn("Line", value: \.line) { Text($0.lineText).monospacedDigit() }
             TableColumn("Message", value: \.message) { Text($0.message).lineLimit(2) }
-            TableColumn("Ack") { row in
-                Text(row.acknowledgeable ? "✓" : "—")
-                    .foregroundStyle(row.acknowledgeable ? Color.green : Color.secondary)
+            TableColumn("Ack") { node in
+                if node.isGroup {
+                    Color.clear.frame(width: 1, height: 1)
+                } else {
+                    Text(node.acknowledgeable ? "✓" : "—")
+                        .foregroundStyle(node.acknowledgeable ? Color.green : Color.secondary)
+                }
+            }
+        } rows: {
+            ForEach(topRows) { node in
+                if let children = node.children {
+                    DisclosureTableRow(node) { ForEach(children) { TableRow($0) } }
+                } else {
+                    TableRow(node)
+                }
             }
         }
+    }
+
+    /// Findings grouped by rule: each rule is a disclosure row (name + count)
+    /// whose members are its findings, file/line-sorted. Sorted by the current order.
+    private var topRows: [Node] {
+        let grouped = Dictionary(grouping: findings, by: \.ruleID)
+        let rows = grouped.sorted { $0.key < $1.key }.map { rule, items -> Node in
+            let children = items
+                .sorted { ($0.fileName, $0.lineNumber) < ($1.fileName, $1.lineNumber) }
+                .map { finding in
+                    Node(id: finding.id, rule: rule, file: finding.fileName,
+                         line: finding.lineNumber, lineText: "\(finding.lineNumber)",
+                         message: finding.message, acknowledgeable: finding.acknowledgeable,
+                         children: nil)
+                }
+            return Node(id: "rule:\(rule)", rule: "\(rule) (\(children.count))",
+                        file: "", line: 0, lineText: "", message: "",
+                        acknowledgeable: false, children: children)
+        }
+        return rows.sorted(using: sortOrder)
     }
 }
 #endif

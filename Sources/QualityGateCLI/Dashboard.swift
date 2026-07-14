@@ -210,11 +210,13 @@ struct Dashboard: AsyncParsableCommand {
                         return Double(results.filter { $0.status.isPassing }.count) / Double(count)
                     }
             }
-            // Inbox: advisory findings from each project's latest run — same
-            // computation as DashboardLoader, so the drill-down matches the app.
+            // Inbox + trends: same computation as DashboardLoader, so the
+            // drill-down matches the app.
             let inbox = allRuns.mapValues { DashboardLoader.inboxFindings(fromLatestOf: $0) }
+            let trends = allRuns.mapValues { TrendComputer.dailyPassRate(from: $0) }
             await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse,
-                                        health: health, groups: manifest.groups, inbox: inbox)
+                                        health: health, groups: manifest.groups, inbox: inbox,
+                                        trends: trends)
         } else {
             DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }

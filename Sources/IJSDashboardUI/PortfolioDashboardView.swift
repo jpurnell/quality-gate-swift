@@ -26,18 +26,22 @@ public struct PortfolioDashboardView: View {
     var groups: [String: [String]] = [:]
     /// Per-project advisory findings for the drill-down inbox.
     var inbox: [String: [InboxFinding]] = [:]
+    /// Per-project daily pass-rate trend for the drill-down chart.
+    var trends: [String: [TrendPoint]] = [:]
 
     /// Creates the portfolio dashboard view.
     public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
                 pulse: InstitutionalPulse?, health: [String: [Double]] = [:],
                 groups: [String: [String]] = [:],
-                inbox: [String: [InboxFinding]] = [:]) {
+                inbox: [String: [InboxFinding]] = [:],
+                trends: [String: [TrendPoint]] = [:]) {
         self.portfolio = portfolio
         self.projects = projects
         self.pulse = pulse
         self.health = health
         self.groups = groups
         self.inbox = inbox
+        self.trends = trends
     }
 
     private let renderer = SwiftUIRenderer()
@@ -85,25 +89,26 @@ public struct PortfolioDashboardView: View {
         .frame(minWidth: 820, minHeight: 520)
     }
 
-    /// The projects sidebar: an Overview item plus every project, name-sorted.
+    /// The projects sidebar: an Overview item, then each group as a disclosure
+    /// section over its members, then the ungrouped projects — consolidated the
+    /// same way the overview table groups them.
     @ViewBuilder
     private var sidebarList: some View {
         List(selection: $sidebar) {
             Label("Portfolio Overview", systemImage: "chart.bar.doc.horizontal")
                 .tag(SidebarItem.overview)
             Section("Projects") {
-                ForEach(projects, id: \.projectID) { project in
-                    Label {
-                        Text(project.projectID).lineLimit(1).truncationMode(.middle)
-                    } icon: {
-                        Image(systemName: project.latestPassed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(project.latestPassed ? Color.green : Color.red)
+                ForEach(groupedSections, id: \.id) { section in
+                    DisclosureGroup {
+                        ForEach(section.members, id: \.projectID) { project in
+                            projectRow(project).contextMenu { rowMenu(project.projectID) }
+                        }
+                    } label: {
+                        Label("\(section.id) (\(section.members.count))", systemImage: "folder")
                     }
-                    .tag(SidebarItem.project(project.projectID))
-                    .contextMenu {
-                        Button("Show Detail") { sidebar = .project(project.projectID) }
-                        Button("Back to Overview") { sidebar = .overview }
-                    }
+                }
+                ForEach(ungroupedProjects, id: \.projectID) { project in
+                    projectRow(project).contextMenu { rowMenu(project.projectID) }
                 }
             }
         }
@@ -111,12 +116,46 @@ public struct PortfolioDashboardView: View {
         .frame(minWidth: 200)
     }
 
+    /// One sidebar project row: a status glyph, the ID, and a selection tag.
+    @ViewBuilder
+    private func projectRow(_ project: ProjectSummary) -> some View {
+        Label {
+            Text(project.projectID).lineLimit(1).truncationMode(.middle)
+        } icon: {
+            Image(systemName: project.latestPassed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(project.latestPassed ? Color.green : Color.red)
+        }
+        .tag(SidebarItem.project(project.projectID))
+    }
+
+    /// A sidebar row's context-menu actions.
+    @ViewBuilder
+    private func rowMenu(_ projectID: String) -> some View {
+        Button("Show Detail") { sidebar = .project(projectID) }
+        Button("Back to Overview") { sidebar = .overview }
+    }
+
+    /// The groups whose members exist, name-sorted, each with its member summaries.
+    private var groupedSections: [(id: String, members: [ProjectSummary])] {
+        let byID = Dictionary(projects.map { ($0.projectID, $0) }, uniquingKeysWith: { first, _ in first })
+        return groups.sorted { $0.key < $1.key }.compactMap { groupID, memberIDs in
+            let members = memberIDs.compactMap { byID[$0] }.sorted { $0.projectID < $1.projectID }
+            return members.isEmpty ? nil : (groupID, members)
+        }
+    }
+
+    /// Projects that belong to no group, name-sorted.
+    private var ungroupedProjects: [ProjectSummary] {
+        let grouped = Set(groupedSections.flatMap { $0.members.map(\.projectID) })
+        return projects.filter { !grouped.contains($0.projectID) }
+    }
+
     /// The detail pane: a selected project's drill-down, or the overview.
     @ViewBuilder
     private var detailPane: some View {
         if case let .project(id) = sidebar, let project = projects.first(where: { $0.projectID == id }) {
             ProjectDetailView(project: project, pulse: pulse,
-                              health: health[id] ?? [], inbox: inbox[id] ?? [])
+                              trends: trends[id] ?? [], inbox: inbox[id] ?? [])
         } else {
             overview
         }

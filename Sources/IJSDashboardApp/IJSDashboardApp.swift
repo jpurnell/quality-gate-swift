@@ -95,7 +95,7 @@ struct DashboardRootView: View {
         case let .loaded(data):
             PortfolioDashboardView(portfolio: data.portfolio, projects: data.projects,
                                    pulse: data.pulse, health: data.health, groups: data.groups,
-                                   inbox: data.inbox)
+                                   inbox: data.inbox, trends: data.trends)
         case .loading:
             VStack(spacing: 12) {
                 ProgressView()
