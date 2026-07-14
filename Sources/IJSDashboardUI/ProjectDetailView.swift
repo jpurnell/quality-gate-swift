@@ -11,6 +11,9 @@
 import SwiftUI
 import IJSDashboardCore
 import CorpusKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// A tabbed detail view for a single project.
 public struct ProjectDetailView: View {
@@ -284,7 +287,7 @@ private struct InboxTable: View {
         var isGroup: Bool { children != nil }
     }
 
-    @State private var selection: Node.ID?
+    @State private var selection = Set<Node.ID>()
     @State private var sortOrder = [KeyPathComparator(\Node.rule)]
 
     var body: some View {
@@ -313,6 +316,39 @@ private struct InboxTable: View {
                 }
             }
         }
+        // Copy the right-clicked row, or the whole selection when it's part of it
+        // — so findings copy individually and in bulk. ⌘C copies the selection.
+        .contextMenu(forSelectionType: Node.ID.self) { ids in
+            Button("Copy") { copy(ids) }
+        }
+        .copyable([findingLines(for: selection).joined(separator: "\n")])
+    }
+
+    /// Writes the selected findings to the pasteboard as tab-separated lines
+    /// (rule · file:line · message) — one per finding, expanding any selected group.
+    private func copy(_ ids: Set<Node.ID>) {
+        let text = findingLines(for: ids).joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        #if canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+    }
+
+    /// The tab-separated text for each selected finding. A selected group id
+    /// expands to all its members; leaf ids resolve to themselves. De-duplicated.
+    private func findingLines(for ids: Set<Node.ID>) -> [String] {
+        guard !ids.isEmpty else { return [] }
+        var seen = Set<Node.ID>()
+        var lines: [String] = []
+        for group in topRows {
+            let members = group.children ?? []
+            let takeAll = ids.contains(group.id)
+            for leaf in members where (takeAll || ids.contains(leaf.id)) && seen.insert(leaf.id).inserted {
+                lines.append("\(leaf.rule)\t\(leaf.file):\(leaf.line)\t\(leaf.message)")
+            }
+        }
+        return lines
     }
 
     /// Findings grouped by rule: each rule is a disclosure row (name + count)
