@@ -1,12 +1,11 @@
 // ProjectsTableView.swift
 // IJSDashboardUI
 //
-// The projects table as a native SwiftUI `Table`: resizable columns and
-// click-to-sort headers. This is a native-surface rendering (not the shared
-// SwiftGUIKit scene) — `Table` is strongly typed and stateful (sort order, column
-// widths), which the cross-surface `.table` node can't express. The proposal's
-// "path to B" trigger: a native interaction the scene can't do, invoked cheaply
-// because IJSDashboardCore is the shared source of the data.
+// The projects table as a native SwiftUI `Table`: resizable columns, click-to-sort
+// headers, per-project Health heatmap and Anomaly columns, and expandable group
+// rows (a group aggregates its members; disclosure reveals them) — matching the
+// terminal dashboard. This is a native-surface rendering; the cross-surface
+// `.table` node can't express sorting, disclosure, or per-cell views.
 
 #if canImport(SwiftUI)
 import SwiftUI
@@ -15,66 +14,108 @@ import CorpusKit
 
 struct ProjectsTableView: View {
 
-    /// A table row projected from a `ProjectSummary`, with sortable columns.
+    /// A row — a project, or a group whose `members` disclose beneath it.
     struct Row: Identifiable {
         let id: String
-        let project: String
+        let name: String
         let passed: Bool
         let passRate: Double
         let runCount: Int
-        let health: [Double]       // recent daily pass rates (0…1)
-        let healthRecent: Double   // mean of the recent tail, the sort key
-        let anomaly: String        // "" when none
+        let health: [Double]
+        let healthRecent: Double
+        let anomaly: String
         let anomalyMagnitude: Double
         let anomalyGood: Bool
+        let members: [Row]?
         var status: String { passed ? "pass" : "fail" }
         var passRatePercent: Int { Int((passRate * 100).rounded()) }
+        var isGroup: Bool { members != nil }
     }
 
     let projects: [ProjectSummary]
     var anomalies: [StatisticalAnomaly] = []
     var health: [String: [Double]] = [:]
+    var groups: [String: [String]] = [:]
 
-    @State private var sortOrder: [KeyPathComparator<Row>] = [KeyPathComparator(\Row.project)]
-
-    private var rows: [Row] {
-        let lookup = AnomalyFormat.lookup(anomalies)
-        return projects
-            .map { project in
-                let cell = lookup[project.projectID]
-                let series = health[project.projectID] ?? []
-                return Row(id: project.projectID, project: project.projectID, passed: project.latestPassed,
-                           passRate: project.passRate, runCount: project.runCount,
-                           health: series, healthRecent: HealthTimeline.recentMean(series),
-                           anomaly: cell?.text ?? "", anomalyMagnitude: cell?.magnitude ?? 0,
-                           anomalyGood: cell?.isGood ?? false)
-            }
-            .sorted(using: sortOrder)
-    }
+    @State private var sortOrder: [KeyPathComparator<Row>] = [KeyPathComparator(\Row.name)]
 
     var body: some View {
-        Table(rows, sortOrder: $sortOrder) {
-            TableColumn("Project", value: \.project) {
-                // Middle truncation: prefix-sharing project families (e.g.
-                // BioFeedbackKit-EdgeBLE vs -HRBLE) differ at the end, so the tail
-                // must stay visible — matching the TUI dashboard.
-                Text($0.project).lineLimit(1).truncationMode(.middle)
+        Table(of: Row.self, sortOrder: $sortOrder) {
+            TableColumn("Project", value: \.name) { row in
+                Text(row.name).lineLimit(1).truncationMode(.middle)
+                    .fontWeight(row.isGroup ? .semibold : .regular)
             }
             TableColumn("Status", value: \.status) { row in
                 Text(row.status).foregroundStyle(row.passed ? Color.green : Color.red)
             }
             TableColumn("Health", value: \.healthRecent) { row in
-                healthBar(row.health)
+                if row.isGroup { Color.clear.frame(width: 1, height: 1) } else { healthBar(row.health) }
             }
-            TableColumn("Pass Rate", value: \.passRate) { Text("\($0.passRatePercent)%") }
-            TableColumn("Runs", value: \.runCount) { Text("\($0.runCount)") }
+            TableColumn("Pass Rate", value: \.passRate) { Text("\($0.passRatePercent)%").monospacedDigit() }
+            TableColumn("Runs", value: \.runCount) { Text("\($0.runCount)").monospacedDigit() }
             TableColumn("Anomaly", value: \.anomalyMagnitude) { row in
                 Text(row.anomaly).foregroundStyle(Self.anomalyColor(row))
+            }
+        } rows: {
+            ForEach(topRows) { row in
+                if let members = row.members {
+                    DisclosureTableRow(row) {
+                        ForEach(members) { TableRow($0) }
+                    }
+                } else {
+                    TableRow(row)
+                }
             }
         }
     }
 
-    /// A compact heatmap of the recent daily pass rates — one colored cell per day.
+    // MARK: Row building
+
+    /// Top-level rows: each group (aggregated, with member children) followed by
+    /// the ungrouped projects, sorted by the current sort order.
+    private var topRows: [Row] {
+        let lookup = AnomalyFormat.lookup(anomalies)
+        let byID = Dictionary(projects.map { ($0.projectID, $0) }, uniquingKeysWith: { first, _ in first })
+        var grouped = Set<String>()
+        var rows: [Row] = []
+
+        for (groupID, memberIDs) in groups.sorted(by: { $0.key < $1.key }) {
+            let members = memberIDs.compactMap { byID[$0] }
+            guard !members.isEmpty else { continue }
+            for member in members { grouped.insert(member.projectID) }
+
+            let memberRows = members.map { projectRow($0, lookup: lookup) }.sorted { $0.name < $1.name }
+            let count = members.count
+            let passRate = count > 0 ? members.map(\.passRate).reduce(0, +) / Double(count) : 0
+            rows.append(Row(
+                id: "group:\(groupID)", name: "\(groupID) (\(count))",
+                passed: members.allSatisfy(\.latestPassed),
+                passRate: passRate, runCount: members.map(\.runCount).reduce(0, +),
+                health: [], healthRecent: passRate,
+                anomaly: "", anomalyMagnitude: 0, anomalyGood: false,
+                members: memberRows))
+        }
+
+        for project in projects where !grouped.contains(project.projectID) {
+            rows.append(projectRow(project, lookup: lookup))
+        }
+        return rows.sorted(using: sortOrder)
+    }
+
+    private func projectRow(_ project: ProjectSummary, lookup: [String: AnomalyFormat.Cell]) -> Row {
+        let cell = lookup[project.projectID]
+        let series = health[project.projectID] ?? []
+        return Row(
+            id: project.projectID, name: project.projectID, passed: project.latestPassed,
+            passRate: project.passRate, runCount: project.runCount,
+            health: series, healthRecent: HealthTimeline.recentMean(series),
+            anomaly: cell?.text ?? "", anomalyMagnitude: cell?.magnitude ?? 0,
+            anomalyGood: cell?.isGood ?? false, members: nil)
+    }
+
+    // MARK: Cell rendering
+
+    /// A compact heatmap of the recent runs' pass rates — one colored cell per run.
     @ViewBuilder
     private func healthBar(_ values: [Double]) -> some View {
         let recent = Array(values.suffix(12))

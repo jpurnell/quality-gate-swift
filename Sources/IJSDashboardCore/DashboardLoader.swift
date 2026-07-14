@@ -19,14 +19,18 @@ public struct DashboardData: Sendable {
     public let pulse: InstitutionalPulse?
     /// Per-project recent per-run checker pass rates for the health timeline.
     public let health: [String: [Double]]
+    /// Group memberships from the manifest (group ID → member project IDs).
+    public let groups: [String: [String]]
 
     /// Creates the dashboard's loaded data.
     public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
-                pulse: InstitutionalPulse?, health: [String: [Double]]) {
+                pulse: InstitutionalPulse?, health: [String: [Double]],
+                groups: [String: [String]] = [:]) {
         self.portfolio = portfolio
         self.projects = projects
         self.pulse = pulse
         self.health = health
+        self.groups = groups
     }
 }
 
@@ -66,6 +70,7 @@ public enum DashboardLoader {
                 }
         }
 
-        return DashboardData(portfolio: portfolio, projects: projects, pulse: pulse, health: health)
+        return DashboardData(portfolio: portfolio, projects: projects, pulse: pulse,
+                             health: health, groups: manifest.groups)
     }
 }

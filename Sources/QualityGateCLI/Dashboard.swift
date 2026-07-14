@@ -210,7 +210,8 @@ struct Dashboard: AsyncParsableCommand {
                         return Double(results.filter { $0.status.isPassing }.count) / Double(count)
                     }
             }
-            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse, health: health)
+            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse,
+                                        health: health, groups: manifest.groups)
         } else {
             DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }

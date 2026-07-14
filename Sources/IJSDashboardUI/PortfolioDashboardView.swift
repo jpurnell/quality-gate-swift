@@ -22,14 +22,18 @@ public struct PortfolioDashboardView: View {
     let pulse: InstitutionalPulse?
     /// Per-project recent daily pass rates for the health-timeline column.
     var health: [String: [Double]] = [:]
+    /// Group memberships (group ID → member project IDs) for the expandable rows.
+    var groups: [String: [String]] = [:]
 
     /// Creates the portfolio dashboard view.
     public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
-                pulse: InstitutionalPulse?, health: [String: [Double]] = [:]) {
+                pulse: InstitutionalPulse?, health: [String: [Double]] = [:],
+                groups: [String: [String]] = [:]) {
         self.portfolio = portfolio
         self.projects = projects
         self.pulse = pulse
         self.health = health
+        self.groups = groups
     }
 
     private let renderer = SwiftUIRenderer()
@@ -67,7 +71,8 @@ public struct PortfolioDashboardView: View {
                 renderer.view(for: PortfolioScene.headerScene(portfolio: portfolio, pulse: pulse))
 
                 ResizableHeight(initial: 420) {
-                    ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [], health: health)
+                    ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [],
+                                      health: health, groups: groups)
                 }
 
                 WorstCheckersTable(stats: worstCheckerStats)

@@ -28,7 +28,8 @@ public enum IJSDashboardUI {
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
         pulse: InstitutionalPulse? = nil,
-        health: [String: [Double]] = [:]
+        health: [String: [Double]] = [:],
+        groups: [String: [String]] = [:]
     ) {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)   // a real windowed app, from a CLI process
@@ -43,7 +44,7 @@ public enum IJSDashboardUI {
         window.title = "IJS Portfolio Dashboard"
         window.collectionBehavior.insert(.fullScreenPrimary)   // resize to fill on fullscreen
         window.contentView = NSHostingView(
-            rootView: PortfolioDashboardView(portfolio: portfolio, projects: projects, pulse: pulse, health: health)
+            rootView: PortfolioDashboardView(portfolio: portfolio, projects: projects, pulse: pulse, health: health, groups: groups)
         )
         window.center()
         window.makeKeyAndOrderFront(nil)
