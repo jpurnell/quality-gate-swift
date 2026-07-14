@@ -8,6 +8,41 @@
 import Foundation
 import IJSAggregator
 import IJSSensor
+import JudgmentWorkbench
+
+/// One advisory finding from a project's latest run, ready for the drill-down
+/// inbox. A surface-agnostic mirror of ``JudgmentWorkbench/InboxItem`` so the
+/// dashboard UI layer needn't depend on JudgmentWorkbench.
+public struct InboxFinding: Sendable, Identifiable, Equatable {
+    /// The rule that produced the finding (or a placeholder when none was carried).
+    public let ruleID: String
+    /// The finding's human-readable message.
+    public let message: String
+    /// Absolute path of the flagged file.
+    public let filePath: String
+    /// 1-based flagged line number.
+    public let lineNumber: Int
+    /// Whether the rule has an in-place acknowledgment path.
+    public let acknowledgeable: Bool
+
+    /// A stable identity for lists and tables.
+    public var id: String { "\(ruleID)|\(filePath)|\(lineNumber)" }
+
+    /// The flagged file's last path component, for compact display.
+    public var fileName: String {
+        (filePath as NSString).lastPathComponent
+    }
+
+    /// Creates an inbox finding.
+    public init(ruleID: String, message: String, filePath: String,
+                lineNumber: Int, acknowledgeable: Bool) {
+        self.ruleID = ruleID
+        self.message = message
+        self.filePath = filePath
+        self.lineNumber = lineNumber
+        self.acknowledgeable = acknowledgeable
+    }
+}
 
 /// Everything the portfolio dashboard renders, loaded from a corpus.
 public struct DashboardData: Sendable {
@@ -21,16 +56,20 @@ public struct DashboardData: Sendable {
     public let health: [String: [Double]]
     /// Group memberships from the manifest (group ID → member project IDs).
     public let groups: [String: [String]]
+    /// Per-project advisory findings from the latest run, for the drill-down inbox.
+    public let inbox: [String: [InboxFinding]]
 
     /// Creates the dashboard's loaded data.
     public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
                 pulse: InstitutionalPulse?, health: [String: [Double]],
-                groups: [String: [String]] = [:]) {
+                groups: [String: [String]] = [:],
+                inbox: [String: [InboxFinding]] = [:]) {
         self.portfolio = portfolio
         self.projects = projects
         self.pulse = pulse
         self.health = health
         self.groups = groups
+        self.inbox = inbox
     }
 }
 
@@ -70,7 +109,23 @@ public enum DashboardLoader {
                 }
         }
 
+        // Inbox: advisory findings from each project's latest run (Phase 3a §7).
+        let inbox = allRuns.mapValues { inboxFindings(fromLatestOf: $0) }
+
         return DashboardData(portfolio: portfolio, projects: projects, pulse: pulse,
-                             health: health, groups: manifest.groups)
+                             health: health, groups: manifest.groups, inbox: inbox)
+    }
+
+    /// The advisory findings from the most recent of `runs`, mapped to the
+    /// surface-agnostic ``InboxFinding``. Shared by ``load(corpusPath:week:)``
+    /// and the CLI's `dashboard --native` so both compute the same inbox.
+    public static func inboxFindings(fromLatestOf runs: [TimestampedRun]) -> [InboxFinding] {
+        guard let latest = runs.max(by: { $0.metadata.timestamp < $1.metadata.timestamp })
+        else { return [] }
+        return FindingsInbox.items(from: latest.metadata).map { item in
+            InboxFinding(ruleID: item.ruleId ?? "(no rule id)", message: item.message,
+                         filePath: item.filePath, lineNumber: item.lineNumber,
+                         acknowledgeable: item.isAcknowledgeable)
+        }
     }
 }

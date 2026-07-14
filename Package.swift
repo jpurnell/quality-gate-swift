@@ -772,6 +772,7 @@ let package = Package(
             dependencies: [
                 "IJSSensor",
                 "IJSAggregator",
+                "JudgmentWorkbench",
             ]
         ),
         .testTarget(

@@ -36,11 +36,14 @@ struct ProjectsTableView: View {
     var anomalies: [StatisticalAnomaly] = []
     var health: [String: [Double]] = [:]
     var groups: [String: [String]] = [:]
+    /// Called with a project's ID when its row is selected (group rows are ignored).
+    var onSelectProject: (String) -> Void = { _ in }
 
     @State private var sortOrder: [KeyPathComparator<Row>] = [KeyPathComparator(\Row.name)]
+    @State private var selection: Row.ID?
 
     var body: some View {
-        Table(of: Row.self, sortOrder: $sortOrder) {
+        Table(of: Row.self, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Project", value: \.name) { row in
                 Text(row.name).lineLimit(1).truncationMode(.middle)
                     .fontWeight(row.isGroup ? .semibold : .regular)
@@ -66,6 +69,13 @@ struct ProjectsTableView: View {
                     TableRow(row)
                 }
             }
+        }
+        .onChange(of: selection) { _, newValue in
+            // Navigate on project selection; ignore group rows, then clear so
+            // re-selecting the same project drills in again.
+            guard let id = newValue else { return }
+            if !id.hasPrefix("group:") { onSelectProject(id) }
+            selection = nil
         }
     }
 

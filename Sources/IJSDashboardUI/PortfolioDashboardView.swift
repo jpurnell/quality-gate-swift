@@ -24,19 +24,33 @@ public struct PortfolioDashboardView: View {
     var health: [String: [Double]] = [:]
     /// Group memberships (group ID → member project IDs) for the expandable rows.
     var groups: [String: [String]] = [:]
+    /// Per-project advisory findings for the drill-down inbox.
+    var inbox: [String: [InboxFinding]] = [:]
 
     /// Creates the portfolio dashboard view.
     public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
                 pulse: InstitutionalPulse?, health: [String: [Double]] = [:],
-                groups: [String: [String]] = [:]) {
+                groups: [String: [String]] = [:],
+                inbox: [String: [InboxFinding]] = [:]) {
         self.portfolio = portfolio
         self.projects = projects
         self.pulse = pulse
         self.health = health
         self.groups = groups
+        self.inbox = inbox
     }
 
     private let renderer = SwiftUIRenderer()
+
+    /// A sidebar selection: the portfolio overview, or one project's detail.
+    private enum SidebarItem: Hashable {
+        case overview
+        case project(String)
+    }
+
+    /// The current sidebar selection, driving the detail pane. Defaults to the
+    /// portfolio overview.
+    @State private var sidebar: SidebarItem? = .overview
 
     /// Worst checkers enriched with aggregate pass rate and pulse failure counts.
     private var worstCheckerStats: [(checker: String, passRate: Double, failures: Int)] {
@@ -60,6 +74,57 @@ public struct PortfolioDashboardView: View {
 
     /// The dashboard view body.
     public var body: some View {
+        // A sidebar-driven Mac layout: the sidebar lists the projects; the detail
+        // pane shows the portfolio overview by default and swaps to a project's
+        // detail when one is selected (from the sidebar or the in-page table).
+        NavigationSplitView {
+            sidebarList
+        } detail: {
+            detailPane
+        }
+        .frame(minWidth: 820, minHeight: 520)
+    }
+
+    /// The projects sidebar: an Overview item plus every project, name-sorted.
+    @ViewBuilder
+    private var sidebarList: some View {
+        List(selection: $sidebar) {
+            Label("Portfolio Overview", systemImage: "chart.bar.doc.horizontal")
+                .tag(SidebarItem.overview)
+            Section("Projects") {
+                ForEach(projects, id: \.projectID) { project in
+                    Label {
+                        Text(project.projectID).lineLimit(1).truncationMode(.middle)
+                    } icon: {
+                        Image(systemName: project.latestPassed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(project.latestPassed ? Color.green : Color.red)
+                    }
+                    .tag(SidebarItem.project(project.projectID))
+                    .contextMenu {
+                        Button("Show Detail") { sidebar = .project(project.projectID) }
+                        Button("Back to Overview") { sidebar = .overview }
+                    }
+                }
+            }
+        }
+        .navigationTitle("IJS")
+        .frame(minWidth: 200)
+    }
+
+    /// The detail pane: a selected project's drill-down, or the overview.
+    @ViewBuilder
+    private var detailPane: some View {
+        if case let .project(id) = sidebar, let project = projects.first(where: { $0.projectID == id }) {
+            ProjectDetailView(project: project, pulse: pulse,
+                              health: health[id] ?? [], inbox: inbox[id] ?? [])
+        } else {
+            overview
+        }
+    }
+
+    /// The portfolio overview: header, projects table, and analytical sections.
+    @ViewBuilder
+    private var overview: some View {
         // A native composition: the header and analytical sections come from the
         // shared SwiftGUIKit scene; the projects table is a native, sortable,
         // resizable `Table`; the narrative is native Markdown. The page scrolls as
@@ -72,7 +137,8 @@ public struct PortfolioDashboardView: View {
 
                 ResizableHeight(initial: 420) {
                     ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [],
-                                      health: health, groups: groups)
+                                      health: health, groups: groups,
+                                      onSelectProject: { sidebar = .project($0) })
                 }
 
                 WorstCheckersTable(stats: worstCheckerStats)
@@ -109,7 +175,6 @@ public struct PortfolioDashboardView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 640, minHeight: 480)
     }
 }
 #endif
