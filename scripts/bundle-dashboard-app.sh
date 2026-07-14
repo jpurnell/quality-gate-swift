@@ -21,6 +21,16 @@ mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
 
 cp "${BIN}" "${CONTENTS}/MacOS/${EXECUTABLE}"
 
+# App icon (generate on first run).
+if [[ ! -f "${ROOT}/scripts/AppIcon.icns" ]]; then
+    "${ROOT}/scripts/make-icon.sh" || echo "  (icon generation skipped)"
+fi
+ICON_KEY=""
+if [[ -f "${ROOT}/scripts/AppIcon.icns" ]]; then
+    cp "${ROOT}/scripts/AppIcon.icns" "${CONTENTS}/Resources/AppIcon.icns"
+    ICON_KEY="    <key>CFBundleIconFile</key><string>AppIcon</string>"
+fi
+
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -30,6 +40,7 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleExecutable</key><string>${EXECUTABLE}</string>
+${ICON_KEY}
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>1</string>
