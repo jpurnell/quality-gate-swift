@@ -201,6 +201,11 @@ let package = Package(
             name: "quality-gate",
             targets: ["QualityGateCLI"]
         ),
+        // Native dashboard app (macOS)
+        .executable(
+            name: "IJSDashboardApp",
+            targets: ["IJSDashboardApp"]
+        ),
         // IJS MCP Server
         .executable(
             name: "ijs-mcp-server",
@@ -821,6 +826,13 @@ let package = Package(
                 "IJSDashboardCore",
                 .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+            ]
+        ),
+        .executableTarget(
+            name: "IJSDashboardApp",
+            dependencies: [
+                "IJSDashboardCore",
+                "IJSDashboardUI",
             ]
         ),
         .testTarget(

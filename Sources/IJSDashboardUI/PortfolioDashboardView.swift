@@ -13,7 +13,7 @@ import IJSDashboardCore
 import CorpusKit
 
 /// A native window body rendering the IJS portfolio overview.
-struct PortfolioDashboardView: View {
+public struct PortfolioDashboardView: View {
     /// The cross-project rollup.
     let portfolio: PortfolioSummary
     /// The per-project summaries.
@@ -22,6 +22,15 @@ struct PortfolioDashboardView: View {
     let pulse: InstitutionalPulse?
     /// Per-project recent daily pass rates for the health-timeline column.
     var health: [String: [Double]] = [:]
+
+    /// Creates the portfolio dashboard view.
+    public init(portfolio: PortfolioSummary, projects: [ProjectSummary],
+                pulse: InstitutionalPulse?, health: [String: [Double]] = [:]) {
+        self.portfolio = portfolio
+        self.projects = projects
+        self.pulse = pulse
+        self.health = health
+    }
 
     private let renderer = SwiftUIRenderer()
 
@@ -45,7 +54,8 @@ struct PortfolioDashboardView: View {
         .sorted { $0.name < $1.name }
     }
 
-    var body: some View {
+    /// The dashboard view body.
+    public var body: some View {
         // A native composition: the header and analytical sections come from the
         // shared SwiftGUIKit scene; the projects table is a native, sortable,
         // resizable `Table`; the narrative is native Markdown. The page scrolls as
@@ -56,8 +66,9 @@ struct PortfolioDashboardView: View {
 
                 renderer.view(for: PortfolioScene.headerScene(portfolio: portfolio, pulse: pulse))
 
-                ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [], health: health)
-                    .frame(minHeight: 280, maxHeight: 460)
+                ResizableHeight(initial: 420) {
+                    ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [], health: health)
+                }
 
                 WorstCheckersTable(stats: worstCheckerStats)
 
@@ -76,8 +87,9 @@ struct PortfolioDashboardView: View {
                 if let clusters = pulse?.violationClusters, !clusters.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Violation Clusters").font(.headline)
-                        ClustersTableView(clusters: clusters)
-                            .frame(minHeight: 120, maxHeight: 260)
+                        ResizableHeight(initial: 240) {
+                            ClustersTableView(clusters: clusters)
+                        }
                     }
                 }
 

@@ -88,7 +88,7 @@ struct TopMoversTable: View {
                         Text($0.trajectory).monospacedDigit()
                     }
                 }
-                .frame(minHeight: 90, maxHeight: 160)
+                .resizableHeight(initial: 150)
             }
         }
     }
@@ -128,7 +128,7 @@ struct GroupsTable: View {
                         Text("\($0.runs)").monospacedDigit()
                     }
                 }
-                .frame(minHeight: 90, maxHeight: 220)
+                .resizableHeight(initial: 200)
             }
         }
     }
@@ -169,7 +169,7 @@ struct WorstCheckersTable: View {
                         Text("\($0.failures)").monospacedDigit()
                     }
                 }
-                .frame(minHeight: 90, maxHeight: 220)
+                .resizableHeight(initial: 200)
             }
         }
     }
