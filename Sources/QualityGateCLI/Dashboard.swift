@@ -198,7 +198,19 @@ struct Dashboard: AsyncParsableCommand {
         } else if summary {
             print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse))
         } else if native {
-            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse)
+            // Health timeline: the recent runs' checker pass rate (passing checkers
+            // ÷ total checkers per run), oldest→newest — matching the terminal.
+            let health = allRuns.mapValues { runs -> [Double] in
+                runs.sorted { $0.metadata.timestamp < $1.metadata.timestamp }
+                    .suffix(14)
+                    .map { run in
+                        let results = run.metadata.results
+                        let count = results.count
+                        guard count > 0 else { return 0 }
+                        return Double(results.filter { $0.status.isPassing }.count) / Double(count)
+                    }
+            }
+            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse, health: health)
         } else {
             DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }

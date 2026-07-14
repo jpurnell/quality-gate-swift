@@ -27,7 +27,8 @@ public enum IJSDashboardUI {
     public static func launch(
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
-        pulse: InstitutionalPulse? = nil
+        pulse: InstitutionalPulse? = nil,
+        health: [String: [Double]] = [:]
     ) {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)   // a real windowed app, from a CLI process
@@ -40,7 +41,7 @@ public enum IJSDashboardUI {
         )
         window.title = "IJS Portfolio Dashboard"
         window.contentView = NSHostingView(
-            rootView: PortfolioDashboardView(portfolio: portfolio, projects: projects, pulse: pulse)
+            rootView: PortfolioDashboardView(portfolio: portfolio, projects: projects, pulse: pulse, health: health)
         )
         window.center()
         window.makeKeyAndOrderFront(nil)

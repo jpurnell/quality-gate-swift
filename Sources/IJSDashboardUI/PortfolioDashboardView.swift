@@ -20,6 +20,8 @@ struct PortfolioDashboardView: View {
     let projects: [ProjectSummary]
     /// The latest institutional pulse, if available.
     let pulse: InstitutionalPulse?
+    /// Per-project recent daily pass rates for the health-timeline column.
+    var health: [String: [Double]] = [:]
 
     private let renderer = SwiftUIRenderer()
 
@@ -54,7 +56,7 @@ struct PortfolioDashboardView: View {
 
                 renderer.view(for: PortfolioScene.headerScene(portfolio: portfolio, pulse: pulse))
 
-                ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [])
+                ProjectsTableView(projects: projects, anomalies: pulse?.statistics.anomalies ?? [], health: health)
                     .frame(minHeight: 280, maxHeight: 460)
 
                 WorstCheckersTable(stats: worstCheckerStats)

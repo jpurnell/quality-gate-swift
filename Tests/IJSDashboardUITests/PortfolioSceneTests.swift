@@ -150,6 +150,23 @@ struct PortfolioSceneTests {
         #expect(stats[0].failures == 12)
     }
 
+    // MARK: Health timeline
+
+    @Test("health level buckets a pass rate by the terminal thresholds")
+    func healthLevels() {
+        #expect(HealthTimeline.level(0.95) == .good)   // ≥90
+        #expect(HealthTimeline.level(0.80) == .ok)     // ≥75
+        #expect(HealthTimeline.level(0.65) == .warn)   // ≥60
+        #expect(HealthTimeline.level(0.40) == .bad)    // below
+    }
+
+    @Test("health recent mean averages the tail and guards empty")
+    func healthRecentMean() {
+        #expect(abs(HealthTimeline.recentMean([], count: 3)) < 1e-9)
+        #expect(abs(HealthTimeline.recentMean([0.2, 0.4, 1.0, 1.0], count: 2) - 1.0) < 1e-9)  // last two
+        #expect(abs(HealthTimeline.recentMean([0.6, 0.9], count: 10) - 0.75) < 0.001)
+    }
+
     // MARK: Anomaly formatting
 
     @Test("anomaly cell: short metric + rounded |z| + direction arrow")
