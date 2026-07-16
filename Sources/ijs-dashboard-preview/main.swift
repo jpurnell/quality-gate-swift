@@ -12,10 +12,11 @@ import SwiftGUIKit
 import SwiftCLIKit
 
 let projects: [ProjectSummary] = [
-    ProjectSummary(projectID: "quality-gate-swift", passRate: 0.94, latestPassed: true, runCount: 142),
-    ProjectSummary(projectID: "SwiftCLIKit", passRate: 1.0, latestPassed: true, runCount: 38),
+    ProjectSummary(projectID: "quality-gate-swift", passRate: 0.94, latestPassed: true, latestFullPassed: true, runCount: 142),
+    ProjectSummary(projectID: "SwiftCLIKit", passRate: 1.0, latestPassed: true, latestFullPassed: true, runCount: 38),
     ProjectSummary(projectID: "org-judgement-system", passRate: 0.71, latestPassed: false, runCount: 56),
-    ProjectSummary(projectID: "BusinessMath", passRate: 0.88, latestPassed: true, runCount: 27),
+    // Green from a targeted --check re-run, not yet confirmed by a full gate — renders ✓*.
+    ProjectSummary(projectID: "BusinessMath", passRate: 0.88, latestPassed: true, latestFullPassed: false, runCount: 27),
     ProjectSummary(projectID: "swift-vigil", passRate: 0.63, latestPassed: false, runCount: 19),
 ]
 let portfolio = PortfolioSummary(totalProjects: 5, passingProjects: 3, failingProjects: 2)

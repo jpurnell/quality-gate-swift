@@ -79,9 +79,21 @@ public enum FindingsInbox {
     /// - Parameter metadata: The run's recorded results.
     /// - Returns: Deduplicated, sorted inbox items with resolved markers.
     public static func items(from metadata: CheckResultMetadata) -> [InboxItem] {
+        items(fromResults: metadata.results)
+    }
+
+    /// Extracts advisory findings from a set of checker results directly.
+    ///
+    /// Same filtering as ``items(from:)``, but over a caller-assembled result
+    /// list — letting the dashboard build a *composite* inbox (each checker's
+    /// latest standard-mode run) rather than a single run's snapshot.
+    ///
+    /// - Parameter results: The checker results to scan.
+    /// - Returns: Deduplicated, sorted inbox items with resolved markers.
+    public static func items(fromResults results: [CheckResult]) -> [InboxItem] {
         var seen = Set<InboxItem>()
         var items: [InboxItem] = []
-        for result in metadata.results {
+        for result in results {
             for diagnostic in result.diagnostics {
                 guard diagnostic.severity == .note,
                       let filePath = diagnostic.filePath,

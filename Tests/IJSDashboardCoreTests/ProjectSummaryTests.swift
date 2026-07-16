@@ -108,7 +108,7 @@ struct ProjectSummaryTests {
 
     // MARK: - Run scope honesty (0.1)
 
-    @Test("A green subset run must not move the pass rate or the latest gate status")
+    @Test("Pass rate and full-confirmation count full runs only, not a green subset")
     func subsetRunsDoNotMovePassRate() {
         let runs = [
             makeScopedRun(index: 0, checkers: ["safety": true], scope: .full),
@@ -116,10 +116,14 @@ struct ProjectSummaryTests {
             makeScopedRun(index: 2, checkers: ["legibility": true], scope: .subset(checkers: ["legibility"])),
         ]
         let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        // Historical pass rate is over full runs only: 1 of 2 passed.
         #expect(abs(summary.passRate - 0.5) < 1e-6)
-        #expect(summary.latestPassed == false)
         #expect(summary.runCount == 2)
         #expect(summary.partialRunCount == 1)
+        // safety's latest standard result is still failing, so the composite
+        // gate is not green — and it was never confirmed by a full run.
+        #expect(summary.latestPassed == false)
+        #expect(summary.latestFullPassed == false)
     }
 
     @Test("Subset runs are real evidence for the checkers that ran")
@@ -134,7 +138,55 @@ struct ProjectSummaryTests {
         #expect(summary.latestCheckerPassed["legibility"] == true)
     }
 
-    @Test("An all-subset history has no full runs to rate")
+    @Test("A targeted subset fix flips the composite gate green but not full-confirmed")
+    func subsetFixMakesCompositeGreen() {
+        // The BusinessMathPro / geo-audit case: the last full run failed one
+        // checker; a targeted `--check` re-ran just that checker and it passed.
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["safety": true, "build": false], scope: .full),
+            makeScopedRun(index: 1, checkers: ["build": true], scope: .subset(checkers: ["build"])),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        // Every checker's latest standard result now passes → overview green.
+        #expect(summary.latestPassed == true)
+        // But no full run has confirmed the whole gate → render ✓*, not ✓.
+        #expect(summary.latestFullPassed == false)
+    }
+
+    @Test("A green full run with nothing newer is fully confirmed")
+    func fullGreenIsFullyConfirmed() {
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["safety": true, "build": true], scope: .full),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        #expect(summary.latestPassed == true)
+        #expect(summary.latestFullPassed == true)
+    }
+
+    @Test("A newer subset failure overrides a stale full-green")
+    func newerSubsetFailureFails() {
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["safety": true, "build": true], scope: .full),
+            makeScopedRun(index: 1, checkers: ["build": false], scope: .subset(checkers: ["build"])),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        #expect(summary.latestPassed == false)
+    }
+
+    @Test("Advisory surveys never flip the composite gate green")
+    func advisoryRunsDoNotConfirm() {
+        let runs = [
+            makeScopedRun(index: 0, checkers: ["safety": false], scope: .full),
+            makeScopedRun(index: 1, checkers: ["safety": true], scope: .full, gateMode: .advisory),
+        ]
+        let summary = ProjectSummary.compute(projectID: "test", from: runs)
+        // The advisory survey is not a gate, so safety's latest *standard*
+        // result is still the failing full run.
+        #expect(summary.latestCheckerPassed["safety"] == false)
+        #expect(summary.latestPassed == false)
+    }
+
+    @Test("An all-subset history is green if every checker's latest run passed, but never full-confirmed")
     func allSubsetHistory() {
         let runs = [
             makeScopedRun(index: 0, checkers: ["legibility": true], scope: .subset(checkers: ["legibility"])),
@@ -144,13 +196,21 @@ struct ProjectSummaryTests {
         #expect(summary.runCount == 0)
         #expect(summary.partialRunCount == 2)
         #expect(abs(summary.passRate - 0.0) < 1e-6)
-        #expect(summary.latestPassed == false)
+        // Composite of the two subset runs: both checkers pass → green (✓*)…
+        #expect(summary.latestPassed == true)
+        // …but no full run confirmed the whole gate.
+        #expect(summary.latestFullPassed == false)
     }
 }
 
 // MARK: - Helpers
 
-private func makeScopedRun(index: Int, checkers: [String: Bool], scope: RunScope) -> TimestampedRun {
+private func makeScopedRun(
+    index: Int,
+    checkers: [String: Bool],
+    scope: RunScope,
+    gateMode: GateMode = .standard
+) -> TimestampedRun {
     let results = checkers.map { id, passed in
         CheckResult(
             checkerId: id,
@@ -170,7 +230,8 @@ private func makeScopedRun(index: Int, checkers: [String: Bool], scope: RunScope
             riskTier: .operational,
             ethicalFlags: [],
             consistencyScore: nil,
-            runScope: scope
+            runScope: scope,
+            gateMode: gateMode
         )
     )
 }

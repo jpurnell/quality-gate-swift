@@ -89,17 +89,36 @@ public struct ProjectDetailView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
+    private var statusBadgeText: String {
+        switch project.gateStatus {
+        case .failing: return "FAILING"
+        case .passingPartial: return "PASSING *"
+        case .passingConfirmed: return "PASSING"
+        }
+    }
+
+    private var statusBadgeColor: Color {
+        switch project.gateStatus {
+        case .failing: return .red
+        case .passingPartial: return .yellow
+        case .passingConfirmed: return .green
+        }
+    }
+
     @ViewBuilder
     private var statusHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Text(project.projectID).font(.title2.bold())
-                Text(project.latestPassed ? "PASSING" : "FAILING")
+                Text(statusBadgeText)
                     .font(.caption.bold())
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(project.latestPassed ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
-                    .foregroundStyle(project.latestPassed ? Color.green : Color.red)
+                    .background(statusBadgeColor.opacity(0.2))
+                    .foregroundStyle(statusBadgeColor)
                     .clipShape(Capsule())
+                    .help(project.gateStatus == .passingPartial
+                          ? "Every checker passes, but no full gate run has confirmed it yet (assembled from partial --check runs)."
+                          : "")
             }
             if let census = project.writerCensus, census.tripped {
                 Label("Multi-writer (\(census.persons.joined(separator: ", "))) — Phase 3 controls required",

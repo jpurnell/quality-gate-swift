@@ -109,8 +109,19 @@ public enum ProjectDetailTUIView: Sendable {
     // MARK: - Overview Tab
 
     private static func renderOverview(into buf: inout ScreenBuffer, project: ProjectSummary, width: Int) {
-        let status = project.latestPassed ? "PASSING" : "FAILING"
-        let statusColor: ANSIColor = project.latestPassed ? .green : .red
+        let status: String
+        let statusColor: ANSIColor
+        switch project.gateStatus {
+        case .failing:
+            status = "FAILING"
+            statusColor = .red
+        case .passingPartial:
+            status = "PASSING *  (partial — no full gate run has confirmed this)"
+            statusColor = .yellow
+        case .passingConfirmed:
+            status = "PASSING"
+            statusColor = .green
+        }
         let statusStyled = ANSICodes.bold + ANSICodes.fg(statusColor) + status + ANSICodes.reset
 
         buf.appendLine(boxRow("", width: width))

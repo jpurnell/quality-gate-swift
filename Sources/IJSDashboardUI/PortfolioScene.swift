@@ -179,7 +179,7 @@ public enum PortfolioScene {
         let cells: [[String]] = projects.map { p in
             [
                 p.projectID,
-                p.latestPassed ? "pass" : "fail",
+                p.gateStatusLabel,
                 percent(p.passRate),
                 "\(p.runCount)",
             ]

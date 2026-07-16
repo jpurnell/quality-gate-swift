@@ -18,7 +18,7 @@ struct ProjectsTableView: View {
     struct Row: Identifiable {
         let id: String
         let name: String
-        let passed: Bool
+        let gate: ProjectSummary.GateStatus
         let passRate: Double
         let runCount: Int
         let health: [Double]
@@ -27,7 +27,20 @@ struct ProjectsTableView: View {
         let anomalyMagnitude: Double
         let anomalyGood: Bool
         let members: [Row]?
-        var status: String { passed ? "pass" : "fail" }
+        var status: String {
+            switch gate {
+            case .failing: return "fail"
+            case .passingPartial: return "pass*"
+            case .passingConfirmed: return "pass"
+            }
+        }
+        var statusColor: Color {
+            switch gate {
+            case .failing: return .red
+            case .passingPartial: return .yellow
+            case .passingConfirmed: return .green
+            }
+        }
         var passRatePercent: Int { Int((passRate * 100).rounded()) }
         var isGroup: Bool { members != nil }
     }
@@ -49,7 +62,10 @@ struct ProjectsTableView: View {
                     .fontWeight(row.isGroup ? .semibold : .regular)
             }
             TableColumn("Status", value: \.status) { row in
-                Text(row.status).foregroundStyle(row.passed ? Color.green : Color.red)
+                Text(row.status).foregroundStyle(row.statusColor)
+                    .help(row.gate == .passingPartial
+                          ? "Every checker passes, but no full gate run has confirmed it yet (assembled from partial --check runs)."
+                          : "")
             }
             TableColumn("Health", value: \.healthRecent) { row in
                 if row.isGroup { Color.clear.frame(width: 1, height: 1) } else { healthBar(row.health) }
@@ -99,7 +115,7 @@ struct ProjectsTableView: View {
             let passRate = count > 0 ? members.map(\.passRate).reduce(0, +) / Double(count) : 0
             rows.append(Row(
                 id: "group:\(groupID)", name: "\(groupID) (\(count))",
-                passed: members.allSatisfy(\.latestPassed),
+                gate: ProjectSummary.GateStatus.aggregate(members.map(\.gateStatus)),
                 passRate: passRate, runCount: members.map(\.runCount).reduce(0, +),
                 health: [], healthRecent: passRate,
                 anomaly: "", anomalyMagnitude: 0, anomalyGood: false,
@@ -116,7 +132,7 @@ struct ProjectsTableView: View {
         let cell = lookup[project.projectID]
         let series = health[project.projectID] ?? []
         return Row(
-            id: project.projectID, name: project.projectID, passed: project.latestPassed,
+            id: project.projectID, name: project.projectID, gate: project.gateStatus,
             passRate: project.passRate, runCount: project.runCount,
             health: series, healthRecent: HealthTimeline.recentMean(series),
             anomaly: cell?.text ?? "", anomalyMagnitude: cell?.magnitude ?? 0,

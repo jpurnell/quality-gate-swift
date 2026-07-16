@@ -42,10 +42,10 @@ public enum DashboardRenderer: Sendable {
             lines.append("  Project                  Status   Pass Rate   Runs")
             lines.append("  ─────────────────────────────────────────────────────")
             for project in active.sorted(by: { $0.passRate > $1.passRate }) {
-                let status = project.latestPassed ? "✓" : "✗"
+                let status = project.gateStatus.symbol.padding(toLength: 2, withPad: " ", startingAt: 0)
                 let rate = formatPercent(project.passRate)
                 let name = project.projectID.prefix(24).padding(toLength: 24, withPad: " ", startingAt: 0)
-                lines.append("  \(name)  \(status)      \(rate.padding(toLength: 10, withPad: " ", startingAt: 0))  \(project.runCount)")
+                lines.append("  \(name)  \(status)     \(rate.padding(toLength: 10, withPad: " ", startingAt: 0))  \(project.runCount)")
             }
             lines.append("")
         }
@@ -153,7 +153,12 @@ public enum DashboardRenderer: Sendable {
     public static func renderProjectDetail(_ project: ProjectSummary, trends: [TrendPoint]) -> String {
         var lines: [String] = []
 
-        let status = project.latestPassed ? "PASSING" : "FAILING"
+        let status: String
+        switch project.gateStatus {
+        case .failing: status = "FAILING"
+        case .passingPartial: status = "PASSING (partial — no full gate run yet)"
+        case .passingConfirmed: status = "PASSING"
+        }
         lines.append("═══════════════════════════════════════════════")
         lines.append("  \(project.projectID)")
         lines.append("═══════════════════════════════════════════════")
@@ -202,6 +207,7 @@ public enum DashboardRenderer: Sendable {
                 "projectID": p.projectID,
                 "passRate": p.passRate,
                 "latestPassed": p.latestPassed,
+                "latestFullPassed": p.latestFullPassed,
                 "runCount": p.runCount,
                 "totalOverrides": p.totalOverrides,
                 "checkerPassRates": p.checkerPassRates,

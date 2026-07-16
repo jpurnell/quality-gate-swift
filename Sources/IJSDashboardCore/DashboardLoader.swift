@@ -9,6 +9,7 @@ import Foundation
 import IJSAggregator
 import IJSSensor
 import JudgmentWorkbench
+import QualityGateTypes
 
 /// One advisory finding from a project's latest run, ready for the drill-down
 /// inbox. A surface-agnostic mirror of ``JudgmentWorkbench/InboxItem`` so the
@@ -129,13 +130,61 @@ public enum DashboardLoader {
                              trends: trends)
     }
 
-    /// The advisory findings from the most recent of `runs`, mapped to the
-    /// surface-agnostic ``InboxFinding``. Shared by ``load(corpusPath:week:)``
-    /// and the CLI's `dashboard --native` so both compute the same inbox.
+    /// The newest content-modification date anywhere under a corpus directory —
+    /// a cheap change signature for pollers (e.g. the GUI's auto-refresh) that
+    /// want to reload only when the corpus actually changed, rather than
+    /// re-parsing every run on a fixed interval.
+    ///
+    /// - Parameter path: The corpus directory to scan.
+    /// - Returns: The maximum file modification time under `path`, or nil when
+    ///   the directory can't be enumerated (callers then reload unconditionally).
+    public static func corpusSignature(at path: String) -> Date? {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: path),
+            includingPropertiesForKeys: keys
+        ) else { return nil }
+        var newest: Date?
+        for case let fileURL as URL in enumerator {
+            // silent: a file whose mtime can't be read simply doesn't advance the signature
+            guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+                  let modified = values.contentModificationDate else { continue }
+            if let current = newest {
+                if modified > current { newest = modified }
+            } else {
+                newest = modified
+            }
+        }
+        return newest
+    }
+
+    /// Each checker's results from its most recent *standard-mode* run — the
+    /// composite view that mirrors ``ProjectSummary/latestCheckerPassed``.
+    ///
+    /// Advisory surveys are excluded (they downgrade gating findings to notes,
+    /// which would masquerade as acknowledgeable inbox items), and a targeted
+    /// `--check` subset run only refreshes the checkers it actually covered.
+    /// Shared by the inbox so it can never read a partial or advisory run as a
+    /// project's whole current state.
+    public static func latestStandardResults(of runs: [TimestampedRun]) -> [CheckResult] {
+        let standard = runs
+            .filter { $0.metadata.gateMode == .standard }
+            .sorted { $0.metadata.timestamp < $1.metadata.timestamp }
+        var latestForChecker: [String: CheckResult] = [:]
+        for run in standard {              // ascending — later runs overwrite earlier
+            for result in run.metadata.results {
+                latestForChecker[result.checkerId] = result
+            }
+        }
+        return Array(latestForChecker.values)
+    }
+
+    /// The advisory findings for a project, composed from each checker's latest
+    /// standard-mode run, mapped to the surface-agnostic ``InboxFinding``.
+    /// Shared by ``load(corpusPath:week:)`` and the CLI's `dashboard --native`
+    /// so both compute the same inbox.
     public static func inboxFindings(fromLatestOf runs: [TimestampedRun]) -> [InboxFinding] {
-        guard let latest = runs.max(by: { $0.metadata.timestamp < $1.metadata.timestamp })
-        else { return [] }
-        return FindingsInbox.items(from: latest.metadata).map { item in
+        FindingsInbox.items(fromResults: latestStandardResults(of: runs)).map { item in
             InboxFinding(ruleID: item.ruleId ?? "(no rule id)", message: item.message,
                          filePath: item.filePath, lineNumber: item.lineNumber,
                          acknowledgeable: item.isAcknowledgeable)

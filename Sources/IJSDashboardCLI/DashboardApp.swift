@@ -202,12 +202,13 @@ public enum DashboardApp: Sendable {
                     }
                 }
 
-                // The findings inbox tracks the detail subject's latest run
-                // (Phase 3a §7). Rebuilt when the subject or its runs change.
+                // The findings inbox tracks the detail subject's composite state
+                // — each checker's latest standard-mode run (Phase 3a §7).
+                // Rebuilt when the subject or its runs change.
                 if state.currentView == .projectDetail,
-                   let projectID = state.detailProjectID ?? state.selectedProjectID,
-                   let latest = currentAllRuns[projectID]?.max(by: { $0.metadata.timestamp < $1.metadata.timestamp }) {
-                    let rows = FindingsInbox.items(from: latest.metadata).map { item in
+                   let projectID = state.detailProjectID ?? state.selectedProjectID {
+                    let results = DashboardLoader.latestStandardResults(of: currentAllRuns[projectID] ?? [])
+                    let rows = FindingsInbox.items(fromResults: results).map { item in
                         InboxRow(
                             ruleId: item.ruleId ?? "(no rule id)",
                             message: item.message,

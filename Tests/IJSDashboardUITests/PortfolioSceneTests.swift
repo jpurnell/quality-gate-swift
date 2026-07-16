@@ -15,7 +15,7 @@ import CorpusKit
 struct PortfolioSceneTests {
 
     private let projects = [
-        ProjectSummary(projectID: "Alpha", passRate: 0.9, latestPassed: true, runCount: 10),
+        ProjectSummary(projectID: "Alpha", passRate: 0.9, latestPassed: true, latestFullPassed: true, runCount: 10),
         ProjectSummary(projectID: "Beta", passRate: 0.5, latestPassed: false, runCount: 4),
     ]
     private let portfolio = PortfolioSummary(totalProjects: 2, passingProjects: 1, failingProjects: 1)

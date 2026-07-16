@@ -89,8 +89,10 @@ public enum PortfolioTUIView: Sendable {
                     } else {
                         groupPassRate = memberProjects.reduce(0.0) { $0 + $1.passRate } / Double(memberCount) // fp-safety:disable guarded by isEmpty
                     }
-                    let allPassing = memberProjects.allSatisfy(\.latestPassed)
-                    let status = allPassing ? "\u{2713}" : "\u{2717}"
+                    // A group is green only if every member passes; it earns the
+                    // full ✓ only when every member is full-confirmed, else ✓*.
+                    let groupStatus = ProjectSummary.GateStatus.aggregate(memberProjects.map(\.gateStatus))
+                    let status = groupStatus.symbol.padding(toLength: 2, withPad: " ", startingAt: 0)
                     let pct = formatPercent(groupPassRate)
                     // Elide only the group name, always preserving the disclosure
                     // arrow and the " (N)" member count so long group names stay
@@ -101,7 +103,7 @@ public enum PortfolioTUIView: Sendable {
                     let elidedGroup = ANSIStringMetrics.elideMiddle(groupID, to: nameBudget)
                     let name = "\(arrowPrefix)\(elidedGroup)\(countSuffix)"
                         .padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-                    let groupRow = "  \(name)  \(status)              \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))"
+                    let groupRow = "  \(name)  \(status)             \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))"
 
                     if isSelected {
                         buf.appendLine(boxRow(ANSICodes.reverse + groupRow + ANSICodes.reset, width: width))
@@ -114,7 +116,7 @@ public enum PortfolioTUIView: Sendable {
                     let isGroupMember = state.groups.values.contains { $0.contains(projectID) }
                     let indent = isGroupMember ? "    " : "  "
                     let effectiveNameWidth = isGroupMember ? nameWidth - 2 : nameWidth
-                    let status = project.latestPassed ? "\u{2713}" : "\u{2717}"
+                    let status = project.gateStatus.symbol.padding(toLength: 2, withPad: " ", startingAt: 0)
                     let pct = formatPercent(project.passRate)
                     // Middle-elide so both the head and the identity-bearing suffix
                     // survive (HarborKit -> Ha…Kit, HarborUI -> Har…UI), keeping
@@ -126,7 +128,7 @@ public enum PortfolioTUIView: Sendable {
                     let timeline = renderHealthTimeline(runs: runs)
                     let anomalyTag = anomalyByScope[projectID] ?? ""
 
-                    let projectRow = "\(indent)\(name)  \(status)     \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(String(describing: project.runCount).padding(toLength: 4, withPad: " ", startingAt: 0)) \(anomalyTag)"
+                    let projectRow = "\(indent)\(name)  \(status)    \(timeline) \(pct.padding(toLength: 5, withPad: " ", startingAt: 0))  \(String(describing: project.runCount).padding(toLength: 4, withPad: " ", startingAt: 0)) \(anomalyTag)"
 
                     if isSelected {
                         buf.appendLine(boxRow(ANSICodes.reverse + projectRow + ANSICodes.reset, width: width))
