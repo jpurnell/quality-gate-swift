@@ -76,6 +76,42 @@ func makeZero() -> Int {
 }
 """
 
+/// Structurally identical to `literalBlockB` in every token *except* its string
+/// literals. With literal content kept verbatim these must NOT be a clone; only
+/// runs between differing literals stay identical, and each is far too short.
+private let literalBlockA = """
+func render() -> String {
+    var out = ""
+    out = out + "north"
+    out = out + "east"
+    out = out + "south"
+    out = out + "west"
+    out = out + "up"
+    out = out + "down"
+    return out
+}
+"""
+
+/// Same shape as `literalBlockA`, different string data.
+private let literalBlockB = """
+func render() -> String {
+    var out = ""
+    out = out + "alpha"
+    out = out + "bravo"
+    out = out + "charlie"
+    out = out + "delta"
+    out = out + "echo"
+    out = out + "foxtrot"
+    return out
+}
+"""
+
+/// A long, low-variety chain: many tokens but only a handful of distinct
+/// normalized texts (`let ID = ID . ID ( )`). Used to exercise the diversity floor.
+private let lowVarietyChain = """
+let value = builder.step().step().step().step().step().step().step().step().step().step()
+"""
+
 // MARK: - Fixture helpers
 
 /// Creates a temporary package root containing the given Sources/ and Tests/ files.
@@ -239,8 +275,14 @@ struct DuplicationAuditorTests {
         let first = try await auditor.check(configuration: Configuration())
         let second = try await auditor.check(configuration: Configuration())
 
-        // Three pairwise clones: Alpha≈Beta, Alpha≈Gamma, Beta≈Gamma.
-        #expect(first.diagnostics.count == 3)
+        // All three files share the same normalized block, so they collapse into
+        // one clone class naming three sites — not three pairwise rows.
+        #expect(first.diagnostics.count == 1)
+        let diagnostic = try #require(first.diagnostics.first)
+        #expect(diagnostic.message.contains("across 3 sites"))
+        #expect(diagnostic.message.contains("Alpha.swift"))
+        #expect(diagnostic.message.contains("Beta.swift"))
+        #expect(diagnostic.message.contains("Gamma.swift"))
         #expect(first.diagnostics == second.diagnostics)
     }
 
@@ -281,7 +323,7 @@ struct DuplicationAuditorTests {
         defer { removeRoot(root) }
 
         let including = DuplicationAuditor(
-            config: DuplicationConfig(minTokens: 40),
+            config: DuplicationConfig(minTokens: 40, excludeTests: false),
             root: root.path
         )
         let found = try await including.check(configuration: Configuration())
@@ -293,6 +335,51 @@ struct DuplicationAuditorTests {
         )
         let clean = try await excluding.check(configuration: Configuration())
         #expect(clean.diagnostics.isEmpty)
+    }
+
+    @Test("Same shape but different string literals is NOT flagged")
+    func differingLiteralsNotFlagged() async throws {
+        let root = try makeRoot(sources: [
+            "Alpha.swift": literalBlockA + "\n\n" + fillerA,
+            "Beta.swift": literalBlockB + "\n\n" + fillerB,
+        ])
+        defer { removeRoot(root) }
+
+        let auditor = DuplicationAuditor(
+            config: DuplicationConfig(minTokens: 25, minDistinctTokens: 3),
+            root: root.path
+        )
+        let result = try await auditor.check(configuration: Configuration())
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    @Test("Diversity floor drops low-variety boilerplate clones")
+    func diversityFloorDropsLowVariety() async throws {
+        let root = try makeRoot(sources: [
+            "Alpha.swift": lowVarietyChain + "\n\n" + fillerA,
+            "Beta.swift": lowVarietyChain + "\n\n" + fillerB,
+        ])
+        defer { removeRoot(root) }
+
+        // The chain is an identical clone across both files, but its distinct
+        // token count (~6) is below the floor, so it is dropped.
+        let filtered = DuplicationAuditor(
+            config: DuplicationConfig(minTokens: 20, minDistinctTokens: 12),
+            root: root.path
+        )
+        let filteredResult = try await filtered.check(configuration: Configuration())
+        #expect(filteredResult.diagnostics.isEmpty)
+
+        // With the floor lowered beneath the block's variety, it surfaces again —
+        // proving the floor, not the token count, is what suppressed it.
+        let admitted = DuplicationAuditor(
+            config: DuplicationConfig(minTokens: 20, minDistinctTokens: 3),
+            root: root.path
+        )
+        // The self-similar chain matches at several alignments, so it surfaces as
+        // one-or-more classes once the floor no longer suppresses it.
+        let admittedResult = try await admitted.check(configuration: Configuration())
+        #expect(!admittedResult.diagnostics.isEmpty)
     }
 
     @Test("fingerprints() round-trips through Codable")
@@ -329,22 +416,24 @@ struct DuplicationAuditorTests {
     func configDecodesWithDefaults() throws {
         let empty = try JSONDecoder().decode(DuplicationConfig.self, from: Data("{}".utf8))
         #expect(empty == DuplicationConfig())
-        #expect(empty.minTokens == 80)
+        #expect(empty.minTokens == 175)
+        #expect(empty.minDistinctTokens == 12)
         #expect(empty.warnOnClones == false)
-        #expect(empty.excludeTests == false)
+        #expect(empty.excludeTests == true)
 
         let partial = try JSONDecoder().decode(
             DuplicationConfig.self,
             from: Data(#"{"minTokens": 40}"#.utf8)
         )
         #expect(partial.minTokens == 40)
+        #expect(partial.minDistinctTokens == 12)
         #expect(partial.warnOnClones == false)
-        #expect(partial.excludeTests == false)
+        #expect(partial.excludeTests == true)
 
         let full = try JSONDecoder().decode(
             DuplicationConfig.self,
-            from: Data(#"{"minTokens": 25, "warnOnClones": true, "excludeTests": true}"#.utf8)
+            from: Data(#"{"minTokens": 25, "minDistinctTokens": 5, "warnOnClones": true, "excludeTests": false}"#.utf8)
         )
-        #expect(full == DuplicationConfig(minTokens: 25, warnOnClones: true, excludeTests: true))
+        #expect(full == DuplicationConfig(minTokens: 25, minDistinctTokens: 5, warnOnClones: true, excludeTests: false))
     }
 }

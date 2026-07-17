@@ -18,9 +18,14 @@ struct NormalizedToken: Sendable, Equatable {
 /// Produces normalized token streams for clone detection.
 ///
 /// Trivia (whitespace and comments) is dropped by construction: only token
-/// text participates. Identifiers normalize to `ID` and literal content to
-/// `LIT`, so renamed-identifier clones hash identically; keywords,
-/// punctuation, and operators stay verbatim.
+/// text participates. Identifiers normalize to `ID` so renamed-identifier
+/// clones still hash identically; keywords, punctuation, operators, **and
+/// literal content stay verbatim**. Keeping literals verbatim is deliberate: it
+/// is what distinguishes a genuine copy-paste (which preserves its literals)
+/// from two structurally-parallel-but-distinct blocks (e.g. two tests that
+/// share Swift's assertion grammar but feed entirely different data). Collapsing
+/// literals to a single `LIT` sentinel made those isomorphic-but-unrelated
+/// blocks collide, which was the dominant source of false-positive clones.
 enum CloneTokenizer {
 
     /// Tokenizes Swift source into a normalized token stream.
@@ -38,9 +43,9 @@ enum CloneTokenizer {
                 continue
             case .identifier, .dollarIdentifier:
                 text = "ID"
-            case .integerLiteral, .floatLiteral, .stringSegment, .regexLiteralPattern:
-                text = "LIT"
             default:
+                // Literals and everything else keep their verbatim text so that
+                // blocks differing only in their data no longer hash alike.
                 text = token.text
             }
             let line = converter.location(for: token.positionAfterSkippingLeadingTrivia).line
@@ -229,6 +234,81 @@ enum CloneDetector {
             if lhs.startA != rhs.startA { return lhs.startA < rhs.startA }
             if lhs.fileB != rhs.fileB { return lhs.fileB < rhs.fileB }
             if lhs.startB != rhs.startB { return lhs.startB < rhs.startB }
+            return lhs.tokenCount < rhs.tokenCount
+        }
+    }
+
+    /// One member block of a clone class: a maximal duplicated span in one file.
+    struct ClassBlock: Sendable, Equatable, Hashable {
+        /// Index of the file in the detector's (sorted) file list.
+        let file: Int
+        /// Token index where the block starts.
+        let start: Int
+        /// Number of normalized tokens in the block.
+        let tokenCount: Int
+    }
+
+    /// A set of two-or-more maximal blocks that share an identical normalized
+    /// token sequence. Reporting one class per group — instead of one row per
+    /// pairwise match — collapses an N-way shared block from `N·(N−1)/2` rows to
+    /// a single finding.
+    struct CloneClass: Sendable, Equatable {
+        /// Number of normalized tokens in each member block.
+        let tokenCount: Int
+        /// Member blocks, sorted by `(file, start)`; always at least two.
+        let blocks: [ClassBlock]
+    }
+
+    /// Groups clone pairs into clone classes by identical normalized content.
+    ///
+    /// Every pair contributes both of its maximal blocks; blocks whose token
+    /// sequence hashes identically (same content and length) collapse into one
+    /// class. Overlapping maximal blocks of *different* lengths remain distinct
+    /// classes, which is correct — they are clones of different extents.
+    ///
+    /// - Parameters:
+    ///   - files: Tokenized files, already sorted by path for determinism.
+    ///   - minTokens: The sliding-window size (minimum reportable clone).
+    /// - Returns: Clone classes sorted by `(anchor file, anchor start, tokenCount)`.
+    static func detectClasses(files: [FileTokenStream], minTokens: Int) -> [CloneClass] {
+        let pairs = detectPairs(files: files, minTokens: minTokens)
+
+        // Signature of a block: FNV-1a fold over its per-token hashes. Same
+        // signature ⇒ same normalized token sequence (and, implicitly, length).
+        func signature(file: Int, start: Int, count: Int) -> UInt64 {
+            var hasher = FNV1a()
+            let hashes = files[file].tokenHashes
+            for offset in 0..<count where start + offset < hashes.count {
+                hasher.combine(hashes[start + offset])
+            }
+            return hasher.value
+        }
+
+        var groups: [UInt64: Set<ClassBlock>] = [:]
+        for pair in pairs {
+            for block in [
+                ClassBlock(file: pair.fileA, start: pair.startA, tokenCount: pair.tokenCount),
+                ClassBlock(file: pair.fileB, start: pair.startB, tokenCount: pair.tokenCount),
+            ] {
+                let sig = signature(file: block.file, start: block.start, count: block.tokenCount)
+                groups[sig, default: []].insert(block)
+            }
+        }
+
+        var classes: [CloneClass] = []
+        for blockSet in groups.values where blockSet.count >= 2 {
+            let sorted = blockSet.sorted { lhs, rhs in
+                if lhs.file != rhs.file { return lhs.file < rhs.file }
+                return lhs.start < rhs.start
+            }
+            guard let tokenCount = sorted.first?.tokenCount else { continue }
+            classes.append(CloneClass(tokenCount: tokenCount, blocks: sorted))
+        }
+
+        return classes.sorted { lhs, rhs in
+            guard let a = lhs.blocks.first, let b = rhs.blocks.first else { return false }
+            if a.file != b.file { return a.file < b.file }
+            if a.start != b.start { return a.start < b.start }
             return lhs.tokenCount < rhs.tokenCount
         }
     }

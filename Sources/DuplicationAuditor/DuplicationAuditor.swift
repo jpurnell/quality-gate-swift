@@ -84,27 +84,38 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let start = ContinuousClock.now
         let files = collectFiles()
-        let pairs = CloneDetector.detectPairs(files: files, minTokens: config.minTokens)
+        let classes = CloneDetector.detectClasses(files: files, minTokens: config.minTokens)
         let severity: Diagnostic.Severity = config.warnOnClones ? .warning : .note
 
         var diagnostics: [Diagnostic] = []
-        for pair in pairs {
-            guard pair.fileA < files.count, pair.fileB < files.count else { continue }
-            let fileA = files[pair.fileA]
-            let fileB = files[pair.fileB]
-            guard
-                let spanA = fileA.lineSpan(start: pair.startA, count: pair.tokenCount),
-                let spanB = fileB.lineSpan(start: pair.startB, count: pair.tokenCount)
+        for cloneClass in classes {
+            // Diversity floor: drop low-variety boilerplate whose representative
+            // block spans too few distinct normalized token texts.
+            guard let anchor = cloneClass.blocks.first,
+                  anchor.file < files.count,
+                  distinctTokenCount(in: files[anchor.file], start: anchor.start, count: cloneClass.tokenCount)
+                      >= config.minDistinctTokens
             else { continue }
-            let message = "\(pair.tokenCount)-token clone: "
-                + "\(fileA.relativePath):\(spanA.startLine)-\(spanA.endLine)"
-                + " ≈ "
-                + "\(fileB.relativePath):\(spanB.startLine)-\(spanB.endLine)"
+
+            // Render each member as `relativePath:startLine-endLine`, in order.
+            var sites: [String] = []
+            for block in cloneClass.blocks {
+                guard block.file < files.count,
+                      let span = files[block.file].lineSpan(start: block.start, count: block.tokenCount)
+                else { continue }
+                sites.append("\(files[block.file].relativePath):\(span.startLine)-\(span.endLine)")
+            }
+            guard sites.count >= 2 else { continue }
+
+            let message = "\(cloneClass.tokenCount)-token clone across \(sites.count) sites: "
+                + sites.joined(separator: " ≈ ")
+            guard let anchorSpan = files[anchor.file].lineSpan(start: anchor.start, count: cloneClass.tokenCount)
+            else { continue }
             diagnostics.append(Diagnostic(
                 severity: severity,
                 message: message,
-                filePath: fileA.absolutePath,
-                lineNumber: spanA.startLine,
+                filePath: files[anchor.file].absolutePath,
+                lineNumber: anchorSpan.startLine,
                 ruleId: Self.ruleId
             ))
         }
@@ -155,6 +166,18 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     }
 
     // MARK: - Private
+
+    /// Number of distinct normalized token texts spanned by `count` tokens
+    /// starting at `start` in `file`. Used by the diversity floor to reject
+    /// low-variety boilerplate clones.
+    private func distinctTokenCount(in file: FileTokenStream, start: Int, count: Int) -> Int {
+        guard start >= 0, count > 0, start + count <= file.tokens.count else { return 0 }
+        var seen: Set<String> = []
+        for offset in 0..<count {
+            seen.insert(file.tokens[start + offset].text)
+        }
+        return seen.count
+    }
 
     /// Collects and tokenizes every `.swift` file under `Sources/` (and
     /// `Tests/` unless excluded), sorted by root-relative path.
