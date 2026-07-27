@@ -115,6 +115,11 @@ private final class DeclFactVisitor: SyntaxVisitor {
     /// only via the compiler-synthesized `Codable` machinery, which the
     /// index store doesn't see. Treat such cases as roots.
     private var codingKeyEnumDepth = 0
+    /// Inside a `public`/`open` enum — a `case` carries no access modifier of
+    /// its own (it inherits the enum's), so it must be treated as public API
+    /// surface just like the enum. Downstream consumers construct and switch
+    /// on these cases even when nothing in-package references them.
+    private var publicEnumDepth = 0
     /// Inside a SwiftUI View/Scene/App/Widget/Commands type — all members
     /// are reachable from SwiftUI's rendering pipeline.
     private var swiftUIViewTypeDepth = 0
@@ -296,7 +301,10 @@ private final class DeclFactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
-        let isPub = isPublicOrOpen(node.modifiers)
+        // A property requirement of a public/open protocol is implicitly public
+        // (it carries no modifier of its own), same as func/subscript
+        // requirements handled above.
+        let isPub = isPublicOrOpen(node.modifiers) || publicProtocolDepth > 0
         let objc = isObjC(node.attributes)
         let wired = hasSwiftUIPropertyWrapper(node.attributes)
         for binding in node.bindings {
@@ -309,9 +317,12 @@ private final class DeclFactVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: EnumCaseDeclSyntax) -> SyntaxVisitorContinueKind {
+        // A `case` has no access modifier of its own; it inherits the enclosing
+        // enum's. A public/open enum's cases are therefore public API surface.
+        let isPub = publicEnumDepth > 0
         for el in node.elements {
             let line = el.name.startLocation(converter: converter).line
-            record(line: line, name: el.name.text, isPublic: false, isObjC: false, isEnumCase: true)
+            record(line: line, name: el.name.text, isPublic: isPub, isObjC: false, isEnumCase: true)
         }
         return .visitChildren
     }
@@ -348,11 +359,13 @@ private final class DeclFactVisitor: SyntaxVisitor {
         recordRange(node, nameLine: line)
         enterTypeIfMain(node.attributes)
         if isCodingKeyEnum(node) { codingKeyEnumDepth += 1 }
+        if isPublicOrOpen(node.modifiers) { publicEnumDepth += 1 }
         return .visitChildren
     }
     override func visitPost(_ node: EnumDeclSyntax) {
         leaveTypeIfMain(node.attributes)
         if isCodingKeyEnum(node) { codingKeyEnumDepth -= 1 }
+        if isPublicOrOpen(node.modifiers) { publicEnumDepth -= 1 }
     }
 
     /// Recognises both `enum X: CodingKey` and the conventional name

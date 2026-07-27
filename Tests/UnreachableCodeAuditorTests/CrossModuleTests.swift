@@ -90,6 +90,34 @@ struct CrossModuleTests {
         #expect(!flagged(result, name: "publicLibraryAPI"))
     }
 
+    @Test("Does not flag cases of a public enum unreferenced in-package")
+    func keepsPublicEnumCases() async throws {
+        let result = try await auditFixture()
+        // A public Codable enum's cases are library API — constructed and
+        // switched on by downstream consumers (and Codable synthesis). The
+        // index sees no in-package reference, but they must not be flagged.
+        #expect(!flagged(result, name: "publicSignalAlpha"))
+        #expect(!flagged(result, name: "publicSignalBeta"))
+        #expect(!flagged(result, name: "publicSignalGamma"))
+        #expect(!flagged(result, name: "publicSignalDelta"))
+    }
+
+    @Test("Does not flag a public protocol's property requirement")
+    func keepsPublicProtocolRequirement() async throws {
+        let result = try await auditFixture()
+        // `publicSchemaVersion` is a requirement of a public protocol,
+        // witnessed only by a conformer — it must not be flagged.
+        #expect(!flagged(result, name: "publicSchemaVersion"))
+    }
+
+    @Test("Still flags a case of a non-public enum (no over-broadening)")
+    func stillFlagsInternalEnumCase() async throws {
+        let result = try await auditFixture()
+        // Guard against the fix over-broadening: an internal enum's genuinely
+        // unreferenced case must remain flagged.
+        #expect(flagged(result, name: "deadCase"))
+    }
+
     @Test("Does not flag protocol witness method")
     func keepsProtocolWitness() async throws {
         let result = try await auditFixture()
