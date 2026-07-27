@@ -6,8 +6,12 @@ import QualityGateTypes
 
 @Suite("TrendComputer")
 struct TrendComputerTests {
-    @Test("Produces daily pass rate time series")
+    @Test("Each day reflects its authoritative (latest) run, not a blend")
     func dailyPassRate() {
+        // Per DailyAuthoritativeRun proposal: a day is represented by its latest
+        // run, not the fraction of the day's runs that passed. 2026-05-14 runs
+        // [pass@00:00, fail@01:00] → the day ended failing → 0.0 (was 0.5 under
+        // the old day-averaging semantics).
         let runs = makeDatedRuns(passedByDay: [
             "2026-05-13": [true, true],
             "2026-05-14": [true, false],
@@ -16,8 +20,26 @@ struct TrendComputerTests {
         let trend = TrendComputer.dailyPassRate(from: runs)
         #expect(trend.count == 3)
         #expect(abs(trend[0].value - 1.0) < 1e-6)
-        #expect(abs(trend[1].value - 0.5) < 1e-6)
+        #expect(abs(trend[1].value - 0.0) < 1e-6)
         #expect(abs(trend[2].value - 0.0) < 1e-6)
+    }
+
+    @Test("A fix-and-rerun day shows green, not a fraction")
+    func fixAndRerunDayIsGreen() {
+        // Failed at 00:00, fixed and passed at 01:00 — the day's authoritative
+        // state is green. Old day-averaging showed 0.5.
+        let runs = makeDatedRuns(passedByDay: ["2026-05-14": [false, true]])
+        let trend = TrendComputer.dailyPassRate(from: runs)
+        #expect(trend.count == 1)
+        #expect(abs(trend[0].value - 1.0) < 1e-6)
+    }
+
+    @Test("A flaky day that ends failing shows red")
+    func flakyDayEndsRed() {
+        let runs = makeDatedRuns(passedByDay: ["2026-05-14": [true, false]])
+        let trend = TrendComputer.dailyPassRate(from: runs)
+        #expect(trend.count == 1)
+        #expect(abs(trend[0].value - 0.0) < 1e-6)
     }
 
     @Test("Handles single-run project (no trend)")

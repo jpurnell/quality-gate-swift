@@ -17,19 +17,21 @@ public struct TrendPoint: Sendable {
 
 /// Computes time-series trends from quality gate run history.
 public enum TrendComputer: Sendable {
-    /// Computes daily pass rate as a time series.
+    /// Computes daily pass state as a time series.
     ///
-    /// Groups runs by calendar day (UTC), then for each day computes
-    /// the fraction of runs where all checkers passed.
+    /// Each UTC day is represented by its *authoritative* run (the latest full
+    /// standard run of that day — see ``DailyRuns``): `1.0` if that run passed
+    /// every checker, else `0.0`. A day that failed and was then fixed and
+    /// re-run shows the corrected state, not a blend of the day's runs.
     public static func dailyPassRate(from runs: [TimestampedRun]) -> [TrendPoint] {
-        let grouped = groupByDay(runs)
-        return grouped.map { date, dayRuns in
-            let passing = dayRuns.filter { run in
-                run.metadata.results.allSatisfy { $0.status.isPassing }
-            }.count
-            let dayTotal = Double(dayRuns.count)
-            let rate = dayTotal > 0 ? Double(passing) / dayTotal : 0
-            return TrendPoint(date: date, value: rate)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        return DailyRuns.authoritativePerDay(runs).map { run in
+            let components = calendar.dateComponents(
+                [.year, .month, .day], from: run.metadata.timestamp)
+            let dayStart = calendar.date(from: components) ?? run.metadata.timestamp
+            let passed = run.metadata.results.allSatisfy { $0.status.isPassing }
+            return TrendPoint(date: dayStart, value: passed ? 1.0 : 0.0)
         }.sorted { $0.date < $1.date }
     }
 

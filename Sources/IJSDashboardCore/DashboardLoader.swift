@@ -107,9 +107,11 @@ public enum DashboardLoader {
         let portfolio = PortfolioSummary.compute(from: projects)
         let pulse = week.flatMap { reader.loadPulse(label: $0) } ?? reader.loadLatestPulse()
 
-        // Health timeline: recent runs' checker pass rate (passing ÷ total per run).
+        // Health timeline: the last 14 days' checker pass rate (passing ÷ total),
+        // one point per day from that day's authoritative run (see ``DailyRuns``)
+        // so a rerun-heavy day can't crowd the window or blend its own runs.
         let health = allRuns.mapValues { runs -> [Double] in
-            runs.sorted { $0.metadata.timestamp < $1.metadata.timestamp }
+            DailyRuns.authoritativePerDay(runs)
                 .suffix(14)
                 .map { run in
                     let results = run.metadata.results
