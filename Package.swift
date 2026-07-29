@@ -947,11 +947,24 @@ let package = Package(
             dependencies: ["GateCI"]
         ),
 
+        // MARK: - Narrative providers (Claude primary, on-device Foundation Models fallback)
+        .target(
+            name: "NarrativeCore",
+            dependencies: [
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+            ]
+        ),
+        .testTarget(
+            name: "NarrativeCoreTests",
+            dependencies: ["NarrativeCore"]
+        ),
+
         // MARK: - CLI
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
                 "QualityGateCore",
+                "NarrativeCore",
                 "GateCI",
                 "GatePlugins",
                 "CorpusService",
