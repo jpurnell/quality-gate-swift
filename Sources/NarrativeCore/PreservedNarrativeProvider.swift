@@ -1,11 +1,12 @@
 import Foundation
+import CorpusKit
 
 /// The penultimate rung: carry the previous pulse's narrative forward verbatim.
 /// Available only when the prior pulse actually has a non-empty narrative — so a
 /// transient outage never blanks the dashboard.
 public struct PreservedNarrativeProvider: NarrativeProvider {
     /// The source tag recorded for this provider (`preservedLLM`).
-    public var source: NarrativeSource { .preservedLLM }
+    public var source: ProseSource { .preservedLLM }
 
     /// Creates the carry-forward provider.
     public init() {}

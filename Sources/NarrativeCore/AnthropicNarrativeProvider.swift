@@ -32,7 +32,7 @@ public enum AnthropicTransportError: LocalizedError {
 /// requires an API key and network. Available only when a non-empty key is set.
 public struct AnthropicNarrativeProvider: NarrativeProvider {
     /// The source tag recorded for this provider (`claude`).
-    public var source: NarrativeSource { .claude }
+    public var source: ProseSource { .claude }
 
     private let apiKey: String?
     private let model: String

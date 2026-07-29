@@ -37,7 +37,7 @@ struct NarrativeChainTests {
     private struct MockError: Error {}
 
     private struct MockProvider: NarrativeProvider {
-        let source: NarrativeSource
+        let source: ProseSource
         var available: Bool = true
         /// `nil` output means `narrate` throws.
         var output: String? = "narrative"

@@ -1,4 +1,5 @@
 import Foundation
+import CorpusKit
 #if canImport(os)
 import os
 #endif
@@ -8,10 +9,10 @@ public struct NarrativeResult: Sendable, Equatable {
     /// The generated narrative markdown body.
     public let text: String
     /// Which rung of the chain produced it.
-    public let source: NarrativeSource
+    public let source: ProseSource
 
     /// Creates a tagged narrative result.
-    public init(text: String, source: NarrativeSource) {
+    public init(text: String, source: ProseSource) {
         self.text = text
         self.source = source
     }

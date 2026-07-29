@@ -19,7 +19,7 @@ public struct FoundationModelsNarrativeProvider: NarrativeProvider {
     #endif
 
     /// The source tag recorded for this provider (`onDeviceLLM`).
-    public var source: NarrativeSource { .onDeviceLLM }
+    public var source: ProseSource { .onDeviceLLM }
 
     private let generator: any OnDeviceNarrativeGenerator
     private let extractor: ProjectFactsExtractor

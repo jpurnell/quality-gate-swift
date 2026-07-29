@@ -159,7 +159,7 @@ struct GenerateNarrative: AsyncParsableCommand {
         let persistence = NarrativePersistence()
         try persistence.writePortfolio(fullNarrative, to: narrativePath)
 
-        let updatedPulse = pulse.withNarrative(result.text)
+        let updatedPulse = pulse.withNarrative(result.text, source: result.source)
         let writer = DirectCorpusTransport()
         let corpusWritePath = CorpusPath(basePath: effectivePath, projectID: pulse.projects.first ?? "corpus")
         try await writer.writePulse(updatedPulse, to: corpusWritePath)

@@ -31,7 +31,7 @@ public struct NarrativeInput: Sendable {
 /// run for a given input, and, if so, produces the narrative markdown body.
 public protocol NarrativeProvider: Sendable {
     /// The source tag recorded when this provider produces the narrative.
-    var source: NarrativeSource { get }
+    var source: ProseSource { get }
 
     /// Whether this provider can run right now for `input` — e.g. an API key is
     /// present, the on-device model is available, or a prior narrative exists.
