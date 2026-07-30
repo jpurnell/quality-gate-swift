@@ -1,6 +1,6 @@
 import Foundation
 
-/// Configuration for ``DuplicationAuditor``: window size, diversity floor,
+/// Configuration for the `DuplicationAuditor`: window size, diversity floor,
 /// severity posture, and test-tree inclusion.
 ///
 /// Decoding tolerates absent keys — every field falls back to its default —

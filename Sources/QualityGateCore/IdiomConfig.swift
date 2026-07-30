@@ -1,6 +1,6 @@
 import Foundation
 
-/// Configuration knobs for ``IdiomAuditor``.
+/// Configuration knobs for the `IdiomAuditor`.
 ///
 /// All properties have defaults, and the custom `Decodable` conformance uses
 /// `decodeIfPresent` throughout, so a partial (or absent) `idiom:` section in
