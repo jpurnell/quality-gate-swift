@@ -1,0 +1,37 @@
+{
+  "framework": "hipaa-security-rule",
+  "version": "45 CFR 164.312 (Technical Safeguards) \u00b7 2013 Final Rule",
+  "source": "ecfr",
+  "sourceRef": "https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.312",
+  "fetched": "2026-07-31",
+  "contentHash": "sha256:84e833fd7f183206ff612acc858db9bd344061ea7cdc20862136f665f5b40172",
+  "reviewedBy": "jpurnell",
+  "reviewed": "2026-07-31",
+  "superseded": false,
+  "controls": [
+    {
+      "id": "164.312(a)(2)(iv)",
+      "title": "Encryption and decryption",
+      "text": "Implement a mechanism to encrypt and decrypt electronic protected health information.",
+      "checkability": "partial"
+    },
+    {
+      "id": "164.312(e)(1)",
+      "title": "Transmission security",
+      "text": "Implement technical security measures to guard against unauthorized access to electronic protected health information that is being transmitted over an electronic communications network.",
+      "checkability": "partial"
+    },
+    {
+      "id": "164.312(b)",
+      "title": "Audit controls",
+      "text": "Implement hardware, software, and/or procedural mechanisms that record and examine activity in information systems that contain or use electronic protected health information.",
+      "checkability": "none"
+    },
+    {
+      "id": "164.312(c)(1)",
+      "title": "Integrity",
+      "text": "Implement policies and procedures to protect electronic protected health information from improper alteration or destruction.",
+      "checkability": "none"
+    }
+  ]
+}

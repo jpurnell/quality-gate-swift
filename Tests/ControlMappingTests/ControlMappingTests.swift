@@ -149,4 +149,44 @@ struct ControlMappingTests {
             horizon: 180, today: "2026-07-30")
         #expect(findings.contains { $0.severity == .error && ($0.ruleId ?? "").contains("superseded") })
     }
+
+    // MARK: - Bundled resources (the live data)
+
+    @Test("the bundled rule registry loads and includes real rule IDs")
+    func registryLoads() {
+        let ids = ControlMappingResources.registryRuleIds()
+        #expect(ids.contains("keychain-secrets"))
+        #expect(ids.contains("privacy-manifest"))
+        #expect(ids.contains("security.insecure-transport"))
+        #expect(ids.count > 100)
+    }
+
+    @Test("the bundled HIPAA catalog loads with its §164.312 controls")
+    func catalogLoads() throws {
+        let catalogs = ControlMappingResources.catalogs()
+        let hipaa = try #require(catalogs.first { $0.framework == "hipaa-security-rule" })
+        #expect(hipaa.source == "ecfr")
+        #expect(hipaa.control(id: "164.312(e)(1)")?.title == "Transmission security")
+        #expect(hipaa.control(id: "164.312(a)(2)(iv)")?.checkability == .partial)
+        #expect(hipaa.control(id: "164.312(b)")?.checkability == Checkability.none)
+    }
+
+    @Test("the bundled mapping loads and points at real rules")
+    func mappingLoads() {
+        let mappings = ControlMappingResources.mappings()
+        #expect(mappings.count >= 6)
+        #expect(mappings.contains { $0.ruleId == "keychain-secrets" })
+        #expect(mappings.contains { $0.ruleId == "security.insecure-transport" })
+    }
+
+    @Test("the shipped mapping is internally consistent — no phantom rule or control")
+    func shippedDataIsValid() {
+        let findings = ControlMappingValidator.validate(
+            mappings: ControlMappingResources.mappings(),
+            catalogs: ControlMappingResources.catalogs(),
+            knownRuleIds: ControlMappingResources.registryRuleIds(),
+            freshnessHorizonDays: 180,
+            today: "2026-07-31")
+        #expect(!findings.contains { $0.severity == .error })
+    }
 }

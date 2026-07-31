@@ -43,6 +43,7 @@ import SmellPack
 import DuplicationAuditor
 import KeychainSecretsChecker
 import PrivacyManifestChecker
+import ControlMapping
 import IJSSensor
 import IJSAggregator
 
@@ -183,6 +184,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             ProcessSafetyAuditor(),
             KeychainSecretsChecker(config: configuration.keychainSecrets),
             PrivacyManifestChecker(config: configuration.privacyManifest),
+            ControlMappingValidator(),
             ComplexityAnalyzer(),
             LegibilityAnalyzer(),
             HIGAuditor(),

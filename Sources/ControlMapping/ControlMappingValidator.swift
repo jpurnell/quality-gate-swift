@@ -27,15 +27,47 @@ public struct ControlMappingValidator: QualityChecker, Sendable {
         self.freshnessHorizonDays = freshnessHorizonDays
     }
 
-    /// Placeholder until catalog/mapping loading from disk lands (a later Phase 0
-    /// step). With nothing configured there is nothing to validate.
+    /// Loads the bundled mapping, catalogs, and rule registry and validates
+    /// their integrity. Skips when no mapping is configured.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
+
+        let mappings = ControlMappingResources.mappings()
+        guard !mappings.isEmpty else {
+            return CheckResult(
+                checkerId: id, status: .skipped, diagnostics: [],
+                duration: ContinuousClock.now - startTime)
+        }
+
+        let diagnostics = Self.validate(
+            mappings: mappings,
+            catalogs: ControlMappingResources.catalogs(),
+            knownRuleIds: ControlMappingResources.registryRuleIds(),
+            freshnessHorizonDays: freshnessHorizonDays,
+            today: Self.todayISO())
+
+        let status: CheckResult.Status
+        if diagnostics.contains(where: { $0.severity == .error }) {
+            status = .failed
+        } else if diagnostics.contains(where: { $0.severity == .warning }) {
+            status = .warning
+        } else {
+            status = .passed
+        }
         return CheckResult(
-            checkerId: id,
-            status: .skipped,
-            diagnostics: [],
+            checkerId: id, status: status, diagnostics: diagnostics,
             duration: ContinuousClock.now - startTime)
+    }
+
+    /// Today's date as an ISO `YYYY-MM-DD` string in UTC — the reference point
+    /// for the catalog freshness check.
+    static func todayISO() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        return formatter.string(from: Date())
     }
 
     // MARK: - Engine (pure over its inputs; internal for tests)

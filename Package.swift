@@ -941,7 +941,8 @@ let package = Package(
         ),
         .target(
             name: "ControlMapping",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "ControlMappingTests",
@@ -1013,6 +1014,7 @@ let package = Package(
                 "DuplicationAuditor",
                 "KeychainSecretsChecker",
                 "PrivacyManifestChecker",
+                "ControlMapping",
                 "SafetyAuditor",
                 "BuildChecker",
                 "TestRunner",

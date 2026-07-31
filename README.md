@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-32 checkers. 1,698 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
+33 checkers. 1,712 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
@@ -129,6 +129,7 @@ quality-gate --check status --bootstrap
 | `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
 | `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
+| `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 
 `disk-clean` and `xcode-build` are opt-in — excluded from default runs unless explicitly requested with `--check`.
 

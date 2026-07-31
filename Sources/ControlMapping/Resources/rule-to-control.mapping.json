@@ -1,0 +1,44 @@
+[
+  {
+    "ruleId": "keychain-secrets",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.insecure-keychain",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.hardcoded-secret",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.weak-crypto",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.insecure-transport",
+    "satisfies": [
+      "hipaa-security-rule/164.312(e)(1)"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.tls-disabled",
+    "satisfies": [
+      "hipaa-security-rule/164.312(e)(1)"
+    ],
+    "posture": "partial"
+  }
+]
