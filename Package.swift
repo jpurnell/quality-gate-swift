@@ -191,6 +191,10 @@ let package = Package(
             name: "SmellPack",
             targets: ["SmellPack"]
         ),
+        .library(
+            name: "KeychainSecretsChecker",
+            targets: ["KeychainSecretsChecker"]
+        ),
         // Dashboard
         .library(
             name: "IJSDashboardCore",
@@ -907,6 +911,18 @@ let package = Package(
             name: "SmellPackTests",
             dependencies: ["SmellPack"]
         ),
+        .target(
+            name: "KeychainSecretsChecker",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "KeychainSecretsCheckerTests",
+            dependencies: ["KeychainSecretsChecker"]
+        ),
 
         // MARK: - Judgment workbench (Phase 3a §7)
         .target(
@@ -971,6 +987,7 @@ let package = Package(
                 "IdiomAuditor",
                 "SmellPack",
                 "DuplicationAuditor",
+                "KeychainSecretsChecker",
                 "SafetyAuditor",
                 "BuildChecker",
                 "TestRunner",

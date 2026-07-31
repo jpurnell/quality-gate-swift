@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-30 checkers. 1,677 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
+31 checkers. 1,691 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
@@ -86,6 +86,7 @@ quality-gate --check status --bootstrap
 | ID | Module | Description |
 |----|--------|-------------|
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
+| `keychain-secrets` | KeychainSecretsChecker | Credentials/tokens written to `UserDefaults` (plaintext plist, backup-swept) instead of the Keychain — key- and value-name secret detection with a Bool/Int-value guard |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
 | `temporal-determinism` | TemporalDeterminismAuditor | Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time |
 | `hig-auditor` | HIGAuditor | Apple Human Interface Guidelines compliance for SwiftUI views |
@@ -185,7 +186,7 @@ security:
   allowedHTTPHosts: [localhost, 127.0.0.1]
 ```
 
-Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, and `consistency`.
+Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, `keychain-secrets`, and `consistency`.
 
 Severity overrides let you downgrade or upgrade any rule:
 

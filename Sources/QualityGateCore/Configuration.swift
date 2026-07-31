@@ -1665,6 +1665,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Duplicate-code detection knobs (Phase 4c §2).
     public var duplication: DuplicationConfig
 
+    /// `keychain-secrets` checker knobs — severity, allow-list, extra nouns.
+    public var keychainSecrets: KeychainSecretsConfig
+
     /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
     /// A stale installed binary warns — or fails under `--strict` — instead of
     /// silently running old rules (Phase 0.6). nil means no pin.
@@ -1715,6 +1718,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         idiom: IdiomConfig = IdiomConfig(),
         smells: SmellConfig = SmellConfig(),
         duplication: DuplicationConfig = DuplicationConfig(),
+        keychainSecrets: KeychainSecretsConfig = KeychainSecretsConfig(),
         minimumGateVersion: String? = nil
     ) {
         self.minimumGateVersion = minimumGateVersion
@@ -1761,6 +1765,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.idiom = idiom
         self.smells = smells
         self.duplication = duplication
+        self.keychainSecrets = keychainSecrets
     }
 
     /// The effective number of workers, either from config or computed.
@@ -1866,6 +1871,7 @@ extension Configuration {
         case idiom
         case smells
         case duplication
+        case keychainSecrets = "keychain-secrets"
         case minimumGateVersion
     }
 
@@ -1916,6 +1922,7 @@ extension Configuration {
         idiom = try container.decodeIfPresent(IdiomConfig.self, forKey: .idiom) ?? IdiomConfig()
         smells = try container.decodeIfPresent(SmellConfig.self, forKey: .smells) ?? SmellConfig()
         duplication = try container.decodeIfPresent(DuplicationConfig.self, forKey: .duplication) ?? DuplicationConfig()
+        keychainSecrets = try container.decodeIfPresent(KeychainSecretsConfig.self, forKey: .keychainSecrets) ?? KeychainSecretsConfig()
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }
