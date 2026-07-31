@@ -199,6 +199,10 @@ let package = Package(
             name: "PrivacyManifestChecker",
             targets: ["PrivacyManifestChecker"]
         ),
+        .library(
+            name: "ControlMapping",
+            targets: ["ControlMapping"]
+        ),
         // Dashboard
         .library(
             name: "IJSDashboardCore",
@@ -934,6 +938,14 @@ let package = Package(
         .testTarget(
             name: "PrivacyManifestCheckerTests",
             dependencies: ["PrivacyManifestChecker"]
+        ),
+        .target(
+            name: "ControlMapping",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "ControlMappingTests",
+            dependencies: ["ControlMapping"]
         ),
 
         // MARK: - Judgment workbench (Phase 3a §7)
