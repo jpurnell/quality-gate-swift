@@ -195,6 +195,10 @@ let package = Package(
             name: "KeychainSecretsChecker",
             targets: ["KeychainSecretsChecker"]
         ),
+        .library(
+            name: "PrivacyManifestChecker",
+            targets: ["PrivacyManifestChecker"]
+        ),
         // Dashboard
         .library(
             name: "IJSDashboardCore",
@@ -923,6 +927,14 @@ let package = Package(
             name: "KeychainSecretsCheckerTests",
             dependencies: ["KeychainSecretsChecker"]
         ),
+        .target(
+            name: "PrivacyManifestChecker",
+            dependencies: ["QualityGateCore"]
+        ),
+        .testTarget(
+            name: "PrivacyManifestCheckerTests",
+            dependencies: ["PrivacyManifestChecker"]
+        ),
 
         // MARK: - Judgment workbench (Phase 3a §7)
         .target(
@@ -988,6 +1000,7 @@ let package = Package(
                 "SmellPack",
                 "DuplicationAuditor",
                 "KeychainSecretsChecker",
+                "PrivacyManifestChecker",
                 "SafetyAuditor",
                 "BuildChecker",
                 "TestRunner",

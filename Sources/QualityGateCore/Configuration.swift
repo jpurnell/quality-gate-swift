@@ -1668,6 +1668,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// `keychain-secrets` checker knobs — severity, allow-list, extra nouns.
     public var keychainSecrets: KeychainSecretsConfig
 
+    /// `privacy-manifest` checker knobs — app-target override, key strictness.
+    public var privacyManifest: PrivacyManifestConfig
+
     /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
     /// A stale installed binary warns — or fails under `--strict` — instead of
     /// silently running old rules (Phase 0.6). nil means no pin.
@@ -1719,6 +1722,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         smells: SmellConfig = SmellConfig(),
         duplication: DuplicationConfig = DuplicationConfig(),
         keychainSecrets: KeychainSecretsConfig = KeychainSecretsConfig(),
+        privacyManifest: PrivacyManifestConfig = PrivacyManifestConfig(),
         minimumGateVersion: String? = nil
     ) {
         self.minimumGateVersion = minimumGateVersion
@@ -1766,6 +1770,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.smells = smells
         self.duplication = duplication
         self.keychainSecrets = keychainSecrets
+        self.privacyManifest = privacyManifest
     }
 
     /// The effective number of workers, either from config or computed.
@@ -1872,6 +1877,7 @@ extension Configuration {
         case smells
         case duplication
         case keychainSecrets = "keychain-secrets"
+        case privacyManifest = "privacy-manifest"
         case minimumGateVersion
     }
 
@@ -1923,6 +1929,7 @@ extension Configuration {
         smells = try container.decodeIfPresent(SmellConfig.self, forKey: .smells) ?? SmellConfig()
         duplication = try container.decodeIfPresent(DuplicationConfig.self, forKey: .duplication) ?? DuplicationConfig()
         keychainSecrets = try container.decodeIfPresent(KeychainSecretsConfig.self, forKey: .keychainSecrets) ?? KeychainSecretsConfig()
+        privacyManifest = try container.decodeIfPresent(PrivacyManifestConfig.self, forKey: .privacyManifest) ?? PrivacyManifestConfig()
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }
