@@ -941,7 +941,10 @@ let package = Package(
         ),
         .target(
             name: "ControlMapping",
-            dependencies: ["QualityGateCore"],
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
             resources: [.process("Resources")]
         ),
         .testTarget(

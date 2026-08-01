@@ -2,7 +2,7 @@
 
 Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
 
-33 checkers. 1,722 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
+33 checkers. 1,729 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
 
 ## Highlights
 
@@ -67,6 +67,9 @@ quality-gate --check status --bootstrap
 # Technical-control coverage report (SOC 2 / ISO 27001 / HIPAA) — not a compliance assertion
 quality-gate compliance            # human-readable
 quality-gate compliance --as json  # machine-readable evidence artifact
+
+# Detect upstream drift in the control catalogs (HIPAA via eCFR API; SOC 2 / ISO manual)
+quality-gate standards-watch       # exits non-zero on drift — schedule it
 ```
 
 ## Checkers

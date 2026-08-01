@@ -56,6 +56,11 @@ public struct ControlCatalog: Sendable, Codable, Equatable {
     /// Set by `standards-watch` when upstream drift is detected; forces the
     /// freshness check to fail until a human reconciles.
     public let superseded: Bool
+    /// Hash of the **upstream source text** as last observed by `standards-watch`
+    /// — distinct from `contentHash` (this catalog's own fingerprint). nil until
+    /// first observed; drift is a change against it. Only fetchable sources
+    /// (eCFR) carry one; copyrighted sources stay nil.
+    public let upstreamHash: String?
     /// The controls this catalog defines.
     public let controls: [Control]
 
@@ -70,6 +75,7 @@ public struct ControlCatalog: Sendable, Codable, Equatable {
         reviewedBy: String,
         reviewed: String,
         superseded: Bool = false,
+        upstreamHash: String? = nil,
         controls: [Control]
     ) {
         self.framework = framework
@@ -81,6 +87,7 @@ public struct ControlCatalog: Sendable, Codable, Equatable {
         self.reviewedBy = reviewedBy
         self.reviewed = reviewed
         self.superseded = superseded
+        self.upstreamHash = upstreamHash
         self.controls = controls
     }
 
@@ -91,7 +98,7 @@ public struct ControlCatalog: Sendable, Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case framework, version, source, sourceRef, fetched
-        case contentHash, reviewedBy, reviewed, superseded, controls
+        case contentHash, reviewedBy, reviewed, superseded, upstreamHash, controls
     }
 
     /// Decodes with `superseded` defaulting to false when absent.
@@ -106,6 +113,7 @@ public struct ControlCatalog: Sendable, Codable, Equatable {
         reviewedBy = try container.decode(String.self, forKey: .reviewedBy)
         reviewed = try container.decode(String.self, forKey: .reviewed)
         superseded = try container.decodeIfPresent(Bool.self, forKey: .superseded) ?? false
+        upstreamHash = try container.decodeIfPresent(String.self, forKey: .upstreamHash)
         controls = try container.decode([Control].self, forKey: .controls)
     }
 }

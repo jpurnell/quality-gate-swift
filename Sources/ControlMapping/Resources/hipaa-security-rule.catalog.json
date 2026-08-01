@@ -2,7 +2,7 @@
   "framework": "hipaa-security-rule",
   "version": "45 CFR 164.312 (Technical Safeguards) \u00b7 2013 Final Rule",
   "source": "ecfr",
-  "sourceRef": "https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.312",
+  "sourceRef": "https://www.ecfr.gov/api/versioner/v1/full/{date}/title-45.xml?part=164&subpart=C&section=164.312",
   "fetched": "2026-07-31",
   "contentHash": "sha256:84e833fd7f183206ff612acc858db9bd344061ea7cdc20862136f665f5b40172",
   "reviewedBy": "jpurnell",
@@ -33,5 +33,6 @@
       "text": "Implement policies and procedures to protect electronic protected health information from improper alteration or destruction.",
       "checkability": "none"
     }
-  ]
+  ],
+  "upstreamHash": "07b0a6e3959baedbcf9a950d5a82ab690c1ff7ebde06614232aea80f336cde66"
 }
