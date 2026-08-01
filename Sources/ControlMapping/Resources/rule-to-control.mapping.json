@@ -2,42 +2,128 @@
   {
     "ruleId": "keychain-secrets",
     "satisfies": [
-      "hipaa-security-rule/164.312(a)(2)(iv)"
-    ],
-    "posture": "partial"
-  },
-  {
-    "ruleId": "security.insecure-keychain",
-    "satisfies": [
-      "hipaa-security-rule/164.312(a)(2)(iv)"
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
     ],
     "posture": "partial"
   },
   {
     "ruleId": "security.hardcoded-secret",
     "satisfies": [
-      "hipaa-security-rule/164.312(a)(2)(iv)"
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.insecure-keychain",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
     ],
     "posture": "partial"
   },
   {
     "ruleId": "security.weak-crypto",
     "satisfies": [
-      "hipaa-security-rule/164.312(a)(2)(iv)"
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
     ],
     "posture": "partial"
   },
   {
     "ruleId": "security.insecure-transport",
     "satisfies": [
-      "hipaa-security-rule/164.312(e)(1)"
+      "hipaa-security-rule/164.312(e)(1)",
+      "soc2-tsc/CC6.6",
+      "soc2-tsc/CC6.7",
+      "iso-27001-annexa/A.5.14"
     ],
     "posture": "partial"
   },
   {
     "ruleId": "security.tls-disabled",
     "satisfies": [
-      "hipaa-security-rule/164.312(e)(1)"
+      "hipaa-security-rule/164.312(e)(1)",
+      "soc2-tsc/CC6.6",
+      "soc2-tsc/CC6.7",
+      "iso-27001-annexa/A.5.14"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.silent-try",
+    "satisfies": [
+      "soc2-tsc/CC7.2",
+      "iso-27001-annexa/A.8.15"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.catch-without-logging",
+    "satisfies": [
+      "soc2-tsc/CC7.2",
+      "iso-27001-annexa/A.8.15"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.print-statement",
+    "satisfies": [
+      "iso-27001-annexa/A.8.15"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fp-division-unguarded",
+    "satisfies": [
+      "soc2-tsc/PI1.1"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fp-equality",
+    "satisfies": [
+      "soc2-tsc/PI1.1"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "concurrency.sendable-class-mutable-state",
+    "satisfies": [
+      "soc2-tsc/PI1.1"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "force-unwrap",
+    "satisfies": [
+      "iso-27001-annexa/A.8.28"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "force-cast",
+    "satisfies": [
+      "iso-27001-annexa/A.8.28"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "force-try",
+    "satisfies": [
+      "iso-27001-annexa/A.8.28"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "privacy-manifest",
+    "satisfies": [
+      "soc2-tsc/P1.1"
     ],
     "posture": "partial"
   }

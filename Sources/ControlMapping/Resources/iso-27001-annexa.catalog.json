@@ -1,0 +1,43 @@
+{
+  "framework": "iso-27001-annexa",
+  "version": "ISO/IEC 27001:2022 Annex A",
+  "source": "iso",
+  "sourceRef": "https://www.iso.org/standard/27001",
+  "fetched": "2026-07-31",
+  "contentHash": "sha256:fee24149dd7793e258ad1f4186551f84fedc752c584b110bc1cb167d4d69d4a6",
+  "reviewedBy": "jpurnell",
+  "reviewed": "2026-07-31",
+  "superseded": false,
+  "controls": [
+    {
+      "id": "A.8.24",
+      "title": "Use of cryptography",
+      "text": "(paraphrase) Rules for the effective use of cryptography, including key management, are defined and implemented.",
+      "checkability": "partial"
+    },
+    {
+      "id": "A.5.14",
+      "title": "Information transfer",
+      "text": "(paraphrase) Transfer rules, procedures, and controls protect information in transit across all transfer facilities.",
+      "checkability": "partial"
+    },
+    {
+      "id": "A.8.15",
+      "title": "Logging",
+      "text": "(paraphrase) Logs of activities, exceptions, faults, and relevant events are produced, stored, protected, and analysed.",
+      "checkability": "partial"
+    },
+    {
+      "id": "A.8.25",
+      "title": "Secure development life cycle",
+      "text": "(paraphrase) Rules for the secure development of software and systems are established and applied.",
+      "checkability": "evidence"
+    },
+    {
+      "id": "A.8.28",
+      "title": "Secure coding",
+      "text": "(paraphrase) Secure coding principles are applied throughout software development.",
+      "checkability": "partial"
+    }
+  ]
+}

@@ -100,4 +100,21 @@ struct ComplianceCoverageTests {
         #expect(transmission?.state == .enforced)
         #expect(transmission?.rules.contains("security.insecure-transport") == true)
     }
+
+    @Test("the shipped matrix spans all three frameworks, surfacing evidence-only and out-of-scope")
+    func shippedMultiFramework() throws {
+        let rows = ComplianceCoverage.matrix(
+            catalogs: ControlMappingResources.catalogs(),
+            mappings: ControlMappingResources.mappings(),
+            knownRuleIds: ControlMappingResources.registryRuleIds())
+
+        #expect(Set(rows.map(\.framework)) == ["hipaa-security-rule", "iso-27001-annexa", "soc2-tsc"])
+        // change management / secure-development lifecycle: the gate's operation is the evidence
+        #expect(rows.filter { $0.state == .evidenceOnly }.count == 2)
+        #expect(rows.contains { $0.controlId == "CC8.1" && $0.state == .evidenceOnly })
+        // HIPAA audit controls + integrity: honestly out of scope, never hidden
+        #expect(rows.filter { $0.state == .outOfScope }.count == 2)
+        // privacy-manifest maps to the SOC 2 privacy-notice criterion
+        #expect(rows.contains { $0.controlId == "P1.1" && $0.rules.contains("privacy-manifest") })
+    }
 }

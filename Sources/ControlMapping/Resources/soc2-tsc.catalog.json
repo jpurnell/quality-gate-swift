@@ -1,0 +1,55 @@
+{
+  "framework": "soc2-tsc",
+  "version": "AICPA Trust Services Criteria (2017, rev. 2022)",
+  "source": "aicpa",
+  "sourceRef": "https://www.aicpa-cima.com/resources/download/2017-trust-services-criteria-with-revised-points-of-focus-2022",
+  "fetched": "2026-07-31",
+  "contentHash": "sha256:ecb363fc5c7fed8da1ac1a440ad191fd39345394ce5be25bdcb8faef758ac83e",
+  "reviewedBy": "jpurnell",
+  "reviewed": "2026-07-31",
+  "superseded": false,
+  "controls": [
+    {
+      "id": "CC6.1",
+      "title": "Logical access security",
+      "text": "(paraphrase) Logical access security measures protect information assets from unauthorized access, including credential protection and encryption of sensitive data.",
+      "checkability": "partial"
+    },
+    {
+      "id": "CC6.6",
+      "title": "Boundary protection",
+      "text": "(paraphrase) Controls protect against threats from outside the system boundary, including securing information transmitted over public networks.",
+      "checkability": "partial"
+    },
+    {
+      "id": "CC6.7",
+      "title": "Restricting information movement",
+      "text": "(paraphrase) Transmission, movement, and removal of information is restricted to authorized users/processes and protected in transit.",
+      "checkability": "partial"
+    },
+    {
+      "id": "CC7.2",
+      "title": "System monitoring",
+      "text": "(paraphrase) System components are monitored for anomalies indicative of malicious acts, and relevant activity is logged.",
+      "checkability": "partial"
+    },
+    {
+      "id": "CC8.1",
+      "title": "Change management",
+      "text": "(paraphrase) Changes to infrastructure, data, software, and procedures are authorized, designed, developed, tested, approved, and implemented under a change-management process.",
+      "checkability": "evidence"
+    },
+    {
+      "id": "PI1.1",
+      "title": "Processing integrity",
+      "text": "(paraphrase) Processing is complete, valid, accurate, timely, and authorized.",
+      "checkability": "partial"
+    },
+    {
+      "id": "P1.1",
+      "title": "Privacy notice",
+      "text": "(paraphrase) Notice is provided about the collection, use, retention, disclosure, and disposal of personal information.",
+      "checkability": "partial"
+    }
+  ]
+}
