@@ -40,10 +40,48 @@ struct StandardsWatchCommand: AsyncParsableCommand {
             print("  [\(tag)] \(result.framework) — \(result.detail)")
         }
 
+        // Early warning: proposed changes on the Federal Register touching HIPAA
+        // (45 CFR 164) — a heads-up before the eCFR text itself changes.
+        if catalogs.contains(where: { $0.source == "ecfr" }) {
+            let proposed = await Self.federalRegisterProposedRules()
+            if let latest = FederalRegisterWatch.mostRecent(proposed) {
+                print("\nProposed changes (Federal Register, 45 CFR 164): \(proposed.count) on record.")
+                print("  latest: \(latest.publicationDate) — \(latest.title)")
+                print("  \(latest.url)")
+                print("  Not yet in effect until finalized — review whether it will affect the mapping.")
+            }
+        }
+
         if drifted {
             print("\nDrift detected — reconcile the affected catalog + mapping and re-stamp. Do NOT trust the mapping until reconciled.")
             throw ExitCode(1)
         }
+    }
+
+    /// Recent proposed rules touching 45 CFR 164 from the Federal Register API.
+    /// Advisory only — returns [] on any failure, and the host is allow-listed.
+    static func federalRegisterProposedRules() async -> [ProposedRule] {
+        guard var components = URLComponents(string: "https://www.federalregister.gov/api/v1/documents.json") else {
+            return []
+        }
+        components.queryItems = [
+            URLQueryItem(name: "conditions[cfr][title]", value: "45"),
+            URLQueryItem(name: "conditions[cfr][part]", value: "164"),
+            URLQueryItem(name: "conditions[type][]", value: "PRORULE"),
+            URLQueryItem(name: "per_page", value: "10"),
+            URLQueryItem(name: "order", value: "newest"),
+            URLQueryItem(name: "fields[]", value: "title"),
+            URLQueryItem(name: "fields[]", value: "type"),
+            URLQueryItem(name: "fields[]", value: "publication_date"),
+            URLQueryItem(name: "fields[]", value: "document_number"),
+            URLQueryItem(name: "fields[]", value: "html_url"),
+        ]
+        guard let url = components.url, url.host == "www.federalregister.gov" else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        // silent: the Federal Register probe is advisory — any failure just omits the early-warning line
+        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return [] }
+        return FederalRegisterWatch.parse(data)
     }
 }
 
