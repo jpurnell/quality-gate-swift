@@ -13,14 +13,25 @@ public enum StatusValidator {
     ///   - lastUpdated: Last Updated date and line from Master Plan.
     ///   - masterPlanPath: Path to the Master Plan file (for diagnostic locations).
     ///   - configuration: StatusAuditor configuration with thresholds.
+    ///   - now: The instant to measure staleness against. Injected so the verdict is
+    ///     reproducible in tests — see the hermeticity note on Rule 7 below.
     /// - Returns: Array of diagnostics for any drift detected.
+    ///
+    /// ## Hermeticity
+    ///
+    /// Rules 1–6 and 8 compare the Master Plan against the working tree: same tree,
+    /// same finding, forever. Rule 7 (staleness) measures the calendar instead, so it
+    /// emits a `.note` and never blocks — otherwise a byte-identical commit that passed
+    /// today would fail in three months, which punishes whichever project you happen to
+    /// return to after a gap rather than any defect in the code.
     public static func validate(
         documented: [DocumentedModuleStatus],
         actual: [String: ActualModuleState],
         phases: [DocumentedPhase],
         lastUpdated: (date: String, line: Int)?,
         masterPlanPath: String,
-        configuration: StatusAuditorConfig
+        configuration: StatusAuditorConfig,
+        now: Date = Date()
     ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
 
@@ -120,17 +131,20 @@ public enum StatusValidator {
             }
         }
 
-        // Rule 7: Last Updated staleness
+        // Rule 7: Last Updated staleness — TEMPORAL, so `.note` only.
+        // This is the one rule here whose input is the calendar rather than the tree.
+        // It stays reported (a stale plan is worth knowing about) but disarmed: it must
+        // never be the reason a commit is refused.
         if let lastUpdated = lastUpdated {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withFullDate]
             if let docDate = formatter.date(from: lastUpdated.date) {
                 let daysSince = Calendar.current.dateComponents(
-                    [.day], from: docDate, to: Date.now
+                    [.day], from: docDate, to: now
                 ).day ?? 0
                 if daysSince > configuration.lastUpdatedStaleDays {
                     diagnostics.append(Diagnostic(
-                        severity: .warning,
+                        severity: .note,
                         message: "Master Plan last updated \(lastUpdated.date) (\(daysSince) days ago, threshold: \(configuration.lastUpdatedStaleDays) days).",
                         filePath: masterPlanPath,
                         lineNumber: lastUpdated.line,

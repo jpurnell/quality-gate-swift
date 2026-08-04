@@ -4,6 +4,7 @@ INSTALL_DIR = $(PREFIX)/bin
 BUILD_DIR_RELEASE = .build/release
 BUILD_DIR_DEBUG = .build/debug
 STAMP_FILE = $(INSTALL_DIR)/.quality-gate-stamp
+BUNDLE_NAME = quality-gate-swift_ControlMapping.bundle
 BUILD_STAMP_SWIFT = Sources/QualityGateCLI/BuildStamp.swift
 
 .PHONY: build install uninstall clean sign-debug stamp
@@ -22,14 +23,21 @@ build: stamp
 sign-debug:
 	codesign -s - --force --options runtime $(BUILD_DIR_DEBUG)/$(PRODUCT)
 
+# SwiftPM resolves resource bundles relative to the executable, so any target with
+# resources (ControlMapping ships the regulatory catalogs) needs its .bundle installed
+# beside the binary. Installing the binary alone leaves the tool crashing on first use
+# of that target — "unable to find bundle named quality-gate-swift_ControlMapping".
 install: build
 	sudo install -d $(INSTALL_DIR)
 	sudo install -m 755 $(BUILD_DIR_RELEASE)/$(PRODUCT) $(INSTALL_DIR)/$(PRODUCT)
+	sudo rm -rf $(INSTALL_DIR)/$(BUNDLE_NAME)
+	sudo cp -R $(BUILD_DIR_RELEASE)/$(BUNDLE_NAME) $(INSTALL_DIR)/$(BUNDLE_NAME)
 	sudo xattr -cr $(INSTALL_DIR)/$(PRODUCT)
 	@echo "$(shell git rev-parse HEAD)" | sudo tee $(STAMP_FILE) > /dev/null
 
 uninstall:
 	sudo rm -f $(INSTALL_DIR)/$(PRODUCT)
+	sudo rm -rf $(INSTALL_DIR)/$(BUNDLE_NAME)
 	sudo rm -f $(STAMP_FILE)
 
 clean:

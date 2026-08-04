@@ -52,6 +52,19 @@ public protocol QualityChecker: Sendable {
     /// them sequentially, outside the concurrent task group.
     var isParallelSafe: Bool { get }
 
+    /// What this checker's verdict depends on beyond the working tree.
+    ///
+    /// Defaults to ``Hermeticity/hermetic``. Checkers whose findings depend on the
+    /// calendar or on network / out-of-tree state must declare ``Hermeticity/temporal``
+    /// or ``Hermeticity/external`` so the runner strips their gate authority — a
+    /// finding the commit cannot be held responsible for must not block it.
+    ///
+    /// This is a protocol *requirement*, not merely an extension default: the runner
+    /// holds checkers as `any QualityChecker`, and a witness supplied only by an
+    /// extension would be dispatched statically to the default, silently disarming
+    /// every declaration.
+    var hermeticity: Hermeticity { get }
+
     /// The complete set of inputs whose change could change this checker's result, or
     /// `nil` (the default) to declare the checker **not cacheable** — it then runs every
     /// time.

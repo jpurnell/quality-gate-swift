@@ -5,19 +5,13 @@ import Foundation
 /// Extracted from the CLI so the selection rules are unit-testable and consistent
 /// across entry points.
 ///
-/// ## Maintenance checkers
+/// ## No destructive checkers
 ///
-/// Some checkers perform *destructive maintenance* — deleting build artifacts, running
-/// `git gc` — rather than read-only quality analysis. These are **opt-in**: they are
-/// excluded from `--check all` and from the default (no-argument) set, and run only when
-/// named explicitly (e.g. `--check disk-clean`, or `--check all --check disk-clean`).
-///
-/// This keeps "run all checks" non-destructive and reproducible: it will not wipe the
-/// `.build/` directory (and index store) that other checkers depend on, so consecutive
-/// runs produce the same results.
+/// Selection no longer carries a denylist of tree-mutating checkers. Cleanup moved to the
+/// `quality-gate clean` subcommand and off the `QualityChecker` protocol entirely, so
+/// "run all checks" is non-destructive because nothing registered can mutate the tree —
+/// not because a hardcoded set of ids is held back. See `DiskCleaner`.
 public enum CheckerSelection {
-    /// Checker ids that perform destructive maintenance rather than read-only analysis.
-    public static let maintenanceCheckers: Set<String> = ["disk-clean"]
 
     /// Resolve the ordered list of checker ids to run.
     ///
@@ -39,22 +33,15 @@ public enum CheckerSelection {
         let excludeSet = Set(excluded)
 
         if requested.contains("all") {
-            let requestedSet = Set(requested)
-            return allIDs.filter { id in
-                if excludeSet.contains(id) { return false }
-                // Maintenance checkers are opt-in even under "all": include only when the
-                // caller also named them explicitly (e.g. --check all --check disk-clean).
-                if maintenanceCheckers.contains(id) && !requestedSet.contains(id) { return false }
-                return true
-            }
+            return allIDs.filter { !excludeSet.contains($0) }
         } else if !requested.isEmpty {
-            // Explicit ids run as requested (maintenance checkers included on demand).
+            // Explicit ids run as requested.
             return requested
         } else if !configuredEnabled.isEmpty {
             return configuredEnabled
         } else {
-            // Default (no --check, no config): everything except opt-in checkers.
-            var optOut: Set<String> = maintenanceCheckers.union(["xcode-build"])
+            // Default (no --check, no config): everything except the slow opt-in checkers.
+            var optOut: Set<String> = ["xcode-build"]
             if full { optOut.remove("xcode-build") }
             return allIDs.filter { !optOut.contains($0) }
         }

@@ -10,7 +10,6 @@ import BuildChecker
 import TestRunner
 import DocLinter
 import DocCoverageChecker
-import DiskCleaner
 import UnreachableCodeAuditor
 import RecursionAuditor
 import ConcurrencyAuditor
@@ -63,7 +62,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "2.0.1",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self, ReVerify.self, CorpusdToken.self, Compliance.self, StandardsWatchCommand.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self, ReVerify.self, CorpusdToken.self, Compliance.self, StandardsWatchCommand.self, Clean.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -116,6 +115,9 @@ struct QualityGateCLI: AsyncParsableCommand {
 
     @Flag(name: .customLong("advisory-all"), help: "Trial mode: run everything, downgrade every error/warning to a note, exit 0. Recorded as gateMode: advisory — never counts as a green gate.")
     var advisoryAll: Bool = false
+
+    @Flag(name: .customLong("include-nonhermetic"), help: "Let time-dependent and network-dependent checkers fail the gate. Off by default: a finding the commit cannot be held responsible for is reported as a note, never blocked on.")
+    var includeNonHermetic: Bool = false
 
     @Option(name: .long, help: "Override cognitive complexity threshold (used with --check complexity)")
     var threshold: Int?
@@ -191,7 +193,6 @@ struct QualityGateCLI: AsyncParsableCommand {
             AppIntentsAuditor(),
             ConsistencyChecker(),
             XcodeBuildChecker(),
-            DiskCleaner(),
             // Major-points parity (Phase 4c): advisory posture — notes by
             // default, config-tunable up; the gate blocks on correctness.
             IdiomAuditor(config: configuration.idiom),
@@ -330,6 +331,14 @@ struct QualityGateCLI: AsyncParsableCommand {
             effectiveCheckers.contains(checker.id)
         }
 
+        // `disk-clean` was a checker until cleanup moved off the QualityChecker protocol.
+        // Name the replacement rather than letting an old invocation look like a no-op.
+        if effectiveCheckers.contains("disk-clean") {
+            print("`--check disk-clean` has moved: run `quality-gate clean` instead.")
+            print("Cleanup mutates the tree, so it is a subcommand rather than a check.")
+            throw ExitCode.failure
+        }
+
         if checkersToRun.isEmpty {
             print("No checkers enabled. Nothing to do.")
             return
@@ -382,6 +391,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             cache: resultCache,
             gateHash: gateHash,
             useCache: !noCache,
+            includeNonHermetic: includeNonHermetic,
             transform: { overrideProcessor.apply(to: $0) },
             onError: { checkerID, error in
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")

@@ -13,7 +13,7 @@ and more) is driven through this single binary.
 ### Quick Start
 
 ```bash
-# Run default checkers (all except disk-clean)
+# Run default checkers
 quality-gate
 
 # Run every registered checker
@@ -24,6 +24,10 @@ quality-gate --check build --check safety --verbose
 
 # Preview auto-fixes without applying them
 quality-gate --fix --dry-run
+
+# Remove build artifacts (a subcommand, not a check — it mutates the tree)
+quality-gate clean --preview
+quality-gate clean --gc
 ```
 
 ## CLI Usage
@@ -39,13 +43,14 @@ USAGE: quality-gate [--format <format>] [--config <config>]
 
 | Flag / Option | Short | Default | Description |
 |---|---|---|---|
-| `--check <id> ...` | | *(all except disk-clean)* | Specific checker(s) to run. Repeatable. Pass `all` to enable every registered checker. |
+| `--check <id> ...` | | *(all checkers)* | Specific checker(s) to run. Repeatable. Pass `all` to enable every registered checker. |
 | `--exclude <id> ...` | | *(none)* | Checkers to skip when using `--check all`. |
 | `--strict` | | `false` | Treat warnings as failures (exit code 1). |
 | `--continue-on-failure` | | `false` | Continue running remaining checks after a failure instead of stopping. |
 | `--fix` | | `false` | Apply auto-fixes for checkers that conform to the `FixableChecker` protocol. |
 | `--dry-run` | | `false` | Show what `--fix` would change without writing to disk. Requires `--fix`. |
 | `--bootstrap` | | `false` | Generate initial status documents from actual project state. Use with `--check status`. |
+| `--include-nonhermetic` | | `false` | Let time- and network-dependent checkers fail the gate. By default their findings report as notes and never block, so the same tree always yields the same verdict. |
 | `--format <format>` | `-f` | `terminal` | Output format: `terminal`, `json`, or `sarif`. |
 | `--config <path>` | `-c` | `.quality-gate.yml` | Path to the YAML configuration file. |
 | `--verbose` | `-v` | `false` | Print detailed progress as each checker runs. |
@@ -71,7 +76,7 @@ excludePatterns:
 safetyExemptions:
   - "// SAFETY:"
 
-# Checkers to enable (empty = all except disk-clean)
+# Checkers to enable (empty = all)
 enabledCheckers:
   - build
   - test
@@ -147,7 +152,7 @@ The set of checkers that actually run is resolved with the following precedence
 
 1. **CLI flags** -- `--check` and `--exclude` arguments override everything.
 2. **Configuration file** -- The `enabledCheckers` array in `.quality-gate.yml`.
-3. **Built-in defaults** -- All registered checkers except `disk-clean`.
+3. **Built-in defaults** -- All registered checkers.
 
 When `--check all` is passed, every registered checker runs. Combine with
 `--exclude` to remove specific IDs from that set.
@@ -174,7 +179,6 @@ Checkers execute in registration order. The full registry and their IDs:
 | `logging` | Logging Auditor | Enforce logging hygiene (silent try?, os.Logger usage) |
 | `test-quality` | Test Quality Auditor | Evaluate test suite quality and patterns |
 | `context` | Context Auditor | Audit context-passing patterns |
-| `disk-clean` | Disk Cleaner | Remove stale build artifacts (destructive; excluded from defaults) |
 
 ## Output Formats
 

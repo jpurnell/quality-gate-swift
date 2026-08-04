@@ -78,7 +78,7 @@ struct CICommand: AsyncParsableCommand {
             arguments.append("--check")
             arguments.append(contentsOf: checkers)
         }
-        var gate = try QualityGateCLI.parse(arguments)
+        let gate = try QualityGateCLI.parse(arguments)
         var gateError: Error?
         do {
             try await gate.run()

@@ -1,39 +1,24 @@
 import Testing
 @testable import QualityGateCore
 
+/// Selection used to hold a denylist of destructive checkers (`disk-clean`) back from
+/// `--check all` and from the default set. Cleanup has since moved off the
+/// `QualityChecker` protocol to the `quality-gate clean` subcommand, so no registered
+/// checker mutates the tree and selection carries no special cases beyond the slow
+/// `xcode-build` opt-in. See `CheckerRegistryPurityTests`.
 @Suite("CheckerSelection")
 struct CheckerSelectionTests {
-    // A representative registry order including the destructive maintenance checker.
+    // A representative registry order.
     private let allIDs = [
-        "build", "safety", "unreachable", "logging", "hig-auditor",
-        "xcode-build", "disk-clean",
+        "build", "safety", "unreachable", "logging", "hig-auditor", "xcode-build",
     ]
 
-    @Test("--check all excludes disk-clean (destructive, opt-in)")
-    func allExcludesDiskClean() {
+    @Test("--check all runs every registered checker")
+    func allRunsEverything() {
         let result = CheckerSelection.resolve(
             requested: ["all"], excluded: [], configuredEnabled: [], full: false, allIDs: allIDs
         )
-        #expect(!result.contains("disk-clean"), "disk-clean must not run under --check all")
-        #expect(result.contains("safety"))
-        #expect(result.contains("hig-auditor"))
-        #expect(result.contains("xcode-build"), "non-destructive checkers still run under all")
-    }
-
-    @Test("--check all --check disk-clean opts disk-clean back in")
-    func allPlusExplicitDiskClean() {
-        let result = CheckerSelection.resolve(
-            requested: ["all", "disk-clean"], excluded: [], configuredEnabled: [], full: false, allIDs: allIDs
-        )
-        #expect(result.contains("disk-clean"), "explicitly named maintenance checker runs under all")
-    }
-
-    @Test("--check disk-clean runs it explicitly")
-    func explicitDiskCleanOnly() {
-        let result = CheckerSelection.resolve(
-            requested: ["disk-clean"], excluded: [], configuredEnabled: [], full: false, allIDs: allIDs
-        )
-        #expect(result == ["disk-clean"])
+        #expect(result == allIDs)
     }
 
     @Test("--check all --exclude safety drops safety")
@@ -42,7 +27,6 @@ struct CheckerSelectionTests {
             requested: ["all"], excluded: ["safety"], configuredEnabled: [], full: false, allIDs: allIDs
         )
         #expect(!result.contains("safety"))
-        #expect(!result.contains("disk-clean"))
         #expect(result.contains("build"))
     }
 
@@ -54,23 +38,30 @@ struct CheckerSelectionTests {
         #expect(result == ["build", "safety", "unreachable", "logging", "hig-auditor", "xcode-build"])
     }
 
-    @Test("default set excludes disk-clean and xcode-build")
+    @Test("explicit ids run exactly as requested")
+    func explicitIDs() {
+        let result = CheckerSelection.resolve(
+            requested: ["safety"], excluded: [], configuredEnabled: [], full: false, allIDs: allIDs
+        )
+        #expect(result == ["safety"])
+    }
+
+    @Test("default set excludes the slow xcode-build checker")
     func defaultSet() {
         let result = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: allIDs
         )
-        #expect(!result.contains("disk-clean"))
         #expect(!result.contains("xcode-build"))
         #expect(result.contains("build"))
+        #expect(result.contains("safety"))
     }
 
-    @Test("--full opts xcode-build back into the default set but not disk-clean")
-    func fullOptsInXcodeBuildOnly() {
+    @Test("--full opts xcode-build back into the default set")
+    func fullOptsInXcodeBuild() {
         let result = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: allIDs
         )
-        #expect(result.contains("xcode-build"))
-        #expect(!result.contains("disk-clean"), "disk-clean stays opt-in even with --full")
+        #expect(result == allIDs)
     }
 
     @Test("configured enabledCheckers are honored when no --check given")

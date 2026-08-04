@@ -53,6 +53,9 @@ public struct CheckerRunner: Sendable {
     ///   - cache: Optional result cache consulted when `useCache` is `true`; `nil` disables caching.
     ///   - gateHash: Identity hash of the gate build, mixed into each cache fingerprint so a gate rebuild invalidates stale entries.
     ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged checker inputs.
+    ///   - includeNonHermetic: When `true`, skip the hermeticity clamp so `.temporal`
+    ///     and `.external` checkers can fail the gate (for jobs that *want* to block on
+    ///     staleness or upstream drift). Off by default.
     ///   - transform: Applied to each result before judging pass/fail (e.g. override application).
     ///   - onError: Invoked with the checker id and error when a checker throws (for logging).
     /// - Returns: The results in checker order.
@@ -64,18 +67,28 @@ public struct CheckerRunner: Sendable {
         cache: ResultCache? = nil,
         gateHash: String = "",
         useCache: Bool = false,
+        includeNonHermetic: Bool = false,
         transform: @Sendable @escaping (CheckResult) -> CheckResult = { $0 },
         onError: @Sendable @escaping (String, any Error) -> Void = { _, _ in }
     ) async -> [CheckResult] {
         if checkers.isEmpty { return [] }
 
-        // Runs the checker, converting a throw into a failed `checker-error` result.
+        // Runs the checker, converting a throw into a failed `checker-error` result —
+        // except for `.external` checkers, where a throw means the out-of-tree state was
+        // unreachable. That is not evidence against the commit, so it resolves to
+        // `.skipped` carrying the reason rather than to a failure.
         @Sendable func runAndSynthesize(_ checker: any QualityChecker) async -> CheckResult {
             do {
                 return try await checker.check(configuration: configuration)
             } catch {
                 Self.logger.error("Checker '\(checker.id, privacy: .public)' threw: \(error.localizedDescription, privacy: .public)")
                 onError(checker.id, error)
+
+                if checker.hermeticity == .external && !includeNonHermetic {
+                    return HermeticityClamp.unavailable(
+                        checkerId: checker.id, reason: error.localizedDescription)
+                }
+
                 return CheckResult(
                     checkerId: checker.id,
                     status: .failed,
@@ -95,19 +108,27 @@ public struct CheckerRunner: Sendable {
         // opted in via `cacheInputs`. The cache stores the RAW checker output; `transform`
         // (override application) is applied per-run to both cache hits and misses, so overrides
         // never get baked into a cached result.
+        // Applies the hermeticity clamp *after* `transform`, so override matching still
+        // sees each diagnostic's original severity. The clamp is a pure function of the
+        // declared class, so it is equally correct on a cache hit and a fresh run.
+        @Sendable func clamped(_ result: CheckResult, _ checker: any QualityChecker) -> CheckResult {
+            guard !includeNonHermetic else { return result }
+            return HermeticityClamp.apply(to: result, hermeticity: checker.hermeticity)
+        }
+
         @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
             if useCache, let cache, let inputs = checker.cacheInputs(configuration: configuration) {
                 let fingerprint = CheckerFingerprint.compute(
                     checkerId: checker.id, inputs: inputs, gateHash: gateHash
                 )
                 if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
-                    return transform(cached)
+                    return clamped(transform(cached), checker)
                 }
                 let fresh = await runAndSynthesize(checker)
                 cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
-                return transform(fresh)
+                return clamped(transform(fresh), checker)
             }
-            return transform(await runAndSynthesize(checker))
+            return clamped(transform(await runAndSynthesize(checker)), checker)
         }
 
         func isFailing(_ result: CheckResult) -> Bool {
