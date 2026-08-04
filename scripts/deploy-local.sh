@@ -40,6 +40,20 @@ echo "Installing to $INSTALL_DIR (requires sudo)..."
 sudo cp "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
 sudo codesign --force -s - "$INSTALL_DIR/$BINARY_NAME"
 
+# SwiftPM resolves resource bundles relative to the executable, so every target that
+# ships resources needs its .bundle installed beside the binary. Deploying the executable
+# alone leaves the tool crashing the first time such a target is touched — e.g. "unable to
+# find bundle named quality-gate-swift_ControlMapping" on `--check all`, once ControlMapping
+# gained the regulatory catalogs. Copy whatever bundles the release build produced for us.
+shopt -s nullglob
+for bundle in "$REPO_DIR/.build/release/"quality-gate-swift_*.bundle; do
+    bundle_name="$(basename "$bundle")"
+    echo "  bundle: $bundle_name"
+    sudo rm -rf "${INSTALL_DIR:?}/$bundle_name"
+    sudo cp -R "$bundle" "$INSTALL_DIR/$bundle_name"
+done
+shopt -u nullglob
+
 STAMP_FILE="$INSTALL_DIR/.quality-gate-stamp"
 echo "$DEPLOY_COMMIT" | sudo tee "$STAMP_FILE" > /dev/null
 

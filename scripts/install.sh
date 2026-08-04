@@ -52,11 +52,27 @@ if [ ! -d "$INSTALL_DIR" ]; then
     sudo mkdir -p "$INSTALL_DIR"
 fi
 
+# SwiftPM resolves resource bundles relative to the executable, so any target shipping
+# resources needs its .bundle installed beside the binary — otherwise the tool crashes
+# the first time that target is touched ("unable to find bundle named ...").
+BUNDLE_DIR="$(dirname "$BINARY_PATH")"
+shopt -s nullglob
+BUNDLES=("$BUNDLE_DIR/"quality-gate-swift_*.bundle)
+shopt -u nullglob
+
 if [ -w "$INSTALL_DIR" ]; then
     cp "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
+    for bundle in "${BUNDLES[@]}"; do
+        rm -rf "${INSTALL_DIR:?}/$(basename "$bundle")"
+        cp -R "$bundle" "$INSTALL_DIR/$(basename "$bundle")"
+    done
 else
     echo "Installing to $INSTALL_DIR (requires sudo)..."
     sudo cp "$BINARY_PATH" "$INSTALL_DIR/$BINARY_NAME"
+    for bundle in "${BUNDLES[@]}"; do
+        sudo rm -rf "${INSTALL_DIR:?}/$(basename "$bundle")"
+        sudo cp -R "$bundle" "$INSTALL_DIR/$(basename "$bundle")"
+    done
 fi
 
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
