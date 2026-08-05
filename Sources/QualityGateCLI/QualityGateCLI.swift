@@ -438,8 +438,14 @@ struct QualityGateCLI: AsyncParsableCommand {
             let guidelinesDir = (currentDir as NSString).appendingPathComponent(
                 configuration.status.guidelinesPath
             )
-            let masterPlanDir = (guidelinesDir as NSString).appendingPathComponent("00_CORE_RULES")
-            let masterPlanPath = (masterPlanDir as NSString).appendingPathComponent("00_MASTER_PLAN.md")
+            // Honour the configured location rather than rebuilding the v1 path:
+            // masterPlanPath is relative to guidelinesPath, exactly as StatusAuditor
+            // resolves it. A v2 project sets `guidelinesPath: "."` with
+            // `masterPlanPath: project/master_plan.md`.
+            let masterPlanPath = (guidelinesDir as NSString).appendingPathComponent(
+                configuration.status.masterPlanPath
+            )
+            let masterPlanDir = (masterPlanPath as NSString).deletingLastPathComponent
 
             let content = StatusBootstrapper.generate(
                 projectRoot: currentDir,

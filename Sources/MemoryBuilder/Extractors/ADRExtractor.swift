@@ -19,10 +19,26 @@ public struct ADRExtractor: MemoryExtractor, Sendable {
         guidelinesPath: String,
         globalClaudeMD: String?
     ) async throws -> [MemoryEntry] {
-        let adrPath = [projectRoot, guidelinesPath, "00_CORE_RULES", "06_ARCHITECTURE_DECISIONS.md"]
+        // v2 keeps the decision log with the project that owns it; v1 filed it
+        // under the framework's rules. Prefer v2, fall back so unmigrated
+        // projects keep working.
+        let v2Path = [projectRoot, "project", "decisions", "architecture_decisions.md"]
+            .joined(separator: "/")
+        let v1Path = [projectRoot, guidelinesPath, "00_CORE_RULES", "06_ARCHITECTURE_DECISIONS.md"]
             .joined(separator: "/")
 
-        guard FileManager.default.fileExists(atPath: adrPath) else { return [] } // SAFETY: reads ADR file from project guidelines dir
+        let fileManager = FileManager.default
+        let adrPath: String
+        let displayPath: String
+        if fileManager.fileExists(atPath: v2Path) { // SAFETY: reads ADR log from the project's own decisions dir
+            adrPath = v2Path
+            displayPath = "project/decisions/architecture_decisions.md"
+        } else if fileManager.fileExists(atPath: v1Path) { // SAFETY: reads ADR file from project guidelines dir
+            adrPath = v1Path
+            displayPath = "\(guidelinesPath)/00_CORE_RULES/06_ARCHITECTURE_DECISIONS.md"
+        } else {
+            return []
+        }
         let content = try String(contentsOfFile: adrPath, encoding: .utf8)
 
         let adrs = parseADRs(from: content)
@@ -36,7 +52,7 @@ public struct ADRExtractor: MemoryExtractor, Sendable {
             lines.append("- **\(adr.id):** \(adr.title) (\(adr.category))")
         }
         lines.append("")
-        lines.append("Full details: `\(guidelinesPath)/00_CORE_RULES/06_ARCHITECTURE_DECISIONS.md`")
+        lines.append("Full details: `\(displayPath)`")
 
         return [
             MemoryEntry(

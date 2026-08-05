@@ -54,12 +54,12 @@ DESIGN → RED (failing test) → GREEN (minimum to pass) → REFACTOR → DOCUM
 
 ### Design Proposals
 For non-trivial features (new checker, new protocol, architectural change):
-write a design proposal in `development-guidelines/02_IMPLEMENTATION_PLANS/PROPOSALS/`
+write a design proposal in `development-guidelines/project/plans/proposals/`
 before writing code.
 
 ### Session Protocol
-- **Start**: Read the latest file in `development-guidelines/05_SUMMARIES/`
-- **End**: Create a session summary in `development-guidelines/05_SUMMARIES/YYYY-MM-DD_TaskName.md`
+- **Start**: Read the latest file in `development-guidelines/project/summaries/`
+- **End**: Create a session summary in `development-guidelines/project/summaries/<YYYY-MM-DD>_<TaskName>.md`
 
 ## Build Feedback
 
@@ -76,7 +76,7 @@ Fix all build errors before proceeding to the next change.
 
 ## References
 
-- Full coding rules: `development-guidelines/00_CORE_RULES/01_CODING_RULES.md`
-- TDD contract: `development-guidelines/00_CORE_RULES/09_TEST_DRIVEN_DEVELOPMENT.md`
-- Enforcement architecture: `development-guidelines/00_CORE_RULES/12_ENFORCEMENT.md`
-- Session workflow: `development-guidelines/00_CORE_RULES/07_SESSION_WORKFLOW.md`
+- Full coding rules: `development-guidelines/rules/coding_rules.md`
+- TDD contract: `development-guidelines/rules/test_driven_development.md`
+- Enforcement architecture: `development-guidelines/rules/enforcement.md`
+- Session workflow: `development-guidelines/rules/session_workflow.md`

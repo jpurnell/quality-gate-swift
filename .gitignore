@@ -27,3 +27,8 @@ latestReport.json
 # Stale local corpus (telemetry now goes to org-judgement-corpus)
 .ijs-corpus/
 build/
+
+# Vendored development-guidelines framework (managed, replaceable)
+/development-guidelines/
+/.claude/skills/
+/development-guidelines.pre-v2/
