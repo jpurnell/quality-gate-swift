@@ -39,7 +39,7 @@ final class SecurityVisitor: SyntaxVisitor {
     ) {
         self.fileName = fileName
         self.source = source
-        self.sourceLines = source.components(separatedBy: .newlines)
+        self.sourceLines = source.lines
         self.exemptionPatterns = exemptionPatterns
         self.configuration = configuration
         super.init(viewMode: .sourceAccurate)

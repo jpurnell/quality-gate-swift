@@ -84,7 +84,7 @@ public struct GitProvenance: Sendable {
         let args = ["log", range, "--format=%s"]
         guard let output = runGit(args, in: repoPath), !output.isEmpty else { return [] }
         return output
-            .components(separatedBy: "\n")
+            .lines
             .filter { !$0.isEmpty }
     }
 
@@ -128,7 +128,7 @@ public struct GitProvenance: Sendable {
             return nil
         }
 
-        let lines = contents.components(separatedBy: "\n")
+        let lines = contents.lines
         var section: [String] = []
         var inSection = false
         for line in lines {

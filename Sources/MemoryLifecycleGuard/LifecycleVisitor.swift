@@ -40,7 +40,7 @@ final class LifecycleVisitor: SyntaxVisitor {
     ///   - tree: The parsed syntax tree (used for SourceLocationConverter).
     init(filePath: String, source: String, config: MemoryLifecycleConfig, tree: SourceFileSyntax) {
         self.filePath = filePath
-        self.sourceLines = source.components(separatedBy: "\n")
+        self.sourceLines = source.lines
         self.converter = SourceLocationConverter(fileName: filePath, tree: tree)
         self.config = config
         super.init(viewMode: .sourceAccurate)

@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Parsed state of a module from a Master Plan checkbox line.
 public struct DocumentedModuleStatus: Sendable, Equatable {
@@ -59,7 +60,7 @@ public enum MasterPlanParser {
     /// - Parameter content: The full Master Plan markdown content.
     /// - Returns: Array of documented module statuses.
     public static func parseModuleStatus(from content: String) -> [DocumentedModuleStatus] {
-        let lines = content.components(separatedBy: .newlines)
+        let lines = content.lines
         var results: [DocumentedModuleStatus] = []
         var inStatusSection = false
 
@@ -100,7 +101,7 @@ public enum MasterPlanParser {
     /// - Parameter content: The full Master Plan markdown content.
     /// - Returns: Array of documented phases.
     public static func parseRoadmapPhases(from content: String) -> [DocumentedPhase] {
-        let lines = content.components(separatedBy: .newlines)
+        let lines = content.lines
         var phases: [DocumentedPhase] = []
         var currentPhase: (name: String, label: String?, line: Int, items: [(String, Bool)])?
         var inRoadmap = false
@@ -172,7 +173,7 @@ public enum MasterPlanParser {
     /// - Parameter content: The full Master Plan markdown content.
     /// - Returns: Tuple of (date string, line number) or nil.
     public static func parseLastUpdated(from content: String) -> (date: String, line: Int)? {
-        let lines = content.components(separatedBy: .newlines)
+        let lines = content.lines
 
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)

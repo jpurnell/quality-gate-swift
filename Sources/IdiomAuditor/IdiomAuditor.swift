@@ -116,7 +116,7 @@ public struct IdiomAuditor: QualityChecker, Sendable {
             return (lhs.columnNumber ?? 0) < (rhs.columnNumber ?? 0)
         }
 
-        let lines = source.components(separatedBy: "\n")
+        let lines = source.lines
         let severity: Diagnostic.Severity = config.escalateToWarning ? .warning : .note
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []

@@ -90,7 +90,7 @@ public struct BaselineLedger: Sendable, Equatable {
         var content = diagnostic.message
         if let path = diagnostic.filePath, let line = diagnostic.lineNumber,
            let source = try? String(contentsOfFile: path, encoding: .utf8) { // silent: unreadable source falls back to the message hash
-            let lines = source.components(separatedBy: "\n")
+            let lines = source.lines
             if line >= 1 && line <= lines.count {
                 content = lines[line - 1].trimmingCharacters(in: .whitespaces)
             }

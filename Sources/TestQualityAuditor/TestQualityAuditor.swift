@@ -199,7 +199,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
         self.fileName = fileName
         self.source = source
         self.exemptionPatterns = exemptionPatterns
-        self.sourceLines = source.components(separatedBy: .newlines)
+        self.sourceLines = source.lines
         super.init(viewMode: .sourceAccurate)
     }
 

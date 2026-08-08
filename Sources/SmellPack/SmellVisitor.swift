@@ -50,7 +50,7 @@ final class SmellVisitor: SyntaxVisitor {
     init(config: SmellConfig, filePath: String, source: String, tree: SourceFileSyntax) {
         self.config = config
         self.filePath = filePath
-        self.lines = source.components(separatedBy: "\n")
+        self.lines = source.lines
         self.converter = SourceLocationConverter(fileName: filePath, tree: tree)
         super.init(viewMode: .sourceAccurate)
     }

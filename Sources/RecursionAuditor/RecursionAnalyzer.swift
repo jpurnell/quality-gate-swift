@@ -40,7 +40,7 @@ final class RecursionVisitor: SyntaxVisitor {
         self.fileName = fileName
         self.converter = converter
         self.protocolNames = protocolNames
-        self.sourceLines = source.components(separatedBy: .newlines)
+        self.sourceLines = source.lines
         super.init(viewMode: .sourceAccurate)
     }
 

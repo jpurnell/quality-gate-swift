@@ -120,7 +120,7 @@ public struct SubmoduleAuditor: QualityChecker, Sendable {
     }
 
     func parseSubmoduleNames(from content: String) -> [String] {
-        content.components(separatedBy: .newlines)
+        content.lines
             .compactMap { line -> String? in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 guard trimmed.hasPrefix("[submodule \"") else { return nil }
@@ -131,7 +131,7 @@ public struct SubmoduleAuditor: QualityChecker, Sendable {
     }
 
     func parseSubmoduleURLs(from content: String) -> [String] {
-        content.components(separatedBy: .newlines)
+        content.lines
             .compactMap { line -> String? in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 guard trimmed.hasPrefix("url = ") else { return nil }

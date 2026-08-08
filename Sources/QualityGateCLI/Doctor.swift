@@ -36,7 +36,7 @@ struct Doctor: AsyncParsableCommand {
         do {
             let resolution = try LayeredConfig.resolve(repoConfigPath: config)
             loadedConfiguration = resolution.configuration
-            for line in resolution.provenance.renderTable().split(separator: "\n", omittingEmptySubsequences: false) {
+            for line in resolution.provenance.renderTable().split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
                 print("  \(line)")
             }
         } catch {

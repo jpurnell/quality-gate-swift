@@ -161,7 +161,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     private func auditSourceCode(_ source: String, fileName: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
-        let sourceLines = source.components(separatedBy: "\n")
+        let sourceLines = source.lines
         let visitor = LoggingVisitor(
             fileName: fileName,
             converter: converter,

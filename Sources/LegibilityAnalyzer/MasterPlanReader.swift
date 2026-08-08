@@ -14,7 +14,7 @@ enum MasterPlanReader {
     /// Module name → its checklist description.
     static func descriptions(markdown: String) -> [String: String] {
         var result: [String: String] = [:]
-        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+        for rawLine in markdown.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = String(rawLine)
             guard let boxRange = line.range(of: #"^\s*-\s*\[[ xX]\]\s*"#, options: .regularExpression) else {
                 continue

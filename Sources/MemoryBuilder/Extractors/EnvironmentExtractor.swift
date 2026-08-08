@@ -36,7 +36,7 @@ public struct EnvironmentExtractor: MemoryExtractor, Sendable {
             if let range = version.range(of: #"Swift version (\S+)"#, options: .regularExpression) {
                 lines.append("**Swift:** \(version[range])")
             } else {
-                lines.append("**Swift:** \(version.components(separatedBy: "\n").first ?? version)")
+                lines.append("**Swift:** \(version.lines.first ?? version)")
             }
         }
 

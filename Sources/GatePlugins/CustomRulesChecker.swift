@@ -107,7 +107,7 @@ public struct CustomRulesChecker: QualityChecker, Sendable {
             guard Self.included(relative, rule: rule) else { continue }
             // silent: an unreadable file is simply not scanned by a line-regex rule
             guard let source = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
-            for (index, line) in source.components(separatedBy: "\n").enumerated() {
+            for (index, line) in source.lines.enumerated() {
                 let range = NSRange(line.startIndex..., in: line)
                 guard regex.firstMatch(in: line, options: [], range: range) != nil else { continue }
                 if line.contains("// custom:exempt") {

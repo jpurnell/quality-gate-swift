@@ -107,7 +107,7 @@ enum PackageGraphLoader {
     /// `// legibility:description: <text>` — a structured, build-inert home for the
     /// package's "what it does", co-located with its dependencies. `nil` when absent.
     static func packageDescription(packageSource: String) -> String? {
-        for rawLine in packageSource.split(separator: "\n", omittingEmptySubsequences: false) {
+        for rawLine in packageSource.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = String(rawLine)
             guard let range = line.range(of: #"//\s*legibility:description:\s*"#, options: .regularExpression) else {
                 continue

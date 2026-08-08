@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import QualityGateTypes
 import SwiftSyntax
 
@@ -33,7 +34,7 @@ final class ContextVisitor: SyntaxVisitor {
     init(fileName: String, source: String) {
         self.fileName = fileName
         self.source = source
-        self.sourceLines = source.components(separatedBy: .newlines)
+        self.sourceLines = source.lines
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -127,7 +128,7 @@ final class ContextVisitor: SyntaxVisitor {
             return true
         }
 
-        let lines = bodyText.components(separatedBy: .newlines)
+        let lines = bodyText.lines
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let isGuardOrIf = trimmed.hasPrefix("guard ") || trimmed.hasPrefix("if ")

@@ -20,7 +20,7 @@ enum IdiomTextRules {
     static func run(source: String, config: IdiomConfig) -> [IdiomFinding] {
         guard !source.isEmpty else { return [] }
         var findings: [IdiomFinding] = []
-        var lines = source.components(separatedBy: "\n")
+        var lines = source.lines
         if lines.last == "" { lines.removeLast() } // final newline produces a phantom empty component
 
         if lines.count > config.maxFileLength {

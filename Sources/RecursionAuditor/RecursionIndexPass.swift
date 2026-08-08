@@ -386,7 +386,7 @@ enum RecursionIndexPass {
                 guard let info = graph.symbolInfo(for: usr) else { continue }
                 guard let source = contents(of: info.filePath) else { continue }
 
-                let lines = source.components(separatedBy: "\n")
+                let lines = source.lines
                 let startIndex = max(0, info.line - 1)
                 guard startIndex < lines.count else { continue }
 

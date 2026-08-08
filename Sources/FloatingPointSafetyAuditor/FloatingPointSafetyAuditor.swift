@@ -138,7 +138,7 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
     ) -> [Diagnostic] {
         // Whole-file disable: if the source contains a file-level disable comment
         // on a line by itself (not inline with code), skip it entirely.
-        let sourceLines = source.components(separatedBy: "\n")
+        let sourceLines = source.lines
         for line in sourceLines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed == "// fp-safety:disable" {

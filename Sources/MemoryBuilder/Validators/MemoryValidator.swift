@@ -80,7 +80,7 @@ public enum MemoryFileValidator {
     ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
         let fm = FileManager.default
-        let lines = indexContent.components(separatedBy: .newlines)
+        let lines = indexContent.lines
 
         for (index, line) in lines.enumerated() {
             // Match markdown links: [Title](filename.md)

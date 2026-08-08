@@ -94,7 +94,7 @@ public struct FoundationModelsNarrativeProvider: NarrativeProvider {
                 || l.hasPrefix("```tool") || l.contains("{tool_name") || l.contains("\"tool_name\"")
         }
         let kept = raw
-            .split(separator: "\n", omittingEmptySubsequences: false)
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map(String.init)
             .filter { !isArtifact($0.trimmingCharacters(in: .whitespaces)) }
             .joined(separator: "\n")

@@ -32,7 +32,7 @@ public struct ActiveWorkExtractor: MemoryExtractor, Sendable {
         if let log, !log.isEmpty {
             lines.append("")
             lines.append("**Recent commits:**")
-            for commit in log.components(separatedBy: "\n").prefix(10) where !commit.isEmpty {
+            for commit in log.lines.prefix(10) where !commit.isEmpty {
                 lines.append("- \(commit)")
             }
         }

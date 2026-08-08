@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// A single memory file to be written.
 public struct MemoryEntry: Sendable, Equatable {
@@ -69,7 +70,7 @@ public enum MemoryWriter {
         var generatedLines: [String] = []
 
         // Separate existing lines into manual and generated
-        for line in existing.components(separatedBy: "\n") {
+        for line in existing.lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
             if trimmed.contains(generatedMarker) {

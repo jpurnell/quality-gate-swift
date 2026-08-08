@@ -151,7 +151,7 @@ public enum DashboardApp: Sendable {
                         )
                     }
 
-                    var allLines = frame.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                    var allLines = frame.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
                     while allLines.last?.isEmpty == true { allLines.removeLast() }
 
                     state.clampScroll(contentLines: allLines.count)

@@ -45,6 +45,11 @@ public enum MarkerWriter {
         toLine line: Int,
         inSource source: String
     ) throws -> String {
+        // Splitting on "\n" leaves the "\r" of a CRLF on the end of each line, and rejoining
+        // with "\n" therefore puts it back — which is how this writer round-trips a file's
+        // original line endings untouched. `.lines` strips terminators and would rewrite every
+        // CRLF file to LF. See the "CRLF line endings are preserved" test.
+        // SAFETY: the retained carriage return is what preserves the file's line endings
         var lines = source.components(separatedBy: "\n")
         let endsWithNewline = source.hasSuffix("\n")
         let contentLineCount = endsWithNewline ? lines.count - 1 : lines.count

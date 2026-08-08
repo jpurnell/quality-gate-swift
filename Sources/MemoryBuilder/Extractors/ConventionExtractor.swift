@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Extracts coding conventions from project CLAUDE.md and rules files.
 /// Skips content already present in the global ~/.claude/CLAUDE.md.
@@ -66,7 +67,7 @@ public struct ConventionExtractor: MemoryExtractor, Sendable {
         var currentHeading: String?
         var currentBody: [String] = []
 
-        for line in markdown.components(separatedBy: "\n") {
+        for line in markdown.lines {
             if line.hasPrefix("## ") {
                 // Save previous section
                 if let heading = currentHeading {

@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 #if canImport(os)
 import os
 #endif
@@ -161,7 +162,7 @@ public enum ProjectStateCollector {
 
             do {
                 let content = try String(contentsOfFile: fullPath, encoding: .utf8)
-                lineCount += content.components(separatedBy: .newlines).count
+                lineCount += content.lines.count
             } catch {
                 logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }

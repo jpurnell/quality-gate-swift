@@ -66,7 +66,7 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
     public func auditSource(_ source: String, fileName: String) -> [Diagnostic] {
         let sourceFile = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: sourceFile)
-        let sourceLines = source.components(separatedBy: "\n")
+        let sourceLines = source.lines
         let visitor = ProcessSafetyVisitor(
             filePath: fileName,
             converter: converter,

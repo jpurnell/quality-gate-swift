@@ -210,7 +210,7 @@ private final class SafetyVisitor: SyntaxVisitor {
         self.fileName = fileName
         self.source = source
         self.exemptionPatterns = exemptionPatterns
-        self.sourceLines = source.components(separatedBy: .newlines)
+        self.sourceLines = source.lines
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -294,6 +294,24 @@ private final class SafetyVisitor: SyntaxVisitor {
     // MARK: - Dangerous Function Calls
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        // Splitting text into lines in a way that mishandles CRLF. See `newlineSplitKind`.
+        if let kind = newlineSplitKind(node) {
+            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let line = location.line
+
+            if !isExempted(line: line) {
+                diagnostics.append(Diagnostic(
+                    severity: .error,
+                    message: kind.message,
+                    filePath: fileName,
+                    lineNumber: line,
+                    columnNumber: location.column,
+                    ruleId: "newline-split",
+                    suggestedFix: kind.suggestedFix
+                ))
+            }
+        }
+
         // C-style format string detection (handles both DeclReference and MemberAccess callees)
         if isCStyleFormatStringCall(node) {
             let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
@@ -445,6 +463,79 @@ private final class SafetyVisitor: SyntaxVisitor {
         return first.label?.text == "format"
     }
 
+    /// How a call gets line-splitting wrong, if it does.
+    ///
+    /// Three spellings, three different wrong answers, and they are worth telling apart because
+    /// the obvious fix for one of them *is* another one.
+    ///
+    /// `"\r\n"` is a single `Character` in Swift — one extended grapheme cluster — but only
+    /// `split(separator:)` compares whole `Character`s. `components(separatedBy: String)`
+    /// searches by scalar and so does find the `\n` inside a `\r\n`. And `CharacterSet.newlines`
+    /// treats the `\r` and the `\n` as two separators in a row. Hence:
+    ///
+    /// | Written as | `"a\r\nb"` becomes |
+    /// | --- | --- |
+    /// | `split(separator: "\n")` | `["a\r\nb"]` — the whole document, one element |
+    /// | `components(separatedBy: "\n")` | `["a\r", "b"]` — a stray return on every line |
+    /// | `components(separatedBy: .newlines)` | `["a", "", "b"]` — an empty line per CRLF |
+    /// | `split(whereSeparator: \.isNewline)` | `["a", "b"]` |
+    ///
+    /// The third is the trap that catches people fixing the first two: it looks like the
+    /// Unicode-aware answer and silently doubles the line count of a Windows file, which shifts
+    /// every line number reported against it.
+    ///
+    /// Only literal separators are matched. Resolving a variable needs type information this
+    /// visitor does not have, and guessing would cost a false positive on every `split` in a
+    /// codebase.
+    private func newlineSplitKind(_ node: FunctionCallExprSyntax) -> NewlineSplitKind? {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self) else {
+            return nil
+        }
+
+        let separatorLabel: String
+        switch member.declName.baseName.text {
+        case "split": separatorLabel = "separator"
+        case "components": separatorLabel = "separatedBy"
+        default: return nil
+        }
+
+        guard let argument = node.arguments.first(where: { $0.label?.text == separatorLabel })
+        else { return nil }
+
+        // `components(separatedBy: .newlines)` — the plausible-looking one.
+        if separatorLabel == "separatedBy",
+           let set = argument.expression.as(MemberAccessExprSyntax.self),
+           set.base == nil,
+           ["newlines", "whitespacesAndNewlines"].contains(set.declName.baseName.text) {
+            return .newlineCharacterSet
+        }
+
+        guard let literal = argument.expression.as(StringLiteralExprSyntax.self) else {
+            return nil
+        }
+
+        // An escape sequence is its own segment — `"\n"` parses as the escape plus an empty
+        // trailing segment — so the pieces are rejoined rather than counted. An interpolation
+        // is not a segment at all, and a separator built at runtime is out of reach here.
+        var literalText = ""
+        for segment in literal.segments {
+            guard let text = segment.as(StringSegmentSyntax.self) else { return nil }
+            literalText += text.content.text
+        }
+        guard Self.newlineSeparators.contains(literalText) else { return nil }
+
+        return separatorLabel == "separator" ? .characterSplit : .stringComponents
+    }
+
+    /// Separator literals that mean "a newline", in both source spellings.
+    ///
+    /// `content.text` is the *source* text, so an escaped newline arrives as the two characters
+    /// `\` and `n`. A raw string or a multiline literal can carry the real character instead.
+    private static let newlineSeparators: Set<String> = [
+        #"\n"#, #"\r"#, #"\r\n"#,
+        "\n", "\r", "\r\n"
+    ]
+
     // MARK: - Exemption Checking
 
     private func isExempted(line: Int) -> Bool {
@@ -459,5 +550,48 @@ private final class SafetyVisitor: SyntaxVisitor {
             }
         }
         return false
+    }
+}
+
+/// How a line-splitting call mishandles CRLF.
+///
+/// Separate cases because the three go wrong in three different ways, and because the tempting
+/// fix for the first two is the third.
+private enum NewlineSplitKind {
+
+    /// `split(separator: "\n")` — matches whole `Character`s, and `"\r\n"` is one of them.
+    case characterSplit
+
+    /// `components(separatedBy: "\n")` — finds the `\n` inside a `\r\n` and leaves the `\r`.
+    case stringComponents
+
+    /// `components(separatedBy: .newlines)` — counts the `\r` and the `\n` as two separators.
+    case newlineCharacterSet
+
+    /// What went wrong, in terms of what the code will actually produce.
+    var message: String {
+        switch self {
+        case .characterSplit:
+            return "Text split on a newline literal. \"\\r\\n\" is a single Character in Swift — one extended grapheme cluster — and split(separator:) compares whole Characters, so it does not match. A file written on Windows comes back as ONE element containing the whole document. Nothing throws; the first symptom appears somewhere else entirely."
+        case .stringComponents:
+            return "Lines split on a newline literal. components(separatedBy:) searches by scalar, so it does find the \\n inside a \\r\\n — but it leaves the \\r on the end of every line. Comparisons, suffix checks and column arithmetic are then all one character out on any file written on Windows."
+        case .newlineCharacterSet:
+            return "Lines split on CharacterSet.newlines. The set contains both \\r and \\n, so a \\r\\n counts as two separators in a row and yields an empty element between every pair of lines — doubling the line count of a file written on Windows and shifting every line number reported against it."
+        }
+    }
+
+    /// The replacement that is right for all four line endings.
+    ///
+    /// `.isNewline` is a property of `Character`, so a `\r\n` is one separator rather than two,
+    /// and CR, LF, CRLF, NEL and the Unicode line separators all match.
+    var suggestedFix: String {
+        let escape = "If one specific terminator really is meant — a wire protocol that "
+            + "specifies it — say so with a // SAFETY: comment."
+        switch self {
+        case .characterSplit:
+            return "Use split(whereSeparator: \\.isNewline). " + escape
+        case .stringComponents, .newlineCharacterSet:
+            return "Use split(omittingEmptySubsequences: false, whereSeparator: \\.isNewline), which keeps blank lines exactly as components(separatedBy: \"\\n\") did. Do NOT reach for components(separatedBy: .newlines) — it inserts an empty element for every CRLF. " + escape
+        }
     }
 }

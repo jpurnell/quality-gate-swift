@@ -31,7 +31,7 @@ public enum StatusRemediator {
             return FixResult(modifications: [], unfixed: diagnostics)
         }
 
-        var lines = content.components(separatedBy: "\n")
+        var lines = content.lines
         var linesChanged = 0
         var unfixed: [Diagnostic] = []
 

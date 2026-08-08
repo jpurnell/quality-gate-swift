@@ -38,7 +38,7 @@ enum NarrativeMarkdown {
             paragraphLines = []
         }
 
-        let lines = markdown.components(separatedBy: "\n")
+        let lines = markdown.lines
         var index = 0
         while index < lines.count {
             let line = lines[index].trimmingCharacters(in: .whitespaces)

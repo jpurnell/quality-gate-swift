@@ -148,7 +148,7 @@ struct GenerateNarrative: AsyncParsableCommand {
             ---
 
             """
-            .split(separator: "\n", omittingEmptySubsequences: false)
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .joined(separator: "\n")
 

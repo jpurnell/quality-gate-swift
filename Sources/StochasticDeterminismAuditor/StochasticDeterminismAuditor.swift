@@ -141,7 +141,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         fileName: String,
         config: StochasticDeterminismConfig
     ) -> [Diagnostic] {
-        let sourceLines = source.components(separatedBy: "\n")
+        let sourceLines = source.lines
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let visitor = StochasticVisitor(

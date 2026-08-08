@@ -158,7 +158,7 @@ public struct DocLinter: QualityChecker, Sendable {
         guard !output.isEmpty else { return [] }
 
         var diagnostics: [Diagnostic] = []
-        let lines = output.components(separatedBy: .newlines)
+        let lines = output.lines
 
         // Pattern for file:line:column: severity: message
         // Example: /path/to/Sources/Module/File.swift:10:5: warning: No documentation for 'myFunc'
@@ -430,7 +430,7 @@ public struct DocLinter: QualityChecker, Sendable {
                 logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
-            let lines = content.components(separatedBy: .newlines)
+            let lines = content.lines
 
             for (lineIndex, line) in lines.enumerated() {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -499,7 +499,7 @@ public struct DocLinter: QualityChecker, Sendable {
                 logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
-            let lines = content.components(separatedBy: .newlines)
+            let lines = content.lines
             let isMarkdown = file.hasSuffix(".md")
 
             for (lineIndex, line) in lines.enumerated() {
@@ -613,7 +613,7 @@ public struct DocLinter: QualityChecker, Sendable {
         paramRegex: NSRegularExpression
     ) -> [SourceLocation] {
         var locations: [SourceLocation] = []
-        let lines = content.components(separatedBy: .newlines)
+        let lines = content.lines
         var parenDepth = 0
         var inSignature = false
 
@@ -668,7 +668,7 @@ public struct DocLinter: QualityChecker, Sendable {
                 logger.warning("Skipping unreadable file \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
-            let lines = content.components(separatedBy: .newlines)
+            let lines = content.lines
 
             for (lineIndex, line) in lines.enumerated() {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)

@@ -378,7 +378,7 @@ public enum PulseSectionRenderer: Sendable {
     private static func wrapText(_ text: String, to maxWidth: Int) -> [String] {
         guard maxWidth > 0 else { return [text] }
         var result: [String] = []
-        let paragraphs = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let paragraphs = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         for paragraph in paragraphs {
             let trimmed = paragraph.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
@@ -424,7 +424,7 @@ public enum PulseSectionRenderer: Sendable {
         let tablePattern = #"^\|.+\|$"#
         let separatorPattern = #"^\|[\s\-\|:]+\|$"#
         result = result
-            .split(separator: "\n", omittingEmptySubsequences: false)
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .filter { line in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.range(of: separatorPattern, options: .regularExpression) != nil {

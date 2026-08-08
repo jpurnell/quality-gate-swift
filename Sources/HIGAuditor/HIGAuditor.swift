@@ -152,7 +152,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
-        let sourceLines = source.components(separatedBy: "\n")
+        let sourceLines = source.lines
 
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
@@ -320,7 +320,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
     private func insertHelpModifier(source: inout String, at lineNumber: Int?) -> Bool {
         guard let lineNumber else { return false }
-        var lines = source.components(separatedBy: "\n")
+        var lines = source.lines
         guard lineNumber >= 1, lineNumber <= lines.count else { return false }
 
         let line = lines[lineNumber - 1]
@@ -332,7 +332,7 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
     private func insertContextMenu(source: inout String, at lineNumber: Int?) -> Bool {
         guard let lineNumber else { return false }
-        var lines = source.components(separatedBy: "\n")
+        var lines = source.lines
         guard lineNumber >= 1, lineNumber <= lines.count else { return false }
 
         let line = lines[lineNumber - 1]

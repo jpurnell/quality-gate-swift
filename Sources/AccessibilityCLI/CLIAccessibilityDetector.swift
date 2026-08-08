@@ -69,7 +69,7 @@ final class CLIAccessibilityVisitor: SyntaxVisitor {
     init(fileName: String, exemptionPatterns: [String], source: String, honorsPreference: Bool, tree: SourceFileSyntax) {
         self.fileName = fileName
         self.exemptionPatterns = exemptionPatterns
-        self.sourceLines = source.components(separatedBy: .newlines)
+        self.sourceLines = source.lines
         self.honorsPreference = honorsPreference
         self.converter = SourceLocationConverter(fileName: fileName, tree: tree)
         super.init(viewMode: .sourceAccurate)

@@ -63,7 +63,7 @@ struct LivenessIndex: Sendable {
         // attached to declarations in the syntax tree directly, but a line
         // sweep is fast and unambiguous.
         var liveSet: Set<Int> = []
-        for (idx, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+        for (idx, line) in source.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).enumerated() {
             if line.contains("// LIVE:") || line.contains("//LIVE:") {
                 liveSet.insert(idx + 1)
             }

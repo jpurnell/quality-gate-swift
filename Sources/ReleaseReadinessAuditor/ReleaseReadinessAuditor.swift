@@ -178,7 +178,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             return []
         }
 
-        let lines = content.components(separatedBy: "\n")
+        let lines = content.lines
         let versionFound = lines.contains { line in
             line.contains(version)
         }
@@ -212,7 +212,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     ) -> [Diagnostic] {
         guard !markers.isEmpty else { return [] }
 
-        let lines = content.components(separatedBy: "\n")
+        let lines = content.lines
         var diagnostics: [Diagnostic] = []
         let markerPatterns: [(String, Regex<AnyRegexOutput>)] = markers.compactMap { marker in
             let escaped = NSRegularExpression.escapedPattern(for: marker)
@@ -262,7 +262,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     ) -> [Diagnostic] {
         guard requireIssueReference else { return [] }
 
-        let lines = content.components(separatedBy: "\n")
+        let lines = content.lines
         var diagnostics: [Diagnostic] = []
 
         // Pattern: TODO or FIXME followed immediately by ( means it has a reference
@@ -325,7 +325,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     static func parseLatestChangelogVersion(content: String) -> String? {
         let headingPattern = #/^\s*#{1,6}\s+(.*)$/#
         let semverPattern = #/v?(\d+\.\d+(?:\.\d+)?)/#
-        for line in content.components(separatedBy: "\n") {
+        for line in content.lines {
             guard let heading = line.firstMatch(of: headingPattern) else { continue }
             let text = String(heading.1)
             if text.lowercased().contains("unreleased") { continue }
@@ -423,7 +423,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             )
             guard result.exitCode == 0 else { return [] }
             return result.stdout
-                .split(separator: "\n")
+                .lines
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
         } catch {
@@ -495,7 +495,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
             do {
                 let content = try String(contentsOfFile: fullPath, encoding: .utf8)
-                for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+                for line in content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
                     let trimmed = line.drop(while: { $0.isWhitespace })
                     if trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*") {
                         continue

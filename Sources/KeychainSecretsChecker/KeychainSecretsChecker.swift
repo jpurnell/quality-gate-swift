@@ -218,7 +218,7 @@ final class KeychainSecretsVisitor: SyntaxVisitor {
     ) {
         self.config = config
         self.filePath = filePath
-        self.lines = source.components(separatedBy: "\n")
+        self.lines = source.lines
         self.converter = SourceLocationConverter(fileName: filePath, tree: tree)
         self.userDefaultsVars = userDefaultsVars
 

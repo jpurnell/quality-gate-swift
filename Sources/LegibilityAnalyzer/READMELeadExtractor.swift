@@ -21,7 +21,7 @@ enum READMELeadExtractor {
     /// - Returns: The lead paragraph, or nil when the README holds no prose.
     static func lead(from content: String) -> String? {
         var paragraph: [String] = []
-        for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
+        for rawLine in content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || isNoise(line) {
                 if paragraph.isEmpty { continue }
