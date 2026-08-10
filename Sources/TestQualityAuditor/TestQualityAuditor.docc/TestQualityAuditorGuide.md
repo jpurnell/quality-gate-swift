@@ -6,7 +6,7 @@ A practical walkthrough of every TestQualityAuditor rule, with the bug it catche
 
 A green test suite means nothing if the tests themselves are broken. Five patterns account for the vast majority of silently useless tests:
 
-1. **Floating-point equality with `==`.** IEEE 754 arithmetic means `0.1 + 0.2 != 0.3`. A test that asserts exact equality on a `Double` will either always pass (because the computation happens to be bit-identical today) or always fail after an unrelated refactor changes evaluation order. Neither outcome tests the math.
+1. **Floating-point equality with `==`.** IEEE 754 arithmetic means `0.1 + 0.2 != 0.3`. A test that asserts exact equality on a `Double` will either always pass (because the computation happens to be bit-identical today) or always fail after an unrelated refactor changes evaluation order. Neither outcome tests the math. Note that `==` is sometimes exactly right here — see the rule below, which names the three different claims it can be making rather than assuming one.
 
 2. **Force-try in test code.** `try!` crashes the test runner on failure instead of producing a diagnostic. The test appears to pass until the day it doesn't -- and then it takes down the entire suite instead of reporting one failure.
 
@@ -22,7 +22,7 @@ TestQualityAuditor catches all five at quality-gate time, before they reach the 
 
 ### `exact-double-equality`
 
-Exact `==` on a floating-point literal inside `#expect` is almost always wrong. Floating-point arithmetic is not associative: `(a + b) + c` may differ from `a + (b + c)` by one or more ULPs. The test will break the moment someone refactors the computation order, even if the math is still correct.
+Exact `==` or `!=` on floating-point operands inside `#expect` is ambiguous, and usually wrong. Floating-point arithmetic is not associative: `(a + b) + c` may differ from `a + (b + c)` by one or more ULPs, so a test asserting exact equality breaks the moment someone refactors the computation order, even though the math is still correct. It fires on a literal operand *and* on a comparison of two computed `Double`s with no literal anywhere.
 
 ```swift
 import Testing
@@ -35,7 +35,13 @@ import Testing
 }
 ```
 
-The fix is a tolerance comparison. The tolerance should reflect the precision you actually need, not an arbitrary epsilon:
+There is no single fix, and the checker does not pretend otherwise. Three genuinely different claims hide under `==` on floating point, and the tolerance form is only one of them:
+
+| the claim | write it as | why the others are wrong |
+|---|---|---|
+| computed values, rounding expected | `abs(a - b) < epsilon` | an exact form fails on rounding |
+| IEEE 754 equality, chosen deliberately | `a.isEqual(to: b)` | a bit-pattern comparison splits `+0.0` from `-0.0` |
+| bit-identical results | `a.bitPattern == b.bitPattern` | `==` says `NaN != NaN`, so a reproducibility check with a NaN in the stream passes silently |
 
 ```swift
 import Testing
@@ -43,14 +49,29 @@ import Testing
 @Test func gaussianPDF() {
     let result = gaussian(x: 0.0, mean: 0.0, sigma: 1.0)
 
-    // accepted -- tolerance-based comparison
+    // accepted -- the tolerance reflects the precision actually needed
     #expect(abs(result - 0.3989422804014327) < 1e-10)
+}
+
+@Test func boxMullerDegenerateCase() {
+    // accepted -- sqrt(-2 * log(1)) is -0.0, and IEEE equality is what is
+    // meant here. A bit-pattern check would fail on the sign of zero.
+    #expect(z1.isEqual(to: 0.0) && z2.isEqual(to: 0.0))
+}
+
+@Test func seededRunIsReproducible() {
+    // accepted -- bit-identity, and NaN-safe, which `==` would not be
+    #expect(first.bitPattern == second.bitPattern)
 }
 ```
 
-Integer literals inside `#expect` are not flagged. The rule triggers only when at least one operand is a `FloatLiteralExprSyntax` (contains a decimal point or exponent).
+Reaching for the tolerance form reflexively weakens the second and third cases. The resolution is always a *named comparison*, never another suppression marker: the name lives in the code and cannot drift from it, whereas a marker asserts an intent that can be wrong forever.
 
-The `!=` operator with a float literal is not flagged by this rule. Only `==` is, because the anti-pattern is asserting bit-identical results from floating-point computation.
+Integer comparisons are not flagged, even when a `Double`-typed variable is involved in producing the operands. Comparisons against the sentinels (`0.0`, `.zero`, `.nan`, `.infinity`, `.pi`, `.ulpOfOne`) are not flagged either — exact comparison against those is intentional.
+
+### Where this rule is implemented
+
+`exact-double-equality` is the same rule as `fp-safety`'s `fp-equality`, reported at error severity instead of warning, and only inside an assertion. Detection is shared — see `FloatingPointRules` (FloatingPointSafetyAuditor) — so the two checkers cannot drift apart on which comparisons count, and a suppression marker honoured by one is honoured by the other. They were once two implementations and did drift, on all three counts.
 
 ### `force-try-in-test`
 
@@ -232,13 +253,15 @@ The rule fires for both orderings: `#expect(x != 0)` and `#expect(0 != x)` are b
 
 Every rule supports suppression via a `// TEST-QUALITY:` comment on the same line or the line immediately above the flagged statement. The comment must explain why the suppression is appropriate.
 
+`exact-double-equality` additionally honours `// fp-safety:disable`, and `fp-safety` honours `// TEST-QUALITY:`. The two are one marker set for one rule; either checker accepts either marker. `// fp-safety:disable` is the one to reach for in new code — it names the rule rather than a checker.
+
 ### Per-rule suppression examples
 
-**exact-double-equality** -- Legitimate when testing IEEE 754 identity (e.g., verifying that `0.0 / 0.0` produces `NaN`, or that a specific bit pattern round-trips):
+**exact-double-equality** -- Prefer rewriting the comparison to say what it means (`a.isEqual(to: b)` for IEEE identity, `a.bitPattern == b.bitPattern` for bit identity). Both are accepted without a marker, and unlike a marker they cannot drift from the code. Suppress only where neither form applies:
 
 ```swift
-// TEST-QUALITY: verifying IEEE 754 negative-zero identity
-#expect(result == -0.0)
+// fp-safety:disable — comparing table entries that are exact by construction
+#expect(lookup[3] == 0.125)
 ```
 
 **force-try-in-test** -- Legitimate when the expression provably cannot throw (e.g., a regex literal known at compile time):

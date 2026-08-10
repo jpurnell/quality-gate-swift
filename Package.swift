@@ -491,6 +491,10 @@ let package = Package(
             name: "TestQualityAuditor",
             dependencies: [
                 "QualityGateCore",
+                // exact-double-equality and fp-equality are one rule. The
+                // detector lives in FloatingPointSafetyAuditor; this checker
+                // reports it at error severity inside assertions.
+                "FloatingPointSafetyAuditor",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
@@ -498,7 +502,7 @@ let package = Package(
         ),
         .testTarget(
             name: "TestQualityAuditorTests",
-            dependencies: ["TestQualityAuditor"]
+            dependencies: ["TestQualityAuditor", "FloatingPointSafetyAuditor"]
         ),
 
         .target(

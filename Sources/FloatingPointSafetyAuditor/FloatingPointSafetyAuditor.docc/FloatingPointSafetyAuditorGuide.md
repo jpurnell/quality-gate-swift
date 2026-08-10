@@ -40,13 +40,34 @@ if a != b { ... }
 if Double(input) == expected { ... }
 ```
 
-**Recommended fix — epsilon-based comparison:**
+**Recommended fix — say which of three claims you are making.**
+
+The checker cannot tell them apart, so it names all three rather than asserting one. Reaching for a tolerance everywhere is wrong roughly half the time, and it weakens assertions that were already correct.
+
+| the claim | write it as | why the others are wrong |
+|---|---|---|
+| computed values, rounding expected | `abs(a - b) < epsilon` | an exact form fails on rounding |
+| IEEE 754 equality, chosen deliberately | `a.isEqual(to: b)` | a bit-pattern comparison splits `+0.0` from `-0.0` |
+| bit-identical results | `a.bitPattern == b.bitPattern` | `==` says `NaN != NaN`, so a reproducibility check with a NaN in the stream passes silently |
 
 ```swift
+// computed, rounding expected
 let x: Double = computeRatio()
 if abs(x - 1.0) < 1e-10 { ... }
 
-// Or define a project-wide helper:
+// IEEE 754 equality, deliberately. Identical behaviour to `==`, but the name
+// states the claim, so it reads as a decision rather than an oversight.
+if x.isEqual(to: y) { ... }
+
+// bit-identical, including NaN and signed zero
+if x.bitPattern == y.bitPattern { ... }
+```
+
+`isEqual(to:)` and `bitPattern` comparisons are never flagged. Note that a *named call* is the resolution here rather than a suppression marker: the name lives in the code and cannot drift from it, whereas a marker asserts an intent that can be wrong forever.
+
+`abs(a - b) < epsilon` is also satisfied by a project-wide helper:
+
+```swift
 extension FloatingPoint {
     func isApproximatelyEqual(to other: Self, tolerance: Self) -> Bool {
         abs(self - other) <= tolerance
@@ -108,7 +129,9 @@ if x == .pi { ... }
 if x == .ulpOfOne { ... }
 ```
 
-The full list of exempt member names: `zero`, `nan`, `infinity`, `greatestFiniteMagnitude`, `leastNormalMagnitude`, `leastNonzeroMagnitude`, `pi`, `ulpOfOne`.
+The full list of exempt member names: `zero`, `nan`, `infinity`, `greatestFiniteMagnitude`, `leastNormalMagnitude`, `leastNonzeroMagnitude`, `pi`, `ulpOfOne`, `bitPattern`, `significandBitPattern`.
+
+`bitPattern` is exempt because it is one of the three forms the diagnostic recommends; flagging it would punish the fix.
 
 ### Per-line disable
 
@@ -118,6 +141,17 @@ Add `// fp-safety:disable` to any line to suppress all FP diagnostics on that li
 // This specific comparison is intentional (currency amounts stored as cents)
 if totalCents == expectedCents { ... }  // fp-safety:disable
 ```
+
+The marker also covers the line below it when it sits alone on a comment line:
+
+```swift
+// fp-safety:disable — currency amounts stored as cents, exact by construction
+if totalCents == expectedCents { ... }
+```
+
+An inline marker never reaches the following line. `// TEST-QUALITY:` is accepted as an equivalent marker, so a suppression written for one checker holds for the other.
+
+Suppressed findings are reported in `CheckResult.overrides` rather than dropped. A marker that suppresses nothing will not appear there — which is how you find the decorative ones.
 
 ### Whole-file disable
 

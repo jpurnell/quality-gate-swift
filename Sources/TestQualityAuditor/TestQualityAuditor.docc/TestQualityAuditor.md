@@ -12,7 +12,7 @@ This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`
 
 | Rule ID | Severity | What it catches |
 |---------|----------|-----------------|
-| `exact-double-equality` | error | `#expect(a == 0.3989)` using exact `==` on a floating-point literal |
+| `exact-double-equality` | error | `#expect(a == 0.3989)` — exact `==`/`!=` on floating-point operands inside an assertion. Same rule as `fp-safety`'s `fp-equality`, at error severity. |
 | `force-try-in-test` | error | `try!` anywhere in test code |
 | `unseeded-random` | warning | `.random` or `SystemRandomNumberGenerator` producing non-deterministic test data |
 | `missing-assertion` | warning | A `@Test` function with no `#expect` or `#require` call |
@@ -23,7 +23,7 @@ This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`
 TestQualityAuditor reads the project `Configuration` to determine:
 
 - **`excludePatterns`** -- glob patterns for files to skip (e.g., `**/Fixtures/**`).
-- **`safetyExemptions`** -- additional suppression comment patterns beyond the built-in `// TEST-QUALITY:`.
+- **`safetyExemptions`** -- additional suppression comment patterns beyond the built-in `// TEST-QUALITY:` and `// fp-safety:disable`.
 
 No auditor-specific initializer options are needed. Create with `TestQualityAuditor()` and call `check(configuration:)`.
 
@@ -36,12 +36,14 @@ For unit testing the auditor itself, `auditSource(_:fileName:configuration:)` ac
 
 ### Suppression comments
 
-Every rule can be suppressed with a `// TEST-QUALITY:` comment on the same line or the line immediately above the flagged construct:
+Every rule can be suppressed with a `// TEST-QUALITY:` comment on the same line or the line immediately above the flagged construct. `exact-double-equality` also honours `// fp-safety:disable`, which is the canonical marker for that rule in both checkers:
 
 ```swift
-// TEST-QUALITY: intentional exact comparison for IEEE 754 identity check
-#expect(result == 0.0)
+// fp-safety:disable — table entries are exact by construction
+#expect(lookup[3] == 0.125)
 ```
+
+For an intentional IEEE 754 identity check, write the claim instead of suppressing it — `#expect(result.isEqual(to: 0.0))` is accepted with no marker at all.
 
 Suppressed violations appear in the `overrides` array of the `CheckResult`, not in `diagnostics`, so they are auditable but do not fail the gate.
 
