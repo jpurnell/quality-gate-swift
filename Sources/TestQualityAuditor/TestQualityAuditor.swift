@@ -2,6 +2,7 @@ import Foundation
 #if canImport(os)
 import os
 #endif
+import FloatingPointSafetyAuditor
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -9,11 +10,21 @@ import SwiftParser
 /// Scans Swift test files for quality anti-patterns.
 ///
 /// Detects:
-/// - Exact equality (`==`/`!=`) on floating-point literals inside `#expect`
+/// - Exact equality (`==`/`!=`) on floating-point operands inside `#expect`
+///   (`exact-double-equality`)
 /// - `try!` in test code
 /// - Unseeded randomness (`.random`, `SystemRandomNumberGenerator`)
 /// - `@Test` functions with no assertions (`#expect` or `#require`)
 /// - Weak assertions (`!= 0`, `!= nil`) without quantitative bounds
+///
+/// ## The exact-comparison rule is not implemented here
+///
+/// `exact-double-equality` and `fp-safety`'s `fp-equality` are the same rule.
+/// They were once two detectors and drifted: different operands, different
+/// suppression markers, and contradictory advice, so a developer could apply
+/// the marker one checker named and still fail the other on the same line.
+/// Detection now lives in `FloatingPointRules` (FloatingPointSafetyAuditor); this checker supplies the
+/// reporting configuration — error severity, and only inside an assertion.
 ///
 /// ## Usage
 ///
@@ -163,6 +174,9 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let sourceFile = Parser.parse(source: source)
 
+        // The other test-quality rules keep their own marker. `fp-safety:disable`
+        // is scoped to the floating-point rule it names — it must not silence a
+        // force-try or an unseeded draw.
         let visitor = TestQualityVisitor(
             fileName: fileName,
             source: source,
@@ -170,7 +184,20 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         )
         visitor.walk(sourceFile)
 
-        return (visitor.diagnostics, visitor.overrides)
+        // exact-double-equality is not implemented here. One rule, one detector.
+        let fpResult = FloatingPointRules.audit(
+            source: source,
+            fileName: fileName,
+            options: .testAssertions(
+                extraSuppressionMarkers: configuration.safetyExemptions
+            ),
+            parsedTree: sourceFile
+        )
+
+        return (
+            visitor.diagnostics + fpResult.diagnostics,
+            visitor.overrides + fpResult.overrides
+        )
     }
 }
 
@@ -191,9 +218,6 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
     /// Whether the file imports the Testing framework.
     private var importsTestingFramework: Bool = false
-
-    /// Whether we're inside a `#expect` or `#require` macro expansion.
-    private var insideExpectMacro: Bool = false
 
     init(fileName: String, source: String, exemptionPatterns: [String]) {
         self.fileName = fileName
@@ -314,10 +338,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
             currentTestHasAssertion = true
 
             // Analyze the arguments for anti-patterns.
-            let prevInsideExpect = insideExpectMacro
-            insideExpectMacro = true
             analyzeExpectArguments(node)
-            insideExpectMacro = prevInsideExpect
         }
         return .visitChildren
     }
@@ -404,36 +425,28 @@ private final class TestQualityVisitor: SyntaxVisitor {
     ///
     /// Handles both `SequenceExprSyntax` (pre-fold) and `InfixOperatorExprSyntax` (post-fold)
     /// representations of binary expressions.
+    ///
+    /// `exact-double-equality` is deliberately absent: it is detected by
+    /// `FloatingPointRules` (FloatingPointSafetyAuditor), shared with `fp-safety`. Only `weak-assertion`
+    /// is decided here.
     private func analyzeExpressionForAntiPatterns(
         _ expr: ExprSyntax,
         in macroNode: MacroExpansionExprSyntax
     ) {
-        // Handle SequenceExprSyntax: e.g., `result == 0.3989`
+        // Handle SequenceExprSyntax: e.g., `result != nil`
         if let sequence = expr.as(SequenceExprSyntax.self) {
             let elements = Array(sequence.elements)
 
             for (index, element) in elements.enumerated() {
                 // Look for binary operators
                 if let binOp = element.as(BinaryOperatorExprSyntax.self) {
-                    let opText = binOp.operator.text
-
-                    // Check for exact double equality
-                    if opText == "==" || opText == "!=" {
-                        checkExactDoubleEquality(
+                    // Check for weak assertions: `!= 0` or `!= nil`
+                    if binOp.operator.text == "!=" {
+                        checkWeakAssertion(
                             elements: elements,
                             operatorIndex: index,
-                            opText: opText,
                             macroNode: macroNode
                         )
-
-                        // Check for weak assertions: `!= 0` or `!= nil`
-                        if opText == "!=" {
-                            checkWeakAssertion(
-                                elements: elements,
-                                operatorIndex: index,
-                                macroNode: macroNode
-                            )
-                        }
                     }
                 }
             }
@@ -441,56 +454,18 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
         // Handle InfixOperatorExprSyntax (if operator folding has occurred)
         if let infix = expr.as(InfixOperatorExprSyntax.self),
-           let binOp = infix.operator.as(BinaryOperatorExprSyntax.self) {
-            let opText = binOp.operator.text
+           let binOp = infix.operator.as(BinaryOperatorExprSyntax.self),
+           binOp.operator.text == "!=" {
+            let lhs = infix.leftOperand
+            let rhs = infix.rightOperand
+            let rhsIsZero = rhs.as(IntegerLiteralExprSyntax.self)?.literal.text == "0"
+            let rhsIsNil = rhs.is(NilLiteralExprSyntax.self)
+            let lhsIsZero = lhs.as(IntegerLiteralExprSyntax.self)?.literal.text == "0"
+            let lhsIsNil = lhs.is(NilLiteralExprSyntax.self)
 
-            if opText == "==" || opText == "!=" {
-                let lhs = infix.leftOperand
-                let rhs = infix.rightOperand
-                let hasFloatLiteral = lhs.is(FloatLiteralExprSyntax.self)
-                    || rhs.is(FloatLiteralExprSyntax.self)
-
-                if hasFloatLiteral && opText == "==" {
-                    emitExactDoubleEqualityDiagnostic(at: macroNode)
-                }
-
-                if opText == "!=" {
-                    let rhsIsZero = rhs.as(IntegerLiteralExprSyntax.self)?.literal.text == "0"
-                    let rhsIsNil = rhs.is(NilLiteralExprSyntax.self)
-                    let lhsIsZero = lhs.as(IntegerLiteralExprSyntax.self)?.literal.text == "0"
-                    let lhsIsNil = lhs.is(NilLiteralExprSyntax.self)
-
-                    if rhsIsZero || rhsIsNil || lhsIsZero || lhsIsNil {
-                        emitWeakAssertionDiagnostic(at: macroNode)
-                    }
-                }
+            if rhsIsZero || rhsIsNil || lhsIsZero || lhsIsNil {
+                emitWeakAssertionDiagnostic(at: macroNode)
             }
-        }
-    }
-
-    private func checkExactDoubleEquality(
-        elements: [ExprSyntax],
-        operatorIndex: Int,
-        opText: String,
-        macroNode: MacroExpansionExprSyntax
-    ) {
-        guard opText == "==" else { return }
-
-        // Check LHS and RHS for float literals.
-        let lhsIndex = operatorIndex - 1
-        let rhsIndex = operatorIndex + 1
-
-        var hasFloatLiteral = false
-
-        if lhsIndex >= 0, elements[lhsIndex].is(FloatLiteralExprSyntax.self) {
-            hasFloatLiteral = true
-        }
-        if rhsIndex < elements.count, elements[rhsIndex].is(FloatLiteralExprSyntax.self) {
-            hasFloatLiteral = true
-        }
-
-        if hasFloatLiteral {
-            emitExactDoubleEqualityDiagnostic(at: macroNode)
         }
     }
 
@@ -529,28 +504,6 @@ private final class TestQualityVisitor: SyntaxVisitor {
         if isWeak {
             emitWeakAssertionDiagnostic(at: macroNode)
         }
-    }
-
-    private func emitExactDoubleEqualityDiagnostic(at node: some SyntaxProtocol) {
-        let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
-        )
-        let line = location.line
-
-        if let override = overrideIfExempted(line: line, ruleId: "exact-double-equality") {
-            overrides.append(override)
-            return
-        }
-
-        diagnostics.append(Diagnostic(
-            severity: .error,
-            message: "Exact equality (==) on floating-point literal. Use tolerance: abs(a - b) < epsilon.",
-            filePath: fileName,
-            lineNumber: line,
-            columnNumber: location.column,
-            ruleId: "exact-double-equality",
-            suggestedFix: "Replace #expect(a == 0.3989) with #expect(abs(a - 0.3989) < 1e-6)"
-        ))
     }
 
     private func emitWeakAssertionDiagnostic(at node: some SyntaxProtocol) {

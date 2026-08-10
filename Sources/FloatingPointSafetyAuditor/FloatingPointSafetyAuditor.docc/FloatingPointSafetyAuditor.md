@@ -47,7 +47,13 @@ Per-line suppression is available via the `// fp-safety:disable` comment:
 let ratio = a / b  // fp-safety:disable
 ```
 
+The marker also applies to the line below it when it sits on a comment-only line, which is how a long justification is written. It does **not** reach downward from a trailing marker — an inline marker suppresses only its own line.
+
 Whole-file suppression works by placing `// fp-safety:disable` on a line by itself (not inline with code). This skips the entire file.
+
+`// fp-safety:disable` is the canonical marker for this rule family. The legacy `// TEST-QUALITY:` marker is honoured too, by both this auditor and `TestQualityAuditor`: `fp-equality` and `exact-double-equality` are one rule, so a marker that silences it from one checker silences it from the other. See ``FloatingPointSuppression``.
+
+Suppressed findings are recorded in the `overrides` array of the `CheckResult` rather than discarded, so a marker that is doing nothing can be found.
 
 ### Out of scope
 

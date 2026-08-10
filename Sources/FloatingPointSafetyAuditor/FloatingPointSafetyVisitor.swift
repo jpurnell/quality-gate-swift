@@ -13,7 +13,10 @@ private let fpTypeNames: Set<String> = [
 /// represent well-known sentinel values where exact comparison is intentional.
 private let exemptMemberNames: Set<String> = [
     "zero", "nan", "infinity", "greatestFiniteMagnitude",
-    "leastNormalMagnitude", "leastNonzeroMagnitude", "pi", "ulpOfOne"
+    "leastNormalMagnitude", "leastNonzeroMagnitude", "pi", "ulpOfOne",
+    // `a.bitPattern == b.bitPattern` is the unambiguous bit-identity form the
+    // diagnostic recommends. Flagging it would punish the fix.
+    "bitPattern", "significandBitPattern"
 ]
 
 // MARK: - Visitor
@@ -35,8 +38,36 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     let sourceLines: [String]
     let checkDivisionGuards: Bool
 
+    /// Whether files under a `Tests/` path are skipped entirely.
+    ///
+    /// `fp-safety` walks `Sources/` and skips test code; `test-quality` walks
+    /// `Tests/` and must not. Same detector, different reach.
+    let skipTestFiles: Bool
+
+    /// Rule identifier for the exact-comparison finding. `fp-safety` reports it
+    /// as `fp-equality`, `test-quality` as `exact-double-equality`.
+    let equalityRuleId: String
+
+    /// Severity for the exact-comparison finding.
+    let equalitySeverity: Diagnostic.Severity
+
+    /// When true, exact-comparison findings are emitted only inside `#expect`
+    /// / `#require` arguments.
+    let equalityRequiresAssertionContext: Bool
+
+    /// Comment markers that suppress a finding on the line they appear on, or
+    /// on the line below when the marker sits on a comment-only line.
+    let suppressionMarkers: [String]
+
     /// Accumulated diagnostics from the walk.
     private(set) var diagnostics: [Diagnostic] = []
+
+    /// Findings a suppression marker silenced. Recorded rather than dropped so
+    /// suppressions stay auditable.
+    private(set) var overrides: [DiagnosticOverride] = []
+
+    /// Nesting depth of enclosing `#expect` / `#require` macro expansions.
+    private var assertionDepth = 0
 
     /// Variable names declared with an explicit FP type annotation in the current file.
     private var knownFPVariables: Set<String> = []
@@ -54,24 +85,63 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     ///   - converter: Source location converter for line/column lookup.
     ///   - sourceLines: The source split by newline, for per-line disable checks.
     ///   - checkDivisionGuards: Whether to apply the `fp-division-unguarded` rule.
+    ///   - skipTestFiles: Whether to skip files under a `Tests/` path.
+    ///   - equalityRuleId: Rule identifier for the exact-comparison finding.
+    ///   - equalitySeverity: Severity for the exact-comparison finding.
+    ///   - equalityRequiresAssertionContext: Restrict exact-comparison findings
+    ///     to `#expect` / `#require` arguments.
+    ///   - suppressionMarkers: Comment markers that silence a finding.
     init(
         filePath: String,
         converter: SourceLocationConverter,
         sourceLines: [String],
-        checkDivisionGuards: Bool = true
+        checkDivisionGuards: Bool = true,
+        skipTestFiles: Bool = true,
+        equalityRuleId: String = "fp-equality",
+        equalitySeverity: Diagnostic.Severity = .warning,
+        equalityRequiresAssertionContext: Bool = false,
+        suppressionMarkers: [String] = FloatingPointSuppression.allMarkers
     ) {
         self.filePath = filePath
         self.converter = converter
         self.sourceLines = sourceLines
         self.checkDivisionGuards = checkDivisionGuards
+        self.skipTestFiles = skipTestFiles
+        self.equalityRuleId = equalityRuleId
+        self.equalitySeverity = equalitySeverity
+        self.equalityRequiresAssertionContext = equalityRequiresAssertionContext
+        self.suppressionMarkers = suppressionMarkers
         super.init(viewMode: .sourceAccurate)
     }
 
     // MARK: - Skip Test Files
 
-    /// Returns true if the file path indicates a test file that should be skipped.
+    /// Returns true if this file should not be analysed at all.
     private var isTestFile: Bool {
-        filePath.contains("/Tests/") || filePath.hasPrefix("Tests/")
+        guard skipTestFiles else { return false }
+        return filePath.contains("/Tests/") || filePath.hasPrefix("Tests/")
+    }
+
+    // MARK: - Assertion Context
+
+    /// Returns true if the macro is a swift-testing assertion.
+    private func isAssertionMacro(_ node: MacroExpansionExprSyntax) -> Bool {
+        let name = node.macroName.text
+        return name == "expect" || name == "require"
+    }
+
+    override func visit(_ node: MacroExpansionExprSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        if isAssertionMacro(node) {
+            assertionDepth += 1
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: MacroExpansionExprSyntax) {
+        if isAssertionMacro(node) {
+            assertionDepth = max(0, assertionDepth - 1)
+        }
     }
 
     // MARK: - Variable Declaration Tracking
@@ -227,11 +297,20 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         // Check exempt patterns on both sides
         if isExemptComparand(lhs) || isExemptComparand(rhs) { return }
 
+        emitEqualityDiagnostic(opText: opText, node: node)
+    }
+
+    /// Emits the shared exact-comparison finding, honouring the assertion-context
+    /// restriction the calling checker asked for.
+    private func emitEqualityDiagnostic(opText: String, node: Syntax) {
+        if equalityRequiresAssertionContext && assertionDepth == 0 { return }
+
         emitDiagnostic(
-            ruleId: "fp-equality",
-            message: "Exact floating-point comparison with '\(opText)'; consider using an epsilon-based comparison instead",
+            ruleId: equalityRuleId,
+            severity: equalitySeverity,
+            message: FloatingPointEqualityDiagnostic.message(operatorText: opText),
             node: node,
-            suggestedFix: "Use abs(a - b) < epsilon instead of a \(opText) b"
+            suggestedFix: FloatingPointEqualityDiagnostic.suggestedFix(operatorText: opText)
         )
     }
 
@@ -249,12 +328,7 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         guard lhsIsFP || rhsIsFP else { return }
         if isExemptComparand(lhs) || isExemptComparand(rhs) { return }
 
-        emitDiagnostic(
-            ruleId: "fp-equality",
-            message: "Exact floating-point comparison with '\(opText)'; consider using an epsilon-based comparison instead",
-            node: node,
-            suggestedFix: "Use abs(a - b) < epsilon instead of a \(opText) b"
-        )
+        emitEqualityDiagnostic(opText: opText, node: node)
     }
 
     // MARK: - Division Checks (SequenceExpr)
@@ -515,9 +589,11 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         return nil
     }
 
-    /// Emits a diagnostic if the line does not contain a disable comment.
+    /// Emits a diagnostic, or records an override if a suppression marker
+    /// applies to the line.
     private func emitDiagnostic(
         ruleId: String,
+        severity: Diagnostic.Severity = .warning,
         message: String,
         node: Syntax,
         suggestedFix: String? = nil
@@ -526,17 +602,21 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         let line = location.line
         let column = location.column
 
-        // Per-line disable: skip if the source line contains the disable comment
-        let lineIndex = line - 1
-        if lineIndex >= 0, lineIndex < sourceLines.count {
-            if sourceLines[lineIndex].contains("// fp-safety:disable") {
-                return
-            }
+        if let justification = suppressionJustification(forLine: line) {
+            overrides.append(
+                DiagnosticOverride(
+                    ruleId: ruleId,
+                    justification: justification,
+                    filePath: filePath,
+                    lineNumber: line
+                )
+            )
+            return
         }
 
         diagnostics.append(
             Diagnostic(
-                severity: .warning,
+                severity: severity,
                 message: message,
                 filePath: filePath,
                 lineNumber: line,
@@ -545,5 +625,34 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
                 suggestedFix: suggestedFix
             )
         )
+    }
+
+    /// Returns the suppressing comment text for a 1-based line, if any.
+    ///
+    /// A marker applies to the line it sits on. It also applies to the line
+    /// *below* when it sits on a comment-only line — that is how developers
+    /// write a marker with a long justification, and it is the placement
+    /// `// TEST-QUALITY:` has always accepted. It deliberately does **not**
+    /// reach downward from a trailing marker: several hundred sites in consumer
+    /// projects carry an inline `// fp-safety:disable`, and letting those bleed
+    /// onto the next line would silently suppress code nobody examined.
+    private func suppressionJustification(forLine line: Int) -> String? {
+        let lineIndex = line - 1
+        guard lineIndex >= 0, lineIndex < sourceLines.count else { return nil }
+
+        let ownLine = sourceLines[lineIndex]
+        for marker in suppressionMarkers where ownLine.contains(marker) {
+            return ownLine.trimmingCharacters(in: .whitespaces)
+        }
+
+        let aboveIndex = lineIndex - 1
+        guard aboveIndex >= 0 else { return nil }
+        let above = sourceLines[aboveIndex].trimmingCharacters(in: .whitespaces)
+        guard above.hasPrefix("//") else { return nil }
+        for marker in suppressionMarkers where above.contains(marker) {
+            return above
+        }
+
+        return nil
     }
 }

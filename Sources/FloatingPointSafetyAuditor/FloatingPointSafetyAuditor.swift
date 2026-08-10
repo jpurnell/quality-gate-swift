@@ -3,8 +3,6 @@ import Foundation
 import os
 #endif
 import QualityGateCore
-import SwiftSyntax
-import SwiftParser
 
 /// Scans Swift source for floating-point safety issues.
 ///
@@ -25,8 +23,12 @@ import SwiftParser
 ///
 /// ## Suppression
 ///
-/// Add `// fp-safety:disable` on a source line to suppress all FP diagnostics
-/// on that line.
+/// Add `// fp-safety:disable` on a source line — or on the comment line
+/// immediately above it — to suppress FP diagnostics for that line. A line
+/// containing only the marker disables the file. The legacy `// TEST-QUALITY:`
+/// marker is honoured too: `fp-equality` and `exact-double-equality` are one
+/// rule, so one marker set silences it from either checker. See
+/// ``FloatingPointSuppression``.
 public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "FloatingPointSafetyAuditor")
 
@@ -52,12 +54,14 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let result = auditDirectory(
                 at: sourcesPath,
                 config: configuration.fpSafety
             )
-            allDiagnostics.append(contentsOf: result)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - startTime
@@ -66,6 +70,7 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: allOverrides,
             duration: duration
         )
     }
@@ -85,17 +90,18 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let diags = auditSourceCode(
+        let result = auditSourceCode(
             source,
             fileName: fileName,
             config: configuration.fpSafety
         )
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = diags.isEmpty ? .passed : .warning
+        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .warning
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: diags,
+            diagnostics: result.diagnostics,
+            overrides: result.overrides,
             duration: duration
         )
     }
@@ -105,10 +111,11 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
     private func auditDirectory(
         at path: String,
         config: FloatingPointSafetyAuditorConfig
-    ) -> [Diagnostic] {
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return [] }
+        var overrides: [DiagnosticOverride] = []
+        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
 
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
@@ -121,40 +128,29 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let diags = auditSourceCode(source, fileName: fullPath, config: config)
-                diagnostics.append(contentsOf: diags)
+                let result = auditSourceCode(source, fileName: fullPath, config: config)
+                diagnostics.append(contentsOf: result.diagnostics)
+                overrides.append(contentsOf: result.overrides)
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
+    /// Delegates to the shared rule implementation. `fp-equality` and
+    /// `exact-double-equality` are one rule; this checker supplies the
+    /// `Sources/` reporting configuration for it.
     private func auditSourceCode(
         _ source: String,
         fileName: String,
         config: FloatingPointSafetyAuditorConfig
-    ) -> [Diagnostic] {
-        // Whole-file disable: if the source contains a file-level disable comment
-        // on a line by itself (not inline with code), skip it entirely.
-        let sourceLines = source.lines
-        for line in sourceLines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed == "// fp-safety:disable" {
-                return []
-            }
-        }
-
-        let tree = Parser.parse(source: source)
-        let converter = SourceLocationConverter(fileName: fileName, tree: tree)
-        let visitor = FloatingPointSafetyVisitor(
-            filePath: fileName,
-            converter: converter,
-            sourceLines: sourceLines,
-            checkDivisionGuards: config.checkDivisionGuards
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        FloatingPointRules.audit(
+            source: source,
+            fileName: fileName,
+            options: .sources(checkDivisionGuards: config.checkDivisionGuards)
         )
-        visitor.walk(tree)
-        return visitor.diagnostics
     }
 }
