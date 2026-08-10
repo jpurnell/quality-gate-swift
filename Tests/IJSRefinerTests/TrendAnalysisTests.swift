@@ -15,7 +15,13 @@ struct TrendAnalysisTests {
         #expect(result?.metric == "passRate")
         #expect(result?.sampleSize == 30)
         #expect(result?.validity == .valid)
-        #expect(result?.dailyValues == values)
+        // `dailyValues` is carried through untouched, so the claim is bit-identity
+        // element for element. `==` on two `[Double]` compares elementwise with
+        // `==`, which reports a NaN as unequal to itself and +0.0 as equal to
+        // -0.0 — it would pass on a stream that had been quietly corrupted.
+        let dailyValues = result?.dailyValues ?? []
+        #expect(dailyValues.count == values.count)
+        #expect(zip(dailyValues, values).allSatisfy { $0.bitPattern == $1.bitPattern })
         if let r = result {
             #expect(r.ci90Low <= r.mean)
             #expect(r.ci90High >= r.mean)

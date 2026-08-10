@@ -40,6 +40,32 @@ if a != b { ... }
 if Double(input) == expected { ... }
 ```
 
+### What counts as a floating-point operand
+
+Because SwiftSyntax gives syntax and not types, the answer is a heuristic. Three limits keep it from inventing an answer:
+
+**A static member on a floating-point type is only floating-point if it is on the allowlist** — `pi`, `infinity`, `nan`, `signalingNaN`, `ulpOfOne`, `greatestFiniteMagnitude`, `leastNormalMagnitude`, `leastNonzeroMagnitude`, `zero`. Anything else is unknown. `Double.dimension` is an `Int` arriving from a `VectorSpace` conformance, and `Double.dimension == 1` is not a floating-point comparison.
+
+**A name binding does not outlive the declaration that introduced it.** The name→type map is scoped to the enclosing function, closure, computed property or type body. A local `result` holding an `Int` is not floating-point merely because an unrelated test in the same file wrote `let result: Double`.
+
+**A collection of floating-point values is a floating-point operand.** `[Double]`, `[Float]`, `ArraySlice`/`ContiguousArray`/`Array` of those, and array literals built from float literals. `==` on them compares elementwise with `==`, so the diagnostic says so and the fixes it names are elementwise:
+
+```swift
+// flagged — `a == b` on [Double] compares elementwise; a NaN anywhere in
+// either stream makes this assertion pass while the property is broken
+let a = block({ distributionGamma(r: 4, λ: 2.0, seed: $0) }, seed: 42)
+let b = block({ distributionGamma(r: 4, λ: 2.0, seed: $0) }, seed: 42)
+#expect(a == b, "Seed 42 must reproduce exactly")
+
+// accepted — the count is part of the claim, and bit-identity is the claim
+#expect(a.count == b.count)
+#expect(zip(a, b).allSatisfy { $0.bitPattern == $1.bitPattern })
+```
+
+That example only resolves because the helper declares its return type in the same file. **Return types are propagated within one file**, so `let a = block(...)` picks up `block`'s declared `-> [Double]`. It is deliberately narrow: explicit return clauses only, bare call targets only (`f(x)`, never `receiver.f(x)`), one file only, and a name declared twice with *different* return types is dropped rather than guessed at. Two declarations that agree are kept — the answer does not depend on which overload the compiler picks, so it is not a guess.
+
+`x == nil` is never a floating-point comparison, whatever the optional wraps.
+
 **Recommended fix — say which of three claims you are making.**
 
 The checker cannot tell them apart, so it names all three rather than asserting one. Reaching for a tolerance everywhere is wrong roughly half the time, and it weakens assertions that were already correct.
@@ -110,7 +136,9 @@ func safeRatio(amount: Double, rate: Double) -> Double {
 }
 ```
 
-The auditor collects guarded variable names per function body. If the divisor variable name appears in any recognized guard pattern within the same function, the division is not flagged.
+The auditor collects guarded variable names per function body. If the divisor variable name appears in any recognized guard pattern within the same function — or any enclosing one — the division is not flagged.
+
+This rule holds a **higher evidence bar** than `fp-equality` for what counts as a floating-point operand: an annotation, a literal, a conversion at the site, or an allowlisted static member. It does not follow inference chains (a local bound from `Double(count)`, or from a call to a file-local function returning `Double`). The two rules ask different questions of the same operand. `fp-equality` asks which of three claims an `==` is making, and is worth raising whenever the operand is plausibly floating-point. `fp-division-unguarded` asks whether a divisor could be zero, and its answer is a guard added to shipping code.
 
 ## Exemptions
 
@@ -129,7 +157,9 @@ if x == .pi { ... }
 if x == .ulpOfOne { ... }
 ```
 
-The full list of exempt member names: `zero`, `nan`, `infinity`, `greatestFiniteMagnitude`, `leastNormalMagnitude`, `leastNonzeroMagnitude`, `pi`, `ulpOfOne`, `bitPattern`, `significandBitPattern`.
+The full list of exempt member names: `zero`, `nan`, `signalingNaN`, `infinity`, `greatestFiniteMagnitude`, `leastNormalMagnitude`, `leastNonzeroMagnitude`, `pi`, `ulpOfOne`, `bitPattern`, `significandBitPattern`.
+
+This is the static-member allowlist plus the bit-inspection members, and it is *derived* from that allowlist rather than maintained beside it. A static member that **is** the floating-point type is by construction a sentinel — there is no arithmetic behind `.pi` to have rounded — so membership of one list implies membership of the other. Kept separately, the two disagreed on `signalingNaN`.
 
 `bitPattern` is exempt because it is one of the three forms the diagnostic recommends; flagging it would punish the fix.
 

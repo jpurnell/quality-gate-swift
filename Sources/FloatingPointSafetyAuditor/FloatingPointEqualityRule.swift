@@ -50,30 +50,76 @@ public enum FloatingPointSuppression {
 public enum FloatingPointEqualityDiagnostic {
 
     /// The primary message for an exact comparison with `operatorText`.
-    public static func message(operatorText: String) -> String {
-        let form = forms(operatorText: operatorText)
+    ///
+    /// - Parameters:
+    ///   - operatorText: `==` or `!=`, as written.
+    ///   - elementwise: Whether the operands are collections of floating-point
+    ///     values rather than single values. Collections need their own advice:
+    ///     `==` on `[Double]` compares elementwise, so the scalar fix does not
+    ///     even typecheck, and a length check is part of the claim.
+    public static func message(operatorText: String, elementwise: Bool = false) -> String {
+        let form = forms(operatorText: operatorText, elementwise: elementwise)
+        let opening = elementwise
+            ? """
+            Exact '\(operatorText)' on collections of floating-point values. '\(operatorText)' on a \
+            collection compares elementwise with '\(operatorText)', so every caveat of the scalar \
+            operator applies to every element, and the count is part of the claim.
+            """
+            : "Exact '\(operatorText)' on floating-point operands."
+        let closing = elementwise
+            ? """
+            '\(operatorText)' reports NaN as unequal to itself and +0.0 as equal to -0.0, so a \
+            reproducibility check written with '\(operatorText)' passes with a NaN anywhere in \
+            either stream while the property it claims is broken.
+            """
+            : """
+            '\(operatorText)' reports NaN as unequal to itself and +0.0 as equal to -0.0, so a \
+            reproducibility check written with '\(operatorText)' can pass with a NaN in the stream.
+            """
         return """
-        Exact '\(operatorText)' on floating-point operands. Three different claims hide under this \
+        \(opening) Three different claims hide under this \
         operator and the checker cannot tell which you mean, so state it. \
         Computed values, rounding expected: \(form.tolerance). \
         IEEE 754 comparison, chosen deliberately: \(form.ieee) — same result as '\(operatorText)', \
         but named, so it reads as a decision rather than an oversight. \
-        Bit-identical results: \(form.bits) — '\(operatorText)' reports NaN as unequal to itself \
-        and +0.0 as equal to -0.0, so a reproducibility check written with '\(operatorText)' can \
-        pass with a NaN in the stream.
+        Bit-identical results: \(form.bits) — \(closing)
         """
     }
 
     /// The compact menu, shortest and most common first.
-    public static func suggestedFix(operatorText: String) -> String {
-        let form = forms(operatorText: operatorText)
+    ///
+    /// - Parameters:
+    ///   - operatorText: `==` or `!=`, as written.
+    ///   - elementwise: Whether the operands are collections of floating-point values.
+    public static func suggestedFix(operatorText: String, elementwise: Bool = false) -> String {
+        let form = forms(operatorText: operatorText, elementwise: elementwise)
         return "Rewrite as one of: \(form.tolerance) (computed, rounding expected) | "
             + "\(form.ieee) (IEEE 754, deliberate) | "
             + "\(form.bits) (bit-identical, distinguishes NaN and signed zero)"
     }
 
-    private static func forms(operatorText: String) -> (tolerance: String, ieee: String, bits: String) {
-        if operatorText == "!=" {
+    private static func forms(
+        operatorText: String,
+        elementwise: Bool
+    ) -> (tolerance: String, ieee: String, bits: String) {
+        let negated = operatorText == "!="
+
+        if elementwise {
+            if negated {
+                return (
+                    tolerance: "a.count != b.count || zip(a, b).contains { abs($0 - $1) >= epsilon }",
+                    ieee: "a.count != b.count || zip(a, b).contains { !$0.isEqual(to: $1) }",
+                    bits: "a.count != b.count || zip(a, b).contains { $0.bitPattern != $1.bitPattern }"
+                )
+            }
+            return (
+                tolerance: "a.count == b.count && zip(a, b).allSatisfy { abs($0 - $1) < epsilon }",
+                ieee: "a.count == b.count && zip(a, b).allSatisfy { $0.isEqual(to: $1) }",
+                bits: "a.count == b.count && zip(a, b).allSatisfy { $0.bitPattern == $1.bitPattern }"
+            )
+        }
+
+        if negated {
             return (
                 tolerance: "abs(a - b) >= epsilon",
                 ieee: "!a.isEqual(to: b)",
@@ -181,6 +227,14 @@ public enum FloatingPointRules {
 
         let tree = parsedTree ?? Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
+
+        // One pre-pass for what the file says about its own functions' return
+        // types. Without it, `[Double] == [Double]` between two unannotated
+        // locals is invisible — and that is the comparison the rule most needs
+        // to see, because a NaN makes it pass while the property is broken.
+        let returnTypes = FunctionReturnTypeCollector()
+        returnTypes.walk(tree)
+
         let visitor = FloatingPointSafetyVisitor(
             filePath: fileName,
             converter: converter,
@@ -190,7 +244,8 @@ public enum FloatingPointRules {
             equalityRuleId: options.equalityRuleId,
             equalitySeverity: options.equalitySeverity,
             equalityRequiresAssertionContext: options.equalityRequiresAssertionContext,
-            suppressionMarkers: FloatingPointSuppression.allMarkers + options.extraSuppressionMarkers
+            suppressionMarkers: FloatingPointSuppression.allMarkers + options.extraSuppressionMarkers,
+            fileLocalReturnTypes: returnTypes.unambiguousReturnTypes
         )
         visitor.walk(tree)
         return (visitor.diagnostics, visitor.overrides)

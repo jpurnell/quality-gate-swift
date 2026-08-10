@@ -217,7 +217,11 @@ struct PortfolioSceneTests {
         guard case let .paragraph(heading, _, _, _) = children[0].node else { Issue.record("no heading"); return }
         #expect(heading == "Corpus Trend (3d)")
         guard case let .sparkline(data, _, _) = children[1].node else { Issue.record("no sparkline"); return }
-        #expect(data == [0.9, 0.8, 1.0])
+        // The sparkline carries the pass rates through unchanged, so the claim
+        // is bit-identity element for element rather than an elementwise `==`.
+        let expected = [0.9, 0.8, 1.0]
+        #expect(data.count == expected.count)
+        #expect(zip(data, expected).allSatisfy { $0.bitPattern == $1.bitPattern })
     }
 
     @Test("violation clusters render as a 4-column table; nil when empty")

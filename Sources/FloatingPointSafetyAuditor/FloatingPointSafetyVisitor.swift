@@ -9,15 +9,80 @@ private let fpTypeNames: Set<String> = [
     "Double", "Float", "CGFloat", "Float16", "Float80", "Decimal"
 ]
 
-/// Member-access names that are exempt from the fp-equality rule because they
-/// represent well-known sentinel values where exact comparison is intentional.
-private let exemptMemberNames: Set<String> = [
-    "zero", "nan", "infinity", "greatestFiniteMagnitude",
-    "leastNormalMagnitude", "leastNonzeroMagnitude", "pi", "ulpOfOne",
-    // `a.bitPattern == b.bitPattern` is the unambiguous bit-identity form the
-    // diagnostic recommends. Flagging it would punish the fix.
+/// Generic collection types whose `==` compares elementwise.
+private let fpCollectionTypeNames: Set<String> = [
+    "Array", "ArraySlice", "ContiguousArray"
+]
+
+/// The static members of a floating-point type that are themselves *of* that type.
+///
+/// This is an allowlist rather than a wildcard because the type of an arbitrary
+/// static member cannot be known from syntax. `Double.dimension` is an `Int` —
+/// it comes from a `VectorSpace` conformance, not from `Double`'s own storage —
+/// and treating every member access on a `Double` base as floating-point flagged
+/// it three times in BusinessMath. Anything not named here is unknown, and
+/// unknown is not floating-point.
+private let floatingPointStaticMembers: Set<String> = [
+    "pi", "infinity", "nan", "signalingNaN", "ulpOfOne",
+    "greatestFiniteMagnitude", "leastNormalMagnitude", "leastNonzeroMagnitude", "zero"
+]
+
+/// The bit-inspection members, exempt because `a.bitPattern == b.bitPattern` is
+/// the unambiguous bit-identity form the diagnostic recommends. Flagging it
+/// would punish the fix.
+private let bitInspectionMemberNames: Set<String> = [
     "bitPattern", "significandBitPattern"
 ]
+
+/// Member-access names that are exempt from the fp-equality rule.
+///
+/// Derived from ``floatingPointStaticMembers`` rather than listed separately:
+/// the two lists overlapped on eight of nine names and disagreed on the ninth
+/// (`signalingNaN` was an allowlisted member but not an exempt sentinel), which
+/// is exactly how two hand-maintained copies of one idea drift. A static member
+/// that *is* the floating-point type is by construction a sentinel — there is no
+/// arithmetic behind `.pi` or `.greatestFiniteMagnitude` to have rounded — so
+/// membership of one list implies membership of the other.
+private let exemptMemberNames: Set<String> = floatingPointStaticMembers.union(bitInspectionMemberNames)
+
+// MARK: - Operand shape
+
+/// Whether a floating-point operand is a single value or a collection of them.
+///
+/// The distinction changes the advice, not just the wording: `==` on `[Double]`
+/// compares elementwise, so `a.bitPattern == b.bitPattern` does not typecheck
+/// and a caller who follows scalar advice writes something that cannot compile.
+enum FloatingPointShape: Sendable {
+    /// A single floating-point value.
+    case scalar
+    /// A collection of floating-point values, compared elementwise by `==`.
+    case collection
+}
+
+/// How much the visitor had to infer to decide an operand is floating-point.
+///
+/// The two rules ask different questions of the same operand and deserve
+/// different evidence bars. `fp-equality` asks which of three claims an `==` is
+/// making, and is worth raising whenever the operand is plausibly floating-point.
+/// `fp-division-unguarded` asks whether a divisor could be zero, and its answer
+/// is a guard added to shipping code — so it stays on evidence written at the
+/// site and does not follow inference chains.
+enum FloatingPointEvidence: Sendable {
+    /// Written down at the point of use or of declaration: a literal, a type
+    /// annotation, a conversion call, an allowlisted static member.
+    case direct
+    /// Recovered by following a chain: a local bound from a conversion, or from
+    /// a call to a function this file declares a return type for.
+    case inferred
+}
+
+/// What the visitor concluded about one operand.
+struct FloatingPointOperand: Sendable {
+    /// Whether the operand is a single value or a collection of them.
+    let shape: FloatingPointShape
+    /// How much had to be inferred to reach that conclusion.
+    let evidence: FloatingPointEvidence
+}
 
 // MARK: - Visitor
 
@@ -66,18 +131,30 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     /// suppressions stay auditable.
     private(set) var overrides: [DiagnosticOverride] = []
 
+    /// Return types of functions declared in this file, by name, for names that
+    /// resolve unambiguously. See ``FunctionReturnTypeCollector``.
+    let fileLocalReturnTypes: [String: String]
+
     /// Nesting depth of enclosing `#expect` / `#require` macro expansions.
     private var assertionDepth = 0
 
-    /// Variable names declared with an explicit FP type annotation in the current file.
-    private var knownFPVariables: Set<String> = []
+    /// One lexical scope's worth of what the visitor has learned about names.
+    ///
+    /// Bindings are per-scope because they were once per-file, and a name
+    /// binding that outlives the declaration that introduced it is simply wrong:
+    /// a local `result` holding an `Int` was reported as floating-point because
+    /// an unrelated test elsewhere in the same file declared `let result: Double`.
+    private struct DeclarationScope {
+        /// Names known to hold floating-point values, and on what evidence.
+        var floatingPointNames: [String: FloatingPointOperand] = [:]
 
-    /// Variable names initialised from a float literal (e.g. `let x = 1.0`).
-    private var floatLiteralVariables: Set<String> = []
+        /// Names whose enclosing body contains a visible zero-guard.
+        var guardedVariables: Set<String> = []
+    }
 
-    /// Variable names whose enclosing scope contains a zero-guard expression.
-    /// Collected per function body before checking divisions.
-    private var guardedVariables: Set<String> = []
+    /// The scope stack, innermost last. The first element is the file itself,
+    /// which holds top-level and type-member bindings.
+    private var scopes: [DeclarationScope] = [DeclarationScope()]
 
     /// Creates a new floating-point safety visitor.
     /// - Parameters:
@@ -91,6 +168,8 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     ///   - equalityRequiresAssertionContext: Restrict exact-comparison findings
     ///     to `#expect` / `#require` arguments.
     ///   - suppressionMarkers: Comment markers that silence a finding.
+    ///   - fileLocalReturnTypes: Unambiguous return types of functions declared
+    ///     in this file, used to type locals bound from a call to one of them.
     init(
         filePath: String,
         converter: SourceLocationConverter,
@@ -100,7 +179,8 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         equalityRuleId: String = "fp-equality",
         equalitySeverity: Diagnostic.Severity = .warning,
         equalityRequiresAssertionContext: Bool = false,
-        suppressionMarkers: [String] = FloatingPointSuppression.allMarkers
+        suppressionMarkers: [String] = FloatingPointSuppression.allMarkers,
+        fileLocalReturnTypes: [String: String] = [:]
     ) {
         self.filePath = filePath
         self.converter = converter
@@ -111,7 +191,47 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         self.equalitySeverity = equalitySeverity
         self.equalityRequiresAssertionContext = equalityRequiresAssertionContext
         self.suppressionMarkers = suppressionMarkers
+        self.fileLocalReturnTypes = fileLocalReturnTypes
         super.init(viewMode: .sourceAccurate)
+    }
+
+    // MARK: - Scope Stack
+
+    /// Records `name` as holding a floating-point value in the innermost scope.
+    private func bind(_ name: String, operand: FloatingPointOperand) {
+        scopes[scopes.count - 1].floatingPointNames[name] = operand
+    }
+
+    /// Looks a name up from the innermost scope outward, so an inner binding
+    /// shadows an outer one rather than colliding with it.
+    private func operand(forName name: String) -> FloatingPointOperand? {
+        for scope in scopes.reversed() {
+            if let operand = scope.floatingPointNames[name] { return operand }
+        }
+        return nil
+    }
+
+    /// Returns true if any enclosing scope has a visible zero-guard on `name`.
+    private func isGuarded(_ name: String) -> Bool {
+        scopes.contains { $0.guardedVariables.contains(name) }
+    }
+
+    /// Enters a new lexical scope, optionally seeded with the zero-guards
+    /// visible in `body`.
+    private func pushScope(collectingGuardsFrom body: Syntax?) {
+        var scope = DeclarationScope()
+        if let body, checkDivisionGuards {
+            var guards: Set<String> = []
+            collectGuardedVariables(from: body, into: &guards)
+            scope.guardedVariables = guards
+        }
+        scopes.append(scope)
+    }
+
+    /// Leaves the innermost scope. The file scope is never popped.
+    private func popScope() {
+        guard scopes.count > 1 else { return }
+        scopes.removeLast()
     }
 
     // MARK: - Skip Test Files
@@ -155,80 +275,136 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
             }
             let varName = pattern.identifier.text
 
-            // Track explicit FP type annotations: `let x: Double`
-            if let typeAnnotation = binding.typeAnnotation {
-                let typeText = typeAnnotation.type.trimmedDescription
-                if fpTypeNames.contains(typeText) {
-                    knownFPVariables.insert(varName)
-                }
+            // An explicit annotation is the strongest signal: `let x: Double`,
+            // `let xs: [Double]`.
+            if let typeAnnotation = binding.typeAnnotation,
+               let annotated = floatingPointShape(ofTypeText: typeAnnotation.type.trimmedDescription) {
+                bind(varName, operand: FloatingPointOperand(shape: annotated, evidence: .direct))
+                continue
             }
 
-            // Track variables initialised from float literals: `let x = 1.0`
-            if let initializer = binding.initializer {
-                if initializer.value.is(FloatLiteralExprSyntax.self) {
-                    floatLiteralVariables.insert(varName)
-                }
+            // Otherwise read the initializer: a float literal or an array
+            // literal of them is written down; a conversion or a call to a
+            // function this file declares a return type for is a chain, and the
+            // binding carries that provenance forward.
+            if let initializer = binding.initializer,
+               let source = floatingPointOperand(of: initializer.value) {
+                let isLiteral = initializer.value.is(FloatLiteralExprSyntax.self)
+                    || initializer.value.is(ArrayExprSyntax.self)
+                let evidence: FloatingPointEvidence = isLiteral ? .direct : .inferred
+                bind(varName, operand: FloatingPointOperand(shape: source.shape, evidence: evidence))
             }
         }
         return .visitChildren
     }
 
-    // MARK: - Function Body Guard Collection
+    // MARK: - Lexical Scopes
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
-
-        // Collect guarded variables from the function body before visiting children.
-        guardedVariables = []
-        if let body = node.body {
-            collectGuardedVariables(from: Syntax(body))
-        }
+        pushScope(collectingGuardsFrom: node.body.map(Syntax.init))
         return .visitChildren
     }
 
     override func visitPost(_ node: FunctionDeclSyntax) {
-        guardedVariables = []
+        popScope()
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
-        guardedVariables = []
-        if let body = node.body {
-            collectGuardedVariables(from: Syntax(body))
-        }
+        pushScope(collectingGuardsFrom: node.body.map(Syntax.init))
         return .visitChildren
     }
 
     override func visitPost(_ node: InitializerDeclSyntax) {
-        guardedVariables = []
+        popScope()
     }
 
     override func visit(_ node: AccessorDeclSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
-        guardedVariables = []
-        if let body = node.body {
-            collectGuardedVariables(from: Syntax(body))
-        }
+        pushScope(collectingGuardsFrom: node.body.map(Syntax.init))
         return .visitChildren
     }
 
     override func visitPost(_ node: AccessorDeclSyntax) {
-        guardedVariables = []
+        popScope()
+    }
+
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: Syntax(node.statements))
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ClosureExprSyntax) {
+        popScope()
     }
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
         if let accessorBlock = node.accessorBlock {
-            guardedVariables = []
-            collectGuardedVariables(from: Syntax(accessorBlock))
+            pushScope(collectingGuardsFrom: Syntax(accessorBlock))
         }
         return .visitChildren
     }
 
     override func visitPost(_ node: PatternBindingSyntax) {
         if node.accessorBlock != nil {
-            guardedVariables = []
+            popScope()
         }
+    }
+
+    // A type body is a scope too: two `@Suite` structs in one file each declare
+    // their own `result`, and neither should be able to name the other's.
+
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: nil)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: StructDeclSyntax) {
+        popScope()
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: nil)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ClassDeclSyntax) {
+        popScope()
+    }
+
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: nil)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ActorDeclSyntax) {
+        popScope()
+    }
+
+    override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: nil)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: EnumDeclSyntax) {
+        popScope()
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: nil)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ExtensionDeclSyntax) {
+        popScope()
     }
 
     // MARK: - Sequence Expression Analysis
@@ -287,30 +463,20 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
         let lhs = elements[lhsIndex]
         let rhs = elements[rhsIndex]
-
-        // Check if either side looks like floating-point
-        let lhsIsFP = looksLikeFloatingPoint(lhs)
-        let rhsIsFP = looksLikeFloatingPoint(rhs)
-
-        guard lhsIsFP || rhsIsFP else { return }
-
-        // Check exempt patterns on both sides
-        if isExemptComparand(lhs) || isExemptComparand(rhs) { return }
-
-        emitEqualityDiagnostic(opText: opText, node: node)
+        checkInfixEquality(lhs: lhs, rhs: rhs, opText: opText, node: node)
     }
 
     /// Emits the shared exact-comparison finding, honouring the assertion-context
     /// restriction the calling checker asked for.
-    private func emitEqualityDiagnostic(opText: String, node: Syntax) {
+    private func emitEqualityDiagnostic(opText: String, node: Syntax, elementwise: Bool) {
         if equalityRequiresAssertionContext && assertionDepth == 0 { return }
 
         emitDiagnostic(
             ruleId: equalityRuleId,
             severity: equalitySeverity,
-            message: FloatingPointEqualityDiagnostic.message(operatorText: opText),
+            message: FloatingPointEqualityDiagnostic.message(operatorText: opText, elementwise: elementwise),
             node: node,
-            suggestedFix: FloatingPointEqualityDiagnostic.suggestedFix(operatorText: opText)
+            suggestedFix: FloatingPointEqualityDiagnostic.suggestedFix(operatorText: opText, elementwise: elementwise)
         )
     }
 
@@ -322,13 +488,14 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         opText: String,
         node: Syntax
     ) {
-        let lhsIsFP = looksLikeFloatingPoint(lhs)
-        let rhsIsFP = looksLikeFloatingPoint(rhs)
+        let lhsOperand = floatingPointOperand(of: lhs)
+        let rhsOperand = floatingPointOperand(of: rhs)
 
-        guard lhsIsFP || rhsIsFP else { return }
+        guard lhsOperand != nil || rhsOperand != nil else { return }
         if isExemptComparand(lhs) || isExemptComparand(rhs) { return }
 
-        emitEqualityDiagnostic(opText: opText, node: node)
+        let elementwise = lhsOperand?.shape == .collection || rhsOperand?.shape == .collection
+        emitEqualityDiagnostic(opText: opText, node: node, elementwise: elementwise)
     }
 
     // MARK: - Division Checks (SequenceExpr)
@@ -344,17 +511,19 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
         let divisor = elements[rhsIndex]
 
-        // Check if divisor looks like FP or the overall expression involves FP
+        // Check if divisor looks like FP or the overall expression involves FP.
+        // Scalars only: a collection has no `/`, so treating one as a divisor
+        // would be a finding about an expression that does not exist.
         let lhsIndex = operatorIndex - 1
-        let lhsIsFP = lhsIndex >= 0 ? looksLikeFloatingPoint(elements[lhsIndex]) : false
-        let divisorIsFP = looksLikeFloatingPoint(divisor)
+        let lhsIsFP = lhsIndex >= 0 ? isDirectlyEvidencedScalar(elements[lhsIndex]) : false
+        let divisorIsFP = isDirectlyEvidencedScalar(divisor)
 
         guard divisorIsFP || lhsIsFP else { return }
 
         if isNonZeroLiteral(divisor) { return }
 
         // Check if divisor is a known guarded variable
-        if let varName = extractVariableName(divisor), guardedVariables.contains(varName) {
+        if let varName = extractVariableName(divisor), isGuarded(varName) {
             return
         }
 
@@ -372,11 +541,11 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         divisor: ExprSyntax,
         node: Syntax
     ) {
-        guard looksLikeFloatingPoint(divisor) else { return }
+        guard isDirectlyEvidencedScalar(divisor) else { return }
 
         if isNonZeroLiteral(divisor) { return }
 
-        if let varName = extractVariableName(divisor), guardedVariables.contains(varName) {
+        if let varName = extractVariableName(divisor), isGuarded(varName) {
             return
         }
 
@@ -390,41 +559,139 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
     // MARK: - FP Detection Heuristics
 
-    /// Returns true if an expression looks like it evaluates to a floating-point value.
-    private func looksLikeFloatingPoint(_ expr: ExprSyntax) -> Bool {
-        // Float literal: 3.14, 1.0, etc.
-        if expr.is(FloatLiteralExprSyntax.self) {
-            return true
+    /// Returns the floating-point shape a *type spelling* denotes, or nil if the
+    /// spelling is not a floating-point type or a collection of one.
+    ///
+    /// `[Double]`, `ArraySlice<Float>` and `ContiguousArray<Double>` count
+    /// because `==` on them compares elementwise with `==`, which carries every
+    /// caveat of the scalar operator — a NaN anywhere in either operand makes an
+    /// equality assertion fail and an inequality assertion pass, regardless of
+    /// what the streams actually contain.
+    ///
+    /// - Parameters:
+    ///   - raw: The type as written in source.
+    ///   - depth: Recursion budget for nested generic spellings. Guarded so the
+    ///     walk terminates on any input.
+    /// - Returns: The shape, or nil when the spelling says nothing useful.
+    func floatingPointShape(ofTypeText raw: String, depth: Int = 0) -> FloatingPointShape? {
+        guard depth < 4 else { return nil }
+
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasSuffix("?") || text.hasSuffix("!") {
+            text = String(text.dropLast()).trimmingCharacters(in: .whitespaces)
+        }
+        guard !text.isEmpty else { return nil }
+
+        if fpTypeNames.contains(text) { return .scalar }
+
+        // Sugared array: `[Double]`. A dictionary `[K: V]` is not one.
+        if text.hasPrefix("["), text.hasSuffix("]") {
+            let inner = String(text.dropFirst().dropLast())
+            guard !inner.contains(":") else { return nil }
+            return floatingPointShape(ofTypeText: inner, depth: depth + 1) == nil ? nil : .collection
         }
 
-        // Known FP variable from type annotation
-        if let varName = extractVariableName(expr) {
-            if knownFPVariables.contains(varName) || floatLiteralVariables.contains(varName) {
-                return true
+        // Spelled-out generic: `Array<Double>`, `ArraySlice<Float>`, …
+        for generic in fpCollectionTypeNames where text.hasPrefix(generic + "<") && text.hasSuffix(">") {
+            let inner = String(text.dropFirst(generic.count + 1).dropLast())
+            return floatingPointShape(ofTypeText: inner, depth: depth + 1) == nil ? nil : .collection
+        }
+
+        return nil
+    }
+
+    /// Returns what the expression appears to evaluate to, or nil when syntax
+    /// alone cannot say.
+    ///
+    /// - Parameters:
+    ///   - expr: The expression to classify.
+    ///   - depth: Recursion budget for unwrapping `try` / `await` / parentheses.
+    ///     Guarded so the walk terminates on any input.
+    /// - Returns: The operand, or nil when the expression's type is unknown.
+    private func floatingPointOperand(of expr: ExprSyntax, depth: Int = 0) -> FloatingPointOperand? {
+        guard depth < 8 else { return nil }
+
+        // `try f()`, `await f()`, `(f())` — wrappers that say nothing about type.
+        if let tryExpr = expr.as(TryExprSyntax.self) {
+            return floatingPointOperand(of: tryExpr.expression, depth: depth + 1)
+        }
+        if let awaitExpr = expr.as(AwaitExprSyntax.self) {
+            return floatingPointOperand(of: awaitExpr.expression, depth: depth + 1)
+        }
+        if let tuple = expr.as(TupleExprSyntax.self),
+           tuple.elements.count == 1,
+           let only = tuple.elements.first,
+           only.label == nil {
+            return floatingPointOperand(of: only.expression, depth: depth + 1)
+        }
+
+        // Float literal: 3.14, 1.0, etc.
+        if expr.is(FloatLiteralExprSyntax.self) {
+            return FloatingPointOperand(shape: .scalar, evidence: .direct)
+        }
+
+        // An array literal built entirely from float literals: `[0.25, 0.5]`.
+        if let array = expr.as(ArrayExprSyntax.self) {
+            guard !array.elements.isEmpty else { return nil }
+            let allFloat = array.elements.allSatisfy { $0.expression.is(FloatLiteralExprSyntax.self) }
+            return allFloat ? FloatingPointOperand(shape: .collection, evidence: .direct) : nil
+        }
+
+        // A name bound in this or an enclosing scope.
+        if let declRef = expr.as(DeclReferenceExprSyntax.self) {
+            return operand(forName: declRef.baseName.text)
+        }
+
+        if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
+            // Only the allowlisted static members are known to be the type
+            // itself. `Double.dimension` is an `Int`, and syntax cannot tell.
+            if let base = memberAccess.base,
+               let baseRef = base.as(DeclReferenceExprSyntax.self),
+               fpTypeNames.contains(baseRef.baseName.text),
+               floatingPointStaticMembers.contains(memberAccess.declName.baseName.text) {
+                return FloatingPointOperand(shape: .scalar, evidence: .direct)
+            }
+            return nil
+        }
+
+        if let funcCall = expr.as(FunctionCallExprSyntax.self),
+           let calledExpr = funcCall.calledExpression.as(DeclReferenceExprSyntax.self) {
+            let calleeName = calledExpr.baseName.text
+
+            // Conversion to a floating-point type: `Double(someValue)`.
+            if fpTypeNames.contains(calleeName) {
+                return FloatingPointOperand(shape: .scalar, evidence: .direct)
+            }
+
+            // A call to a function this file declares, whose return type is
+            // written out and unambiguous. Nothing else is resolved.
+            if let returnType = fileLocalReturnTypes[calleeName],
+               let shape = floatingPointShape(ofTypeText: returnType) {
+                return FloatingPointOperand(shape: shape, evidence: .inferred)
             }
         }
 
-        // Member access on a known FP type: Double.random(...)
-        if let memberAccess = expr.as(MemberAccessExprSyntax.self),
-           let base = memberAccess.base,
-           let baseRef = base.as(DeclReferenceExprSyntax.self),
-           fpTypeNames.contains(baseRef.baseName.text) {
-            return true
-        }
+        return nil
+    }
 
-        // Function call on a known FP type: Double(someValue)
-        if let funcCall = expr.as(FunctionCallExprSyntax.self),
-           let calledExpr = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
-           fpTypeNames.contains(calledExpr.baseName.text) {
-            return true
-        }
-
-        return false
+    /// True if the expression is a scalar floating-point value on evidence
+    /// written at the site — the bar the division rule holds to.
+    private func isDirectlyEvidencedScalar(_ expr: ExprSyntax) -> Bool {
+        guard let operand = floatingPointOperand(of: expr) else { return false }
+        return operand.shape == .scalar && operand.evidence == .direct
     }
 
     /// Returns true if the expression is an exempt comparand (sentinel values
     /// where exact comparison is appropriate).
     private func isExemptComparand(_ expr: ExprSyntax) -> Bool {
+        // `x == nil` asks whether an optional is populated. It is not a
+        // floating-point comparison whatever the optional wraps, and once
+        // `Double?` is read as a floating-point type — which it is — every
+        // presence check on one would otherwise be a finding.
+        if expr.is(NilLiteralExprSyntax.self) {
+            return true
+        }
+
         // Literal 0.0 is exempt
         if let floatLit = expr.as(FloatLiteralExprSyntax.self) {
             let text = floatLit.literal.text
@@ -456,7 +723,12 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     /// Scans a syntax subtree for zero-guard patterns on variable names.
     /// Recognised patterns: `!= 0`, `> 0`, `!= 0.0`, `!= .zero`, `guard ... != 0`,
     /// `abs(x) > 0`, `abs(x) > .ulpOfOne`, `!x.isZero`.
-    private func collectGuardedVariables(from node: Syntax) {
+    ///
+    /// - Parameters:
+    ///   - node: The subtree to scan.
+    ///   - guarded: Accumulator for the names found. Guarded by the child list
+    ///     running out, which it does at every leaf.
+    private func collectGuardedVariables(from node: Syntax, into guarded: inout Set<String>) {
         for descendant in node.children(viewMode: .sourceAccurate) {
             // Look for SequenceExprSyntax containing guard patterns
             if let seq = descendant.as(SequenceExprSyntax.self) {
@@ -479,11 +751,11 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
                         if isZeroCheck || isPositiveThreshold {
                             // Direct variable: `x > 0`
                             if let varName = extractVariableName(lhs) {
-                                guardedVariables.insert(varName)
+                                guarded.insert(varName)
                             }
                             // Wrapped in abs(): `abs(x) > 0`
                             if let innerVar = extractAbsArgument(lhs) {
-                                guardedVariables.insert(innerVar)
+                                guarded.insert(innerVar)
                             }
                         }
                     }
@@ -498,16 +770,16 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
                 let memberName = memberAccess.declName.baseName.text
                 if memberName == "isEmpty", let base = memberAccess.base {
                     let countExpr = "\(base.trimmedDescription).count"
-                    guardedVariables.insert(countExpr)
+                    guarded.insert(countExpr)
                 } else if memberName == "isZero", let base = memberAccess.base {
                     if let varName = extractVariableName(ExprSyntax(base)) {
-                        guardedVariables.insert(varName)
+                        guarded.insert(varName)
                     }
                 }
             }
 
             // Recurse into children
-            collectGuardedVariables(from: descendant)
+            collectGuardedVariables(from: descendant, into: &guarded)
         }
     }
 
@@ -654,5 +926,73 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         }
 
         return nil
+    }
+}
+
+// MARK: - Intra-file return types
+
+/// Collects the declared return types of functions in one file.
+///
+/// This is the smallest amount of type information that reaches the case the
+/// rule was blind to. `DistributionSeedDeterminismTests` compares two `[Double]`
+/// streams for seed reproducibility, and neither local carries an annotation:
+///
+/// ```swift
+/// private func block(_ draw: (UInt64) -> Double, seed: UInt64) -> [Double] { … }
+/// let a = block({ distributionGamma(r: 4, λ: 2.0, seed: $0) }, seed: 42)
+/// let b = block({ distributionGamma(r: 4, λ: 2.0, seed: $0) }, seed: 42)
+/// #expect(a == b)
+/// ```
+///
+/// The helper spells its return type out and lives in the same file, so the
+/// binding is recoverable without a type checker. Three limits keep it from
+/// guessing:
+///
+/// - **Explicit return clauses only.** An inferred return type is not read back
+///   from the body.
+/// - **Unambiguous names only.** A name declared twice with *different* return
+///   types is dropped, because choosing between overloads needs argument types
+///   this collector does not have. Two declarations that agree are kept: the
+///   answer does not depend on which one the compiler picks, so it is not a
+///   guess. (That is the real shape here — two nested `draw` helpers, both
+///   `-> [Double]`.)
+/// - **One file.** Nothing is resolved across files, so a call to a helper
+///   declared elsewhere stays unknown.
+///
+/// It is still a heuristic, and it can be wrong: a local variable or parameter
+/// of function type that shadows a declared function name will be read as that
+/// function. Callers bound this by only consulting the map for a *bare* callee
+/// (`f(x)`, never `receiver.f(x)`) and only after scope-local bindings have had
+/// their chance, so the damage is limited to a shadowed bare name.
+final class FunctionReturnTypeCollector: SyntaxVisitor {
+    private var returnTypes: [String: String] = [:]
+    private var ambiguousNames: Set<String> = []
+
+    /// Creates a collector.
+    init() {
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    /// The names that resolve to exactly one written return type.
+    var unambiguousReturnTypes: [String: String] {
+        returnTypes.filter { !ambiguousNames.contains($0.key) }
+    }
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        let name = node.name.text
+
+        guard let returnClause = node.signature.returnClause else {
+            // No written return type. It is not resolvable, and it makes any
+            // sibling declaration of the same name ambiguous.
+            ambiguousNames.insert(name)
+            return .visitChildren
+        }
+
+        let returnType = returnClause.type.trimmedDescription
+        if let existing = returnTypes[name], existing != returnType {
+            ambiguousNames.insert(name)
+        }
+        returnTypes[name] = returnType
+        return .visitChildren
     }
 }
