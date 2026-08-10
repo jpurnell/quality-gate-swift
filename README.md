@@ -114,6 +114,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 |----|--------|-------------|
 | `doc-coverage` | DocCoverageChecker | Undocumented public APIs, inherited documentation detection, usage-priority ranking |
 | `doc-lint` | DocLinter | DocC documentation build errors |
+| `doc-code` | DocCodeAuditor | Fenced Swift in DocC articles must compile against the built module — the article is one program (opt-in) |
 
 ### Project Health
 
@@ -138,7 +139,9 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 
-`disk-clean` and `xcode-build` are opt-in — excluded from default runs unless explicitly requested with `--check`.
+`disk-clean`, `xcode-build` and `doc-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
+
+`doc-code` opts out for a different reason than the other two. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way. `--full` deliberately does not enable it.
 
 ## CLI reference
 

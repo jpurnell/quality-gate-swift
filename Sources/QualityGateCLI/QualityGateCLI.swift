@@ -9,6 +9,7 @@ import SafetyAuditor
 import BuildChecker
 import TestRunner
 import DocLinter
+import DocCodeAuditor
 import DocCoverageChecker
 import UnreachableCodeAuditor
 import RecursionAuditor
@@ -154,6 +155,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             TestRunner(),
             SafetyAuditor(),
             DocLinter(),
+            DocCodeAuditor(),
             DocCoverageChecker(),
             UnreachableCodeAuditor(),
             RecursionAuditor(),

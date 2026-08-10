@@ -1671,6 +1671,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// `privacy-manifest` checker knobs — app-target override, key strictness.
     public var privacyManifest: PrivacyManifestConfig
 
+    /// `doc-code` checker knobs — extra articles, imports, module search path.
+    public var docCode: DocCodeConfig
+
     /// Minimum gate build this repo requires (`YYYY-MM-DD` or full ISO8601).
     /// A stale installed binary warns — or fails under `--strict` — instead of
     /// silently running old rules (Phase 0.6). nil means no pin.
@@ -1723,6 +1726,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         duplication: DuplicationConfig = DuplicationConfig(),
         keychainSecrets: KeychainSecretsConfig = KeychainSecretsConfig(),
         privacyManifest: PrivacyManifestConfig = PrivacyManifestConfig(),
+        docCode: DocCodeConfig = DocCodeConfig(),
         minimumGateVersion: String? = nil
     ) {
         self.minimumGateVersion = minimumGateVersion
@@ -1771,6 +1775,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.duplication = duplication
         self.keychainSecrets = keychainSecrets
         self.privacyManifest = privacyManifest
+        self.docCode = docCode
     }
 
     /// The effective number of workers, either from config or computed.
@@ -1878,6 +1883,7 @@ extension Configuration {
         case duplication
         case keychainSecrets = "keychain-secrets"
         case privacyManifest = "privacy-manifest"
+        case docCode = "doc-code"
         case minimumGateVersion
     }
 
@@ -1930,6 +1936,7 @@ extension Configuration {
         duplication = try container.decodeIfPresent(DuplicationConfig.self, forKey: .duplication) ?? DuplicationConfig()
         keychainSecrets = try container.decodeIfPresent(KeychainSecretsConfig.self, forKey: .keychainSecrets) ?? KeychainSecretsConfig()
         privacyManifest = try container.decodeIfPresent(PrivacyManifestConfig.self, forKey: .privacyManifest) ?? PrivacyManifestConfig()
+        docCode = try container.decodeIfPresent(DocCodeConfig.self, forKey: .docCode) ?? DocCodeConfig()
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
     }
 }

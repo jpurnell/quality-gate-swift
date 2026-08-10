@@ -40,8 +40,17 @@ public enum CheckerSelection {
         } else if !configuredEnabled.isEmpty {
             return configuredEnabled
         } else {
-            // Default (no --check, no config): everything except the slow opt-in checkers.
-            var optOut: Set<String> = ["xcode-build"]
+            // Default (no --check, no config): everything except the opt-in checkers.
+            //
+            // `xcode-build` opts out on cost. `doc-code` opts out on *convention*: it holds
+            // an article to being one compilable program, which is a rule a repository has to
+            // adopt before the verdict means anything. Imposed by default it would report a
+            // wall of true findings about documentation nobody had agreed to write that way —
+            // and a gate that is red on arrival gets skipped, which costs more than the rule
+            // buys. Opt in with `--check doc-code` or `enabledCheckers`, and note that `--full`
+            // deliberately does *not* enable it: `--full` means "the slow ones too", not "adopt
+            // a documentation convention you have not adopted".
+            var optOut: Set<String> = ["xcode-build", "doc-code"]
             if full { optOut.remove("xcode-build") }
             return allIDs.filter { !optOut.contains($0) }
         }

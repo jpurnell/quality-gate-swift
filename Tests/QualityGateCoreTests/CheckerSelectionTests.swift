@@ -64,6 +64,34 @@ struct CheckerSelectionTests {
         #expect(result == allIDs)
     }
 
+    @Test("doc-code is opt-in, and --full does not opt it in")
+    func docCodeIsOptIn() {
+        // `--full` means "run the slow ones too". `doc-code` is not merely slow — it holds
+        // articles to a convention a repository has to adopt first, so enabling it by
+        // surprise would report true findings about documentation nobody agreed to write
+        // that way.
+        let registry = allIDs + ["doc-code"]
+
+        let byDefault = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        )
+        #expect(!byDefault.contains("doc-code"))
+
+        let full = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
+        )
+        #expect(!full.contains("doc-code"))
+        #expect(full.contains("xcode-build"))
+
+        // Explicitly requested, and `--check all`, both run it.
+        #expect(CheckerSelection.resolve(
+            requested: ["doc-code"], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        ) == ["doc-code"])
+        #expect(CheckerSelection.resolve(
+            requested: ["all"], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        ).contains("doc-code"))
+    }
+
     @Test("configured enabledCheckers are honored when no --check given")
     func configuredCheckers() {
         let result = CheckerSelection.resolve(
