@@ -570,6 +570,19 @@ struct HallucinatedImportTests {
 @Suite("DependencyAuditor: Unresolved Detection")
 struct UnresolvedDetectionTests {
 
+    @Test("Missing Package.resolved is clean when the package declares no dependencies")
+    func missingResolvedWithNoDependenciesIsClean() {
+        // SPM does not write a Package.resolved for a package with an empty
+        // `dependencies:` array, so demanding one is unsatisfiable. A skeleton or
+        // dependency-free package must be able to reach a green gate.
+        let diagnostics = DependencyAuditor.checkUnresolved(
+            resolvedExists: false,
+            resolvedPinCount: 0,
+            packageSwiftDependencyCount: 0
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
     @Test("Missing Package.resolved produces error diagnostic")
     func missingResolvedIsError() {
         let diagnostics = DependencyAuditor.checkUnresolved(

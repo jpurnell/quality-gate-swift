@@ -226,6 +226,10 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     /// When resolved is missing entirely, or has fewer pins than direct dependencies
     /// declared in `Package.swift`, an error diagnostic is produced.
     ///
+    /// A package that declares no dependencies is exempt from the missing-file
+    /// check: SPM does not write a `Package.resolved` in that case, so requiring
+    /// one would be unsatisfiable.
+    ///
     /// - Parameters:
     ///   - resolvedExists: Whether `Package.resolved` exists on disk.
     ///   - resolvedPinCount: Number of pins in `Package.resolved`.
@@ -237,6 +241,11 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         packageSwiftDependencyCount: Int
     ) -> [Diagnostic] {
         guard resolvedExists else {
+            // SPM writes no Package.resolved for a package with an empty
+            // `dependencies:` array, so requiring one would be unsatisfiable and
+            // would keep dependency-free packages permanently red.
+            guard packageSwiftDependencyCount > 0 else { return [] }
+
             return [
                 Diagnostic(
                     severity: .error,
