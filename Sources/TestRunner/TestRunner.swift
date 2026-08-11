@@ -13,6 +13,9 @@ import QualityGateCore
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let runner = TestRunner()
 /// let result = try await runner.check(configuration: config)
 /// ```

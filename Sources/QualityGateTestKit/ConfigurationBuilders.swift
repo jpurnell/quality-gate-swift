@@ -9,7 +9,20 @@ import QualityGateCore
 /// ## Example
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// // Stands in for the auditor under test; yours lives in its own module.
+/// struct ExampleAuditor: QualityChecker {
+///     let id = "safety"
+///     let name = "Example Auditor"
+///
+///     func check(configuration: Configuration) async throws -> CheckResult {
+///         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
+///     }
+/// }
+///
 /// let config = TestConfiguration.withCheckers(["safety"])
+/// let auditor = ExampleAuditor()
 /// let result = try await auditor.check(configuration: config)
 /// ```
 public enum TestConfiguration {

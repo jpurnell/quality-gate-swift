@@ -198,6 +198,13 @@ struct Fence {
     /// The backtick or tilde run that opens — and must close — the block.
     let delimiter: String
 
+    /// The info string's language token, lowercased. Empty when the fence is untagged.
+    ///
+    /// Kept alongside ``isSwift`` because `doc-comment-code` reports the languages it
+    /// *skipped*: a file whose fences are all `yaml` and a file whose fences were never
+    /// looked at produce the same silence otherwise.
+    let language: String
+
     /// Whether the info string names Swift.
     let isSwift: Bool
 
@@ -221,8 +228,9 @@ struct Fence {
         // ```swiftui and ```swift-output, and compiling those produces findings about a
         // language the block never claimed to be written in.
         let info = stripped.dropFirst(run.count)
-        let language = info.prefix { !$0.isWhitespace && $0 != "," && $0 != "{" }
-        isSwift = language.lowercased() == "swift"
+        let token = info.prefix { !$0.isWhitespace && $0 != "," && $0 != "{" }
+        language = token.lowercased()
+        isSwift = language == "swift"
     }
 
     /// Whether `line` closes this fence.

@@ -13,6 +13,9 @@ import QualityGateCore
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let linter = DocLinter()
 /// let result = try await linter.check(configuration: config)
 /// ```

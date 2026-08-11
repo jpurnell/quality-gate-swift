@@ -935,12 +935,19 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 ///
 /// This is the smallest amount of type information that reaches the case the
 /// rule was blind to. `DistributionSeedDeterminismTests` compares two `[Double]`
-/// streams for seed reproducibility, and neither local carries an annotation:
+/// streams for seed reproducibility, and neither local carries an annotation.
+/// Reduced to the same shape, in a form this package can compile:
 ///
 /// ```swift
-/// private func block(_ draw: (UInt64) -> Double, seed: UInt64) -> [Double] { … }
-/// let a = block({ distributionGamma(r: 4, λ: 2.0, seed: $0) }, seed: 42)
-/// let b = block({ distributionGamma(r: 4, λ: 2.0, seed: $0) }, seed: 42)
+/// import Testing
+///
+/// func block(_ draw: (UInt64) -> Double, seed: UInt64) -> [Double] {
+///     (0..<4).map { draw(seed &+ UInt64($0)) }
+/// }
+///
+/// // Neither `a` nor `b` is annotated; only `block`'s return clause is.
+/// let a = block({ Double($0) / 8.0 }, seed: 42)
+/// let b = block({ Double($0) / 8.0 }, seed: 42)
 /// #expect(a == b)
 /// ```
 ///

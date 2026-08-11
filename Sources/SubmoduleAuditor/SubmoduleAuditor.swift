@@ -19,6 +19,9 @@ import QualityGateCore
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let auditor = SubmoduleAuditor()
 /// let result = try await auditor.check(configuration: config)
 /// ```

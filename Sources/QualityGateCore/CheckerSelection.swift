@@ -68,9 +68,19 @@ public enum CheckerSelection {
             // exactly the shape `doc-code` has just finished walking, so the precedent for
             // promoting them later is now on the record rather than hypothetical.
             //
+            // `doc-comment-code` also stays opt-in, though its number has already moved: 16
+            // of this repository's 20 `///` fences failed the day the rule was written — 10
+            // of them one `## Usage` template copied into ten auditors — and all 16 are now
+            // repaired, with no exemptions. It carries its own id rather than sharing
+            // `doc-code`'s precisely so that landing it red could not take a green `doc-code`
+            // down with it, and that separation is worth keeping now that the ids can be
+            // promoted independently. Promoting it is a separate decision on the same terms
+            // `doc-code` met, and the terms are the point: adopt the convention by repairing
+            // the documentation, never by relaxing the rule.
+            //
             // `--full` still deliberately does not carry a documentation convention; it means
             // "the slow ones too". That distinction outlives this promotion.
-            var optOut: Set<String> = ["xcode-build", "doc-run", "doc-claims"]
+            var optOut: Set<String> = ["xcode-build", "doc-run", "doc-claims", "doc-comment-code"]
             if full { optOut.remove("xcode-build") }
             // `--exclude` is honoured here too, which it was not before. While `doc-code` was
             // opt-in that gap was invisible: nothing in the default set was worth excluding,

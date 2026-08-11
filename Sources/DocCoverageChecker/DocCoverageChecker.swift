@@ -15,6 +15,9 @@ import SwiftParser
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let checker = DocCoverageChecker()
 /// let result = try await checker.check(configuration: config)
 /// ```

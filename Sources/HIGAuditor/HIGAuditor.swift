@@ -15,6 +15,9 @@ import SwiftParser
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let auditor = HIGAuditor()
 /// let result = try await auditor.check(configuration: config)
 /// ```
@@ -23,8 +26,14 @@ import SwiftParser
 ///
 /// Suppress individual findings with an inline comment:
 /// ```swift
-/// // HIG-EXEMPT: single-purpose utility window
-/// NavigationStack { UtilityView() }
+/// import SwiftUI
+///
+/// struct UtilityWindow: View {
+///     var body: some View {
+///         // HIG-EXEMPT: single-purpose utility window
+///         NavigationStack { Text("Utility") }
+///     }
+/// }
 /// ```
 public struct HIGAuditor: FixableChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "HIGAuditor")
