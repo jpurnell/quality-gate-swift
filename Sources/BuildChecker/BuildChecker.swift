@@ -76,15 +76,38 @@ public struct BuildChecker: QualityChecker, Sendable {
 
     // MARK: - Public API for Testing
 
+    /// Strips ANSI SGR escape sequences (`ESC[…m`) from compiler output.
+    ///
+    /// `swift build` colourises diagnostics even when its output is a pipe rather than
+    /// a terminal, so a real warning arrives as
+    /// `File.swift:140:17: ESC[1;33mwarning: ESC[1;39mmessage ESC[0;0m`. Left in, the
+    /// escapes sit between the colon and the severity word, where the diagnostic
+    /// pattern expects nothing — and they would also travel into any report built from
+    /// the message.
+    ///
+    /// - Parameter text: Raw compiler output, possibly colourised.
+    /// - Returns: The same text with SGR escape sequences removed.
+    private static func strippingANSIEscapes(_ text: String) -> String {
+        guard text.contains("\u{1B}") else { return text }
+        return text.replacingOccurrences(
+            of: "\u{1B}\\[[0-9;]*m",
+            with: "",
+            options: .regularExpression
+        )
+    }
+
     /// Parse Swift compiler output into diagnostics.
     ///
     /// This method is exposed for testing purposes. It extracts file locations,
-    /// severity levels, and messages from compiler output.
+    /// severity levels, and messages from compiler output, after removing any ANSI
+    /// colour escapes the compiler emitted around the severity token.
     ///
-    /// - Parameter output: The raw output from `swift build`
+    /// - Parameter rawOutput: The raw output from `swift build`, as emitted.
     /// - Returns: An array of diagnostics parsed from the output
-    public static func parseBuildOutput(_ output: String) -> [Diagnostic] {
+    public static func parseBuildOutput(_ rawOutput: String) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
+
+        let output = strippingANSIEscapes(rawOutput)
 
         // Pattern: /path/to/File.swift:line:column: severity: message
         // The path can contain spaces, so we match until the line:column:severity pattern

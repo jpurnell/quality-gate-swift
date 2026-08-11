@@ -59,6 +59,38 @@ struct BuildCheckerTests {
         #expect(diagnostic.message.contains("variable 'x' was never used"))
     }
 
+    /// Every other parse test in this file feeds in plain text, which is why this
+    /// went unnoticed: `swift build` colourises diagnostics even through a pipe, so
+    /// the real severity token arrives wrapped in SGR escapes —
+    /// `File.swift:140:17: ESC[1;33mwarning: ESC[1;39mmessage`. The pattern expects
+    /// `: warning: ` with nothing between, so it matched nothing at all, and the
+    /// checker reported a clean build while the compiler was printing warnings.
+    @Test("Parses diagnostics that arrive with ANSI colour escapes")
+    func parsesColourisedDiagnostics() {
+        let esc = "\u{1B}"
+        let output = """
+        /path/to/File.swift:140:17: \(esc)[1;33mwarning: \(esc)[1;39m'chi2cdf(x:dF:)' is deprecated: use chiSquaredCDF\(esc)[0;0m
+        /path/to/Other.swift:42:15: \(esc)[1;31merror: \(esc)[1;39mcannot find 'foo' in scope\(esc)[0;0m
+        """
+
+        let diagnostics = BuildChecker.parseBuildOutput(output)
+
+        #expect(diagnostics.count == 2)
+
+        let warning = diagnostics.first { $0.severity == .warning }
+        #expect(warning?.filePath == "/path/to/File.swift")
+        #expect(warning?.lineNumber == 140)
+        #expect(warning?.columnNumber == 17)
+        #expect(warning?.message.contains("is deprecated") == true)
+        // The message must not carry the escapes through into reports.
+        #expect(warning?.message.contains(esc) == false)
+
+        let error = diagnostics.first { $0.severity == .error }
+        #expect(error?.filePath == "/path/to/Other.swift")
+        #expect(error?.lineNumber == 42)
+        #expect(error?.message.contains("cannot find 'foo' in scope") == true)
+    }
+
     @Test("Parses note with file location")
     func parsesNoteWithLocation() {
         let output = """
