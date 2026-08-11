@@ -29,7 +29,7 @@ The fix is to accept a generic `RandomNumberGenerator` parameter:
 
 ```swift
 // PASSES: seed-injectable
-func simulate(trials: Int, using rng: inout some RandomNumberGenerator) -> Double {
+func seededSimulate(trials: Int, using rng: inout some RandomNumberGenerator) -> Double {
     var sum = 0.0
     for _ in 0..<trials {
         sum += Double.random(in: 0...1, using: &rng)
@@ -55,11 +55,29 @@ Replace with Swift's `RandomNumberGenerator` protocol.
 ### Collection Shuffle (`stochastic-collection-shuffle`)
 
 ```swift
+struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed | 1
+    }
+
+    mutating func next() -> UInt64 {
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
+    }
+}
+
+let cards = Array(1...52)
+var rng = SeededGenerator(seed: 42)
+
 // WARNING: stochastic-collection-shuffle
 let deck = cards.shuffled()
 
 // PASSES: seed-injectable
-let deck = cards.shuffled(using: &rng)
+let seededDeck = cards.shuffled(using: &rng)
 ```
 
 ## Exemptions
@@ -88,11 +106,16 @@ func addJitter() -> TimeInterval {
 that rule misses: C-style global state, and the in-place `.shuffle()` spelling.
 
 ```swift
+import Testing
+
 @Test func rolls() {
     let n = arc4random_uniform(6)  // WARNING: stochastic-global-state
     var deck = cards
     deck.shuffle()                  // WARNING: stochastic-collection-shuffle
     let x = Double.random(in: 0...1) // handled by test-quality's unseeded-random
+    #expect(n < 6)
+    #expect(deck.count == 52)
+    #expect(x >= 0)
 }
 ```
 
@@ -105,6 +128,33 @@ A seed that is available and not passed is invisible to every rule above — the
 has no randomness on it at all:
 
 ```swift
+import Testing
+
+struct MonteCarloSimulation {
+    struct Outcome {
+        let mean: Double
+    }
+
+    let iterations: Int
+    let enableGPU: Bool
+    var generator: SeededGenerator
+
+    // The `seed` parameter with a default value is what marks this API seedable.
+    init(iterations: Int, enableGPU: Bool = false, seed: UInt64 = 0) {
+        self.iterations = iterations
+        self.enableGPU = enableGPU
+        self.generator = SeededGenerator(seed: seed)
+    }
+
+    mutating func run() throws -> Outcome {
+        var total = 0.0
+        for _ in 0..<iterations {
+            total += Double.random(in: 1000...2000, using: &generator)
+        }
+        return Outcome(mean: total / Double(iterations))
+    }
+}
+
 @Test func meanIsCentred() throws {
     // WARNING: stochastic-unseeded-test-call
     var sim = MonteCarloSimulation(iterations: 100, enableGPU: true)
@@ -120,9 +170,19 @@ Some tests are *about* the unseeded path. Say so, in the same spelling the concu
 rules use:
 
 ```swift
+import Testing
+
+func distributionChiSquared(degreesOfFreedom: Int) -> Double {
+    (0..<degreesOfFreedom).reduce(0.0) { total, _ in
+        let z = Double.random(in: -1...1)
+        return total + z * z
+    }
+}
+
 @Test func nilSeedIsNotReproducible() {
     // Justification: the unseeded path is the contract under test; a seed would invert this
     let a = (0..<20).map { _ in distributionChiSquared(degreesOfFreedom: 5) as Double }
+    #expect(a.count == 20)
 }
 ```
 

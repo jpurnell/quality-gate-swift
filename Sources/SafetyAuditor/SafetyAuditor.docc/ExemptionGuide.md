@@ -19,8 +19,13 @@ Use exemptions only when you can prove the pattern is safe:
 The default exemption pattern is `// SAFETY:` followed by a justification:
 
 ```swift
+protocol ApplicationDelegate: AnyObject {}
+final class AppDelegate: ApplicationDelegate {}
+let sharedDelegate: ApplicationDelegate = AppDelegate()
+let json: [String: Any] = ["id": "8B0A-11"]
+
 // SAFETY: AppDelegate is guaranteed to exist for app lifetime
-let app = UIApplication.shared.delegate as! AppDelegate
+let app = sharedDelegate as! AppDelegate
 
 // SAFETY: JSON schema validates this field is always present
 let id = json["id"] as! String
@@ -33,6 +38,8 @@ Exemption comments can appear in two locations:
 ### Same Line
 
 ```swift
+let optional: String? = "assigned during init"
+
 let value = optional! // SAFETY: Set in init, never nil
 ```
 
@@ -75,6 +82,16 @@ This allows migration from other tools' exemption formats.
 ### Good Exemptions
 
 ```swift
+class ViewController {}
+final class MainViewController: ViewController {}
+final class ParentController {}
+final class Storyboard {
+    func instantiateViewController(withIdentifier identifier: String) -> ViewController {
+        identifier == "Main" ? MainViewController() : ViewController()
+    }
+}
+let storyboard = Storyboard()
+
 // SAFETY: Storyboard instantiation guarantees this type
 let vc = storyboard.instantiateViewController(
     withIdentifier: "Main"
@@ -83,15 +100,23 @@ let vc = storyboard.instantiateViewController(
 // SAFETY: Regex is a compile-time constant, parse cannot fail
 let regex = try! Regex("[a-z]+")
 
-// SAFETY: Parent holds strong reference, child lifetime is bounded
-unowned var delegate: ParentController // SAFETY: Parent outlives child
+final class ChildController {
+    // SAFETY: Parent holds strong reference, child lifetime is bounded
+    unowned var delegate: ParentController // SAFETY: Parent outlives child
+
+    init(delegate: ParentController) {
+        self.delegate = delegate
+    }
+}
 ```
 
 ### Bad Exemptions
 
 ```swift
+func loadConfig() -> [String: String]? { ["timeout": "30"] }
+
 // SAFETY: This works
-let value = optional!  // No explanation
+let badValue = optional!  // No explanation
 
 // SAFETY: Crash if nil (this just restates the behavior)
 let config = loadConfig()!

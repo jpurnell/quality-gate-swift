@@ -65,11 +65,15 @@ The `Package.resolved` entry for a branch-pinned dependency looks like this:
 **Fix:** Pin to a tagged version in `Package.swift`:
 
 ```swift
+import PackageDescription
+
 // Before — branch pin
-.package(url: "https://github.com/org/my-library.git", branch: "main")
+let branchPin: Package.Dependency =
+    .package(url: "https://github.com/org/my-library.git", branch: "main")
 
 // After — version pin
-.package(url: "https://github.com/org/my-library.git", from: "1.2.0")
+let versionPin: Package.Dependency =
+    .package(url: "https://github.com/org/my-library.git", from: "1.2.0")
 ```
 
 ### `dep-local-override` — Active swift package edit

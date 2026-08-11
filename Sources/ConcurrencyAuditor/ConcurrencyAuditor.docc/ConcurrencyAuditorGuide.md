@@ -26,7 +26,7 @@ final class Cache: @unchecked Sendable {
 
 // ✅ accepted
 // Justification: all access goes through cacheLock (NSLock); see Cache.swift:42
-final class Cache: @unchecked Sendable {
+final class JustifiedCache: @unchecked Sendable {
     var entries: [String: Int] = [:]
 }
 ```
@@ -39,11 +39,15 @@ Same shape, different keyword. `nonisolated(unsafe)` opts a stored property out 
 
 ```swift
 // ❌ flagged
-nonisolated(unsafe) static var counter = 0
+enum DebugCounters {
+    nonisolated(unsafe) static var counter = 0
+}
 
 // ✅ accepted
-// Justification: process-wide debug counter, race acceptable
-nonisolated(unsafe) static var counter = 0
+enum JustifiedDebugCounters {
+    // Justification: process-wide debug counter, race acceptable
+    nonisolated(unsafe) static var counter = 0
+}
 ```
 
 Note that plain `nonisolated` (without `(unsafe)`) is fine and never fires this rule.
@@ -55,14 +59,17 @@ A class declaring `Sendable` (without `@unchecked`) commits to value-type-like i
 ```swift
 // ❌ flagged
 final class Foo: Sendable {
-    private var x = 0  // private doesn't change the rules
+    // Justification: illustrating the pattern this rule catches
+    nonisolated(unsafe) private var x = 0  // private doesn't change the rules
 }
 
 // ✅ accepted
-final class Foo: Sendable {
+final class ImmutableFoo: Sendable {
     let x = 0
 }
 ```
+
+The `nonisolated(unsafe)` in the flagged example is what lets it compile at all under Swift 6 — and that is exactly the point. The escape hatch buys silence from the compiler, not safety, which is why a second pair of eyes (this rule) still looks at it.
 
 If you genuinely need mutable state (with external synchronization), use `@unchecked Sendable` with a justification. That's what the escape hatch is for.
 
@@ -72,12 +79,13 @@ A `Sendable` class that stores a closure type without `@Sendable` is broken: the
 
 ```swift
 // ❌ flagged
-final class Foo: Sendable {
-    let handler: (Int) -> Void = { _ in }
+final class HandlerBox: Sendable {
+    // Justification: illustrating the pattern this rule catches
+    nonisolated(unsafe) let handler: (Int) -> Void = { _ in }
 }
 
 // ✅ accepted
-final class Foo: Sendable {
+final class SendableHandlerBox: Sendable {
     let handler: @Sendable (Int) -> Void = { _ in }
 }
 ```
@@ -98,7 +106,7 @@ actor A {
 }
 
 // ✅ accepted
-actor A {
+actor BumpActor {
     var x = 0
     func bump() { x += 1 }
     func f() {
@@ -118,16 +126,18 @@ Bare references to stored property names (without `self.`) are also flagged when
 Mixing GCD with the structured concurrency model is almost always a smell. Inside actor or `@MainActor` context, prefer `await MainActor.run` or stay on-actor.
 
 ```swift
+func redraw() { /* nonisolated drawing work */ }
+
 // ❌ flagged
 @MainActor
 func f() {
-    DispatchQueue.main.async { … }
+    DispatchQueue.main.async { redraw() }
 }
 
 // ✅ accepted
 @MainActor
-func f() {
-    Task { await MainActor.run { … } }   // or just stay on the main actor
+func refresh() {
+    Task { await MainActor.run { redraw() } }   // or just stay on the main actor
 }
 ```
 
@@ -140,7 +150,7 @@ In Swift 6, `deinit` is non-isolated even on `@MainActor` types. Touching instan
 ```swift
 // ❌ flagged
 @MainActor
-class A {
+class DeinitTrap {
     var x = 0
     deinit {
         print(x)   // runtime trap in Swift 6
@@ -149,7 +159,7 @@ class A {
 
 // ✅ accepted
 @MainActor
-class A {
+class SafeDeinit {
     var x = 0
     deinit {
         // empty — or only log static state
@@ -166,11 +176,11 @@ The recommended fix is to introduce an explicit isolated cleanup method that run
 `@preconcurrency import SomeModule` tells the compiler to suppress strict-concurrency warnings from that module. This is a reasonable transition strategy for third-party dependencies you can't fix. It is **not** a reasonable strategy for your own code — fix the underlying warnings instead.
 
 ```swift
-// ❌ flagged (MyAppCore is in this project's Package.swift)
-@preconcurrency import MyAppCore
+// ❌ flagged (QualityGateCore is a target in this project's Package.swift)
+@preconcurrency import QualityGateCore
 
-// ✅ accepted (Alamofire is third-party)
-@preconcurrency import Alamofire
+// ✅ accepted (swift-log is a third-party dependency)
+@preconcurrency import Logging
 ```
 
 The CLI determines which modules are first-party by parsing `Package.swift` and collecting all `.target(name:)` literals. You can allowlist specific first-party modules during a transition via `allowPreconcurrencyImports:`.
@@ -180,6 +190,22 @@ The CLI determines which modules are first-party by parsing `Package.swift` and 
 A `for await` / `for try await` loop has a third exit path that is easy to miss: when the surrounding task is cancelled, the async sequence's iterator returns `nil` and the loop **ends quietly** — it does *not* throw `CancellationError`. So any code after the loop whose correctness depends on *why* the loop exited (marking a session "completed", flushing a "final" result, advancing a state machine) also runs on the cancelled path.
 
 ```swift
+struct Sample: Sendable { let value: Double }
+
+// Justification: all mutable state is guarded by `lock`
+final class Session: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+    func markCompleted() {
+        lock.lock()
+        defer { lock.unlock() }
+        completed = true
+    }
+}
+
+let session = Session()
+func process(_ sample: Sample) { _ = sample.value }
+
 // ❌ flagged: cancellation is treated as semantic inside the loop, but the
 //    post-loop code runs even when the loop exited because of cancellation.
 func run(_ stream: AsyncThrowingStream<Sample, Error>) async throws {
@@ -192,7 +218,7 @@ func run(_ stream: AsyncThrowingStream<Sample, Error>) async throws {
 
 // ✅ accepted: an explicit checkpoint separates "the stream finished" from
 //    "we were cancelled" before the exit-reason-dependent statement.
-func run(_ stream: AsyncThrowingStream<Sample, Error>) async throws {
+func checkpointedRun(_ stream: AsyncThrowingStream<Sample, Error>) async throws {
     for try await sample in stream {
         try Task.checkCancellation()
         process(sample)

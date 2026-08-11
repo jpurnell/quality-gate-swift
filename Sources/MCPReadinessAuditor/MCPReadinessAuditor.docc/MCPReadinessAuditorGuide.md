@@ -15,6 +15,8 @@ The MCP Readiness Auditor cross-references your MCP tool schemas against their `
 When `execute()` accesses an argument not defined in the schema, LLMs can't know to pass it:
 
 ```swift
+import SwiftMCPServer
+
 // ERROR: mcp-arg-not-in-schema — "format" not in inputSchema.properties
 struct ExportTool: MCPToolHandler, Sendable {
     let tool = MCPTool(
@@ -27,9 +29,10 @@ struct ExportTool: MCPToolHandler, Sendable {
     )
 
     func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+        let args = arguments ?? [:]
         let query = try args.getString("query")
         let format = try args.getString("format")  // Not in schema!
-        // ...
+        return .success(text: "Exported \(query) as \(format)")
     }
 }
 ```
@@ -40,16 +43,24 @@ When a throwing getter is used but the key isn't in `required`, the LLM may omit
 
 ```swift
 // WARNING: mcp-required-mismatch — "limit" uses throwing getter but not in required
-inputSchema: MCPToolInputSchema(
-    properties: [
-        "query": MCPSchemaProperty(type: "string", description: "Search query"),
-        "limit": MCPSchemaProperty(type: "integer", description: "Max results"),
-    ],
-    required: ["query"]  // "limit" missing — but execute() throws on nil
-)
+struct SearchTool: MCPToolHandler, Sendable {
+    let tool = MCPTool(
+        name: "search",
+        description: "Search data",
+        inputSchema: MCPToolInputSchema(
+            properties: [
+                "query": MCPSchemaProperty(type: "string", description: "Search query"),
+                "limit": MCPSchemaProperty(type: "integer", description: "Max results"),
+            ],
+            required: ["query"]  // "limit" missing — but execute() throws on nil
+        )
+    )
 
-func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
-    let limit = try args.getInt("limit")  // Throws if missing!
+    func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+        let args = arguments ?? [:]
+        let limit = try args.getInt("limit")  // Throws if missing!
+        return .success(text: "Returning at most \(limit) results")
+    }
 }
 ```
 
@@ -61,10 +72,21 @@ When the getter type doesn't match the schema type:
 
 ```swift
 // ERROR: mcp-type-mismatch — getDouble("count") but schema says "string"
-properties: ["count": MCPSchemaProperty(type: "string", description: "Number of items")]
+struct CountTool: MCPToolHandler, Sendable {
+    let tool = MCPTool(
+        name: "count",
+        description: "Count items",
+        inputSchema: MCPToolInputSchema(
+            properties: ["count": MCPSchemaProperty(type: "string", description: "Number of items")],
+            required: ["count"]
+        )
+    )
 
-func execute(...) {
-    let count = try args.getDouble("count")  // Schema says string!
+    func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+        let args = arguments ?? [:]
+        let count = try args.getDouble("count")  // Schema says string!
+        return .success(text: "Counted \(count) items")
+    }
 }
 ```
 
@@ -73,11 +95,23 @@ func execute(...) {
 LLMs choose tools and construct arguments based on descriptions. Missing ones cause wrong tool selection or garbage inputs:
 
 ```swift
-// WARNING: mcp-tool-no-description
-let tool = MCPTool(name: "do_thing", description: "", inputSchema: ...)
+struct UndescribedTool: MCPToolHandler, Sendable {
+    let tool = MCPTool(
+        name: "do_thing",
+        // WARNING: mcp-tool-no-description
+        description: "",
+        inputSchema: MCPToolInputSchema(
+            // WARNING: mcp-property-no-description
+            properties: ["query": MCPSchemaProperty(type: "string", description: nil)],
+            required: ["query"]
+        )
+    )
 
-// WARNING: mcp-property-no-description
-"query": MCPSchemaProperty(type: "string", description: nil)
+    func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+        let args = arguments ?? [:]
+        return .success(text: try args.getString("query"))
+    }
+}
 ```
 
 ## Opt-In Usage

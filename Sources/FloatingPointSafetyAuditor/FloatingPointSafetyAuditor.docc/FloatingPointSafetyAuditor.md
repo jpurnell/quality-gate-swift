@@ -44,6 +44,9 @@ The auditor recognizes guard patterns of the form `variable != 0`, `variable != 
 Per-line suppression is available via the `// fp-safety:disable` comment:
 
 ```swift
+let a = 3.0
+let b = 4.0
+
 let ratio = a / b  // fp-safety:disable
 ```
 

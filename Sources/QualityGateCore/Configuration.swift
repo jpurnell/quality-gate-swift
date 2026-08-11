@@ -652,7 +652,7 @@ public struct StochasticDeterminismConfig: Sendable, Equatable {
     ///
     /// A test is as capable of being non-deterministic as anything in `Sources/`, and the
     /// rules that fire there are the ones no other checker implements — see
-    /// ``StochasticDeterminismAuditor`` for the division of labour with `test-quality`.
+    /// `StochasticDeterminismAuditor` for the division of labour with `test-quality`.
     public var auditTests: Bool
 
     /// Whether to flag a test call that omits a defaulted `seed:` argument

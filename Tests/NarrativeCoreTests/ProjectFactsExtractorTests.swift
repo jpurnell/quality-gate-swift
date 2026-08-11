@@ -40,19 +40,20 @@ struct ProjectFactsExtractorTests {
     }
 
     @Test("Extracts status, score, tier, trajectory, anomalies, and work per project")
-    func extractsAllFields() {
+    func extractsAllFields() throws {
         let facts = extractor.facts(from: twoProjectInput())
         #expect(facts.count == 2)
-        let charts = try? #require(facts.first { $0.projectID == "BusinessMathCharts" })
-        #expect(charts?.passing == false)
-        #expect(charts?.failedCheckers == ["test"])
-        #expect(abs((charts?.weightedScore ?? -1) - 0.870) < 1e-6)
-        #expect(charts?.tier == "active")
-        #expect(charts?.trajectory?.direction == "improving")
-        #expect(charts?.trajectory?.sampleSize == 14)
-        #expect(charts?.anomalies.count == 1)
-        #expect(charts?.anomalies.first?.metric == "passRate")
-        #expect(charts?.work.first?.commitSHA == "ccc333")
+        let charts = try #require(facts.first { $0.projectID == "BusinessMathCharts" })
+        #expect(charts.passing == false)
+        #expect(charts.failedCheckers == ["test"])
+        let weightedScore = try #require(charts.weightedScore)
+        #expect(abs(weightedScore - 0.870) < 1e-6)
+        #expect(charts.tier == "active")
+        #expect(charts.trajectory?.direction == "improving")
+        #expect(charts.trajectory?.sampleSize == 14)
+        #expect(charts.anomalies.count == 1)
+        #expect(charts.anomalies.first?.metric == "passRate")
+        #expect(charts.work.first?.commitSHA == "ccc333")
     }
 
     @Test("A project's facts contain none of a sibling's anomalies or work")

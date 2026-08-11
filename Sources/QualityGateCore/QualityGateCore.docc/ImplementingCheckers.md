@@ -19,6 +19,11 @@ To create a custom checker:
 ```swift
 import QualityGateCore
 
+/// Stands in for whatever analysis your checker actually performs.
+func someConditionFailed(in configuration: Configuration) async throws -> Bool {
+    false
+}
+
 public struct MyChecker: QualityChecker, Sendable {
     public let id = "my-checker"
     public let name = "My Custom Checker"
@@ -32,7 +37,7 @@ public struct MyChecker: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
 
         // Add any issues found
-        if someConditionFailed {
+        if try await someConditionFailed(in: configuration) {
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Something went wrong",
@@ -60,35 +65,57 @@ public struct MyChecker: QualityChecker, Sendable {
 Checkers should respect the project configuration:
 
 ```swift
-public func check(configuration: Configuration) async throws -> CheckResult {
-    // Check if this checker is enabled
-    guard configuration.isCheckerEnabled(id) else {
+/// One file the checker will scan. A real checker reads these from disk.
+struct SourceFile {
+    let path: String
+    let lines: [String]
+
+    func matches(glob pattern: String) -> Bool {
+        fnmatch(pattern, path, 0) == 0
+    }
+}
+
+public struct ConfigurationRespectingChecker: QualityChecker, Sendable {
+    public let id = "configuration-respecting"
+    public let name = "Configuration-Respecting Checker"
+
+    let allFiles: [SourceFile]
+
+    public func check(configuration: Configuration) async throws -> CheckResult {
+        // Check if this checker is enabled
+        guard configuration.isCheckerEnabled(id) else {
+            return CheckResult(
+                checkerId: id,
+                status: .skipped,
+                diagnostics: [],
+                duration: .zero
+            )
+        }
+
+        // Use exclude patterns
+        let filesToCheck = allFiles.filter { file in
+            !configuration.excludePatterns.contains { pattern in
+                file.matches(glob: pattern)
+            }
+        }
+
+        // Respect safety exemptions
+        for file in filesToCheck {
+            for line in file.lines {
+                if configuration.safetyExemptions.contains(where: { line.contains($0) }) {
+                    continue // Skip exempted lines
+                }
+                // Check for issues...
+            }
+        }
+
         return CheckResult(
             checkerId: id,
-            status: .skipped,
+            status: .passed,
             diagnostics: [],
             duration: .zero
         )
     }
-
-    // Use exclude patterns
-    let filesToCheck = allFiles.filter { file in
-        !configuration.excludePatterns.contains { pattern in
-            file.matches(glob: pattern)
-        }
-    }
-
-    // Respect safety exemptions
-    for file in filesToCheck {
-        for line in file.lines {
-            if configuration.safetyExemptions.contains(where: { line.contains($0) }) {
-                continue // Skip exempted lines
-            }
-            // Check for issues...
-        }
-    }
-
-    // ...
 }
 ```
 
@@ -122,14 +149,27 @@ All checkers must be `Sendable` because they may run concurrently:
 
 ```swift
 // ✅ Good: Immutable struct with Sendable properties
-public struct SafetyAuditor: QualityChecker, Sendable {
+public struct ThreadSafeAuditor: QualityChecker, Sendable {
     public let id = "safety"
-    // ...
+    public let name = "Safety Auditor"
+
+    public func check(configuration: Configuration) async throws -> CheckResult {
+        CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
+    }
 }
 
-// ❌ Bad: Mutable state without synchronization
-public class UnsafeChecker: QualityChecker {
+// ❌ Bad: Mutable state without synchronization. The compiler rejects this outright
+// unless you silence it with `@unchecked Sendable` — which is how it reaches production.
+public final class UnsafeChecker: QualityChecker, @unchecked Sendable {
+    public let id = "unsafe"
+    public let name = "Unsafe Checker"
+
     var results: [String] = [] // Not thread-safe!
+
+    public func check(configuration: Configuration) async throws -> CheckResult {
+        results.append("started") // Data race if two checkers run concurrently
+        return CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
+    }
 }
 ```
 
@@ -139,7 +179,6 @@ Write tests using the Swift Testing framework:
 
 ```swift
 import Testing
-@testable import MyChecker
 @testable import QualityGateCore
 
 @Suite("MyChecker Tests")

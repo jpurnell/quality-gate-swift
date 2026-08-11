@@ -26,6 +26,13 @@ This rule fires when a sensitive API type is instantiated or called inside a fun
 The sensitive types are: `CLLocationManager`, `CNContactStore`, `AVCaptureSession`, `HKHealthStore`, `EKEventStore`, and `PHPhotoLibrary`.
 
 ```swift
+import AVFoundation
+import Contacts
+import CoreLocation
+
+// Stands in for the app's own permission state.
+let hasContactsPermission = true
+
 // Flagged -- no consent check in the function body
 func startTracking() {
     let manager = CLLocationManager()
@@ -33,11 +40,11 @@ func startTracking() {
 }
 
 // Accepted -- guard checks authorization status
-func startTracking() {
-    guard CLLocationManager.authorizationStatus() == .authorizedWhenInUse else {
+func startTrackingWhenAuthorized() {
+    let manager = CLLocationManager()
+    guard manager.authorizationStatus == .authorizedAlways else {
         return
     }
-    let manager = CLLocationManager()
     manager.startUpdatingLocation()
 }
 
@@ -59,33 +66,41 @@ func capturePhoto() {
 }
 ```
 
-The auditor scopes its check to the enclosing function body. A consent guard at the top of the function satisfies all sensitive-API calls within it. Consent checks in a different function or file are invisible to this rule -- use a `// CONSENT:` annotation in those cases.
+The auditor scopes its check to the enclosing function body. A consent guard anywhere in the function body satisfies all sensitive-API calls within it. Consent checks in a different function or file are invisible to this rule -- use a `// CONSENT:` annotation in those cases.
 
 ### `context.unguarded-analytics`
 
 This rule fires when `Analytics.track(...)` is called in a function body that contains no opt-out guard. The auditor looks for any of these keywords in the function body: `isTrackingAllowed`, `trackingEnabled`, `analyticsEnabled`, `isOptedIn`, `optOut`. It also accepts a `// ANALYTICS:` annotation.
 
 ```swift
+// The analytics facade the rule matches on, plus the opt-out flags it looks for.
+enum Analytics {
+    static func track(_ event: String, properties: [String: String]) {}
+}
+
+let isTrackingAllowed = true
+let analyticsEnabled = true
+
 // Flagged -- no opt-out check
 func onPurchaseComplete(item: String) {
     Analytics.track("purchase_complete", properties: ["item": item])
 }
 
 // Accepted -- opt-out guard present
-func onPurchaseComplete(item: String) {
+func onPurchaseCompleteWhenAllowed(item: String) {
     guard isTrackingAllowed else { return }
     Analytics.track("purchase_complete", properties: ["item": item])
 }
 
 // Accepted -- tracking-enabled check
-func onPurchaseComplete(item: String) {
+func onPurchaseCompleteWhenEnabled(item: String) {
     if analyticsEnabled {
         Analytics.track("purchase_complete", properties: ["item": item])
     }
 }
 
 // Accepted -- ANALYTICS annotation with justification
-func onPurchaseComplete(item: String) {
+func onPurchaseCompleteAnnotated(item: String) {
     // ANALYTICS: Required for revenue reporting under SOX compliance.
     // User consent is verified at app launch; see ConsentManager.swift.
     Analytics.track("purchase_complete", properties: ["item": item])
@@ -99,6 +114,24 @@ This rule only matches the exact pattern `Analytics.track(...)`. Other analytics
 This rule fires when a function body contains both a prediction indicator (the word `predict`) and a denial action (`deny`, `block`, or `suspend`) without a `// REVIEWED:` annotation. The intent is to catch code that makes automated decisions affecting users -- loan denials, account suspensions, content blocking -- without a human review step.
 
 ```swift
+// The domain types the examples decide over.
+struct LoanApplication {
+    let features: [Double]
+}
+
+enum Decision {
+    case approve
+    case deny(reason: String)
+    case pendingReview(assignee: String)
+}
+
+struct RiskModel {
+    func predict(_ features: [Double]) -> Double { 0.5 }
+}
+
+let model = RiskModel()
+let threshold = 0.9
+
 // Flagged -- predicts risk and denies access with no review step
 func evaluateLoanApplication(_ application: LoanApplication) -> Decision {
     let riskScore = model.predict(application.features)
@@ -109,7 +142,7 @@ func evaluateLoanApplication(_ application: LoanApplication) -> Decision {
 }
 
 // Accepted -- human review step is present and annotated
-func evaluateLoanApplication(_ application: LoanApplication) -> Decision {
+func evaluateLoanApplicationWithReview(_ application: LoanApplication) -> Decision {
     let riskScore = model.predict(application.features)
     if riskScore > threshold {
         // REVIEWED: High-risk applications are queued for manual underwriter
@@ -121,7 +154,7 @@ func evaluateLoanApplication(_ application: LoanApplication) -> Decision {
 }
 
 // Accepted -- routes to human review instead of auto-deciding
-func evaluateLoanApplication(_ application: LoanApplication) -> Decision {
+func evaluateLoanApplicationRoutingToHuman(_ application: LoanApplication) -> Decision {
     let riskScore = model.predict(application.features)
     if riskScore > threshold {
         return .pendingReview(assignee: "underwriting-team")
@@ -147,7 +180,7 @@ func configureLocationManager() {
 }
 
 // Accepted -- DISCLOSURE annotation explains the purpose
-func configureLocationManager() {
+func configureLocationManagerWithDisclosure() {
     let manager = CLLocationManager()
     // DISCLOSURE: Background location is used for delivery driver tracking.
     // Users are informed via the "Active Delivery" banner and can end

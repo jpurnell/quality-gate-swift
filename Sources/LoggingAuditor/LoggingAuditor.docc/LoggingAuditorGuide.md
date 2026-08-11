@@ -22,6 +22,12 @@ LoggingAuditor catches both shapes plus the transitional smell of using `print()
 
 ```swift
 // flagged
+struct User: Codable {
+    let name: String
+}
+
+let url = URL(fileURLWithPath: "/tmp/user.json")
+
 func fetchUser() async throws -> User {
     let data = try await URLSession.shared.data(from: url).0
     let user = try JSONDecoder().decode(User.self, from: data)
@@ -38,7 +44,7 @@ import os
 
 private let logger = Logger(subsystem: "com.app", category: "Network")
 
-func fetchUser() async throws -> User {
+func fetchUserWithLogger() async throws -> User {
     let data = try await URLSession.shared.data(from: url).0
     let user = try JSONDecoder().decode(User.self, from: data)
     logger.info("Fetched user: \(user.name, privacy: .public)")
@@ -56,6 +62,12 @@ Both `print()` and `debugPrint()` are flagged. `NSLog()` is tracked but not flag
 
 ```swift
 // flagged
+struct Settings: Codable {
+    var theme: String
+}
+
+let settingsURL = URL(fileURLWithPath: "/tmp/settings.json")
+
 func saveSettings(_ settings: Settings) {
     let data = try? JSONEncoder().encode(settings)
     // logging.silent-try (warning)
@@ -77,7 +89,7 @@ The auditor checks three escape hatches before flagging:
 
 ```swift
 // accepted -- adjacent logging
-func saveSettings(_ settings: Settings) {
+func saveSettingsWithLogging(_ settings: Settings) {
     do {
         let data = try JSONEncoder().encode(settings)
         try data.write(to: settingsURL)
@@ -89,12 +101,23 @@ func saveSettings(_ settings: Settings) {
 
 ```swift
 // accepted -- suppression comment with reason
+struct DiskCache {
+    func write(_ payload: Data, forKey key: String) throws {}
+}
+
+let cache = DiskCache()
+let data = Data()
+let key = "profile"
+
 // silent: best-effort cache write; failure is non-critical
 try? cache.write(data, forKey: key)
 ```
 
 ```swift
 // accepted -- adjacent logging within 2-line window
+let fileManager = FileManager.default
+let tempURL = URL(fileURLWithPath: "/tmp/scratch.tmp")
+
 try? fileManager.removeItem(at: tempURL)
 logger.debug("Cleaned up temp file at \(tempURL.path)")
 ```
@@ -126,7 +149,7 @@ import Foundation
 import os
 #endif
 
-func start() {
+func startWithOSImport() {
     print("Starting up")  // still flagged by print-statement rule,
                            // but no-os-logger-import does NOT fire
 }
@@ -143,6 +166,8 @@ The auditor is intentionally conservative. Here are the known edge cases and how
 Command-line tools legitimately use `print()` for user-facing output. If your project is a CLI, set `projectType: "library"` in `.quality-gate.yml` to skip the auditor entirely, or add `// logging:` comments on intentional stdout output.
 
 ```swift
+let files: [URL] = []
+
 // logging: CLI user-facing output
 print("Processing \(files.count) files...")
 ```
@@ -152,6 +177,8 @@ print("Processing \(files.count) files...")
 Sometimes the error is handled by a caller or by a different code path. If the adjacent-logging window (two lines) does not catch it, add a suppression comment:
 
 ```swift
+func attempt() throws -> Int { 0 }
+
 // silent: caller retries on nil return
 let result = try? attempt()
 ```

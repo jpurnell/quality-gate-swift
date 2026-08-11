@@ -30,16 +30,22 @@ IndexStoreInfra wraps IndexStoreDB into five components, each solving one piece 
 ### ProjectKind -- what kind of project is this?
 
 ```swift
+let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let kind = ProjectKind.detect(at: projectRoot)
+let indexStrategy: String
 switch kind {
 case .swiftPM(let packageRoot):
     // auto-build to generate index store
+    indexStrategy = "swift build -Xswiftc -index-store-path in \(packageRoot.path)"
 case .xcode(let projectFile, let root):
     // look in ~/Library/Developer/Xcode/DerivedData
+    indexStrategy = "DerivedData for \(projectFile.lastPathComponent) under \(root.path)"
 case .xcworkspace(let workspaceFile, let root):
     // same as .xcode but for workspaces
+    indexStrategy = "DerivedData for \(workspaceFile.lastPathComponent) under \(root.path)"
 case .plain(let root):
     // no index available, syntactic-only
+    indexStrategy = "syntactic-only for \(root.path)"
 }
 ```
 
@@ -48,7 +54,12 @@ Detection is deterministic: `Package.swift` wins over `.xcworkspace` wins over `
 ### StoreLocator -- where is the index store?
 
 ```swift
-let located = try StoreLocator.locate(projectKind: kind)
+var located: StoreLocator.LocatedStore?
+do {
+    located = try StoreLocator.locate(projectKind: kind)
+} catch {
+    located = nil
+}
 // located?.url     -- path to the index store directory
 // located?.isStale -- true if sources are newer than the index
 ```
@@ -62,11 +73,18 @@ Staleness checking compares the index store's modification time against the newe
 ### IndexStoreSession -- open and query the index
 
 ```swift
-let session = try IndexStoreSession(
-    storePath: located.url,
-    libPath: IndexStoreSession.findLibIndexStore()!
-)
-// session.db is a ready-to-query IndexStoreDB instance
+var session: IndexStoreSession?
+do {
+    if let storeInfo = located, let libPath = IndexStoreSession.findLibIndexStore() {
+        session = try IndexStoreSession(
+            storePath: storeInfo.url,
+            libPath: libPath
+        )
+    }
+} catch {
+    session = nil
+}
+// session?.db is a ready-to-query IndexStoreDB instance
 ```
 
 IndexStoreSession handles the boilerplate: locating `libIndexStore.dylib` from the active toolchain, creating a temporary database directory, opening the index store, and polling for unit changes. The temporary database is cleaned up in `deinit`.
@@ -76,25 +94,32 @@ IndexStoreSession handles the boilerplate: locating `libIndexStore.dylib` from t
 ### ConformanceQuery -- high-level cross-file queries
 
 ```swift
-// Find all types conforming to a protocol
-let conformers = ConformanceQuery.findConformers(
-    ofProtocol: "AppIntent",
-    in: session.db,
-    limitToFiles: swiftFiles
-)
+let swiftFiles = SourceWalker.swiftFiles(under: projectRoot)
+var querySummary = "index unavailable"
 
-// Find all references to a symbol by USR
-let refs = ConformanceQuery.findReferences(
-    toUSR: "s:10AppIntents0B6IntentP",
-    in: session.db,
-    roles: [.reference, .call]
-)
+if let openSession = session {
+    // Find all types conforming to a protocol
+    let conformers = ConformanceQuery.findConformers(
+        ofProtocol: "AppIntent",
+        in: openSession,
+        limitToFiles: Set(swiftFiles)
+    )
 
-// List all symbols defined in specific files
-let symbols = ConformanceQuery.symbolsInFiles(
-    swiftFiles,
-    in: session.db
-)
+    // Find all references to a symbol by USR
+    let refs = ConformanceQuery.findReferences(
+        toUSR: "s:10AppIntents0B6IntentP",
+        in: openSession,
+        roles: [.reference, .call]
+    )
+
+    // List all symbols defined in specific files
+    let symbols = ConformanceQuery.symbolsInFiles(
+        swiftFiles,
+        in: openSession
+    )
+
+    querySummary = "\(conformers.count) conformers, \(refs.count) references, \(symbols.count) symbols"
+}
 ```
 
 ConformanceQuery translates IndexStoreDB's low-level symbol occurrence API into domain-level questions: "which types conform to this protocol?", "where is this symbol used?", "what symbols exist in these files?" These are the building blocks that checkers compose into analysis passes.
@@ -142,20 +167,44 @@ Pass 2 must never fail the gate when the index is unavailable. The contract:
 The `SkipMarker.skipped` error pattern (used by UnreachableCodeAuditor) provides clean control flow:
 
 ```swift
+import QualityGateCore
+
+enum SkipMarker: Error { case skipped }
+
+enum MyIndexPass {
+    static func run(session: IndexStoreSession, files: [String]) throws -> [Diagnostic] {
+        ConformanceQuery.symbolsInFiles(files, in: session).map { entry in
+            Diagnostic(
+                severity: .note,
+                message: "Cross-file symbol: \(entry.symbol.name)",
+                ruleId: "my-checker.cross-file"
+            )
+        }
+    }
+}
+
+func locateLibIndexStore() throws -> URL {
+    guard let path = IndexStoreSession.findLibIndexStore() else {
+        throw SkipMarker.skipped
+    }
+    return path
+}
+
+var diagnostics: [Diagnostic] = []
 do {
-    let located = try StoreLocator.locate(projectKind: kind)
-    guard let storeInfo = located else {
+    let storeLocation = try StoreLocator.locate(projectKind: kind)
+    guard let storeInfo = storeLocation else {
         diagnostics.append(Diagnostic(
             severity: .note,
             message: "Cross-file pass skipped: no index store available."
         ))
         throw SkipMarker.skipped
     }
-    let session = try IndexStoreSession(
+    let indexSession = try IndexStoreSession(
         storePath: storeInfo.url,
-        libPath: try Self.locateLibIndexStore()
+        libPath: try locateLibIndexStore()
     )
-    diagnostics += try MyIndexPass.run(session: session, ...)
+    diagnostics += try MyIndexPass.run(session: indexSession, files: swiftFiles)
 } catch SkipMarker.skipped {
     // note already added
 } catch {

@@ -31,7 +31,7 @@ class User {
 }
 
 // accepted
-class User {
+class FixedUser {
     let name: String
     let role: String
 
@@ -59,14 +59,14 @@ struct Settings {
 }
 
 // also flagged (explicit self and return)
-struct Settings {
+struct SettingsExplicitSelf {
     var fontSize: Int {
         return self.fontSize
     }
 }
 
 // accepted
-struct Settings {
+struct FixedSettings {
     private let _fontSize: Int = 14
     var fontSize: Int { _fontSize }  // reads backing storage
 }
@@ -80,7 +80,7 @@ A computed property setter that assigns to its own property name triggers infini
 
 ```swift
 // flagged
-struct Settings {
+struct SetterSettings {
     private var _fontSize: Int = 14
     var fontSize: Int {
         get { _fontSize }
@@ -89,7 +89,7 @@ struct Settings {
 }
 
 // accepted
-struct Settings {
+struct FixedSetterSettings {
     private var _fontSize: Int = 14
     var fontSize: Int {
         get { _fontSize }
@@ -113,7 +113,7 @@ struct Matrix {
 }
 
 // accepted
-struct Matrix {
+struct FixedMatrix {
     private var storage: [Double] = []
     let columns: Int
 
@@ -129,7 +129,7 @@ A subscript setter that assigns to `self[...]` writes to itself, producing infin
 
 ```swift
 // flagged
-struct Matrix {
+struct SubscriptSetterMatrix {
     var storage: [Double] = []
     let columns: Int
 
@@ -140,7 +140,7 @@ struct Matrix {
 }
 
 // accepted
-struct Matrix {
+struct FixedSubscriptSetterMatrix {
     var storage: [Double] = []
     let columns: Int
 
@@ -168,14 +168,14 @@ extension Describable {
 }
 
 // accepted
-protocol Describable {
+protocol FixedDescribable {
     var name: String { get }
     func describe() -> String
 }
 
-extension Describable {
+extension FixedDescribable {
     func describe() -> String {
-        "Describable: \(name)"  // delegates to a different requirement
+        "FixedDescribable: \(name)"  // delegates to a different requirement
     }
 }
 ```
@@ -191,9 +191,9 @@ func flatten(_ nested: [[Int]]) -> [Int] {
 }
 
 // accepted
-func flatten(_ nested: [[Int]], index: Int = 0) -> [Int] {
+func guardedFlatten(_ nested: [[Int]], index: Int = 0) -> [Int] {
     guard index < nested.count else { return [] }
-    return nested[index] + flatten(nested, index: index + 1)
+    return nested[index] + guardedFlatten(nested, index: index + 1)
 }
 ```
 
@@ -207,9 +207,9 @@ func factorial(_ n: Int) -> Int {
 }
 
 // accepted (same logic, guard-based)
-func factorial(_ n: Int) -> Int {
+func guardedFactorial(_ n: Int) -> Int {
     guard n > 1 else { return 1 }
-    return n * factorial(n - 1)
+    return n * guardedFactorial(n - 1)
 }
 ```
 
@@ -230,13 +230,13 @@ func isOdd(_ n: Int) -> Bool {
 }
 
 // accepted (one participant has a base case)
-func isEven(_ n: Int) -> Bool {
+func guardedIsEven(_ n: Int) -> Bool {
     guard n > 0 else { return true }
-    return isOdd(n - 1)
+    return guardedIsOdd(n - 1)
 }
 
-func isOdd(_ n: Int) -> Bool {
-    return isEven(n - 1)
+func guardedIsOdd(_ n: Int) -> Bool {
+    return guardedIsEven(n - 1)
 }
 ```
 
@@ -250,12 +250,14 @@ Argument labels are part of function identity. A function `f(_:)` calling `f(x:)
 
 ```swift
 // NOT flagged -- different overloads
-func process(_ value: Int) {
-    process(value: value)  // calls process(value:), a different function
-}
+enum OverloadSafety {
+    static func process(_ value: Int) {
+        process(value: value)  // calls process(value:), a different function
+    }
 
-func process(value: Int) {
-    // different implementation
+    static func process(value: Int) {
+        // different implementation
+    }
 }
 ```
 

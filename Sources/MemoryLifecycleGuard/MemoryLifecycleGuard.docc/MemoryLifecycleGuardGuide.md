@@ -15,6 +15,8 @@ The Memory Lifecycle Guard catches resource ownership bugs that compile fine but
 A class that stores a `Task` but has no `deinit` leaks work — the task continues running after the owning object is deallocated:
 
 ```swift
+func poll() async { }
+
 // WARNING: lifecycle-task-no-deinit
 class Coordinator {
     var pollingTask: Task<Void, Never>?
@@ -30,15 +32,16 @@ class Coordinator {
 }
 ```
 
-The fix is to add a `deinit` that cancels the task:
+The fix is to add a `deinit` that cancels the task (`CancellingCoordinator` below is the
+same class with that one addition):
 
 ```swift
 // PASSES
-class Coordinator {
+class CancellingCoordinator {
     var pollingTask: Task<Void, Never>?
 
     func startPolling() {
-        pollingTask = Task { /* ... */ }
+        pollingTask = Task { await poll() }
     }
 
     deinit {
@@ -66,14 +69,17 @@ class Worker {
 Non-weak delegate properties create retain cycles:
 
 ```swift
+protocol ViewControllerDelegate: AnyObject { }
+protocol TableDataSource: AnyObject { }
+
 // WARNING: lifecycle-strong-delegate
 class ViewController {
-    var delegate: ViewControllerDelegate
-    var dataSource: TableDataSource
+    var delegate: ViewControllerDelegate?
+    var dataSource: TableDataSource?
 }
 
 // PASSES
-class ViewController {
+class WeakDelegateViewController {
     weak var delegate: ViewControllerDelegate?
     weak var dataSource: TableDataSource?
 }

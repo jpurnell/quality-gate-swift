@@ -21,17 +21,17 @@ struct FlipDiagnosticsTests {
     }
 
     @Test("A flip becomes a warning by default with the scheduler-dependent framing")
-    func flipIsWarningByDefault() {
+    func flipIsWarningByDefault() throws {
         let diags = TestRunner.flipDiagnostics(for: [flip], strict: false)
         #expect(diags.count == 1)
-        let diag = try? #require(diags.first)
-        #expect(diag?.severity == .warning)
-        #expect(diag?.ruleId == "test.outcome-flip")
-        #expect(diag?.message.contains("testDivides") == true)
-        #expect(diag?.message.contains("scheduler-dependent") == true)
+        let diag = try #require(diags.first)
+        #expect(diag.severity == .warning)
+        #expect(diag.ruleId == "test.outcome-flip")
+        #expect(diag.message.contains("testDivides"))
+        #expect(diag.message.contains("scheduler-dependent"))
         // Both commits surface so the window can be found.
-        #expect(diag?.message.contains("aaa111") == true)
-        #expect(diag?.message.contains("bbb222") == true)
+        #expect(diag.message.contains("aaa111"))
+        #expect(diag.message.contains("bbb222"))
     }
 
     @Test("Strict mode raises the flip to an error")

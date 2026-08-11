@@ -20,6 +20,8 @@ UnreachableCodeAuditor fills these gaps with two analysis strategies:
 Code after an unconditional terminator will never execute. The terminator set is: `return`, `throw`, `break`, `continue`, `fatalError()`, `preconditionFailure()`.
 
 ```swift
+func cleanup() { }
+
 // flagged
 func example() -> Int {
     return 42
@@ -46,6 +48,10 @@ The auditor flags the first unreachable statement in a block, not every subseque
 A branch guarded by a boolean literal is dead code left from debugging or feature-flag scaffolding that was never cleaned up.
 
 ```swift
+func doSomething() { }
+func doOtherThing() { }
+let isDebugMode = ProcessInfo.processInfo.environment["DEBUG"] != nil
+
 // flagged -- then-branch is dead
 if false {
     doSomething()              // unreachable.dead_branch
@@ -92,12 +98,14 @@ The headline rule. A symbol is flagged when it fails both gates:
 2. The index contains zero reference/call/read/write occurrences of its USR outside its own definition line.
 
 ```swift
+import SwiftUI
+
 // flagged -- internal function never called from anywhere
 func orphanedHelper() -> Int { 42 }   // unreachable.cross_module.unreachable_from_entry
 
 // accepted -- called from a public entry point
-public func api() -> Int { orphanedHelper() }
-func orphanedHelper() -> Int { 42 }
+public func api() -> Int { reachedHelper() }
+func reachedHelper() -> Int { 42 }
 
 // accepted -- protocol witness (overrideOf relation in index)
 struct MyView: View {
@@ -149,7 +157,7 @@ Place a `// LIVE:` comment on the declaration line or the line immediately above
 // LIVE: called via Objective-C runtime
 func dynamicHelper() { }
 
-func dynamicHelper() { } // LIVE: reflection target
+func reflectionHelper() { } // LIVE: reflection target
 ```
 
 The comment is detected by raw line scanning, not syntax-tree attachment, so it works regardless of surrounding whitespace or other comments on the same line.

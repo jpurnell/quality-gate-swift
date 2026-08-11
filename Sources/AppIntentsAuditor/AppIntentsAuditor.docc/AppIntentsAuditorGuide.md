@@ -12,7 +12,7 @@ Apple Intelligence, Shortcuts, Spotlight, and Siri discover your app's capabilit
 
 The same pattern applies to `AppEntity` (needs display representations and `@AssistantEntity`) and `AppEnum` (needs type display, case displays, and `@AssistantEnum`).
 
-Missing any of these is not a compiler error. Your code builds and runs. But the intent is invisible to the user -- or worse, partially visible with unlabeled parameters and no description. These are the bugs that slip through code review because they are omissions, not mistakes.
+Missing any of these is not a compiler error -- and in the one case where it technically is, an entity's display representation, the requirement is easily satisfied out of sight in an extension. Your code builds and runs. But the intent is invisible to the user -- or worse, partially visible with unlabeled parameters and no description. These are the bugs that slip through code review because they are omissions, not mistakes.
 
 AppIntentsAuditor catches these omissions at build time with 17 diagnostic rules across 5 categories.
 
@@ -36,16 +36,18 @@ The auditor automatically skips files that do not `import AppIntents`, so enabli
 Every `AppIntent` should have an `IntentDescription` so Shortcuts and Siri can tell the user what the intent does.
 
 ```swift
+import AppIntents
+
 // flagged
 struct OpenApp: AppIntent {
-    static var title: LocalizedStringResource = "Open App"
+    static let title: LocalizedStringResource = "Open App"
     func perform() async throws -> some IntentResult { .result() }
 }
 
 // accepted
-struct OpenApp: AppIntent {
-    static var title: LocalizedStringResource = "Open App"
-    static var description: IntentDescription = "Opens the app to the main screen"
+struct DescribedOpenApp: AppIntent {
+    static let title: LocalizedStringResource = "Open App"
+    static let description: IntentDescription = "Opens the app to the main screen"
     func perform() async throws -> some IntentResult { .result() }
 }
 ```
@@ -56,29 +58,38 @@ Every `@Parameter` needs a `title` argument so Shortcuts can label the input fie
 
 ```swift
 // flagged
-@Parameter var query: String
+struct UntitledParameterSearch: AppIntent {
+    static let title: LocalizedStringResource = "Search"
+    @Parameter var query: String
+    func perform() async throws -> some IntentResult { .result() }
+}
 
 // accepted
-@Parameter(title: "Search Query") var query: String
+struct TitledParameterSearch: AppIntent {
+    static let title: LocalizedStringResource = "Search"
+    @Parameter(title: "Search Query") var query: String
+    func perform() async throws -> some IntentResult { .result() }
+}
 ```
 
 #### `appintent-no-assistant-schema`
 
-For Apple Intelligence integration, intents should be annotated with `@AssistantIntent(schema:)` to map to a system action category.
+For Apple Intelligence integration, intents should be annotated with `@AssistantIntent(schema:)` to map to a system action category. Each schema carries its own conformance requirements -- `.system.search` maps to `ShowInAppSearchResultsIntent`, which is why the accepted form below also declares a `criteria` property.
 
 ```swift
 // flagged
 struct SearchItems: AppIntent {
-    static var title: LocalizedStringResource = "Search"
-    static var description: IntentDescription = "Searches items"
+    static let title: LocalizedStringResource = "Search"
+    static let description: IntentDescription = "Searches items"
     func perform() async throws -> some IntentResult { .result() }
 }
 
 // accepted
 @AssistantIntent(schema: .system.search)
-struct SearchItems: AppIntent {
-    static var title: LocalizedStringResource = "Search"
-    static var description: IntentDescription = "Searches items"
+struct AssistantSchemaSearchItems: AppIntent {
+    static let title: LocalizedStringResource = "Search"
+    static let description: IntentDescription = "Searches items"
+    var criteria: StringSearchCriteria
     func perform() async throws -> some IntentResult { .result() }
 }
 ```
@@ -87,16 +98,31 @@ struct SearchItems: AppIntent {
 
 #### `appintent-entity-no-display`
 
-Every `AppEntity` needs a `displayRepresentation` property so the system can render it in UI.
+Every `AppEntity` needs a `displayRepresentation` property so the system can render it in UI. It is a protocol requirement, so an entity that omits it outright will not compile at all -- which makes the interesting case the one that *does* compile, where the requirement is satisfied off to the side in an extension. The visitor reads only the struct body, so it still flags the declaration, and so would any reader trying to answer "how does this entity render?" by looking at the entity.
 
 ```swift
-// flagged -- missing displayRepresentation
-struct Item: AppEntity {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Item"
+struct LibraryItemQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [LibraryItem] {
+        identifiers.map { LibraryItem(id: $0) }
+    }
+}
+
+// flagged -- no displayRepresentation on the struct itself
+struct LibraryItem: AppEntity {
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Library Item"
     var id: String
-    static var defaultQuery = ItemQuery()
+    static let defaultQuery = LibraryItemQuery()
+}
+
+// satisfies the compiler, but out of the visitor's reach
+extension LibraryItem {
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "Item \(id)")
+    }
 }
 ```
+
+Moving that property onto `LibraryItem` itself clears the diagnostic.
 
 #### `appintent-entity-no-type-display`
 
@@ -120,8 +146,8 @@ Every case in an `AppEnum` must have an entry in `caseDisplayRepresentations`. M
 // flagged -- "medium" case missing from display representations
 enum Priority: String, AppEnum {
     case low, medium, high
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Priority"
-    static var caseDisplayRepresentations: [Priority: DisplayRepresentation] = [
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Priority"
+    static let caseDisplayRepresentations: [Priority: DisplayRepresentation] = [
         .low: "Low",
         .high: "High",
         // medium is missing
@@ -138,7 +164,7 @@ For Apple Intelligence, enums should be annotated with `@AssistantEnum(schema:)`
 AppIntentsAuditor uses SwiftSyntax to parse each file that contains `import AppIntents`. It does not compile the code or resolve types -- it operates on the syntax tree alone.
 
 **Intent detection:** Any `struct` whose inheritance clause includes `AppIntent` is treated as an intent. The visitor then checks for:
-- A `static var description` property whose type or initializer mentions `IntentDescription`
+- A `static let` or `static var` named `description` whose type or initializer mentions `IntentDescription`
 - `@Parameter` attributes with and without `title:` arguments
 - An `@AssistantIntent` attribute on the struct declaration
 

@@ -28,6 +28,9 @@ TestQualityAuditor reads the project `Configuration` to determine:
 No auditor-specific initializer options are needed. Create with `TestQualityAuditor()` and call `check(configuration:)`.
 
 ```swift
+import QualityGateCore
+
+let config = Configuration()
 let auditor = TestQualityAuditor()
 let result = try await auditor.check(configuration: config)
 ```
@@ -39,6 +42,10 @@ For unit testing the auditor itself, `auditSource(_:fileName:configuration:)` ac
 Every rule can be suppressed with a `// TEST-QUALITY:` comment on the same line or the line immediately above the flagged construct. `exact-double-equality` also honours `// fp-safety:disable`, which is the canonical marker for that rule in both checkers:
 
 ```swift
+import Testing
+
+let lookup: [Double] = [1.0, 0.5, 0.25, 0.125]
+
 // fp-safety:disable — table entries are exact by construction
 #expect(lookup[3] == 0.125)
 ```

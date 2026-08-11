@@ -24,10 +24,15 @@ SafetyAuditor uses SwiftSyntax to parse and analyze Swift source code, detecting
 Code that intentionally uses these patterns can be marked with `// SAFETY:` comments:
 
 ```swift
+final class SubmitButton {}
+
+let optional: Int? = 42
+let sender: Any = SubmitButton()
+
 // SAFETY: Guaranteed non-nil after initialization
 let value = optional!
 
-let view = sender as! UIButton // SAFETY: Type guaranteed by IB connection
+let view = sender as! SubmitButton // SAFETY: Type guaranteed by IB connection
 ```
 
 The exemption comment can appear on the same line or the line immediately above the violation.

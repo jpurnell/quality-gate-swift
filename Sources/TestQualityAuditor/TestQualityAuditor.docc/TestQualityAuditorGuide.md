@@ -27,6 +27,12 @@ Exact `==` or `!=` on floating-point operands inside `#expect` is ambiguous, and
 ```swift
 import Testing
 
+func gaussian(x: Double, mean: Double, sigma: Double) -> Double {
+    guard sigma > 0 else { return 0 }
+    let z = (x - mean) / sigma
+    return exp(-0.5 * z * z) / (sigma * (2 * Double.pi).squareRoot())
+}
+
 @Test func gaussianPDF() {
     let result = gaussian(x: 0.0, mean: 0.0, sigma: 1.0)
 
@@ -46,7 +52,7 @@ There is no single fix, and the checker does not pretend otherwise. Three genuin
 ```swift
 import Testing
 
-@Test func gaussianPDF() {
+@Test func gaussianPDFWithinTolerance() {
     let result = gaussian(x: 0.0, mean: 0.0, sigma: 1.0)
 
     // accepted -- the tolerance reflects the precision actually needed
@@ -54,12 +60,19 @@ import Testing
 }
 
 @Test func boxMullerDegenerateCase() {
+    let radius = (-2 * log(1.0)).squareRoot()
+    let z1 = radius * cos(0.0)
+    let z2 = radius * sin(0.0)
+
     // accepted -- sqrt(-2 * log(1)) is -0.0, and IEEE equality is what is
     // meant here. A bit-pattern check would fail on the sign of zero.
     #expect(z1.isEqual(to: 0.0) && z2.isEqual(to: 0.0))
 }
 
 @Test func seededRunIsReproducible() {
+    let first = gaussian(x: 0.25, mean: 0.0, sigma: 1.0)
+    let second = gaussian(x: 0.25, mean: 0.0, sigma: 1.0)
+
     // accepted -- bit-identity, and NaN-safe, which `==` would not be
     #expect(first.bitPattern == second.bitPattern)
 }
@@ -80,6 +93,19 @@ Integer comparisons are not flagged, even when a `Double`-typed variable is invo
 ```swift
 import Testing
 
+enum ConfigError: Error, Equatable {
+    case fileNotFound
+}
+
+struct Configuration {
+    let timeout: Int
+
+    static func load(from path: String) throws -> Configuration {
+        guard path == "test.json" else { throw ConfigError.fileNotFound }
+        return Configuration(timeout: 30)
+    }
+}
+
 @Test func loadConfiguration() {
     // flagged -- try! crashes the runner instead of failing the test
     let config = try! Configuration.load(from: "test.json")
@@ -93,7 +119,7 @@ There are two correct alternatives depending on intent:
 import Testing
 
 // Alternative 1: propagate -- test fails with a clear thrown-error diagnostic
-@Test func loadConfiguration() throws {
+@Test func loadConfigurationPropagates() throws {
     let config = try Configuration.load(from: "test.json")
     #expect(config.timeout == 30)
 }
@@ -128,6 +154,10 @@ The fix is to inject a seeded generator or use fixed test data:
 ```swift
 import Testing
 
+func mySort(_ values: [Int]) -> [Int] {
+    values.sorted()
+}
+
 @Test func sortHandlesVariedInput() {
     // accepted -- deterministic test data
     let values = [42, 7, 99, 1, 55, 23, 88, 3, 67, 14]
@@ -140,6 +170,21 @@ If your test genuinely needs randomized input (property-based testing, fuzz test
 
 ```swift
 import Testing
+
+struct SomeSeedableRNG: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed | 1
+    }
+
+    mutating func next() -> UInt64 {
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
+    }
+}
 
 @Test func sortIsIdempotent() {
     // accepted -- seeded generator is deterministic
@@ -170,6 +215,15 @@ A `@Test` function that never calls `#expect` or `#require` does not test anythi
 ```swift
 import Testing
 
+struct User {
+    let name: String
+    let age: Int
+
+    var isValid: Bool { !name.isEmpty && age >= 0 }
+
+    func formattedName() -> String { "\(name) (\(age))" }
+}
+
 @Test func createUser() {
     // flagged -- no assertion anywhere in the function body
     let user = User(name: "Alice", age: 30)
@@ -182,7 +236,7 @@ Add assertions that validate the behavior under test:
 ```swift
 import Testing
 
-@Test func createUser() {
+@Test func createUserWithAssertions() {
     let user = User(name: "Alice", age: 30)
 
     // accepted -- explicit behavioral assertions
@@ -202,6 +256,10 @@ Helper functions that call `#expect` on behalf of the test do NOT satisfy the ru
 ```swift
 import Testing
 
+func calculateQuarterlyRevenue(units: Int, price: Double) -> Double {
+    Double(units) * price
+}
+
 @Test func calculateRevenue() {
     let revenue = calculateQuarterlyRevenue(units: 100, price: 49.99)
 
@@ -215,7 +273,7 @@ Assert the actual expected value or a meaningful bound:
 ```swift
 import Testing
 
-@Test func calculateRevenue() {
+@Test func calculateRevenueWithinTolerance() {
     let revenue = calculateQuarterlyRevenue(units: 100, price: 49.99)
 
     // accepted -- asserts the specific expected result
@@ -228,6 +286,14 @@ For optionals, unwrap with `#require` and then assert on the value:
 ```swift
 import Testing
 
+struct UserDatabase {
+    let users: [Int: User]
+
+    func findUser(id: Int) -> User? { users[id] }
+}
+
+let database = UserDatabase(users: [42: User(name: "Alice", age: 30)])
+
 @Test func lookupUser() {
     let user = database.findUser(id: 42)
 
@@ -239,7 +305,7 @@ import Testing
 ```swift
 import Testing
 
-@Test func lookupUser() throws {
+@Test func lookupUserUnwrapped() throws {
     // accepted -- unwrap and assert on the actual value
     let user = try #require(database.findUser(id: 42))
     #expect(user.name == "Alice")
@@ -260,6 +326,8 @@ Every rule supports suppression via a `// TEST-QUALITY:` comment on the same lin
 **exact-double-equality** -- Prefer rewriting the comparison to say what it means (`a.isEqual(to: b)` for IEEE identity, `a.bitPattern == b.bitPattern` for bit identity). Both are accepted without a marker, and unlike a marker they cannot drift from the code. Suppress only where neither form applies:
 
 ```swift
+let lookup: [Double] = [1.0, 0.5, 0.25, 0.125]
+
 // fp-safety:disable — comparing table entries that are exact by construction
 #expect(lookup[3] == 0.125)
 ```
@@ -274,6 +342,13 @@ let pattern = try! Regex("[0-9]+")
 **unseeded-random** -- Legitimate in statistical distribution tests that validate invariants (e.g., "the mean of 10,000 samples is within 3 sigma of the theoretical mean"):
 
 ```swift
+extension Array where Element == Double {
+    var mean: Double {
+        guard !isEmpty else { return 0 }
+        return reduce(0, +) / Double(count)
+    }
+}
+
 // TEST-QUALITY: statistical distribution test; invariant holds regardless of seed
 let samples = (0..<10_000).map { _ in Double.random(in: 0...1) }
 #expect(abs(samples.mean - 0.5) < 0.05)
@@ -282,6 +357,14 @@ let samples = (0..<10_000).map { _ in Double.random(in: 0...1) }
 **missing-assertion** -- Legitimate for pure smoke tests that verify "does not crash" as their contract:
 
 ```swift
+final class HeavyObject {
+    let storage: [UInt8]
+
+    init(size: Int) {
+        storage = [UInt8](repeating: 0, count: size)
+    }
+}
+
 // TEST-QUALITY: smoke test -- verifies init does not crash under memory pressure
 @Test func stressInit() {
     for _ in 0..<1000 {
@@ -293,6 +376,12 @@ let samples = (0..<10_000).map { _ in Double.random(in: 0...1) }
 **weak-assertion** -- Legitimate when the only contract is non-nil or non-zero (e.g., an ID generator whose specific value is opaque):
 
 ```swift
+struct IdentifierGenerator {
+    func next() -> String? { UUID().uuidString }
+}
+
+let generator = IdentifierGenerator()
+
 // TEST-QUALITY: UUID generator contract is non-nil; specific value is opaque
 #expect(generator.next() != nil)
 ```

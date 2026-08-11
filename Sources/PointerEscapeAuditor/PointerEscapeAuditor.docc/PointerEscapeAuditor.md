@@ -45,6 +45,9 @@ The auditor specifically does **not** treat these as pointers (they're values):
 The auditor maintains a stack of pointer scopes. When an inner `withUnsafe*` call appears inside an outer one, both bound names are tracked simultaneously. Returning the *outer* pointer from inside the *inner* closure is detected as an escape.
 
 ```swift
+let x = 1
+let y = 2
+
 withUnsafePointer(to: x) { outer in
     withUnsafePointer(to: y) { inner in
         return outer   // ← flagged: outer escapes

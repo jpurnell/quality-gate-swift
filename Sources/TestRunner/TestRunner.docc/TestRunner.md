@@ -58,8 +58,14 @@ flipDetector:
 Flip detection is *passive* — it waits for a race to surface. Stress mode *provokes* one. Tests carrying a `// TIMING:` comment are self-identifying stress candidates (teardown-liveness bounds, reconnect budgets, phase-sync):
 
 ```swift
+import Testing
+
 // TIMING: teardown must release the port within the liveness bound
-@Test func teardownIsPrompt() { … }
+@Test func teardownIsPrompt() {
+    let bound = Duration.milliseconds(50)
+    let elapsed = ContinuousClock().measure { /* tear the fixture down here */ }
+    #expect(elapsed < bound)
+}
 ```
 
 When `stress.runs > 1`, TestRunner scans `Tests/` for those markers (via `TimingTestScanner`, AST-based so a `// TIMING:` inside a string or a trailing body comment does **not** tag anything), re-runs *only* the tagged tests that many times — optionally under a background CPU-contention harness sized to `cores − 1` — and reports any test that was **not unanimous across the identical runs** (`stressFlips(rosters:)`). Because every run shares the same commit and source, a non-unanimous outcome is a *definitive* race, a stronger signal than a cross-commit flip. The `test.stress-flip` diagnostic names the pass/fail tally.

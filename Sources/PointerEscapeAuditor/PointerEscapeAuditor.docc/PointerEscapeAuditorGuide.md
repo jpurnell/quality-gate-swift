@@ -20,12 +20,21 @@ All of these compile cleanly. All of them are bugs.
 Real session, paraphrased:
 
 ```swift
+import Accelerate
+
 final class FFTBackend {
     var workspace: UnsafeMutablePointer<DSPSplitComplex>?
 
     func setup(input: [Float]) {
         input.withUnsafeBufferPointer { buf in
-            self.workspace = buf.baseAddress.map { /* … pointer dance … */ }
+            self.workspace = buf.baseAddress.map { base in
+                // … pointer dance: wrap the borrowed buffer in a split-complex
+                // workspace and hang on to it past the end of the block …
+                let split = UnsafeMutablePointer<DSPSplitComplex>.allocate(capacity: 1)
+                let channel = UnsafeMutablePointer(mutating: base)
+                split.initialize(to: DSPSplitComplex(realp: channel, imagp: channel))
+                return split
+            }
         }
     }
 
@@ -62,8 +71,12 @@ func leak2(_ a: [Int]) -> UnsafePointer<Int>? {
 }
 
 // ❌ flagged — wrapped
-func leak3(_ x: Int) -> Holder {
-    withUnsafePointer(to: x) { ptr in Holder(ptr: ptr) }
+struct PointerBox {
+    let ptr: UnsafePointer<Int>
+}
+
+func leak3(_ x: Int) -> PointerBox {
+    withUnsafePointer(to: x) { ptr in PointerBox(ptr: ptr) }
 }
 
 // ✅ accepted
@@ -79,6 +92,8 @@ The auditor catches the wrapped forms (struct init, tuple, array literal, `Any` 
 Assigning the pointer to anything captured from outside the closure stores a dangling reference where it can later be used.
 
 ```swift
+let x = 42
+
 // ❌ flagged
 var leaked: UnsafePointer<Int>?
 withUnsafePointer(to: x) { ptr in
@@ -114,6 +129,14 @@ A function whose contract is `inout UnsafePointer<Int>?` is structurally a "stor
 The same rule serves as the **conservative fallback** for any other non-allowlisted function call that takes a tracked pointer. The reasoning: without knowing the function's contract, the safest assumption is that it might store the pointer. The escape hatch is the `allowedEscapeFunctions` allowlist.
 
 ```swift
+func assign(_ slot: inout UnsafePointer<Int>?, _ ptr: UnsafePointer<Int>) {
+    slot = ptr
+}
+
+func store(_ ptr: UnsafePointer<Int>) {
+    // Contract unknown to the auditor — it must assume the pointer is kept.
+}
+
 // ❌ flagged — strict inout pattern
 withUnsafePointer(to: x) { ptr in
     assign(&leaked, ptr)
@@ -124,10 +147,12 @@ withUnsafePointer(to: x) { ptr in
     store(ptr)
 }
 
-// ✅ accepted — allowlisted
-let auditor = PointerEscapeAuditor(allowedEscapeFunctions: ["vDSP_fft_zip"])
+// ✅ accepted — allowlisted (verified: reads the pointee, keeps nothing)
+func checksum(_ ptr: UnsafePointer<Int>) -> Int { ptr.pointee }
+
+let auditor = PointerEscapeAuditor(allowedEscapeFunctions: ["checksum"])
 withUnsafePointer(to: x) { ptr in
-    vDSP_fft_zip(ptr)
+    _ = checksum(ptr)
 }
 ```
 
@@ -182,7 +207,7 @@ final class Holder {
 }
 
 // ✅ accepted
-final class Holder {
+final class ReleasingHolder {
     var handle: UnsafeMutableRawPointer?
     func capture(_ obj: AnyObject) {
         self.handle = Unmanaged.passRetained(obj).toOpaque()

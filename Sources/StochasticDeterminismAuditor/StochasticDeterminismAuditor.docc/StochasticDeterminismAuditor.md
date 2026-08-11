@@ -39,6 +39,30 @@ A call with no arguments at all is never flagged: it resolves to some other over
 Some tests are *about* the unseeded path — "nil seed is non-reproducible by contract" is a real one — and adding a seed would invert the assertion. Use `// Justification: …`, the spelling ``ConcurrencyAuditor`` uses for `@unchecked Sendable`, on the line above or inline:
 
 ```swift
+struct SplitMix64: RandomNumberGenerator {
+    var state: UInt64
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+// The harvested signature: `seed:` is defaulted, so a call that omits it still compiles.
+// Every random number is drawn in here, which is why nothing at the call site looks random.
+func distributionChiSquared(degreesOfFreedom: Int, seed: UInt64? = nil) -> Double {
+    var generator = SplitMix64(state: seed ?? .random(in: .min ... .max))
+    return (0..<degreesOfFreedom).reduce(0.0) { total, _ in
+        let u1 = Double.random(in: 0.001 ... 1, using: &generator)
+        let u2 = Double.random(in: 0 ..< 1, using: &generator)
+        let z = (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)  // Box–Muller
+        return total + z * z
+    }
+}
+
 // Justification: the unseeded path is the contract under test here; a seed would invert it
 let a = (0..<20).map { _ in distributionChiSquared(degreesOfFreedom: 5) as Double }
 ```

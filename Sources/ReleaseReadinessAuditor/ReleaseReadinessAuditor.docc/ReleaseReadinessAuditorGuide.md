@@ -79,9 +79,15 @@ warning: [release-todo-sources] TODO/FIXME without issue reference (Sources/Core
 **Flagged (bare TODO):**
 
 ```swift
+struct ParsedDocument {
+    let tokens: [String]
+}
+
 // TODO: handle edge case for empty input
 // FIXME: this is a workaround
-func parse(_ input: String) -> Result { ... }
+func parse(_ input: String) -> ParsedDocument {
+    ParsedDocument(tokens: input.split(separator: " ").map(String.init))
+}
 ```
 
 **Accepted (with issue reference):**
@@ -89,7 +95,9 @@ func parse(_ input: String) -> Result { ... }
 ```swift
 // TODO(#234): handle edge case for empty input
 // FIXME(PROJ-891): this is a workaround for upstream bug
-func parse(_ input: String) -> Result { ... }
+func parseTracked(_ input: String) -> ParsedDocument {
+    ParsedDocument(tokens: input.split(separator: " ").map(String.init))
+}
 ```
 
 The pattern requires the marker keyword followed immediately (or with whitespace) by an opening parenthesis: `TODO(`, `FIXME(`, `TODO (`, etc. Any content inside the parentheses counts as a reference.

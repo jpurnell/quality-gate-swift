@@ -36,21 +36,22 @@ final class Foo: @unchecked Sendable {}
 or:
 
 ```swift
-final class Foo: @unchecked Sendable {} // Justification: lock-protected
+final class TrailingFoo: @unchecked Sendable {} // Justification: lock-protected
 ```
 
 These both work. None of the following do:
 
 ```swift
 // Justification: lock-protected
-                                  // ← blank line breaks adjacency
-final class Foo: @unchecked Sendable {}
 
-final class Foo: @unchecked Sendable {}
-// Justification: lock-protected   ← below the decl
+// (the blank line above breaks adjacency)
+final class GapFoo: @unchecked Sendable {}
 
-/* Justification: lock-protected */ ← block comment, not line comment
-final class Foo: @unchecked Sendable {}
+final class BelowFoo: @unchecked Sendable {}
+// Justification: lock-protected   ← below the decl, so it does not count
+
+/* Justification: lock-protected */ // ← block comment, not line comment
+final class BlockCommentFoo: @unchecked Sendable {}
 ```
 
 The justification keyword is configurable via `ConcurrencyAuditor.init(justificationKeyword:)`. The default is `"Justification:"`.

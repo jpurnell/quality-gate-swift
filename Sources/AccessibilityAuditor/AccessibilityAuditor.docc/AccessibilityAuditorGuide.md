@@ -23,6 +23,8 @@ Every `Image(...)` in SwiftUI needs exactly one of two things: a `.accessibility
 The auditor walks the modifier chain upward from the `Image(...)` call expression. If neither `.accessibilityLabel()` nor `.accessibilityHidden()` appears anywhere in the chain, the rule fires.
 
 ```swift
+import SwiftUI
+
 // --- flagged ---
 
 // VoiceOver reads "star.fill" — meaningless
@@ -115,7 +117,11 @@ The auditor looks for `withAnimation` calls and `.animation()` modifiers, then s
 ```swift
 // --- flagged ---
 
+var isExpanded = false
+var isActive = false
+
 // No reduceMotion check anywhere nearby
+@MainActor
 func toggle() {
     withAnimation(.spring()) {
         isExpanded.toggle()
@@ -132,21 +138,31 @@ Circle()
 // --- accepted ---
 
 // Guard with @Environment and skip animation when requested
-@Environment(\.accessibilityReduceMotion) var reduceMotion
+struct DisclosureRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isExpanded = false
 
-func toggle() {
-    withAnimation(reduceMotion ? nil : .spring()) {
-        isExpanded.toggle()
+    var body: some View {
+        Button("Details") { toggle() }
+    }
+
+    func toggle() {
+        withAnimation(reduceMotion ? nil : .spring()) {
+            isExpanded.toggle()
+        }
     }
 }
 
 // Conditional modifier based on the preference
-@Environment(\.accessibilityReduceMotion) var reduceMotion
+struct PulsingCircle: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isActive = false
 
-var body: some View {
-    Circle()
-        .scaleEffect(isActive ? 1.2 : 1.0)
-        .animation(reduceMotion ? nil : .easeInOut, value: isActive)
+    var body: some View {
+        Circle()
+            .scaleEffect(isActive ? 1.2 : 1.0)
+            .animation(reduceMotion ? nil : .easeInOut, value: isActive)
+    }
 }
 ```
 
@@ -154,16 +170,23 @@ var body: some View {
 // --- also accepted ---
 
 // The check can be a few lines away, not necessarily on the same line
-@Environment(\.accessibilityReduceMotion) var reduceMotion
+struct ExpandableSection: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isExpanded = false
 
-func animateTransition() {
-    guard !reduceMotion else {
-        // Apply the state change without animation
-        isExpanded.toggle()
-        return
+    var body: some View {
+        Button("Toggle") { animateTransition() }
     }
-    withAnimation(.spring()) {
-        isExpanded.toggle()
+
+    func animateTransition() {
+        guard !reduceMotion else {
+            // Apply the state change without animation
+            isExpanded.toggle()
+            return
+        }
+        withAnimation(.spring()) {
+            isExpanded.toggle()
+        }
     }
 }
 ```
@@ -197,6 +220,8 @@ Image("placeholder-avatar")
 Layout elements where scaling would break visual constraints:
 
 ```swift
+let count = 3
+
 // SAFETY: Badge counter is fixed to fit inside a 20pt circle
 Text("\(count)").font(.system(size: 10))
 ```
@@ -206,6 +231,8 @@ Text("\(count)").font(.system(size: 10))
 Animations that are purely opacity changes (no motion):
 
 ```swift
+var isVisible = false
+
 // SAFETY: Opacity-only fade, no motion component
 withAnimation(.easeIn(duration: 0.2)) {
     isVisible = true
@@ -215,6 +242,8 @@ withAnimation(.easeIn(duration: 0.2)) {
 Animations guarded by a custom motion preference that does not use the standard naming:
 
 ```swift
+var isOpen = false
+
 // SAFETY: Guarded by AppSettings.motionReduced (custom preference)
 withAnimation(.default) {
     isOpen.toggle()
