@@ -343,29 +343,16 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     }
 
     /// Audits articles concurrently, bounded by the machine's processor count.
+    ///
+    /// Sorted by path afterwards rather than gathered in order: completion order is a
+    /// property of the machine, and a report whose findings move between runs is one nobody
+    /// can diff.
     private func audit(_ articles: [URL], options: DocCodeAuditOptions) async -> [ArticleVerdict] {
-        let limit = max(1, ProcessInfo.processInfo.activeProcessorCount)
         let sendableOptions = options
-
-        return await withTaskGroup(of: ArticleVerdict?.self) { group in
-            var next = 0
-            while next < min(limit, articles.count) {
-                let article = articles[next]
-                group.addTask { Self.auditSafely(article, options: sendableOptions) }
-                next += 1
-            }
-
-            var results: [ArticleVerdict] = []
-            while let verdict = await group.next() {
-                if let verdict { results.append(verdict) }
-                if next < articles.count {
-                    let article = articles[next]
-                    group.addTask { Self.auditSafely(article, options: sendableOptions) }
-                    next += 1
-                }
-            }
-            return results.sorted { $0.articlePath < $1.articlePath }
+        let verdicts = await BoundedConcurrency.map(articles) {
+            Self.auditSafely($0, options: sendableOptions)
         }
+        return verdicts.sorted { $0.articlePath < $1.articlePath }
     }
 
     /// Audits one article, turning an unreadable file into a dropped article rather than a

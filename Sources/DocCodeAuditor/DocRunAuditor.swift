@@ -154,28 +154,11 @@ public struct DocRunAuditor: QualityChecker, Sendable {
 
     /// Runs articles concurrently, bounded by the machine's processor count.
     static func runAll(_ articles: [URL], options: DocRunOptions) async -> [RunVerdict] {
-        let limit = max(1, ProcessInfo.processInfo.activeProcessorCount)
         let sendableOptions = options
-
-        return await withTaskGroup(of: RunVerdict?.self) { group in
-            var next = 0
-            while next < min(limit, articles.count) {
-                let article = articles[next]
-                group.addTask { runSafely(article, options: sendableOptions) }
-                next += 1
-            }
-
-            var results: [RunVerdict] = []
-            while let verdict = await group.next() {
-                if let verdict { results.append(verdict) }
-                if next < articles.count {
-                    let article = articles[next]
-                    group.addTask { runSafely(article, options: sendableOptions) }
-                    next += 1
-                }
-            }
-            return results.sorted { $0.articlePath < $1.articlePath }
+        let verdicts = await BoundedConcurrency.map(articles) {
+            runSafely($0, options: sendableOptions)
         }
+        return verdicts.sorted { $0.articlePath < $1.articlePath }
     }
 
     /// Runs one article, turning an unreadable file into a dropped article rather than a
@@ -299,8 +282,10 @@ public struct DocRunAuditor: QualityChecker, Sendable {
                     message: """
                         Not deterministic: \(determinism.differingLines) of \
                         \(determinism.totalLines) output lines differ between two runs of the \
-                        same binary. No documented output in this article can be verified \
-                        until its randomness is seeded.
+                        same binary\
+                        \(determinism.differingValues > 0 ? ", and \(determinism.differingValues) measured values differ" : ""). \
+                        No documented output in this article can be verified until its \
+                        randomness is seeded.
                         """,
                     filePath: path,
                     ruleId: "doc-run.nondeterministic",

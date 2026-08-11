@@ -92,6 +92,30 @@ struct CheckerSelectionTests {
         ).contains("doc-code"))
     }
 
+    @Test("doc-run and doc-claims are opt-in on a stronger convention still")
+    func upperRungsAreOptIn() {
+        // Rung 2 requires an article to *run* as one program, top to bottom, without a trap.
+        // Rung 3 requires its documented figures to match what that program computes. Each is
+        // red on arrival for a catalogue that has not done the remediation, and a gate that
+        // is red on arrival gets skipped — which costs more than the rule buys.
+        let registry = allIDs + ["doc-code", "doc-run", "doc-claims"]
+
+        for rung in ["doc-run", "doc-claims"] {
+            #expect(!CheckerSelection.resolve(
+                requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+            ).contains(rung))
+            #expect(!CheckerSelection.resolve(
+                requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
+            ).contains(rung))
+            #expect(CheckerSelection.resolve(
+                requested: [rung], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+            ) == [rung])
+            #expect(CheckerSelection.resolve(
+                requested: [], excluded: [], configuredEnabled: [rung], full: false, allIDs: registry
+            ) == [rung])
+        }
+    }
+
     @Test("configured enabledCheckers are honored when no --check given")
     func configuredCheckers() {
         let result = CheckerSelection.resolve(

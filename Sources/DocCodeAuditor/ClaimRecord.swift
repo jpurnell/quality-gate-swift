@@ -75,6 +75,32 @@ public struct ClaimRecord: Sendable, Equatable {
         }
     }
 
+    /// How many claim values differ between two runs of the same program.
+    ///
+    /// Compared with ``ClaimComparison/identical(_:_:)`` rather than `==`, because this is a
+    /// reproducibility claim and nothing else: `==` would silently pass a value that had gone
+    /// NaN on both runs, and would call `-0.0` and `0.0` the same stream.
+    ///
+    /// - Parameters:
+    ///   - first: Records from the first run.
+    ///   - second: Records from the second.
+    /// - Returns: The number of claims whose measured value was not reproduced. A claim that
+    ///   appeared in one run and not the other counts as differing.
+    public static func differences(_ first: [ClaimRecord], _ second: [ClaimRecord]) -> Int {
+        let later = Dictionary(second.map { ($0.articleLine, $0) }, uniquingKeysWith: { a, _ in a })
+        var differing = 0
+        for record in first {
+            guard let other = later[record.articleLine],
+                  other.values.count == record.values.count,
+                  zip(record.values, other.values).allSatisfy(ClaimComparison.identical)
+            else {
+                differing += 1
+                continue
+            }
+        }
+        return differing + max(0, later.count - first.count)
+    }
+
     /// The stream with every record removed.
     public static func stripping(_ stderr: String) -> String {
         let kept = stderr.lines.filter { !$0.hasPrefix(sentinel) }

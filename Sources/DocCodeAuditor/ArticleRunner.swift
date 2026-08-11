@@ -99,13 +99,25 @@ public struct DeterminismReport: Sendable, Codable, Equatable {
     /// How many lines the longer of the two runs produced.
     public let totalLines: Int
 
-    /// Whether the two runs agreed byte for byte.
-    public var isDeterministic: Bool { differingLines == 0 }
+    /// How many *measured claim values* differed between the two runs.
+    ///
+    /// stdout alone is not enough, and the reason is the shape of the corpus: 81 of 99 claims
+    /// describe a binding that is never printed. An article whose unseeded value never
+    /// reaches stdout produces byte-identical output on both runs and would be certified
+    /// deterministic — after which rung 3 would compare a documented figure against a random
+    /// number and report whichever answer it happened to get. Compared with
+    /// ``ClaimComparison/identical(_:_:)``, which is the one comparison a reproducibility
+    /// claim deserves.
+    public let differingValues: Int
+
+    /// Whether the two runs agreed, in output and in every value a claim asked about.
+    public var isDeterministic: Bool { differingLines == 0 && differingValues == 0 }
 
     /// Creates a report.
-    public init(differingLines: Int, totalLines: Int) {
+    public init(differingLines: Int, totalLines: Int, differingValues: Int = 0) {
         self.differingLines = differingLines
         self.totalLines = totalLines
+        self.differingValues = differingValues
     }
 
     /// Compares two runs' output line by line.
@@ -269,10 +281,11 @@ public enum ArticleRunner {
     /// - Throws: If the work directory cannot be created or the source cannot be written.
     static func run(
         assembled: AssembledArticle, articlePath: String, options: DocRunOptions
-    ) throws -> (verdict: RunVerdict, records: [ClaimRecord]) {
+    ) throws -> (verdict: RunVerdict, records: [ClaimRecord], secondRecords: [ClaimRecord]) {
         let work = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("doc-run-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        // silent: removing this checker's own temporary directory; a leftover costs disk, not correctness
         defer { try? FileManager.default.removeItem(at: work) }
 
         let source = work.appendingPathComponent("main.swift")
@@ -286,20 +299,26 @@ public enum ArticleRunner {
                     outcome: RunOutcome(
                         termination: .buildFailed(failure), standardOutput: "", standardError: ""),
                     determinism: nil),
-                [])
+                [], [])
         }
 
         let first = execute(executable, in: work, options: options)
         var determinism: DeterminismReport?
+        var secondRecords: [ClaimRecord] = []
         if options.verifiesDeterminism, first.outcome.termination.isSuccess {
             let second = execute(executable, in: work, options: options)
-            determinism = DeterminismReport.comparing(
+            secondRecords = second.records
+            let output = DeterminismReport.comparing(
                 first.outcome.standardOutput, second.outcome.standardOutput)
+            determinism = DeterminismReport(
+                differingLines: output.differingLines,
+                totalLines: output.totalLines,
+                differingValues: ClaimRecord.differences(first.records, second.records))
         }
 
         return (
             RunVerdict(articlePath: articlePath, outcome: first.outcome, determinism: determinism),
-            first.records)
+            first.records, secondRecords)
     }
 
     // MARK: - Build
@@ -326,6 +345,7 @@ public enum ArticleRunner {
         arguments += linkArguments(
             imports: options.audit.imports,
             searchPaths: librarySearchPaths(options: options),
+            // silent: this call wrote that file moments ago; an unreadable one costs only the Testing rpath, and the link error that follows says so
             source: (try? String(contentsOf: source, encoding: .utf8)) ?? "")
 
         let output = capture(arguments: arguments)
@@ -413,16 +433,27 @@ public enum ArticleRunner {
         FileManager.default.createFile(atPath: outPath.path, contents: nil)
         FileManager.default.createFile(atPath: errPath.path, contents: nil)
 
-        guard let out = try? FileHandle(forWritingTo: outPath),
-              let err = try? FileHandle(forWritingTo: errPath) else {
+        // Opened through do/catch rather than `try?`, because this is the one failure here
+        // that is about the *machine* — a full disk, a revoked temporary directory — and
+        // reporting it as though the article produced no output would blame the documentation
+        // for the gate's own environment.
+        let out: FileHandle
+        let err: FileHandle
+        do {
+            out = try FileHandle(forWritingTo: outPath)
+            err = try FileHandle(forWritingTo: errPath)
+        } catch {
+            logger.error("Could not open the capture files for \(executable.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return (
                 RunOutcome(
-                    termination: .buildFailed("could not open the capture files"),
+                    termination: .buildFailed("could not open the capture files: \(error.localizedDescription)"),
                     standardOutput: "", standardError: ""),
                 [])
         }
         defer {
+            // silent: closing a capture handle whose contents are already read back by now
             try? out.close()
+            // silent: as above, for the other stream
             try? err.close()
         }
 
@@ -445,7 +476,9 @@ public enum ArticleRunner {
             termination = .buildFailed("could not launch: \(error.localizedDescription)")
         }
 
+        // silent: an unreadable capture means output this checker cannot see, which is what an empty string says; the termination status is the verdict and is already in hand
         let stdout = (try? String(contentsOf: outPath, encoding: .utf8)) ?? ""
+        // silent: as above, for the other stream
         let stderr = (try? String(contentsOf: errPath, encoding: .utf8)) ?? ""
         return (
             RunOutcome(

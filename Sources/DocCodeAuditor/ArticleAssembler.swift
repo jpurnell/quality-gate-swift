@@ -30,6 +30,14 @@ public struct AssembledArticle: Sendable {
     /// The article line each exempt fence opens at, for reporting exemptions in place.
     public let exemptFenceLines: [Int]
 
+    /// Every output claim the article makes, in document order.
+    ///
+    /// Extracted in this same parse rather than in a second one, so a claim and the block it
+    /// belongs to can never disagree about which lines they occupy. Claims inside exempt
+    /// blocks are included and flagged: they are structurally unverifiable, and a coverage
+    /// number that quietly omits them is a coverage number that overstates itself.
+    public let claims: [OutputClaim]
+
     /// Assembled line of a block marker → article line of that block's first body line.
     let lineMap: [Int: Int]
 
@@ -91,6 +99,7 @@ public enum ArticleAssembler {
         var checked = 0
         var exempt = 0
         var exemptLines: [Int] = []
+        var claims: [OutputClaim] = []
         var markerPending = false
 
         let preamble = Set(imports.map { "import \($0)" })
@@ -130,10 +139,16 @@ public enum ArticleAssembler {
                 if markerPending {
                     exempt += 1
                     exemptLines.append(index + 1)
+                    claims += ClaimExtractor.claims(
+                        inBlock: body, firstArticleLine: index + 2,
+                        firstAssembledLine: 0, isExempt: true)
                 } else {
                     checked += 1
                     // 1-indexed article line of `body[0]`: the fence opens at `index + 1`.
                     lineMap[out.count + 1] = index + 2
+                    claims += ClaimExtractor.claims(
+                        inBlock: body, firstArticleLine: index + 2,
+                        firstAssembledLine: out.count + 2, isExempt: false)
                     out.append("// >>> article line \(index + 2)")
                     out.append(contentsOf: body.map { statement in
                         preamble.contains(statement.trimmingCharacters(in: .whitespaces))
@@ -154,6 +169,7 @@ public enum ArticleAssembler {
             fencesChecked: checked,
             fencesExempt: exempt,
             exemptFenceLines: exemptLines,
+            claims: claims,
             lineMap: lineMap)
     }
 
