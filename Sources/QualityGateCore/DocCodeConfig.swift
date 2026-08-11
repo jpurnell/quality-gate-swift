@@ -57,6 +57,41 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
     /// pattern.
     public var exemptionCeiling: Int?
 
+    // MARK: - Rungs 2 and 3
+    //
+    // `doc-run` and `doc-claims` read the same catalogue, the same imports and the same
+    // module search path as `doc-code`, because they execute the very program it
+    // typechecks. Giving them their own configuration sections would let the three drift —
+    // an article typechecked with one import list and executed with another produces a
+    // documentation finding for a configuration fact, which is the failure this checker
+    // family exists to avoid.
+
+    /// Directories offered to the linker when `doc-run` builds an article.
+    ///
+    /// Empty (the default) means the module search path, which is where SwiftPM leaves both
+    /// the `.swiftmodule` the typechecker reads and the `lib<Module>.a` the linker needs.
+    public var librarySearchPaths: [String]
+
+    /// Seconds a single article may run before it is killed and reported as a timeout.
+    ///
+    /// The measured maximum across one 73-article catalogue was 0.40s, so the default is
+    /// roughly 75× headroom. It bounds a runaway article rather than trusting one.
+    public var runTimeoutSeconds: Int
+
+    /// Locale identifier every article is executed under.
+    ///
+    /// The same program prints `2,000` under `en_US` and `2.000` under `de_DE`, and on macOS
+    /// `LANG` does not move Foundation's locale. Unpinned, every documented figure would be
+    /// a check on the gate machine's System Settings.
+    public var runLocale: String
+
+    /// Whether `doc-run` executes each article twice and compares the output.
+    ///
+    /// On by default, and turning it off is a real loss rather than a speed knob: the
+    /// two-run comparison is what entitles either rung to call itself hermetic. An unseeded
+    /// example has no pinned output, so nothing downstream of it can be verified.
+    public var verifiesDeterminism: Bool
+
     /// Creates a configuration; every knob defaults to the documented value.
     public init(
         includeReadme: Bool = false,
@@ -64,7 +99,11 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
         extraImports: [String] = [],
         moduleSearchPath: String? = nil,
         headerSearchPaths: [String] = [],
-        exemptionCeiling: Int? = nil
+        exemptionCeiling: Int? = nil,
+        librarySearchPaths: [String] = [],
+        runTimeoutSeconds: Int = 30,
+        runLocale: String = "en_US",
+        verifiesDeterminism: Bool = true
     ) {
         self.includeReadme = includeReadme
         self.additionalArticles = additionalArticles
@@ -72,11 +111,16 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
         self.moduleSearchPath = moduleSearchPath
         self.headerSearchPaths = headerSearchPaths
         self.exemptionCeiling = exemptionCeiling
+        self.librarySearchPaths = librarySearchPaths
+        self.runTimeoutSeconds = runTimeoutSeconds
+        self.runLocale = runLocale
+        self.verifiesDeterminism = verifiesDeterminism
     }
 
     private enum CodingKeys: String, CodingKey {
         case includeReadme, additionalArticles, extraImports, moduleSearchPath
         case headerSearchPaths, exemptionCeiling
+        case librarySearchPaths, runTimeoutSeconds, runLocale, verifiesDeterminism
     }
 
     /// Decodes with defaults for absent keys.
@@ -88,5 +132,9 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
         moduleSearchPath = try container.decodeIfPresent(String.self, forKey: .moduleSearchPath)
         headerSearchPaths = try container.decodeIfPresent([String].self, forKey: .headerSearchPaths) ?? []
         exemptionCeiling = try container.decodeIfPresent(Int.self, forKey: .exemptionCeiling)
+        librarySearchPaths = try container.decodeIfPresent([String].self, forKey: .librarySearchPaths) ?? []
+        runTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .runTimeoutSeconds) ?? 30
+        runLocale = try container.decodeIfPresent(String.self, forKey: .runLocale) ?? "en_US"
+        verifiesDeterminism = try container.decodeIfPresent(Bool.self, forKey: .verifiesDeterminism) ?? true
     }
 }

@@ -50,7 +50,13 @@ public enum CheckerSelection {
             // buys. Opt in with `--check doc-code` or `enabledCheckers`, and note that `--full`
             // deliberately does *not* enable it: `--full` means "the slow ones too", not "adopt
             // a documentation convention you have not adopted".
-            var optOut: Set<String> = ["xcode-build", "doc-code"]
+            //
+            // `doc-run` and `doc-claims` opt out on a *stronger* convention still. Rung 2
+            // requires an article to run as one program, top to bottom, without a trap;
+            // rung 3 requires its documented figures to match what that program computes.
+            // Each is red on arrival for a catalogue that has not done the remediation, and
+            // the rollout shape that works is rule-and-remediation in one push.
+            var optOut: Set<String> = ["xcode-build", "doc-code", "doc-run", "doc-claims"]
             if full { optOut.remove("xcode-build") }
             return allIDs.filter { !optOut.contains($0) }
         }

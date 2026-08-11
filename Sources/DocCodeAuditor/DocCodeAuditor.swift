@@ -297,52 +297,14 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         var totalExempt = 0
 
         for catalogue in catalogues {
-            guard let searchPath = ArticleDiscovery.moduleSearchPath(
-                projectRoot: projectRoot, moduleName: catalogue.moduleName, configuration: configuration
-            ) else {
-                // Without the module every article fails with `no such module` — a wall of
-                // findings about this checker's own environment, indistinguishable at a
-                // glance from findings about the documentation. Say what actually happened.
-                diagnostics.append(
-                    Diagnostic(
-                        severity: .note,
-                        message: """
-                            Skipped \(catalogue.moduleName): no built module found under \
-                            .build/debug. Run the build first — this checker compiles \
-                            documentation against the module, it does not build it.
-                            """,
-                        ruleId: "doc-code.module-unavailable"))
-                continue
-            }
-
-            let mode = ManifestLanguageMode.read(projectRoot: projectRoot, target: catalogue.moduleName)
-            if !mode.isDetermined {
-                diagnostics.append(
-                    Diagnostic(
-                        severity: .note,
-                        message: "\(catalogue.moduleName): \(mode.explanation)",
-                        ruleId: "doc-code.language-mode"))
-            }
-            if !mode.unrecognisedSettings.isEmpty {
-                diagnostics.append(
-                    Diagnostic(
-                        severity: .note,
-                        message: """
-                            \(catalogue.moduleName): these swiftSettings were not translated \
-                            into compiler flags, so documentation is checked under slightly \
-                            different rules than the build: \
-                            \(mode.unrecognisedSettings.joined(separator: ", ")).
-                            """,
-                        ruleId: "doc-code.language-mode"))
-            }
-
-            var options = DocCodeAuditOptions()
-            options.moduleSearchPath = searchPath
-            options.imports = ["Foundation", catalogue.moduleName] + configuration.docCode.extraImports
-            options.languageFlags = mode.flags
-            options.headerSearchPaths = Self.headerSearchPaths(
-                projectRoot: projectRoot, configuration: configuration)
-            options.moduleMapFiles = Self.generatedModuleMaps(projectRoot: projectRoot)
+            // Without the module every article fails with `no such module` — a wall of
+            // findings about this checker's own environment, indistinguishable at a glance
+            // from findings about the documentation. `resolve` says what actually happened.
+            let environment = DocCatalogueEnvironment.resolve(
+                projectRoot: projectRoot, catalogue: catalogue,
+                configuration: configuration, checkerId: id)
+            diagnostics += environment.notes
+            guard let options = environment.options else { continue }
 
             let verdicts = await audit(catalogue.articles, options: options)
             audited += verdicts.count

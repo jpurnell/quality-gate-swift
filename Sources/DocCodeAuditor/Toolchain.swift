@@ -22,6 +22,19 @@ public enum Toolchain {
     /// SDK, platform frameworks and macro plugin path for the active toolchain.
     public static func flags() -> [String] { cached }
 
+    /// The platform's Developer frameworks directory, or `nil` when the probe found none.
+    ///
+    /// Recovered from the probed flags rather than probed a second time, so the path an
+    /// article is *linked* against is by construction the same one it was *typechecked*
+    /// against. Rung 1 needs it as `-F`; rung 2 needs the same directory again as an
+    /// `-rpath`, because `Testing.framework` is loaded by name at launch and a program that
+    /// typechecks against a framework it cannot find at run time dies with
+    /// `Library not loaded` — a tooling fact that looks exactly like a documentation defect.
+    public static func platformFrameworkPath() -> String? {
+        guard let index = cached.firstIndex(of: "-F"), index + 1 < cached.count else { return nil }
+        return cached[index + 1]
+    }
+
     /// Probes `xcrun` for the paths this checker needs.
     static func probe() -> [String] {
         var flags: [String] = []
