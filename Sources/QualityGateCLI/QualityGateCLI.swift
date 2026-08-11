@@ -156,6 +156,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             SafetyAuditor(),
             DocLinter(),
             DocCodeAuditor(),
+            DocCommentCodeAuditor(),
             DocCoverageChecker(),
             UnreachableCodeAuditor(),
             RecursionAuditor(),

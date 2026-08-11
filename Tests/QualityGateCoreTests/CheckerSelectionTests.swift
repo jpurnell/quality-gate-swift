@@ -92,6 +92,43 @@ struct CheckerSelectionTests {
         ).contains("doc-code"))
     }
 
+    @Test("doc-comment-code is opt-in too, and is not doc-code")
+    func docCommentCodeIsOptIn() {
+        // Two ids, on purpose. `doc-code` was made green at real cost, and sixteen of this
+        // repository's twenty `///` fences failed the day `doc-comment-code` was measured.
+        // A shared id would have turned the green one red on the day this landed, and a gate
+        // that is red on arrival gets skipped.
+        let registry = allIDs + ["doc-code", "doc-comment-code"]
+
+        let byDefault = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        )
+        #expect(!byDefault.contains("doc-comment-code"))
+
+        let full = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
+        )
+        #expect(!full.contains("doc-comment-code"))
+
+        // Enabling one must never enable the other.
+        #expect(CheckerSelection.resolve(
+            requested: ["doc-code"], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        ) == ["doc-code"])
+        #expect(CheckerSelection.resolve(
+            requested: ["doc-comment-code"], excluded: [], configuredEnabled: [], full: false,
+            allIDs: registry
+        ) == ["doc-comment-code"])
+
+        // And excluding one must never exclude the other, which a shared prefix would break
+        // if selection ever moved to prefix matching.
+        let allButComments = CheckerSelection.resolve(
+            requested: ["all"], excluded: ["doc-comment-code"], configuredEnabled: [], full: false,
+            allIDs: registry
+        )
+        #expect(allButComments.contains("doc-code"))
+        #expect(!allButComments.contains("doc-comment-code"))
+    }
+
     @Test("configured enabledCheckers are honored when no --check given")
     func configuredCheckers() {
         let result = CheckerSelection.resolve(

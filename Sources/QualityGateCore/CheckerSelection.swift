@@ -50,7 +50,13 @@ public enum CheckerSelection {
             // buys. Opt in with `--check doc-code` or `enabledCheckers`, and note that `--full`
             // deliberately does *not* enable it: `--full` means "the slow ones too", not "adopt
             // a documentation convention you have not adopted".
-            var optOut: Set<String> = ["xcode-build", "doc-code"]
+            //
+            // `doc-comment-code` opts out for the same reason, with the number measured: 16
+            // of this repository's 20 `///` fences failed the day the rule was written, and 10
+            // of those are one `## Usage` template copied into ten auditors. It carries its
+            // own id rather than sharing `doc-code`'s precisely so that landing it red cannot
+            // take a green `doc-code` down with it.
+            var optOut: Set<String> = ["xcode-build", "doc-code", "doc-comment-code"]
             if full { optOut.remove("xcode-build") }
             return allIDs.filter { !optOut.contains($0) }
         }

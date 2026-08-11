@@ -115,6 +115,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `doc-coverage` | DocCoverageChecker | Undocumented public APIs, inherited documentation detection, usage-priority ranking |
 | `doc-lint` | DocLinter | DocC documentation build errors |
 | `doc-code` | DocCodeAuditor | Fenced Swift in DocC articles must compile against the built module — the article is one program (opt-in) |
+| `doc-comment-code` | DocCodeAuditor | Fenced Swift in `///` and `/** */` doc comments must compile against the module the comment lives in — the unit is one fence (opt-in) |
 
 ### Project Health
 
@@ -139,9 +140,11 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 
-`disk-clean`, `xcode-build` and `doc-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
+`disk-clean`, `xcode-build`, `doc-code` and `doc-comment-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
 
 `doc-code` opts out for a different reason than the other two. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way. `--full` deliberately does not enable it.
+
+`doc-comment-code` opts out for the same reason, with the number measured: on this repository it found 43 doc fences in 26 files — 20 Swift, 23 not — of which **16 failed on the day the rule was written**, ten of them one `## Usage` template copied into ten auditors. It carries its own id rather than sharing `doc-code`'s precisely so that landing it red cannot take a green `doc-code` down with it, and so the two can be repaired independently. Its preamble is `Foundation` plus the owning module and nothing widens it — not the dependency closure, not `docCode.extraImports` — because whatever a fence needs in order to compile is exactly what a reader copying it out of Quick Help has to type.
 
 ## CLI reference
 
