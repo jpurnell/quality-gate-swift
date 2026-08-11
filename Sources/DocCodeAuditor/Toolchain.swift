@@ -43,13 +43,25 @@ public enum Toolchain {
         }
 
         if let swiftc = run(["-f", "swiftc"]) {
-            let plugins = URL(fileURLWithPath: swiftc)
+            let usr = URL(fileURLWithPath: swiftc)
                 .deletingLastPathComponent()          // …/usr/bin
                 .deletingLastPathComponent()          // …/usr
-                .appendingPathComponent("lib/swift/host/plugins/testing").path
+
+            let plugins = usr.appendingPathComponent("lib/swift/host/plugins/testing").path
             // SAFETY: CLI tool probes the toolchain's own plugin directory
             if FileManager.default.fileExists(atPath: plugins) {
                 flags += ["-plugin-path", plugins]
+            }
+
+            // `PackageDescription` ships beside the toolchain rather than in the SDK, so it
+            // is on no target's module search path. Without this, every documented
+            // `Package.swift` excerpt fails — and the natural response is to mark those
+            // blocks illustrative, which is a false clean: the gate would have manufactured
+            // an exemption for a manifest snippet it simply could not reach.
+            let manifestAPI = usr.appendingPathComponent("lib/swift/pm/ManifestAPI").path
+            // SAFETY: CLI tool probes the toolchain's own manifest API directory
+            if FileManager.default.fileExists(atPath: manifestAPI) {
+                flags += ["-I", manifestAPI]
             }
         }
 

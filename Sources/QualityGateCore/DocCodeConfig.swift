@@ -36,6 +36,17 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
     /// build path.
     public var moduleSearchPath: String?
 
+    /// Extra header search paths, offered to Clang as `-Xcc -I<path>`.
+    ///
+    /// Additive to the C-target `include` directories discovered under `.build/checkouts`,
+    /// never a replacement — a knob that could *narrow* the search would be a suppression by
+    /// another name, and the failure it would hide is the expensive one: an article that
+    /// cannot resolve its imports does not fail loudly, it stops being compiled at all.
+    ///
+    /// For a package whose C dependencies are vendored somewhere SwiftPM's checkout layout
+    /// does not describe.
+    public var headerSearchPaths: [String]
+
     /// Maximum number of `<!-- docs:illustrative -->` blocks tolerated across the
     /// catalogue before the checker warns.
     ///
@@ -52,17 +63,20 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
         additionalArticles: [String] = [],
         extraImports: [String] = [],
         moduleSearchPath: String? = nil,
+        headerSearchPaths: [String] = [],
         exemptionCeiling: Int? = nil
     ) {
         self.includeReadme = includeReadme
         self.additionalArticles = additionalArticles
         self.extraImports = extraImports
         self.moduleSearchPath = moduleSearchPath
+        self.headerSearchPaths = headerSearchPaths
         self.exemptionCeiling = exemptionCeiling
     }
 
     private enum CodingKeys: String, CodingKey {
-        case includeReadme, additionalArticles, extraImports, moduleSearchPath, exemptionCeiling
+        case includeReadme, additionalArticles, extraImports, moduleSearchPath
+        case headerSearchPaths, exemptionCeiling
     }
 
     /// Decodes with defaults for absent keys.
@@ -72,6 +86,7 @@ public struct DocCodeConfig: Sendable, Codable, Equatable {
         additionalArticles = try container.decodeIfPresent([String].self, forKey: .additionalArticles) ?? []
         extraImports = try container.decodeIfPresent([String].self, forKey: .extraImports) ?? []
         moduleSearchPath = try container.decodeIfPresent(String.self, forKey: .moduleSearchPath)
+        headerSearchPaths = try container.decodeIfPresent([String].self, forKey: .headerSearchPaths) ?? []
         exemptionCeiling = try container.decodeIfPresent(Int.self, forKey: .exemptionCeiling)
     }
 }

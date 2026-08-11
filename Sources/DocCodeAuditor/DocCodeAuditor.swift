@@ -133,6 +133,104 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         return files
     }
 
+    /// Header search paths for the C targets the built modules depend on.
+    ///
+    /// Without these, an article that opens `import <Module>` never reaches typechecking:
+    /// clang cannot find `_SwiftSyntaxCShims`, the compiler reports
+    /// `<unknown>:0: error: missing required module`, and every finding behind that is a
+    /// finding the checker did not make. Clang looks for a `module.modulemap` in any header
+    /// search path, which is what `-Xcc -I<dir>` buys.
+    ///
+    /// Derived by walking `.build/checkouts/<package>/Sources/<target>/` and keeping every
+    /// directory that carries a `module.modulemap`. Both shapes SwiftPM uses are accepted:
+    /// under `include/` for a C target with a hand-written modulemap (the swift-syntax
+    /// shims), and beside the sources for a system-library target (`CSQLite`). Requiring
+    /// `include/` missed the second, and the article importing it stopped dead at
+    /// `missing required module 'CSQLite'`.
+    ///
+    /// **Why not read the build manifest**, which is where these flags authoritatively live:
+    /// because it is the less portable of the two here. Under SwiftPM's Swift Build engine
+    /// `.build/debug` is a symlink to `.build/out/Products/Debug`, there is no
+    /// `.build/debug.yaml`, and the only llbuild manifest on disk sits under
+    /// `.build/index-build/` — an artifact of whether an index build happened to run. A
+    /// checker keyed to that would be reading another tool's incidental state.
+    ///
+    /// Over-inclusive on purpose: it offers clang search paths for C targets an article may
+    /// never touch. That is the same trade ``cacheInputs(projectRoot:configuration:)`` makes
+    /// — over-including costs a search path, under-including costs a wrong verdict.
+    ///
+    /// - Returns: The derived directories, plus any configured in `docCode.headerSearchPaths`.
+    static func headerSearchPaths(projectRoot: URL, configuration: Configuration) -> [String] {
+        let manager = FileManager.default
+        let checkouts = projectRoot.appendingPathComponent(".build/checkouts", isDirectory: true)
+        var found: [String] = []
+
+        // A bounded descent rather than a recursive enumeration: `.build/checkouts` holds
+        // every dependency's whole source tree, and walking it would cost thousands of
+        // stats to answer a question the layout already answers in four levels.
+        // silent: a package with no resolved dependencies has no .build/checkouts to read
+        let packages = (try? manager.contentsOfDirectory(
+            at: checkouts, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        for package in packages {
+            let sources = package.appendingPathComponent("Sources", isDirectory: true)
+            // silent: a checkout with no Sources/ contributes no header paths, which is not an error
+            let targets = (try? manager.contentsOfDirectory(
+                at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+            for target in targets {
+                for directory in [target.appendingPathComponent("include", isDirectory: true), target] {
+                    // SAFETY: CLI tool checks a dependency checkout for a C target's modulemap
+                    if manager.fileExists(atPath: directory.appendingPathComponent("module.modulemap").path) {
+                        found.append(directory.path)
+                    }
+                }
+            }
+        }
+
+        return found.sorted() + configuration.docCode.headerSearchPaths
+    }
+
+    /// Modulemaps SwiftPM generated for C targets that do not ship one.
+    ///
+    /// Separate from ``headerSearchPaths(projectRoot:configuration:)`` because they need a
+    /// different flag: a generated modulemap names its umbrella header by absolute path and
+    /// lives nowhere near it, so a header search path cannot find it and
+    /// `-fmodule-map-file=` must name it outright.
+    ///
+    /// Both layouts are accepted, for the same reason
+    /// ``ArticleDiscovery/moduleSearchPath(projectRoot:moduleName:configuration:)`` accepts
+    /// both: which one is on disk is a property of the SwiftPM version, not of the project.
+    ///
+    /// - Returns: Absolute paths of every generated modulemap, or an empty array when the
+    ///   package has none — which is the ordinary case for a package with no C dependencies.
+    static func generatedModuleMaps(projectRoot: URL) -> [String] {
+        let manager = FileManager.default
+        var found: [String] = []
+
+        // Swift Build: one directory of `<Target>.modulemap`.
+        let generated = projectRoot.appendingPathComponent(
+            ".build/out/Intermediates.noindex/GeneratedModuleMaps", isDirectory: true)
+        // silent: absent under the classic llbuild layout, which the next block reads instead
+        found += ((try? manager.contentsOfDirectory(
+            at: generated, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .filter { $0.pathExtension == "modulemap" }
+            .map(\.path)
+
+        // Classic llbuild: `<Target>.build/module.modulemap` beside the products.
+        let debug = projectRoot.appendingPathComponent(".build/debug", isDirectory: true)
+        // silent: an unbuilt package has no .build/debug, already reported as a skip with its reason
+        for directory in (try? manager.contentsOfDirectory(
+            at: debug, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] {
+            guard directory.pathExtension == "build" else { continue }
+            let modulemap = directory.appendingPathComponent("module.modulemap")
+            // SAFETY: CLI tool checks the project's own build tree for a generated modulemap
+            if manager.fileExists(atPath: modulemap.path) {
+                found.append(modulemap.path)
+            }
+        }
+
+        return found.sorted()
+    }
+
     /// A digest of the whole configuration, so any knob change invalidates the cache.
     static func configurationSalt(_ configuration: Configuration) -> String {
         let encoder = JSONEncoder()
@@ -242,6 +340,9 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
             options.moduleSearchPath = searchPath
             options.imports = ["Foundation", catalogue.moduleName] + configuration.docCode.extraImports
             options.languageFlags = mode.flags
+            options.headerSearchPaths = Self.headerSearchPaths(
+                projectRoot: projectRoot, configuration: configuration)
+            options.moduleMapFiles = Self.generatedModuleMaps(projectRoot: projectRoot)
 
             let verdicts = await audit(catalogue.articles, options: options)
             audited += verdicts.count

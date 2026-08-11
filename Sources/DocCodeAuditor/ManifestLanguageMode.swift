@@ -66,6 +66,15 @@ public enum ManifestLanguageMode {
         if let version {
             flags += ["-swift-version", version]
         }
+        if let toolsVersion {
+            // `PackageDescription`'s API is gated on the `_PackageDescription` availability
+            // domain, which this flag sets and which is otherwise empty. Without it every
+            // documented `Package.swift` excerpt fails with `'package(url:branch:)' is
+            // unavailable` — a fact about how the manifest API is versioned, not a defect in
+            // the documentation, and one whose natural "fix" is to mark the block
+            // illustrative.
+            flags += ["-package-description-version", toolsVersion]
+        }
         flags += collector.flags
 
         let explanation: String

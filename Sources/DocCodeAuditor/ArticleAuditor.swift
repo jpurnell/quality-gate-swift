@@ -86,19 +86,28 @@ public struct DocCodeAuditOptions: Sendable {
     /// Additional header search paths, passed through to Clang.
     public var headerSearchPaths: [String]
 
+    /// Modulemaps named outright, for C targets whose modulemap SwiftPM generated.
+    ///
+    /// Distinct from ``headerSearchPaths`` because a generated modulemap names its umbrella
+    /// header by absolute path and lives nowhere near it: no header search path can find it,
+    /// and `-fmodule-map-file=` has to name the file.
+    public var moduleMapFiles: [String]
+
     /// Creates options, probing the toolchain for its defaults.
     public init(
         moduleSearchPath: String? = nil,
         imports: [String] = ["Foundation"],
         languageFlags: [String] = [],
         toolchainFlags: [String] = Toolchain.flags(),
-        headerSearchPaths: [String] = []
+        headerSearchPaths: [String] = [],
+        moduleMapFiles: [String] = []
     ) {
         self.moduleSearchPath = moduleSearchPath
         self.imports = imports
         self.languageFlags = languageFlags
         self.toolchainFlags = toolchainFlags
         self.headerSearchPaths = headerSearchPaths
+        self.moduleMapFiles = moduleMapFiles
     }
 }
 
@@ -169,6 +178,9 @@ public enum ArticleAuditor {
         for path in options.headerSearchPaths {
             arguments += ["-Xcc", "-I\(path)"]
         }
+        for path in options.moduleMapFiles {
+            arguments += ["-Xcc", "-fmodule-map-file=\(path)"]
+        }
         arguments += options.toolchainFlags
         arguments += options.languageFlags
 
@@ -192,6 +204,16 @@ public enum ArticleAuditor {
             return ([RawError(line: 1, message: "could not run swiftc: \(error.localizedDescription)")], nil)
         }
 
+        return reduce(output: output)
+    }
+
+    /// Reduces raw compiler output to first-per-line errors plus, if any, the barrier that
+    /// stopped the compilation.
+    ///
+    /// Separated from ``typecheck(_:options:)`` so the reduction can be tested without a
+    /// toolchain — which is how it was established that the reduction, not the compiler, was
+    /// the reason a catalogue reported PASSED having typechecked nothing.
+    static func reduce(output: String) -> (errors: [RawError], barrier: String?) {
         var seenLines = Set<Int>()
         var errors: [RawError] = []
         var barrier: String?
@@ -201,12 +223,26 @@ public enum ArticleAuditor {
             let message = String(line[range.upperBound...])
 
             if message.hasPrefix("no such module") {
-                // Record the first barrier and keep going; the rest of the output behind it
-                // is not a measurement of the documentation.
+                // This one *does* carry a source location — it names the `import` line — so
+                // without the explicit check it would be filed as an ordinary compile error,
+                // sending the reader to fix a line whose real problem is the build. Record
+                // the first barrier and keep going; the rest of the output behind it is not
+                // a measurement of the documentation.
                 barrier = barrier ?? message
             }
 
             guard let number = lineNumber(inHead: line[line.startIndex..<range.lowerBound]) else {
+                // An error the compiler could not attach to a line of the assembled program
+                // is, by construction, not a statement about a line of the article — it is a
+                // statement about whether the article could be read at all. Discarding it
+                // was how `missing required module '_SwiftSyntaxCShims'` became invisible,
+                // leaving `(errors: [], barrier: nil)`: a verdict indistinguishable from a
+                // clean article, for a compilation that never reached typechecking.
+                //
+                // Structural rather than a list of phrasings, deliberately. A list would
+                // have to be extended every time the compiler learns a new way to say it
+                // could not proceed, and the cost of missing an entry is silence.
+                barrier = barrier ?? message
                 continue
             }
             // One error per source line. The rest are cascade: a single unresolved
