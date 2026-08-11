@@ -64,26 +64,38 @@ struct CheckerSelectionTests {
         #expect(result == allIDs)
     }
 
-    @Test("doc-code is opt-in, and --full does not opt it in")
-    func docCodeIsOptIn() {
-        // `--full` means "run the slow ones too". `doc-code` is not merely slow — it holds
-        // articles to a convention a repository has to adopt first, so enabling it by
-        // surprise would report true findings about documentation nobody agreed to write
-        // that way.
+    @Test("doc-code runs by default, now that the convention it holds articles to is adopted")
+    func docCodeRunsByDefault() {
+        // It was opt-in, and that was right at the time: the rule holds articles to being one
+        // compilable program, and imposing it by surprise reported 76 true findings about
+        // documentation nobody had agreed to write that way. The bar for promotion was
+        // meeting the convention, not relaxing it — the catalogue now stands at 0 findings
+        // with zero `<!-- docs:illustrative -->` markers, so the wall it was protecting
+        // against no longer exists.
         let registry = allIDs + ["doc-code"]
 
         let byDefault = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
         )
-        #expect(!byDefault.contains("doc-code"))
+        #expect(byDefault.contains("doc-code"))
 
-        let full = CheckerSelection.resolve(
+        // `--exclude` is now the way out, and it has to keep working: a checker that cannot
+        // be excluded is a checker that blocks a commit with no recourse.
+        #expect(!CheckerSelection.resolve(
+            requested: [], excluded: ["doc-code"], configuredEnabled: [], full: false, allIDs: registry
+        ).contains("doc-code"))
+
+        // `xcode-build` stays opt-in on cost, and `--full` remains the door for that alone.
+        // The distinction outlives this promotion: `--full` means "the slow ones too", never
+        // "adopt a documentation convention you have not adopted".
+        #expect(!CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        ).contains("xcode-build"))
+        #expect(CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
-        )
-        #expect(!full.contains("doc-code"))
-        #expect(full.contains("xcode-build"))
+        ).contains("xcode-build"))
 
-        // Explicitly requested, and `--check all`, both run it.
+        // Explicitly requested, and `--check all`, both still run it.
         #expect(CheckerSelection.resolve(
             requested: ["doc-code"], excluded: [], configuredEnabled: [], full: false, allIDs: registry
         ) == ["doc-code"])
@@ -98,5 +110,29 @@ struct CheckerSelectionTests {
             requested: [], excluded: [], configuredEnabled: ["safety", "logging"], full: false, allIDs: allIDs
         )
         #expect(result == ["safety", "logging"])
+    }
+
+    @Test("--exclude is honoured in a default run, not only under --check all")
+    func excludeAppliesToDefaultRun() {
+        // It used to apply only to `--check all`, and the CLI help said so. That was
+        // survivable while every default-set checker was one you wanted; it stopped being
+        // survivable the moment a checker was promoted into that set, because the obvious
+        // way to decline it did nothing and said nothing.
+        let byDefault = CheckerSelection.resolve(
+            requested: [], excluded: ["logging"], configuredEnabled: [], full: false, allIDs: allIDs
+        )
+        #expect(!byDefault.contains("logging"))
+        #expect(byDefault.contains("safety"))
+    }
+
+    @Test("--exclude is honoured against configured enabledCheckers")
+    func excludeAppliesToConfiguredSet() {
+        // Same hole, same reason: a flag that silently does nothing in two of four selection
+        // modes is worse than one that is absent, because absence is discoverable.
+        let result = CheckerSelection.resolve(
+            requested: [], excluded: ["safety"], configuredEnabled: ["build", "safety"],
+            full: false, allIDs: allIDs
+        )
+        #expect(result == ["build"])
     }
 }

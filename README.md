@@ -139,9 +139,9 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 
-`disk-clean`, `xcode-build` and `doc-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
+`disk-clean` and `xcode-build` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
 
-`doc-code` opts out for a different reason than the other two. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way. `--full` deliberately does not enable it.
+`doc-code` was opt-in for a different reason than those two, and the reasoning is worth keeping because it was right at the time. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way — 76 of them here. It now runs by default, because that bar was met rather than lowered: this catalogue stands at 0 findings across 50 articles and 152 fences, with zero `<!-- docs:illustrative -->` markers. Exclude it with `--exclude doc-code` if your own catalogue has not adopted the convention yet. `--full` still does not carry it, because `--full` means "the slow ones too", not "adopt a documentation convention you have not adopted".
 
 ## CLI reference
 
