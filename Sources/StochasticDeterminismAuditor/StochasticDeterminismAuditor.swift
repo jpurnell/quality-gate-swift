@@ -19,6 +19,8 @@ import SwiftParser
 ///   (`drand48`, `srand48`, `arc4random`, `arc4random_uniform`)
 /// - `stochastic-collection-shuffle` — `.shuffled()` or `.shuffle()` without
 ///   a `using:` parameter
+/// - `stochastic-unseeded-test-call` — a test calls an API that declares a defaulted
+///   `seed:` and omits it, then asserts on the result
 ///
 /// ## What runs in `Tests/`, and what does not
 ///
@@ -41,11 +43,17 @@ import SwiftParser
 /// - `flagCollectionShuffle` — enable/disable the shuffle rule
 /// - `flagGlobalState` — enable/disable the global state rule
 /// - `auditTests` — whether `Tests/` is walked at all
+/// - `flagUnseededTestCalls` — enable/disable the omitted-seed rule
 ///
 /// ## Suppression
 ///
 /// Add `// stochastic:exempt` on a source line to suppress all stochastic
 /// diagnostics on that line.
+///
+/// `stochastic-unseeded-test-call` is the exception: it takes `// Justification: …`, the
+/// spelling `ConcurrencyAuditor` uses for `@unchecked Sendable`, and requires a stated
+/// reason. Some tests are genuinely *about* the unseeded path and must stay unseeded; a
+/// bare marker would let every other one hide behind the same three characters.
 public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "StochasticDeterminismAuditor")
 
@@ -57,8 +65,11 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
     /// Creates a stochastic determinism auditor.
     public init() {}
 
-    /// Audits all Swift files under the `Sources/` directory for
-    /// non-deterministic randomness usage.
+    /// Audits `Sources/` and `Tests/` for non-deterministic randomness usage.
+    ///
+    /// `Sources/` is walked first, and not only for its own diagnostics: the same walk
+    /// harvests the project's seedable API names, which is what lets
+    /// `stochastic-unseeded-test-call` judge a test call site with no type information.
     ///
     /// - Parameter configuration: Project-specific configuration including
     ///   `stochasticDeterminism` settings.
@@ -73,12 +84,19 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         let config = configuration.stochasticDeterminism
 
         var allDiagnostics: [Diagnostic] = []
+        var seedableSignatures: Set<SeedableSignature> = []
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = auditDirectory(at: sourcesPath, config: config)
+            let result = auditDirectory(at: sourcesPath, config: config, seedableSignatures: &seedableSignatures)
             allDiagnostics.append(contentsOf: result)
         }
         if config.auditTests, fileManager.fileExists(atPath: testsPath) { // SAFETY: CLI tool reads local project tests
-            let result = auditDirectory(at: testsPath, config: config)
+            var ignored: Set<SeedableSignature> = []
+            let result = auditDirectory(
+                at: testsPath,
+                config: config,
+                seedableSignatures: &ignored,
+                checkAgainst: config.flagUnseededTestCalls ? seedableSignatures : []
+            )
             allDiagnostics.append(contentsOf: result)
         }
 
@@ -111,7 +129,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
             source,
             fileName: fileName,
             config: configuration.stochasticDeterminism
-        )
+        ).diagnostics
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = diags.isEmpty ? .passed : .warning
         return CheckResult(
@@ -124,9 +142,21 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
 
     // MARK: - Private
 
+    /// Walks one directory tree.
+    ///
+    /// - Parameters:
+    ///   - path: Directory to enumerate.
+    ///   - config: Per-checker configuration.
+    ///   - seedableSignatures: Filled in with every callable declaring a defaulted `seed:`
+    ///     seen under `path`. Pass 1 over `Sources/` is what populates it.
+    ///   - checkAgainst: Signatures to check call sites against. Empty disables
+    ///     `stochastic-unseeded-test-call` for this walk, which is what `Sources/` wants:
+    ///     the rule asks whether a *test* asserted on an unseeded run.
     private func auditDirectory(
         at path: String,
-        config: StochasticDeterminismConfig
+        config: StochasticDeterminismConfig,
+        seedableSignatures: inout Set<SeedableSignature>,
+        checkAgainst: Set<SeedableSignature> = []
     ) -> [Diagnostic] {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
@@ -143,8 +173,14 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
             let fullPath = (path as NSString).appendingPathComponent(relativePath)
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let diags = auditSourceCode(source, fileName: fullPath, config: config)
-                diagnostics.append(contentsOf: diags)
+                let result = auditSourceCode(
+                    source,
+                    fileName: fullPath,
+                    config: config,
+                    checkAgainst: checkAgainst
+                )
+                diagnostics.append(contentsOf: result.diagnostics)
+                seedableSignatures.formUnion(result.seedableSignatures)
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
@@ -156,8 +192,9 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
     private func auditSourceCode(
         _ source: String,
         fileName: String,
-        config: StochasticDeterminismConfig
-    ) -> [Diagnostic] {
+        config: StochasticDeterminismConfig,
+        checkAgainst: Set<SeedableSignature> = []
+    ) -> (diagnostics: [Diagnostic], seedableSignatures: Set<SeedableSignature>) {
         let sourceLines = source.lines
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
@@ -170,6 +207,22 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
             exemptFunctions: Set(config.exemptFunctions)
         )
         visitor.walk(tree)
-        return visitor.diagnostics
+        var diagnostics = visitor.diagnostics
+
+        let harvester = SeedableAPIHarvester(viewMode: .sourceAccurate)
+        harvester.walk(tree)
+
+        if !checkAgainst.isEmpty {
+            let callVisitor = UnseededSeedCallVisitor(
+                seedableSignatures: checkAgainst,
+                filePath: fileName,
+                converter: converter,
+                sourceLines: sourceLines
+            )
+            callVisitor.walk(tree)
+            diagnostics.append(contentsOf: callVisitor.diagnostics)
+        }
+
+        return (diagnostics, harvester.seedableSignatures)
     }
 }

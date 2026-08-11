@@ -655,19 +655,25 @@ public struct StochasticDeterminismConfig: Sendable, Equatable {
     /// ``StochasticDeterminismAuditor`` for the division of labour with `test-quality`.
     public var auditTests: Bool
 
+    /// Whether to flag a test call that omits a defaulted `seed:` argument
+    /// (`stochastic-unseeded-test-call`). Requires `auditTests`.
+    public var flagUnseededTestCalls: Bool
+
     /// Creates a stochastic determinism configuration with the given options.
     public init(
         exemptFunctions: [String] = [],
         exemptFiles: [String] = [],
         flagCollectionShuffle: Bool = true,
         flagGlobalState: Bool = true,
-        auditTests: Bool = true
+        auditTests: Bool = true,
+        flagUnseededTestCalls: Bool = true
     ) {
         self.exemptFunctions = exemptFunctions
         self.exemptFiles = exemptFiles
         self.flagCollectionShuffle = flagCollectionShuffle
         self.flagGlobalState = flagGlobalState
         self.auditTests = auditTests
+        self.flagUnseededTestCalls = flagUnseededTestCalls
     }
 
     /// Default stochastic determinism configuration.
@@ -677,6 +683,7 @@ public struct StochasticDeterminismConfig: Sendable, Equatable {
 extension StochasticDeterminismConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case exemptFunctions, exemptFiles, flagCollectionShuffle, flagGlobalState, auditTests
+        case flagUnseededTestCalls
     }
 
     /// Creates a stochastic determinism configuration by decoding from the given decoder.
@@ -688,6 +695,7 @@ extension StochasticDeterminismConfig: Codable {
         flagCollectionShuffle = try container.decodeIfPresent(Bool.self, forKey: .flagCollectionShuffle) ?? defaults.flagCollectionShuffle
         flagGlobalState = try container.decodeIfPresent(Bool.self, forKey: .flagGlobalState) ?? defaults.flagGlobalState
         auditTests = try container.decodeIfPresent(Bool.self, forKey: .auditTests) ?? defaults.auditTests
+        flagUnseededTestCalls = try container.decodeIfPresent(Bool.self, forKey: .flagUnseededTestCalls) ?? defaults.flagUnseededTestCalls
     }
 }
 

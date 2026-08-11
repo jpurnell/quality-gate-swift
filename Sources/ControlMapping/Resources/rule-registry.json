@@ -183,6 +183,7 @@
     "stochastic-collection-shuffle",
     "stochastic-global-state",
     "stochastic-no-seed",
+    "stochastic-unseeded-test-call",
     "swift-compiler",
     "swift-version-blocked",
     "swift-version-compiler-mismatch",

@@ -99,6 +99,36 @@ that rule misses: C-style global state, and the in-place `.shuffle()` spelling.
 Advice differs in a test file. A `@Test` function has no caller to inject a generator,
 so the suggested fix asks it to seed one itself rather than to take a parameter.
 
+### Omitted seeds (`stochastic-unseeded-test-call`)
+
+A seed that is available and not passed is invisible to every rule above — the call site
+has no randomness on it at all:
+
+```swift
+@Test func meanIsCentred() throws {
+    // WARNING: stochastic-unseeded-test-call
+    var sim = MonteCarloSimulation(iterations: 100, enableGPU: true)
+    #expect(try sim.run().mean > 1400)
+}
+```
+
+The checker learns which APIs are seedable by reading `Sources/`: any function or
+initializer with a parameter labelled `seed` that has a default value. Nothing to
+configure, and nothing to keep in step when a new entry point is added.
+
+Some tests are *about* the unseeded path. Say so, in the same spelling the concurrency
+rules use:
+
+```swift
+@Test func nilSeedIsNotReproducible() {
+    // Justification: the unseeded path is the contract under test; a seed would invert this
+    let a = (0..<20).map { _ in distributionChiSquared(degreesOfFreedom: 5) as Double }
+}
+```
+
+The reason is required. A bare `// Justification:` does not suppress — it changes the
+diagnostic to say the marker states no reason.
+
 ## Configuration
 
 Disable specific rule categories:
@@ -108,6 +138,7 @@ stochastic-determinism:
   flagCollectionShuffle: false  # skip shuffle checks
   flagGlobalState: false        # skip C-style checks
   auditTests: false             # restore the old Tests/ skip
+  flagUnseededTestCalls: false  # skip the omitted-seed rule
   exemptFunctions:
     - addUIJitter
   exemptFiles:
