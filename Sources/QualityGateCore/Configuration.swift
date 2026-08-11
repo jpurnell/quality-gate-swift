@@ -1336,24 +1336,49 @@ public struct BuildCheckerConfig: Sendable, Equatable {
     /// nil means no limit (compiler default).
     public var solverExpressionTimeThreshold: Int?
 
+    /// Whether to compile the test target as well as the library, via `--build-tests`.
+    ///
+    /// Defaults to `true`, because the alternative is a blind spot rather than a
+    /// saving. Plain `swift build` compiles only the library, so every diagnostic in
+    /// the test target is invisible here — and the test checker compiles those same
+    /// files moments later and discards their warnings in favour of test results.
+    /// Nothing looks at them, and a project can report zero warnings with a test
+    /// target full of them, including deprecation warnings on functions the library
+    /// itself documents as incorrect.
+    ///
+    /// It is also close to free where the test checker runs: that compilation is
+    /// happening either way, so this changes what is read, not what is built.
+    ///
+    /// Set to `false` for a package whose tests are mid-migration and expected not to
+    /// compile, where a red build would drown the signal from the library. Prefer
+    /// fixing the tests.
+    public var includeTests: Bool
+
     /// Creates a build checker configuration with the given options.
-    public init(solverExpressionTimeThreshold: Int? = nil) {
+    public init(solverExpressionTimeThreshold: Int? = nil, includeTests: Bool = true) {
         self.solverExpressionTimeThreshold = solverExpressionTimeThreshold
+        self.includeTests = includeTests
     }
 
-    /// Default build checker configuration (no threshold).
+    /// Default build checker configuration: no threshold, test target included.
     public static let `default` = BuildCheckerConfig()
 }
 
 extension BuildCheckerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case solverExpressionTimeThreshold
+        case includeTests
     }
 
     /// Creates a build checker configuration by decoding from the given decoder.
+    ///
+    /// An absent `includeTests` key decodes to `true`, so a configuration file written
+    /// before this option existed gains test-target coverage rather than silently
+    /// keeping the old blind spot.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         solverExpressionTimeThreshold = try container.decodeIfPresent(Int.self, forKey: .solverExpressionTimeThreshold)
+        includeTests = try container.decodeIfPresent(Bool.self, forKey: .includeTests) ?? true
     }
 }
 

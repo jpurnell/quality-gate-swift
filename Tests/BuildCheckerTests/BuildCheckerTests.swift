@@ -299,6 +299,47 @@ struct BuildCheckerTests {
         #expect(args.contains("-solver-expression-time-threshold=250"))
     }
 
+    // MARK: - Test-Target Coverage
+
+    /// Without `--build-tests`, `swift build` compiles only the library, so every
+    /// diagnostic in the test target is invisible to this checker — while the test
+    /// checker compiles those same files moments later and discards their warnings
+    /// in favour of test results. A project can sit at "zero warnings" with a test
+    /// target full of them, which is what prompted this.
+    @Test("Builds the test target by default")
+    func buildsTestTargetByDefault() {
+        let config = Configuration()
+        let checker = BuildChecker()
+
+        let args = checker.buildArguments(for: config)
+
+        #expect(args.contains("--build-tests"))
+    }
+
+    @Test("Test target can be excluded explicitly")
+    func testTargetCanBeExcluded() {
+        let config = Configuration(build: BuildCheckerConfig(includeTests: false))
+        let checker = BuildChecker()
+
+        let args = checker.buildArguments(for: config)
+
+        #expect(!args.contains("--build-tests"))
+    }
+
+    @Test("Test-target coverage composes with the other build options")
+    func testTargetComposesWithOtherOptions() {
+        let config = Configuration(
+            buildConfiguration: "release",
+            build: BuildCheckerConfig(solverExpressionTimeThreshold: 250)
+        )
+        let checker = BuildChecker()
+        let args = checker.buildArguments(for: config)
+
+        #expect(args.contains("--build-tests"))
+        #expect(args.contains("release"))
+        #expect(args.contains("-solver-expression-time-threshold=250"))
+    }
+
     // MARK: - Code Signing Resilience Tests
 
     @Test("Passes when only code signing fails")

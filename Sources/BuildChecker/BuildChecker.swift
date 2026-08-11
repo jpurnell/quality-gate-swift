@@ -201,6 +201,14 @@ public struct BuildChecker: QualityChecker, Sendable {
             args.append(buildConfig)
         }
 
+        // Plain `swift build` compiles only the library, so every diagnostic in the
+        // test target goes unread — while the test checker compiles those same files
+        // moments later and keeps only the test results. A package can report zero
+        // warnings with a test target full of them.
+        if configuration.build.includeTests {
+            args.append("--build-tests")
+        }
+
         if let threshold = configuration.build.solverExpressionTimeThreshold {
             args.append(contentsOf: [
                 "-Xswiftc", "-Xfrontend",
