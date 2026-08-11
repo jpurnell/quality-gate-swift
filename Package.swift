@@ -37,6 +37,10 @@ let package = Package(
             targets: ["DocCodeAuditor"]
         ),
         .library(
+            name: "DocGeneratedAuditor",
+            targets: ["DocGeneratedAuditor"]
+        ),
+        .library(
             name: "DocCoverageChecker",
             targets: ["DocCoverageChecker"]
         ),
@@ -327,6 +331,20 @@ let package = Package(
         .testTarget(
             name: "DocCodeAuditorTests",
             dependencies: ["DocCodeAuditor"]
+        ),
+
+        .target(
+            name: "DocGeneratedAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            exclude: ["DocGeneratedAuditor.docc"]
+        ),
+        .testTarget(
+            name: "DocGeneratedAuditorTests",
+            dependencies: ["DocGeneratedAuditor"]
         ),
 
         .target(
@@ -1045,6 +1063,7 @@ let package = Package(
                 "TestRunner",
                 "DocLinter",
                 "DocCodeAuditor",
+                "DocGeneratedAuditor",
                 "DocCoverageChecker",
                 "DiskCleaner",
                 "UnreachableCodeAuditor",

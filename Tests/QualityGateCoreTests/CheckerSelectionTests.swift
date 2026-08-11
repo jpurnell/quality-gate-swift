@@ -165,6 +165,42 @@ struct CheckerSelectionTests {
         #expect(!allButComments.contains("doc-comment-code"))
     }
 
+    @Test("doc-generated is opt-in on convention, and --full does not adopt a convention")
+    func docGeneratedIsOptIn() {
+        // The cleanest case for the distinction `--full` draws. `xcode-build` opts out on
+        // *cost*, so `--full` — "the slow ones too" — is the right lever for it.
+        // `doc-generated` is fast; it opts out because a repository has to wrap a table in
+        // delimiters before the verdict means anything, and that is a decision about the
+        // document rather than a budget.
+        let registry = allIDs + ["doc-generated"]
+
+        let byDefault = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        )
+        #expect(!byDefault.contains("doc-generated"))
+
+        let full = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
+        )
+        #expect(!full.contains("doc-generated"))
+
+        // Asked for explicitly, or by `all`, it runs.
+        #expect(CheckerSelection.resolve(
+            requested: ["doc-generated"], excluded: [], configuredEnabled: [], full: false,
+            allIDs: registry
+        ) == ["doc-generated"])
+        #expect(CheckerSelection.resolve(
+            requested: ["all"], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        ).contains("doc-generated"))
+
+        // And `--exclude` is honoured against `all`, which is the escape hatch that keeps a
+        // rule declinable without declining to run the gate.
+        #expect(!CheckerSelection.resolve(
+            requested: ["all"], excluded: ["doc-generated"], configuredEnabled: [], full: false,
+            allIDs: registry
+        ).contains("doc-generated"))
+    }
+
     @Test("configured enabledCheckers are honored when no --check given")
     func configuredCheckers() {
         let result = CheckerSelection.resolve(

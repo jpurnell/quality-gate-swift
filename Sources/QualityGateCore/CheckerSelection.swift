@@ -80,7 +80,15 @@ public enum CheckerSelection {
             //
             // `--full` still deliberately does not carry a documentation convention; it means
             // "the slow ones too". That distinction outlives this promotion.
-            var optOut: Set<String> = ["xcode-build", "doc-run", "doc-claims", "doc-comment-code"]
+            // `doc-generated` opts out on convention alone, and it is the cleanest case for
+            // the distinction the paragraph above draws: the checker is *fast*, so cost is
+            // not the reason. A repository with no `<!-- generated: -->` delimiters anywhere
+            // gets nothing from it and should not pay for discovering that. Adopting the
+            // convention means wrapping a table in delimiters, which is a decision about the
+            // document, not a setting.
+            var optOut: Set<String> = [
+                "xcode-build", "doc-run", "doc-claims", "doc-comment-code", "doc-generated",
+            ]
             if full { optOut.remove("xcode-build") }
             // `--exclude` is honoured here too, which it was not before. While `doc-code` was
             // opt-in that gap was invisible: nothing in the default set was worth excluding,
