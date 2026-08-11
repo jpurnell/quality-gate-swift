@@ -75,7 +75,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (use 'all' for every checker)")
     var check: [String] = []
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Checkers to skip when using --check all")
+    @Option(name: .long, parsing: .upToNextOption, help: "Checkers to skip, in default runs and with --check all")
     var exclude: [String] = []
 
     @Flag(name: .long, help: "Continue running checks even if one fails")

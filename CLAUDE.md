@@ -9,8 +9,30 @@ your commit, fix all reported issues before retrying.
 
 **Before marking any work complete**, run and report results:
 ```
-quality-gate --check all --exclude test --exclude doc-lint --strict --continue-on-failure
+quality-gate --check all --exclude test --strict --continue-on-failure
 ```
+
+`doc-lint` is no longer excluded. It was, and the exclusion hid nothing at the time — but it
+also meant the manual command disagreed with the pre-commit hook, which runs the default set
+and has always included `doc-lint`. Two commands that claim to be the same check and are not
+is how a gate loses its authority.
+
+Be aware of what `doc-lint` currently *is*, though, because passing it means less than it
+looks: `parseLibraryTarget` takes the first target of the first `.library` product, so it
+reaches **1 of 116 targets** (`QualityGateCore`). A sweep of the unexamined remainder found
+eleven broken symbol links it never had the chance to see. Widening that scope is open work,
+and until it lands a green `doc-lint` is a statement about 0.9% of the package.
+
+`doc-code` now runs by default rather than opt-in, so both the hook and this command include
+it. Exclude it with `--exclude doc-code` if a catalogue has not adopted the one-program
+convention yet.
+
+`doc-run` and `doc-claims` stay opt-in, on a stronger convention than `doc-code` asks for:
+rung 2 requires an article to *run* top to bottom without trapping, rung 3 requires its
+documented figures to match what that program computes. Run them with
+`--check doc-run` / `--check doc-claims`. The path to promoting them is the one `doc-code`
+just walked — adopt the convention by repairing the documentation, never by relaxing the
+rule — so treat a red arrival as remediation work, not as a reason to weaken the checker.
 
 ### Forbidden
 - Never use `--no-verify` with git commit or git push

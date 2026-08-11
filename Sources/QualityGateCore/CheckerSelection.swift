@@ -38,27 +38,47 @@ public enum CheckerSelection {
             // Explicit ids run as requested.
             return requested
         } else if !configuredEnabled.isEmpty {
-            return configuredEnabled
+            return configuredEnabled.filter { !excludeSet.contains($0) }
         } else {
             // Default (no --check, no config): everything except the opt-in checkers.
             //
-            // `xcode-build` opts out on cost. `doc-code` opts out on *convention*: it holds
-            // an article to being one compilable program, which is a rule a repository has to
-            // adopt before the verdict means anything. Imposed by default it would report a
-            // wall of true findings about documentation nobody had agreed to write that way —
-            // and a gate that is red on arrival gets skipped, which costs more than the rule
-            // buys. Opt in with `--check doc-code` or `enabledCheckers`, and note that `--full`
-            // deliberately does *not* enable it: `--full` means "the slow ones too", not "adopt
-            // a documentation convention you have not adopted".
+            // `xcode-build` opts out on cost.
             //
-            // `doc-run` and `doc-claims` opt out on a *stronger* convention still. Rung 2
+            // `doc-code` used to opt out on *convention*, and the reasoning is kept here
+            // rather than deleted, because it was right at the time: the rule holds an
+            // article to being one compilable program, which a repository has to adopt
+            // before the verdict means anything. Imposed by default it reported a wall of
+            // true findings about documentation nobody had agreed to write that way — 76 of
+            // them against this package — and a gate that is red on arrival gets skipped,
+            // which costs more than the rule buys.
+            //
+            // That bar has now been met, which is why it is default-on: the catalogue is at
+            // 0 findings across 50 articles and 152 fences, with **zero**
+            // `<!-- docs:illustrative -->` markers. The convention was adopted by repairing
+            // the documentation, not by lowering the rule. Note that the wall of 76 was also
+            // partly the checker's own fault — it was silently failing to typecheck anything
+            // at all until the module-import barrier was fixed, so some of what looked like
+            // convention cost was a tooling defect wearing its costume.
+            //
+            // `doc-run` and `doc-claims` stay opt-in on a *stronger* convention still. Rung 2
             // requires an article to run as one program, top to bottom, without a trap;
             // rung 3 requires its documented figures to match what that program computes.
             // Each is red on arrival for a catalogue that has not done the remediation, and
-            // the rollout shape that works is rule-and-remediation in one push.
-            var optOut: Set<String> = ["xcode-build", "doc-code", "doc-run", "doc-claims"]
+            // the rollout shape that works is rule-and-remediation in one push — which is
+            // exactly the shape `doc-code` has just finished walking, so the precedent for
+            // promoting them later is now on the record rather than hypothetical.
+            //
+            // `--full` still deliberately does not carry a documentation convention; it means
+            // "the slow ones too". That distinction outlives this promotion.
+            var optOut: Set<String> = ["xcode-build", "doc-run", "doc-claims"]
             if full { optOut.remove("xcode-build") }
-            return allIDs.filter { !optOut.contains($0) }
+            // `--exclude` is honoured here too, which it was not before. While `doc-code` was
+            // opt-in that gap was invisible: nothing in the default set was worth excluding,
+            // so `quality-gate --exclude doc-code` silently doing nothing cost nobody
+            // anything. Promoting a checker into the default set is exactly what makes the
+            // escape hatch load-bearing — a rule you cannot decline with the obvious flag is
+            // a rule that gets declined by not running the gate.
+            return allIDs.filter { !optOut.contains($0) && !excludeSet.contains($0) }
         }
     }
 }
