@@ -20,6 +20,19 @@ import SwiftParser
 /// - `stochastic-collection-shuffle` — `.shuffled()` or `.shuffle()` without
 ///   a `using:` parameter
 ///
+/// ## What runs in `Tests/`, and what does not
+///
+/// `Tests/` used to be skipped outright. It is now walked, but only for the rules nothing
+/// else in the gate implements: `stochastic-global-state`, and `stochastic-collection-shuffle`
+/// restricted to the in-place `.shuffle()` spelling.
+///
+/// `TestQualityAuditor`'s `unseeded-random` already covers `.random(…)`, `.shuffled(…)` and
+/// `SystemRandomNumberGenerator` in test code at the same severity, so this auditor stays
+/// quiet on those three. Two checkers warning on one line is how a rule becomes noise, and
+/// `unseeded-random` gives the better advice for a test anyway — seed a generator locally.
+/// The gap it leaves is the C-style global functions and the `shuffle`/`shuffled` spelling
+/// split, which is exactly what this auditor now claims.
+///
 /// ## Configuration
 ///
 /// Use `StochasticDeterminismConfig` to control behavior:
@@ -27,6 +40,7 @@ import SwiftParser
 /// - `exemptFiles` — file paths to skip entirely
 /// - `flagCollectionShuffle` — enable/disable the shuffle rule
 /// - `flagGlobalState` — enable/disable the global state rule
+/// - `auditTests` — whether `Tests/` is walked at all
 ///
 /// ## Suppression
 ///
@@ -55,13 +69,16 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         let fileManager = FileManager.default
         let currentDir = fileManager.currentDirectoryPath
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let testsPath = (currentDir as NSString).appendingPathComponent("Tests")
+        let config = configuration.stochasticDeterminism
 
         var allDiagnostics: [Diagnostic] = []
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = auditDirectory(
-                at: sourcesPath,
-                config: configuration.stochasticDeterminism
-            )
+            let result = auditDirectory(at: sourcesPath, config: config)
+            allDiagnostics.append(contentsOf: result)
+        }
+        if config.auditTests, fileManager.fileExists(atPath: testsPath) { // SAFETY: CLI tool reads local project tests
+            let result = auditDirectory(at: testsPath, config: config)
             allDiagnostics.append(contentsOf: result)
         }
 

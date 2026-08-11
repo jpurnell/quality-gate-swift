@@ -80,6 +80,25 @@ func addJitter() -> TimeInterval {
 }
 ```
 
+## Test files
+
+`Tests/` is walked, but not for every rule. `TestQualityAuditor` already emits
+`unseeded-random` there for `.random(…)`, `.shuffled(…)` and
+`SystemRandomNumberGenerator`, so this auditor stays quiet on those and claims what
+that rule misses: C-style global state, and the in-place `.shuffle()` spelling.
+
+```swift
+@Test func rolls() {
+    let n = arc4random_uniform(6)  // WARNING: stochastic-global-state
+    var deck = cards
+    deck.shuffle()                  // WARNING: stochastic-collection-shuffle
+    let x = Double.random(in: 0...1) // handled by test-quality's unseeded-random
+}
+```
+
+Advice differs in a test file. A `@Test` function has no caller to inject a generator,
+so the suggested fix asks it to seed one itself rather than to take a parameter.
+
 ## Configuration
 
 Disable specific rule categories:
@@ -88,6 +107,7 @@ Disable specific rule categories:
 stochastic-determinism:
   flagCollectionShuffle: false  # skip shuffle checks
   flagGlobalState: false        # skip C-style checks
+  auditTests: false             # restore the old Tests/ skip
   exemptFunctions:
     - addUIJitter
   exemptFiles:

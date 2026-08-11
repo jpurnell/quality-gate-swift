@@ -648,17 +648,26 @@ public struct StochasticDeterminismConfig: Sendable, Equatable {
     /// Whether to flag global C-style random state (`drand48`, `arc4random`).
     public var flagGlobalState: Bool
 
+    /// Whether `Tests/` is walked at all.
+    ///
+    /// A test is as capable of being non-deterministic as anything in `Sources/`, and the
+    /// rules that fire there are the ones no other checker implements — see
+    /// ``StochasticDeterminismAuditor`` for the division of labour with `test-quality`.
+    public var auditTests: Bool
+
     /// Creates a stochastic determinism configuration with the given options.
     public init(
         exemptFunctions: [String] = [],
         exemptFiles: [String] = [],
         flagCollectionShuffle: Bool = true,
-        flagGlobalState: Bool = true
+        flagGlobalState: Bool = true,
+        auditTests: Bool = true
     ) {
         self.exemptFunctions = exemptFunctions
         self.exemptFiles = exemptFiles
         self.flagCollectionShuffle = flagCollectionShuffle
         self.flagGlobalState = flagGlobalState
+        self.auditTests = auditTests
     }
 
     /// Default stochastic determinism configuration.
@@ -667,7 +676,7 @@ public struct StochasticDeterminismConfig: Sendable, Equatable {
 
 extension StochasticDeterminismConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case exemptFunctions, exemptFiles, flagCollectionShuffle, flagGlobalState
+        case exemptFunctions, exemptFiles, flagCollectionShuffle, flagGlobalState, auditTests
     }
 
     /// Creates a stochastic determinism configuration by decoding from the given decoder.
@@ -678,6 +687,7 @@ extension StochasticDeterminismConfig: Codable {
         exemptFiles = try container.decodeIfPresent([String].self, forKey: .exemptFiles) ?? defaults.exemptFiles
         flagCollectionShuffle = try container.decodeIfPresent(Bool.self, forKey: .flagCollectionShuffle) ?? defaults.flagCollectionShuffle
         flagGlobalState = try container.decodeIfPresent(Bool.self, forKey: .flagGlobalState) ?? defaults.flagGlobalState
+        auditTests = try container.decodeIfPresent(Bool.self, forKey: .auditTests) ?? defaults.auditTests
     }
 }
 

@@ -78,18 +78,32 @@ final class StochasticVisitor: SyntaxVisitor {
         super.init(viewMode: .sourceAccurate)
     }
 
-    // MARK: - Test File Skip
+    // MARK: - Test Context
 
-    /// Returns true if the file path indicates a test file that should be skipped.
-    private var isTestFile: Bool {
+    /// Whether this file lives under `Tests/`.
+    ///
+    /// This used to be a skip: every visitor method returned `.skipChildren` for a test
+    /// file, so none of the three rules could see test code at all. It is now a *register*
+    /// switch and a narrow division of labour, because two things are true at once:
+    ///
+    /// - A test is exactly as capable of being non-deterministic as production code, and
+    ///   `stochastic-global-state` and the in-place `.shuffle()` spelling are audited by
+    ///   nothing else anywhere in the gate.
+    /// - `TestQualityAuditor`'s `unseeded-random` already claims `.random(…)`,
+    ///   `.shuffled(…)` and `SystemRandomNumberGenerator` inside `Tests/`, at the same
+    ///   severity. Firing here as well would put two warnings on one line and teach people
+    ///   to read past both.
+    ///
+    /// So in a test file this auditor emits only what `unseeded-random` does not, and the
+    /// advice it does emit is rewritten: "accept an RNG parameter" is guidance a `@Test`
+    /// function cannot follow, since it has no caller to inject one. A test seeds its own.
+    var isTestFile: Bool {
         filePath.contains("/Tests/") || filePath.hasPrefix("Tests/")
     }
 
     // MARK: - Function Declaration Tracking
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        guard !isTestFile else { return .skipChildren }
-
         // Save current state on stack
         rngParameterStack.append(functionHasRNGParameter)
         functionNameStack.append(currentFunctionName)
@@ -113,12 +127,11 @@ final class StochasticVisitor: SyntaxVisitor {
     // MARK: - Member Access Detection (.random, .shuffled, .shuffle)
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        guard !isTestFile else { return .skipChildren }
-
         let memberName = node.declName.baseName.text
 
-        // Check for .random() / .random(in:)
-        if memberName == "random" {
+        // Check for .random() / .random(in:).
+        // Ceded to TestQualityAuditor's `unseeded-random` inside Tests/.
+        if memberName == "random", !isTestFile {
             // Only flag if the member access is part of a function call
             if let parent = node.parent, parent.is(FunctionCallExprSyntax.self) {
                 // Check if this call has a `using:` argument (seed-injected)
@@ -140,7 +153,11 @@ final class StochasticVisitor: SyntaxVisitor {
 
         // Check for .shuffled() / .shuffle() without using: parameter.
         // Skip rng.shuffle(&collection) — the inout argument means the receiver is an RNG, not a collection.
-        if flagCollectionShuffle && (memberName == "shuffled" || memberName == "shuffle") {
+        //
+        // Inside Tests/, only the in-place `shuffle` spelling is ours: `unseeded-random`
+        // matches the literal name "shuffled" and so misses `shuffle` entirely.
+        let shuffleSpellingIsOurs = isTestFile ? (memberName == "shuffle") : (memberName == "shuffled" || memberName == "shuffle")
+        if flagCollectionShuffle && shuffleSpellingIsOurs {
             if let parent = node.parent, parent.is(FunctionCallExprSyntax.self) {
                 if let call = parent.as(FunctionCallExprSyntax.self),
                    !callHasUsingArgument(call),
@@ -150,7 +167,9 @@ final class StochasticVisitor: SyntaxVisitor {
                             ruleId: "stochastic-collection-shuffle",
                             message: "`.\(memberName)()` called without `using:` parameter; results are non-deterministic",
                             node: Syntax(node),
-                            suggestedFix: "Use `.\(memberName)(using: &rng)` with an injected RandomNumberGenerator"
+                            suggestedFix: isTestFile
+                                ? "Use `.\(memberName)(using: &rng)` with a generator the test seeds itself"
+                                : "Use `.\(memberName)(using: &rng)` with an injected RandomNumberGenerator"
                         )
                     }
                 }
@@ -163,8 +182,6 @@ final class StochasticVisitor: SyntaxVisitor {
     // MARK: - Declaration Reference Detection (SystemRandomNumberGenerator, global funcs)
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-        guard !isTestFile else { return .skipChildren }
-
         let name = node.baseName.text
 
         // Skip exempt references (UUID, SecRandomCopyBytes)
@@ -172,8 +189,9 @@ final class StochasticVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
-        // Check for SystemRandomNumberGenerator
-        if name == "SystemRandomNumberGenerator" {
+        // Check for SystemRandomNumberGenerator.
+        // Ceded to TestQualityAuditor's `unseeded-random` inside Tests/.
+        if name == "SystemRandomNumberGenerator", !isTestFile {
             if !functionHasRNGParameter && !isExemptFunction() {
                 emitDiagnostic(
                     ruleId: "stochastic-no-seed",
@@ -190,7 +208,9 @@ final class StochasticVisitor: SyntaxVisitor {
                 ruleId: "stochastic-global-state",
                 message: "`\(name)` uses global mutable state; prefer `RandomNumberGenerator`-based APIs",
                 node: Syntax(node),
-                suggestedFix: "Replace with Swift's `.random(in:using:)` API and inject a `RandomNumberGenerator`"
+                suggestedFix: isTestFile
+                    ? "Replace with Swift's `.random(in:using:)` API and a generator the test seeds itself"
+                    : "Replace with Swift's `.random(in:using:)` API and inject a `RandomNumberGenerator`"
             )
         }
 

@@ -296,17 +296,6 @@ struct ExemptionTests {
         #expect(results.isEmpty)
     }
 
-    @Test("Test file paths are skipped")
-    func testFilePathsSkipped() {
-        let code = """
-        func testSimulate() {
-            let x = Double.random(in: 0...1)
-        }
-        """
-        let results = diagnose(code, filePath: "Tests/MyTests/SimulationTests.swift")
-        #expect(results.isEmpty)
-    }
-
     @Test("SecRandomCopyBytes is not flagged")
     func secRandomExempt() {
         let code = """
@@ -316,6 +305,147 @@ struct ExemptionTests {
         """
         let results = diagnose(code)
         #expect(!results.contains { $0.ruleId == "stochastic-no-seed" })
+    }
+}
+
+// MARK: - Test-File Coverage
+
+/// The visitor used to return `.skipChildren` for anything under `Tests/`, so none of
+/// the three rules could see a test file. That was over-broad: it also surrendered the
+/// rules `TestQualityAuditor` does *not* implement.
+///
+/// The division of labour that remains is deliberate. `TestQualityAuditor`'s
+/// `unseeded-random` already covers `.random(…)`, `.shuffled(…)` and
+/// `SystemRandomNumberGenerator` in test code, so this auditor stays silent on those to
+/// avoid two checkers warning on one line. It claims what nothing else audits: C-style
+/// global RNG state, and the in-place `.shuffle()` spelling that `unseeded-random`'s
+/// `"shuffled"` match misses.
+private let testPath = "Tests/MyPackageTests/SimulationTests.swift"
+
+@Suite("StochasticDeterminismAuditor: Test-file coverage")
+struct TestFileCoverageTests {
+
+    @Test("Flags arc4random in a test file")
+    func flagsGlobalStateInTests() {
+        let code = """
+        @Test func rolls() {
+            let n = arc4random_uniform(6)
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(results.contains { $0.ruleId == "stochastic-global-state" })
+    }
+
+    @Test("Flags drand48 in a test file")
+    func flagsDrand48InTests() {
+        let code = """
+        @Test func draws() {
+            let x = drand48()
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(results.contains { $0.ruleId == "stochastic-global-state" })
+    }
+
+    @Test("Flags in-place .shuffle() in a test file")
+    func flagsInPlaceShuffleInTests() {
+        let code = """
+        @Test func mixes() {
+            var items = [1, 2, 3]
+            items.shuffle()
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(results.contains { $0.ruleId == "stochastic-collection-shuffle" })
+    }
+
+    @Test("Global-state advice in a test file does not say 'inject'")
+    func globalStateFixIsTestShaped() {
+        let code = """
+        @Test func rolls() {
+            let n = arc4random_uniform(6)
+        }
+        """
+        let diag = diagnose(code, filePath: testPath).first { $0.ruleId == "stochastic-global-state" }
+        let fix = try? #require(diag?.suggestedFix)
+        #expect(fix?.contains("seed") == true)
+        #expect(fix?.contains("inject") == false)
+    }
+
+    @Test("Shuffle advice in a test file does not say 'injected'")
+    func shuffleFixIsTestShaped() {
+        let code = """
+        @Test func mixes() {
+            var items = [1, 2, 3]
+            items.shuffle()
+        }
+        """
+        let diag = diagnose(code, filePath: testPath).first { $0.ruleId == "stochastic-collection-shuffle" }
+        let fix = try? #require(diag?.suggestedFix)
+        #expect(fix?.contains("seed") == true)
+        #expect(fix?.contains("injected") == false)
+    }
+
+    @Test("Source-file advice keeps its original 'inject' wording")
+    func sourceFixUnchanged() {
+        let code = """
+        func roll() {
+            let n = arc4random_uniform(6)
+        }
+        """
+        let diag = diagnose(code, filePath: "Sources/Sim/Engine.swift").first { $0.ruleId == "stochastic-global-state" }
+        #expect(diag?.suggestedFix?.contains("inject a `RandomNumberGenerator`") == true)
+    }
+
+    // MARK: - Ceded to TestQualityAuditor's `unseeded-random`
+
+    @Test(".random() in a test file is left to unseeded-random")
+    func randomInTestsNotDuplicated() {
+        let code = """
+        @Test func draws() {
+            let x = Double.random(in: 0...1)
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(!results.contains { $0.ruleId == "stochastic-no-seed" })
+    }
+
+    @Test("SystemRandomNumberGenerator in a test file is left to unseeded-random")
+    func systemRNGInTestsNotDuplicated() {
+        let code = """
+        @Test func draws() {
+            var rng = SystemRandomNumberGenerator()
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(!results.contains { $0.ruleId == "stochastic-no-seed" })
+    }
+
+    @Test(".shuffled() in a test file is left to unseeded-random")
+    func shuffledInTestsNotDuplicated() {
+        let code = """
+        @Test func mixes() {
+            let items = [1, 2, 3].shuffled()
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(!results.contains { $0.ruleId == "stochastic-collection-shuffle" })
+    }
+
+    @Test("Per-line stochastic:exempt still suppresses in a test file")
+    func exemptStillWorksInTests() {
+        let code = """
+        @Test func rolls() {
+            let n = arc4random_uniform(6) // stochastic:exempt
+        }
+        """
+        let results = diagnose(code, filePath: testPath)
+        #expect(results.isEmpty)
+    }
+
+    @Test("auditTests defaults to true")
+    func auditTestsDefaultsTrue() {
+        #expect(StochasticDeterminismConfig.default.auditTests)
     }
 }
 
