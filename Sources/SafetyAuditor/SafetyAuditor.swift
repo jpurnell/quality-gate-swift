@@ -23,6 +23,9 @@ import SwiftParser
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let auditor = SafetyAuditor()
 /// let result = try await auditor.check(configuration: config)
 /// ```

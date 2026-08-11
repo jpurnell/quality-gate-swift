@@ -12,6 +12,9 @@ import QualityGateCore
 /// ## Usage
 ///
 /// ```swift
+/// import QualityGateCore
+///
+/// let config = Configuration()
 /// let checker = BuildChecker()
 /// let result = try await checker.check(configuration: config)
 /// ```

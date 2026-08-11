@@ -10,10 +10,29 @@ import QualityGateCore
 ///
 /// ## Conforming Your Auditor
 ///
-/// If your auditor already has the matching method, conformance is a single line:
+/// If your auditor already has the matching method, the conformance itself is a
+/// single line:
 ///
 /// ```swift
-/// extension SafetyAuditor: SourceAuditable {}
+/// import QualityGateCore
+///
+/// // Your auditor, in its own module. It already has the matching method.
+/// struct MyAuditor: QualityChecker {
+///     let id = "my-rule"
+///     let name = "My Rule"
+///
+///     func check(configuration: Configuration) async throws -> CheckResult {
+///         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
+///     }
+///
+///     func auditSource(
+///         _ source: String, fileName: String, configuration: Configuration
+///     ) async throws -> CheckResult {
+///         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
+///     }
+/// }
+///
+/// extension MyAuditor: SourceAuditable {}
 /// ```
 public protocol SourceAuditable: QualityChecker {
     /// Audit a single Swift source string and return a check result.
