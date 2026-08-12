@@ -171,4 +171,118 @@ struct MemoryWriterTests {
         let count = second.components(separatedBy: "project_profile.md").count - 1
         #expect(count == 1)
     }
+
+    // MARK: - The `memory-index` region
+
+    private static let profile = MemoryEntry(
+        filename: "project_profile.md",
+        name: "Project Profile",
+        description: "Swift package structure and dependencies",
+        type: "project",
+        body: ""
+    )
+
+    @Test("Generated entries are written as one region, not as N tagged lines")
+    func writesARegion() {
+        let result = MemoryWriter.mergeIndex(existing: "", entries: [Self.profile])
+
+        #expect(result.contains("<!-- generated:memory-index -->"))
+        #expect(result.contains("<!-- /generated:memory-index -->"))
+        // The per-line marker is what made deletion inexpressible; it is gone.
+        #expect(!result.contains("— Swift package structure and dependencies <!-- generated -->"))
+    }
+
+    @Test("A line that lost its marker is deleted, not made immortal")
+    func staleDuplicateIsDeleted() {
+        // The defect the region form exists to fix. `mergeIndex` used to partition on the
+        // line-suffix marker, so a generated line that lost its tag — a hand edit, a merge, a
+        // generator whose output shape changed — could never be told from a line a human
+        // wrote, and therefore could never be removed. The live index carried five such pairs:
+        // two entries pointing at one file, one saying 72 targets and one saying 116, both
+        // loaded, the reader told the truth and its stale contradiction in the same list.
+        //
+        // Identity is the link target, which is the one thing both lines agree on.
+        let existing = """
+        - [Project Profile](project_profile.md) — quality-gate-swift — Swift 6.2, 72+ targets
+        - [Project Profile](project_profile.md) — Module dependency graph <!-- generated -->
+        """
+
+        let result = MemoryWriter.mergeIndex(existing: existing, entries: [Self.profile])
+
+        #expect(result.components(separatedBy: "project_profile.md").count - 1 == 1)
+        #expect(!result.contains("72+ targets"))
+        #expect(result.contains("Swift package structure and dependencies"))
+    }
+
+    @Test("A manual line about a file nothing generates is untouched")
+    func unrelatedManualLineSurvives() {
+        let existing = "- [My Custom Note](custom_note.md) — something I wrote\n"
+
+        let result = MemoryWriter.mergeIndex(existing: existing, entries: [Self.profile])
+
+        #expect(result.contains("- [My Custom Note](custom_note.md) — something I wrote"))
+    }
+
+    @Test("Prose outside the region is preserved, including a heading above it")
+    func proseIsPreserved() {
+        let existing = """
+        # Project memory
+
+        Read this at session start.
+
+        - [My Custom Note](custom_note.md) — something I wrote
+        """
+
+        let result = MemoryWriter.mergeIndex(existing: existing, entries: [Self.profile])
+
+        #expect(result.contains("# Project memory"))
+        #expect(result.contains("Read this at session start."))
+    }
+
+    @Test("An existing region is rewritten where it sits, not moved to the end")
+    func regionIsRewrittenInPlace() {
+        let existing = """
+        # Project memory
+
+        <!-- generated:memory-index -->
+        - [Project Profile](project_profile.md) — an old description
+        - [Departed](departed.md) — a memory that no longer exists
+        <!-- /generated:memory-index -->
+
+        Closing prose that must stay last.
+        """
+
+        let result = MemoryWriter.mergeIndex(existing: existing, entries: [Self.profile])
+        // The index ends in a newline, so the last element of `lines` is the empty string
+        // after it — the last *written* line is the one before.
+        let written = result.lines.filter { !$0.isEmpty }
+
+        #expect(!result.contains("departed.md"))
+        #expect(!result.contains("an old description"))
+        #expect(written.last?.contains("Closing prose") == true)
+    }
+
+    @Test("Merging its own output changes nothing")
+    func regionMergeIsIdempotent() {
+        let once = MemoryWriter.mergeIndex(existing: "", entries: [Self.profile])
+        let twice = MemoryWriter.mergeIndex(existing: once, entries: [Self.profile])
+
+        #expect(once == twice)
+    }
+
+    @Test("Migrating a legacy index and then re-merging changes nothing the second time")
+    func migrationConverges() {
+        let legacy = """
+        - [Project Profile](project_profile.md) — stale, untagged, and previously immortal
+        - [Project Profile](project_profile.md) — stale but tagged <!-- generated -->
+        - [My Custom Note](custom_note.md) — mine
+        """
+
+        let migrated = MemoryWriter.mergeIndex(existing: legacy, entries: [Self.profile])
+        let again = MemoryWriter.mergeIndex(existing: migrated, entries: [Self.profile])
+
+        #expect(migrated == again)
+        #expect(migrated.contains("custom_note.md"))
+        #expect(migrated.components(separatedBy: "project_profile.md").count - 1 == 1)
+    }
 }
