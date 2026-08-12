@@ -16,8 +16,16 @@ stamp:
 	@echo '    static let buildDate = "$(shell date -u +%Y-%m-%dT%H:%M:%SZ)"' >> $(BUILD_STAMP_SWIFT)
 	@echo '}' >> $(BUILD_STAMP_SWIFT)
 
+# Restores the placeholder after building, so a developer build never leaves a real hash in
+# the working tree. `deploy-local.sh` has done this since it was written; this target did not,
+# which is how `ad84a35` reached a commit.
+restore-stamp:
+	@git checkout -- $(BUILD_STAMP_SWIFT) 2>/dev/null || true
+
 build: stamp
-	swift build -c release --product $(PRODUCT)
+	@swift build -c release --product $(PRODUCT); status=$$?; \
+	  $(MAKE) --no-print-directory restore-stamp; \
+	  test $$status -eq 0
 	codesign -s - --force --options runtime $(BUILD_DIR_RELEASE)/$(PRODUCT)
 
 sign-debug:

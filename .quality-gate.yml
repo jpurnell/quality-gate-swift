@@ -65,3 +65,15 @@ doc-generated:
 status:
   guidelinesPath: "."
   masterPlanPath: project/master_plan.md
+
+# A stamp naming its own commit cannot be right inside that commit, so the tracked file holds a
+# placeholder and the build scripts overwrite-then-restore it. That has failed twice (`d644d35`,
+# `d0278e9`), and both times the wrong value was invisible until someone read a diff. This makes
+# it loud instead — Tier-1 custom rules gate by their declared severity.
+customRules:
+  - id: house.build-stamp-committed
+    pattern: '"[0-9a-f]{40}"'
+    include:
+      - "Sources/QualityGateCLI/BuildStamp.swift"
+    message: "BuildStamp.swift holds a real commit hash. It is generated at build time and restored afterwards; a hash here is a stamp that was committed, and it can never name the commit it sits in. Restore the placeholder: git checkout -- Sources/QualityGateCLI/BuildStamp.swift"
+    severity: error
