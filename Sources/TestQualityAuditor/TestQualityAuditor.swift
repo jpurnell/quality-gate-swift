@@ -44,6 +44,12 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Test Quality Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Floating-point assertions, missing test assertions, unseeded randomness in tests"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     /// Creates a new TestQualityAuditor instance.
     public init() {}
 

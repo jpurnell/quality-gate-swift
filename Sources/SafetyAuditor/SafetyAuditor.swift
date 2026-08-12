@@ -38,6 +38,12 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Safety Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.safetySecurity
+
     /// Creates a new SafetyAuditor instance.
     public init() {}
 

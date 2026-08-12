@@ -19,6 +19,12 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this auditor.
     public let name = "App Intents Readiness Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "App Intents entity conformance, parameter wrappers, metadata protocols"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.specialty
+
     /// Creates a new App Intents readiness auditor.
     public init() {}
 

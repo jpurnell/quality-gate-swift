@@ -25,6 +25,12 @@ public struct KeychainSecretsChecker: QualityChecker, Sendable {
     /// The human-readable name.
     public let name = "Keychain Secrets Checker"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Credentials/tokens written to `UserDefaults` (plaintext plist, backup-swept) instead of the Keychain — key- and value-name secret detection with a Bool/Int-value guard"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.safetySecurity
+
     /// Detection thresholds and vocabulary.
     let config: KeychainSecretsConfig
     /// Package root to scan; nil means the current working directory.

@@ -42,6 +42,12 @@ public struct HIGAuditor: FixableChecker, Sendable {
     public let id = "hig-auditor"
     /// Human-readable display name for this checker.
     public let name = "HIG Auditor"
+
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Apple Human Interface Guidelines compliance for SwiftUI views"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.safetySecurity
     /// Describes the auto-fix behavior applied by this checker.
     public let fixDescription = "Inserts TODO-marked HIG scaffolding (Settings scene, .commands, .help, .contextMenu)."
 

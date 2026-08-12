@@ -18,6 +18,12 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Pointer Escape Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Unsafe pointer escapes from `withUnsafe*` blocks"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Function names whose pointer-accepting parameters are documented as
     /// safe to outlive the with-block (e.g. specific vDSP entry points).
     private let allowedEscapeFunctions: Set<String>

@@ -35,6 +35,12 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// Human-readable name for display.
     public let name = "Unreachable Code Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Dead code via SwiftSyntax + IndexStore cross-reference"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Cross-module dead-code analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

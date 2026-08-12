@@ -17,6 +17,8 @@ import QualityGateCore
 /// struct ExampleAuditor: SourceAuditable {
 ///     let id = "force-unwrap"
 ///     let name = "Example Auditor"
+///     let summary = "Findings the auditor under test reports"
+///     let category = CheckerCategory.safetySecurity
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
 ///         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)

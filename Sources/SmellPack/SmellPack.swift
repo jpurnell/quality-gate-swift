@@ -22,6 +22,12 @@ public struct SmellPack: QualityChecker, Sendable {
     /// The human-readable name.
     public let name = "Smell Pack"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Structural smells in declarations: long parameter lists, feature envy, primitive obsession; `// smell:exempt` is recorded (advisory)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     /// Thresholds for every metric.
     let config: SmellConfig
     /// Package root to scan; nil means the current working directory.

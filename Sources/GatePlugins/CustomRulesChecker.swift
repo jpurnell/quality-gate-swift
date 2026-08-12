@@ -14,6 +14,12 @@ public struct CustomRulesChecker: QualityChecker, Sendable {
     /// Display name.
     public let name = "Custom Rules"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Line regexes declared in `.quality-gate.yml` — the project's own policy, gating when its declared severity says so"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.specialty
+
     /// Package root to scan; nil means the current working directory.
     let root: String?
 

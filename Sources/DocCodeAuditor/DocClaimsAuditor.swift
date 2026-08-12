@@ -54,6 +54,12 @@ public struct DocClaimsAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Documentation Output Claims"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Figures a DocC article publishes must match what that article's own program computes (opt-in)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Safe to run in the concurrent group; every article is instrumented and executed in
     /// its own temporary directory.
     public var isParallelSafe: Bool { true }

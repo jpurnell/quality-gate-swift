@@ -62,6 +62,12 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Stochastic Determinism Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Unseeded randomness in production code"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.safetySecurity
+
     /// Creates a stochastic determinism auditor.
     public init() {}
 

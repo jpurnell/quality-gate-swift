@@ -488,6 +488,8 @@ import SwiftParser
 public struct MyChecker: QualityChecker, Sendable {
     public let id = "my-checker"
     public let name = "My Checker"
+    public let summary = "The findings this checker reports, in one noun phrase"
+    public let category = CheckerCategory.codeHygiene
 
     public init() {}
 

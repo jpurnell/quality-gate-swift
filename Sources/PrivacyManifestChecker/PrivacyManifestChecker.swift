@@ -20,6 +20,12 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
     /// The human-readable name.
     public let name = "Privacy Manifest Checker"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "App targets missing or with a malformed `PrivacyInfo.xcprivacy` — opt-in by app detection, so pure SPM libraries are skipped"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.safetySecurity
+
     /// App-detection override and key-strictness.
     let config: PrivacyManifestConfig
     /// Package root to scan; nil means the current working directory.

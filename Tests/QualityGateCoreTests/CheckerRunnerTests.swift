@@ -8,6 +8,8 @@ import Testing
 private struct FakeChecker: QualityChecker {
     let id: String
     let name: String
+    let summary = "Test double; not a documented checker"
+    let category = CheckerCategory.specialty
     let status: CheckResult.Status
     let delay: Duration
     /// Optional tracker to record concurrent execution.

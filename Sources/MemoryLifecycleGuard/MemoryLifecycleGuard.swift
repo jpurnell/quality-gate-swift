@@ -21,6 +21,12 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Memory Lifecycle Guard"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Creates a new memory lifecycle guard.
     public init() {}
 

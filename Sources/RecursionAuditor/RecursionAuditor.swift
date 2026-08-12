@@ -20,6 +20,12 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     /// Human-readable name shown in quality-gate output.
     public let name = "Recursion Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Self-forwarding inits, computed property cycles, mutual recursion via USR call-graph analysis"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Cross-module recursion analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

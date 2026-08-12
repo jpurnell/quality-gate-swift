@@ -34,6 +34,12 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Concurrency Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation, cancellation checkpoints after `for await` loops"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Cross-module concurrency analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

@@ -17,6 +17,12 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Institutional Consistency"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Institutional consistency scoring via IJS pulse and telemetry"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.specialty
+
     /// Creates a new consistency checker.
     public init() {}
 

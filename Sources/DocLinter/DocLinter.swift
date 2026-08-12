@@ -28,6 +28,12 @@ public struct DocLinter: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Documentation Linter"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "DocC documentation build errors"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Creates a new DocLinter instance.
     public init() {}
 

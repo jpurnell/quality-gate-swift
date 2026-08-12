@@ -72,6 +72,12 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     /// Human-readable name for display.
     public let name = "Dependency Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Package.resolved sync, branch pins, local overrides, hallucinated import detection via AST-parsed manifests"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Creates a new DependencyAuditor instance.
     public init() {}
 

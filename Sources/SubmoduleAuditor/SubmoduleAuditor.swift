@@ -35,6 +35,12 @@ public struct SubmoduleAuditor: QualityChecker, Sendable {
     /// Human-readable name for display.
     public let name = "Submodule Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Git submodule pin and allowlist compliance"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Creates a new SubmoduleAuditor instance.
     public init() {}
 

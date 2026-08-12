@@ -35,6 +35,12 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "MCP Readiness Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "MCP tool schema vs. implementation cross-reference"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.specialty
+
     /// Creates a new MCP readiness auditor.
     public init() {}
 

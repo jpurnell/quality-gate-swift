@@ -30,6 +30,12 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Documentation Coverage"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Undocumented public APIs, inherited documentation detection, usage-priority ranking"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Cross-module doc-coverage analysis (inherited docs) depends on the whole source tree,
     /// so the result is cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

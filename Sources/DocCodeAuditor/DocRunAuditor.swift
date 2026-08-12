@@ -45,6 +45,12 @@ public struct DocRunAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Documentation Code Runner"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "DocC articles must *run* top to bottom without trapping, not merely compile — the article is one program (opt-in)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Safe to run in the concurrent group, and that placement is what orders it correctly.
     ///
     /// `BuildChecker` declares itself non-parallel-safe, so the runner completes it before

@@ -46,6 +46,12 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Swift Version Checker"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "swift-tools-version validation and upgrade feasibility"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Description of what fix mode does.
     public let fixDescription = "Updates swift-tools-version in Package.swift to the configured minimum after verifying the project builds at that version."
 

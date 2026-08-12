@@ -20,6 +20,12 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     /// Human-readable name shown in quality-gate output.
     public let name = "Complexity Analyzer"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Cognitive complexity per function, call-graph amplification, cross-module amplification, O(n) pattern detection"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Cross-module complexity analysis depends on the whole source tree (its call-graph
     /// amplification spans every module), so the result is cacheable keyed by all Swift
     /// sources + the manifests. Over-inclusive by design (a re-run on any change, never a

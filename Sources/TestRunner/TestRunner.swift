@@ -37,6 +37,12 @@ public struct TestRunner: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Test Runner"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "`swift test` wrapper — parses Swift Testing and XCTest results; flip detector flags scheduler-dependent pass↔fail outcome changes on an unchanged package; optional stress mode re-runs `// TIMING:`-tagged tests to provoke races"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Spawns `swift test`, which locks the SwiftPM `.build` directory — must run
     /// sequentially, outside the concurrent task group.
     public var isParallelSafe: Bool { false }

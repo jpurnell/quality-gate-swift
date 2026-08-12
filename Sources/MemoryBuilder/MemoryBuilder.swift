@@ -17,6 +17,12 @@ public struct MemoryBuilder: QualityChecker, Sendable {
     /// Human-readable name shown in check results.
     public let name = "Memory Builder"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Claude Code project memory generation and validation"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Relative path to the development-guidelines directory.
     private let guidelinesPath: String
 

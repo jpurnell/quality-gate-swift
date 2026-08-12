@@ -48,6 +48,12 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Generated Content Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Derived content committed as prose — rosters, registries, changelog links — must still match what it was derived from"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Pure read plus an in-memory regeneration: no build lock, no subprocess.
     public var isParallelSafe: Bool { true }
 

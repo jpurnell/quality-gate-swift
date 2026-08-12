@@ -48,6 +48,12 @@ public struct StatusAuditor: FixableChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Status Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Drift between project docs and actual code state; supports `--fix`"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Description of what fix mode does.
     public let fixDescription = """
     Patches Master Plan and Implementation Checklist to match actual code state:

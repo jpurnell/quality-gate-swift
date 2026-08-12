@@ -55,6 +55,12 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Doc Comment Code Compiler"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Fenced Swift in `///` and `/** */` doc comments must compile against the module the comment lives in — the unit is one fence (opt-in)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Safe to run in the concurrent group — and that placement is what orders it correctly.
     ///
     /// `CheckerRunner` runs every non-parallel-safe checker to completion first, and

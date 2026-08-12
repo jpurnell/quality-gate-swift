@@ -23,6 +23,12 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     /// Human-readable display name for reports.
     public let name = "Logging Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "`print()` in production code, silent `catch` blocks, missing os.Logger usage"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     private let config: LoggingAuditorConfig
 
     /// Creates a logging auditor.

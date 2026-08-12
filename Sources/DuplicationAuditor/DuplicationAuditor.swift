@@ -57,6 +57,12 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Duplication Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Token-level clone detection across files and modules (advisory)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     /// The rule identifier stamped on every clone diagnostic.
     static let ruleId = "duplication.clone"
 

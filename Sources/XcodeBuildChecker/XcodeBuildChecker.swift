@@ -33,6 +33,12 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Xcode Build Checker"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Xcode project build validation and IndexStore generation (opt-in)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.specialty
+
     /// Spawns `xcodebuild`, which locks the build tree — must run sequentially,
     /// outside the concurrent task group.
     public var isParallelSafe: Bool { false }

@@ -27,6 +27,12 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// Human-readable display name for reports.
     public let name = "Release Readiness Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "CHANGELOG entries, README placeholders, pending-work markers"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Creates a new release readiness auditor.
     public init() {}
 

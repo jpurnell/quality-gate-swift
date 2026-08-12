@@ -20,6 +20,8 @@ import QualityGateCore
 /// struct MyAuditor: QualityChecker {
 ///     let id = "my-rule"
 ///     let name = "My Rule"
+///     let summary = "Findings this rule reports, in one noun phrase"
+///     let category = CheckerCategory.codeHygiene
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
 ///         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)

@@ -43,6 +43,12 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Documentation Code Compiler"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Fenced Swift in DocC articles must compile against the built module — the article is one program (opt-in)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.documentation
+
     /// Safe to run in the concurrent group — and that placement is what orders it correctly.
     ///
     /// ``CheckerRunner`` runs every non-parallel-safe checker to completion first, then the

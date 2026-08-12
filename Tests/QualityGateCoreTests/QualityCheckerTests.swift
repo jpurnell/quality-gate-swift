@@ -14,6 +14,8 @@ struct QualityCheckerTests {
     struct MockChecker: QualityChecker {
         let id: String
         let name: String
+        let summary = "Test double; not a documented checker"
+        let category = CheckerCategory.specialty
         let shouldPass: Bool
         let mockDiagnostics: [Diagnostic]
 

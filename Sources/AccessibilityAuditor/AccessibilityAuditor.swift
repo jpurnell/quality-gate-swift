@@ -30,6 +30,12 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Accessibility Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "SwiftUI accessibility: missing labels, fixed font sizes, color-only differentiation"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     /// The per-frontend detectors this auditor dispatches to.
     private let detectors: [any AccessibilityDetector]
 

@@ -22,6 +22,12 @@ public struct IdiomAuditor: QualityChecker, Sendable {
     /// Human-readable name shown in quality-gate output.
     public let name = "Idiom Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Non-idiomatic Swift the language has a shorter form for; `// idiom:exempt` is recorded, never silent (advisory)"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     /// The idiom configuration in effect for this instance.
     public let config: IdiomConfig
     /// Project root override (injectable for tests); nil means the current directory.

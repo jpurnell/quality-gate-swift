@@ -25,6 +25,12 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     public let id = "legibility"
     /// The human-readable name.
     public let name = "Legibility Analyzer"
+
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Advisory (never gates): central-but-unoriented modules, dependency cycles, over-public surface; emits a reading-order / module-map artifact"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
     /// Read-only over parsed sources; safe to run concurrently.
     public var isParallelSafe: Bool { true }
 

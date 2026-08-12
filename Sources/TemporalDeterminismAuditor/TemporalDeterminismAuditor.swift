@@ -16,6 +16,12 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Temporal Determinism Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.safetySecurity
+
     /// Creates a temporal determinism auditor.
     public init() {}
 

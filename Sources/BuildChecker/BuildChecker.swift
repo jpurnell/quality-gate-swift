@@ -37,6 +37,12 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Build Checker"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "`swift build` wrapper — captures all compiler errors and warnings"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.projectHealth
+
     /// Spawns `swift build`, which locks the SwiftPM `.build` directory — must run
     /// sequentially, outside the concurrent task group.
     public var isParallelSafe: Bool { false }

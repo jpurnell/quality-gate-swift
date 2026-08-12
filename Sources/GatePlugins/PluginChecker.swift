@@ -21,6 +21,12 @@ public struct PluginChecker: QualityChecker, Sendable {
     /// Display name.
     public var name: String { "Plugin: \(plugin.name)" }
 
+    /// One sentence: what this checker finds. The README's description column.
+    public var summary: String { "Tier-2 plugin: \(plugin.name) — advisory unless the entry declares `gates: true`" }
+
+    /// The README section this checker is documented under.
+    public var category: CheckerCategory { .specialty }
+
     /// Creates the adapter for one plugin entry.
     public init(plugin: PluginConfig) {
         self.plugin = plugin

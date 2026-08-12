@@ -27,6 +27,8 @@ func someConditionFailed(in configuration: Configuration) async throws -> Bool {
 public struct MyChecker: QualityChecker, Sendable {
     public let id = "my-checker"
     public let name = "My Custom Checker"
+    public let summary = "The findings this checker reports, in one noun phrase"
+    public let category = CheckerCategory.codeHygiene
 
     public init() {}
 
@@ -78,6 +80,8 @@ struct SourceFile {
 public struct ConfigurationRespectingChecker: QualityChecker, Sendable {
     public let id = "configuration-respecting"
     public let name = "Configuration-Respecting Checker"
+    public let summary = "Findings this checker reports, honouring the configured exclusions"
+    public let category = CheckerCategory.codeHygiene
 
     let allFiles: [SourceFile]
 
@@ -152,6 +156,8 @@ All checkers must be `Sendable` because they may run concurrently:
 public struct ThreadSafeAuditor: QualityChecker, Sendable {
     public let id = "safety"
     public let name = "Safety Auditor"
+    public let summary = "Force unwraps and force casts, found by parsing each file independently"
+    public let category = CheckerCategory.safetySecurity
 
     public func check(configuration: Configuration) async throws -> CheckResult {
         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
@@ -163,6 +169,8 @@ public struct ThreadSafeAuditor: QualityChecker, Sendable {
 public final class UnsafeChecker: QualityChecker, @unchecked Sendable {
     public let id = "unsafe"
     public let name = "Unsafe Checker"
+    public let summary = "Findings from a checker that mutates shared state, which is why it is not parallel-safe"
+    public let category = CheckerCategory.safetySecurity
 
     var results: [String] = [] // Not thread-safe!
 

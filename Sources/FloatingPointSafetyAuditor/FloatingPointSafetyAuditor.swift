@@ -37,6 +37,12 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
     /// Human-readable display name for this checker.
     public let name = "Floating-Point Safety Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Floating-point exact equality, unguarded division"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.correctness
+
     /// Creates a floating-point safety auditor.
     public init() {}
 

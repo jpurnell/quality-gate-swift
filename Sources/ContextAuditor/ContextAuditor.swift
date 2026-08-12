@@ -27,6 +27,12 @@ public struct ContextAuditor: QualityChecker, Sendable {
     /// Human-readable name for this checker.
     public let name = "Context Auditor"
 
+    /// One sentence: what this checker finds. The README's description column.
+    public let summary = "Missing consent guards, unguarded analytics, surveillance patterns"
+
+    /// The README section this checker is documented under.
+    public let category = CheckerCategory.codeHygiene
+
     /// Creates a new ContextAuditor instance.
     public init() {}
 

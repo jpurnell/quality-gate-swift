@@ -12,6 +12,8 @@ import Foundation
 /// struct MyChecker: QualityChecker {
 ///     let id = "my-checker"
 ///     let name = "My Custom Checker"
+///     let summary = "The findings this checker reports, in one noun phrase"
+///     let category = CheckerCategory.codeHygiene
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
 ///         // Perform checks...
@@ -36,6 +38,27 @@ public protocol QualityChecker: Sendable {
     ///
     /// Shown in terminal output and reports.
     var name: String { get }
+
+    /// One sentence: what this checker finds.
+    ///
+    /// This is the description column of `README.md`'s checker reference — the column a reader
+    /// actually uses — and it is a protocol requirement rather than a convention for one
+    /// reason: it used to live only in the README, and four checkers shipped without anyone
+    /// adding a row. The sentence now lives beside the ``id`` it describes, so forgetting it is
+    /// a compile error instead of a documentation error.
+    ///
+    /// Deliberately has no default. An extension-only default would dispatch statically through
+    /// `any QualityChecker` and silently supply an empty description for every checker that
+    /// forgot one, which is the failure this requirement exists to make impossible.
+    ///
+    /// Write it as a noun phrase naming the findings, not a sentence about the checker:
+    /// *"Force unwraps, force casts, `try!`, `fatalError`"*, not *"This checker looks for…"*.
+    var summary: String { get }
+
+    /// Which section of the README's checker reference this belongs under.
+    ///
+    /// An editorial judgment, frozen into a type on purpose — see ``CheckerCategory``.
+    var category: CheckerCategory { get }
 
     /// Run the quality check and return results.
     ///

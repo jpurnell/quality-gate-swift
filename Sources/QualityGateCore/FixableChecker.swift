@@ -12,6 +12,8 @@ import Foundation
 /// struct MyChecker: FixableChecker {
 ///     let id = "my-checker"
 ///     let name = "My Checker"
+///     let summary = "Formatting issues this checker can correct in place"
+///     let category = CheckerCategory.codeHygiene
 ///     let fixDescription = "Corrects formatting issues in source files."
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
