@@ -178,15 +178,23 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         let packages = (try? manager.contentsOfDirectory(
             at: checkouts, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
         for package in packages {
-            let sources = package.appendingPathComponent("Sources", isDirectory: true)
-            // silent: a checkout with no Sources/ contributes no header paths, which is not an error
-            let targets = (try? manager.contentsOfDirectory(
-                at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-            for target in targets {
-                for directory in [target.appendingPathComponent("include", isDirectory: true), target] {
-                    // SAFETY: CLI tool checks a dependency checkout for a C target's modulemap
-                    if manager.fileExists(atPath: directory.appendingPathComponent("module.modulemap").path) {
-                        found.append(directory.path)
+            // SwiftPM does not require the directory to be called `Sources`, and a dependency's
+            // layout is not ours to choose. `mlx-swift` uses `Source`, singular; C-heavy
+            // packages wrapped for SwiftPM sometimes use `src`. Hardcoding one spelling made
+            // every fence importing such a module stop at a barrier — and the barrier said the
+            // count meant nothing, correctly, while the cause was this function looking in a
+            // directory that did not exist. Three `stat`s per package, against a wrong verdict.
+            for spelling in ["Sources", "Source", "src"] {
+                let sources = package.appendingPathComponent(spelling, isDirectory: true)
+                // silent: a checkout with no directory of this name contributes no header paths, which is the ordinary case for two of the three spellings
+                let targets = (try? manager.contentsOfDirectory(
+                    at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+                for target in targets {
+                    for directory in [target.appendingPathComponent("include", isDirectory: true), target] {
+                        // SAFETY: CLI tool checks a dependency checkout for a C target's modulemap
+                        if manager.fileExists(atPath: directory.appendingPathComponent("module.modulemap").path) {
+                            found.append(directory.path)
+                        }
                     }
                 }
             }

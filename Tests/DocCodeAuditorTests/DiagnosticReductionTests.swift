@@ -147,6 +147,40 @@ struct HeaderSearchPathTests {
         #expect(paths.contains { $0.hasSuffix("Sources/_DemoCShims/include") })
     }
 
+    @Test("A `Source/` (singular) checkout is found — the layout that hid 15 errors behind 7 barriers")
+    func singularSourceLayoutIsFound() throws {
+        // `Sources` was hardcoded, so `mlx-swift`'s `Source/Cmlx/include` was invisible and
+        // every fence importing the module stopped at a barrier. The barrier machinery worked;
+        // the path derivation feeding it under-reached. A user following the diagnostic's
+        // advice would have added `import Cmlx` to a doc comment about a background modifier.
+        let root = try CheckoutFixture.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let paths = DocCodeAuditor.headerSearchPaths(projectRoot: root, configuration: Configuration())
+        #expect(paths.contains { $0.hasSuffix("Source/DemoCmlx/include") })
+    }
+
+    @Test("A `src/` checkout is found")
+    func lowercaseSrcLayoutIsFound() throws {
+        let root = try CheckoutFixture.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let paths = DocCodeAuditor.headerSearchPaths(projectRoot: root, configuration: Configuration())
+        #expect(paths.contains { $0.hasSuffix("src/DemoCLib") })
+    }
+
+    @Test("All three spellings contribute at once, with no duplicates")
+    func everySpellingContributesExactlyOnce() throws {
+        let root = try CheckoutFixture.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let paths = DocCodeAuditor.headerSearchPaths(projectRoot: root, configuration: Configuration())
+        #expect(paths.contains { $0.hasSuffix("Sources/_DemoCShims/include") })
+        #expect(paths.contains { $0.hasSuffix("Source/DemoCmlx/include") })
+        #expect(paths.contains { $0.hasSuffix("src/DemoCLib") })
+        #expect(Set(paths).count == paths.count)
+    }
+
     @Test("A system-library target keeps its modulemap beside the sources, not under include/")
     func systemLibraryModulemapIsFound() throws {
         // `SwiftMCPServer/Sources/CSQLite/module.modulemap` is this shape. Requiring an
@@ -235,6 +269,19 @@ enum CheckoutFixture {
         try manager.createDirectory(at: withoutMap, withIntermediateDirectories: true)
         try "// no modulemap here\n"
             .write(to: withoutMap.appendingPathComponent("header.h"), atomically: true, encoding: .utf8)
+
+        // SwiftPM does not require the directory to be called `Sources`. `mlx-swift` — a real
+        // dependency of a real consumer — uses `Source`, singular, and C-heavy packages wrapped
+        // for SwiftPM sometimes use `src`.
+        let singular = root.appendingPathComponent(".build/checkouts/demo-mlx/Source/DemoCmlx/include")
+        try manager.createDirectory(at: singular, withIntermediateDirectories: true)
+        try "module DemoCmlx { header \"mlx.h\" export * }\n"
+            .write(to: singular.appendingPathComponent("module.modulemap"), atomically: true, encoding: .utf8)
+
+        let lowercaseSrc = root.appendingPathComponent(".build/checkouts/demo-clib/src/DemoCLib")
+        try manager.createDirectory(at: lowercaseSrc, withIntermediateDirectories: true)
+        try "module DemoCLib { header \"clib.h\" export * }\n"
+            .write(to: lowercaseSrc.appendingPathComponent("module.modulemap"), atomically: true, encoding: .utf8)
 
         let generated = root.appendingPathComponent(".build/out/Intermediates.noindex/GeneratedModuleMaps")
         try manager.createDirectory(at: generated, withIntermediateDirectories: true)
