@@ -339,11 +339,14 @@ struct CollectionShuffleTests {
 @Suite("StochasticDeterminismAuditor: Exemptions")
 struct ExemptionTests {
 
+    // The markers below carry reasons because a bare one is now itself a finding
+    // (`stochastic.exempt-no-justification`). These tests are about suppression, which is
+    // unchanged; the bare case has its own suite.
     @Test("Per-line stochastic:exempt suppresses diagnostic")
     func perLineExemptSuppresses() {
         let code = """
         func simulate() {
-            let x = Double.random(in: 0...1) // stochastic:exempt
+            let x = Double.random(in: 0...1) // stochastic:exempt — environmental jitter, no seeded sibling exists
         }
         """
         let results = diagnose(code)
@@ -501,7 +504,7 @@ struct TestFileCoverageTests {
     func exemptStillWorksInTests() {
         let code = """
         @Test func rolls() {
-            let n = arc4random_uniform(6) // stochastic:exempt
+            let n = arc4random_uniform(6) // stochastic:exempt — this fixture is about the marker, not reproducibility
         }
         """
         let results = diagnose(code, filePath: testPath)

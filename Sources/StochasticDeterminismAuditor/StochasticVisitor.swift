@@ -41,6 +41,19 @@ final class StochasticVisitor: SyntaxVisitor {
     /// Accumulated diagnostics from the walk.
     private(set) var diagnostics: [Diagnostic] = []
 
+    /// The per-line suppression marker this visitor honours.
+    ///
+    /// Spelled here rather than configured: it is the token this auditor's own documentation
+    /// and every existing call site already use, and a renameable suppression keyword would let
+    /// a project rename its way out of the rule.
+    static let exemptKeyword = "stochastic:exempt"
+
+    /// Lines already reported for carrying a marker with no reason.
+    ///
+    /// The missing reason belongs to the marker, not to each finding it silences, so a line
+    /// suppressing three diagnostics is still one omission.
+    private var bareExemptLines: Set<Int> = []
+
     /// Whether the current enclosing function accepts an RNG parameter.
     private var functionHasRNGParameter = false
 
@@ -290,12 +303,30 @@ final class StochasticVisitor: SyntaxVisitor {
         let line = location.line
         let column = location.column
 
-        // Per-line exemption: skip if the source line contains the exempt comment
+        // Per-line exemption. A marker still suppresses whatever it was written to suppress —
+        // no gate that passes today starts failing — but one that states no reason is itself
+        // reported, so the two populations become distinguishable without reading every site
+        // by hand. See `ExemptMarker`.
         let lineIndex = line - 1
-        if lineIndex >= 0, lineIndex < sourceLines.count {
-            if sourceLines[lineIndex].contains("// stochastic:exempt") {
-                return
+        if lineIndex >= 0, lineIndex < sourceLines.count,
+           let marker = ExemptMarker.parse(
+            line: sourceLines[lineIndex], keyword: Self.exemptKeyword) {
+            if !marker.hasJustification, bareExemptLines.insert(line).inserted {
+                // One report per line, not one per suppressed finding: the missing reason is a
+                // property of the marker, and a line silencing three findings has one marker.
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "`\(Self.exemptKeyword)` states no reason. A marker that costs "
+                        + "nothing to write cannot be told apart from a considered decision.",
+                    filePath: filePath,
+                    lineNumber: line,
+                    columnNumber: column,
+                    ruleId: "stochastic.exempt-no-justification",
+                    suggestedFix: "Say why the unseeded randomness is intentional, e.g. "
+                        + "`// \(Self.exemptKeyword) — the documented unseeded path; pass "
+                        + "`seed:` for reproducibility`."))
             }
+            return
         }
 
         diagnostics.append(
