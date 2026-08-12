@@ -353,7 +353,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// - Parameter content: The full text of the CHANGELOG.
     /// - Returns: The latest released version (normalized), or nil if only an
     ///   `Unreleased` section (or no version heading) is present.
-    static func parseLatestChangelogVersion(content: String) -> String? {
+    public static func parseLatestChangelogVersion(content: String) -> String? {
         let headingPattern = #/^\s*#{1,6}\s+(.*)$/#
         let semverPattern = #/v?(\d+\.\d+(?:\.\d+)?)/#
         for line in content.lines {
