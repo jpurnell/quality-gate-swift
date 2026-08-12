@@ -165,4 +165,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/2.0.2...HEAD
+[2.0.2]: https://github.com/jpurnell/quality-gate-swift/compare/2026.07.12...2.0.2
+[2026.07.12]: https://github.com/jpurnell/quality-gate-swift/compare/2026.07.10...2026.07.12
+[2026.07.10]: https://github.com/jpurnell/quality-gate-swift/compare/2.0.1...2026.07.10
 <!-- /generated:changelog-links -->

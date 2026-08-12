@@ -17,6 +17,12 @@ DerivedData/
 \#*\#
 .\#*
 
+# `quality-gate --fix` writes `<file>.<timestamp>.backup` beside anything it rewrites.
+# Git already holds the previous version, so these are transient by construction — but they
+# are also untracked, so without this every fix run leaves the tree dirty and invites one
+# into a commit.
+*.backup
+
 # IDE
 .idea/
 .vscode/
