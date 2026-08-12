@@ -49,9 +49,6 @@ final class SeedableAPIHarvester: SyntaxVisitor {
     /// Every callable with a defaulted `seed:`, by name and accepted argument labels.
     private(set) var seedableSignatures: Set<SeedableSignature> = []
 
-    /// Names a call site would write to reach a callable with a defaulted `seed:`.
-    var seedableNames: Set<String> { Set(seedableSignatures.map(\.name)) }
-
     /// Enclosing type names, innermost last.
     private var typeNameStack: [String] = []
 

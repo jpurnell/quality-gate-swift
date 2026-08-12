@@ -595,7 +595,10 @@ private func harvest(_ source: String) -> Set<String> {
     let tree = Parser.parse(source: source)
     let harvester = SeedableAPIHarvester(viewMode: .sourceAccurate)
     harvester.walk(tree)
-    return harvester.seedableNames
+    // Projected here rather than on the harvester: production reads `seedableSignatures`,
+    // and a convenience accessor no production code wants is dead weight the `unreachable`
+    // checker is right to flag.
+    return Set(harvester.seedableSignatures.map(\.name))
 }
 
 /// Runs pass 2 over a source string with a given harvest.

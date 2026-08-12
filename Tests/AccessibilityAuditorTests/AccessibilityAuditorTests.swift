@@ -523,6 +523,59 @@ struct AccessibilityAuditorTests {
         #expect(hits.isEmpty)
     }
 
+    @Test("onTapGesture with a named accessibilityAction passes")
+    func tapGestureWithAccessibilityAction() async throws {
+        // A named action is the API Apple's guidance points at for a gesture with no visible
+        // control, and on a container it is the *better* answer: `.isButton` on a scrollable
+        // map makes VoiceOver announce the whole map as one button.
+        let source = """
+        import SwiftUI
+
+        struct MapView: View {
+            var body: some View {
+                MapContainer()
+                    .onTapGesture(count: 2) { }
+                    .accessibilityAction(named: "Reset zoom") { }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "TapAction.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.tap-gesture-missing-button-trait" }
+        #expect(hits.isEmpty)
+    }
+
+    @Test("A multi-tap gesture is an accelerator, not a control, so it is not flagged")
+    func multiTapGestureIsNotAControl() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Zoom").onTapGesture(count: 2) { }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "DoubleTap.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.tap-gesture-missing-button-trait" }
+        #expect(hits.isEmpty)
+    }
+
+    @Test("An explicit single-tap gesture still warns")
+    func explicitSingleTapStillWarns() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Tap me").onTapGesture(count: 1) { }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "SingleTap.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.tap-gesture-missing-button-trait" }
+        #expect(hits.count == 1)
+    }
+
     // MARK: - hardcoded-color-string
 
     @Test("Hardcoded RGB Color triggers warning")
@@ -755,6 +808,89 @@ struct AccessibilityAuditorTests {
         let result = try await auditor.auditSource(source, fileName: "ShortcutOK.swift")
         let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
         #expect(hits.isEmpty)
+    }
+
+    @Test("Command-N inside CommandGroup(replacing: .newItem) is the standard binding, not an override")
+    func standardShortcutInMatchingCommandGroup() async throws {
+        // The rule's own `suggestedFix` asks for exactly this shape. Flagging it told an
+        // author to fix code that was already fixed, and the only literal way to comply —
+        // deleting the modifier — silently removes Command-N from the app, because
+        // `CommandGroup(replacing:)` does not confer the placement's shortcut on a custom
+        // Button. Verified against a real `NSApp.mainMenu` dump, not assumed.
+        let source = """
+        import SwiftUI
+
+        struct GameCommands: Commands {
+            var body: some Commands {
+                CommandGroup(replacing: .newItem) {
+                    Button("New Game") { }
+                        .keyboardShortcut("n", modifiers: .command)
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Commands.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(hits.isEmpty)
+    }
+
+    @Test("`before:` and `after:` placements count the same as `replacing:`")
+    func standardShortcutInAdjacentCommandGroup() async throws {
+        let source = """
+        import SwiftUI
+
+        struct GameCommands: Commands {
+            var body: some Commands {
+                CommandGroup(before: .newItem) {
+                    Button("New Game") { }
+                        .keyboardShortcut("n", modifiers: .command)
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CommandsBefore.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(hits.isEmpty)
+    }
+
+    @Test("A key that does not match its placement still warns")
+    func mismatchedKeyInCommandGroupStillWarns() async throws {
+        // `.saveItem` is Command-S. Binding Command-N there is a repurposing, and the
+        // enclosing placement is what makes it one.
+        let source = """
+        import SwiftUI
+
+        struct GameCommands: Commands {
+            var body: some Commands {
+                CommandGroup(replacing: .saveItem) {
+                    Button("New Game") { }
+                        .keyboardShortcut("n", modifiers: .command)
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CommandsMismatch.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(hits.count == 1)
+    }
+
+    @Test("A custom CommandMenu is not a standard placement, so it still warns")
+    func customCommandMenuStillWarns() async throws {
+        let source = """
+        import SwiftUI
+
+        struct GameCommands: Commands {
+            var body: some Commands {
+                CommandMenu("Game") {
+                    Button("New Game") { }
+                        .keyboardShortcut("n", modifiers: .command)
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CommandMenu.swift")
+        let hits = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(hits.count == 1)
     }
 
     // MARK: - A-6: hit-target-too-small

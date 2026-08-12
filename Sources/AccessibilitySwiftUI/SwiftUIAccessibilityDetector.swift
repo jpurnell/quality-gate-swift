@@ -118,6 +118,41 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         ))
     }
 
+    /// The key each standard `CommandGroupPlacement` already owns.
+    ///
+    /// Binding one of these *inside its own placement* is the system behaviour, not an
+    /// override of it — the placement is the author declaring which standard slot the command
+    /// occupies. `.textFormatting` is deliberately absent: it has no single canonical key, so
+    /// a reserved key bound there is still a repurposing and still warns.
+    private static let standardPlacementKeys: [String: Set<String>] = [
+        "newItem": ["n"],
+        "saveItem": ["s"],
+        "printItem": ["p"],
+        "undoRedo": ["z"],
+        "pasteboard": ["x", "c", "v", "a"],
+    ]
+
+    /// The standard `CommandGroup` placement a call sits lexically inside, if any.
+    ///
+    /// Only `replacing:`, `before:` and `after:` count. A `CommandMenu("Game")` is a custom
+    /// menu rather than a standard placement, so a reserved key bound in one is exactly the
+    /// repurposing this rule exists to catch and is left flagged.
+    private func enclosingCommandGroupPlacement(from node: some SyntaxProtocol) -> String? {
+        var current: Syntax? = Syntax(node)
+        while let parent = current?.parent {
+            if let call = parent.as(FunctionCallExprSyntax.self),
+               call.calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text == "CommandGroup",
+               let placement = call.arguments.first,
+               let label = placement.label?.text,
+               ["replacing", "before", "after"].contains(label),
+               let member = placement.expression.as(MemberAccessExprSyntax.self) {
+                return member.declName.baseName.text
+            }
+            current = parent
+        }
+        return nil
+    }
+
     /// Detects `.keyboardShortcut` binding a system-reserved key with Command — likely
     /// overriding standard system behavior rather than using the standard command.
     private func checkStandardShortcutOverride(_ node: FunctionCallExprSyntax) {
@@ -142,6 +177,16 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             isCommandOnly = true
         }
         guard isCommandOnly else { return }
+
+        // A reserved key bound inside the standard menu placement that *owns* that key is the
+        // canonical form, not a repurposing — and it is the form this rule's own suggestedFix
+        // asks for. Deleting the modifier is not an available fix either: `CommandGroup` does
+        // not confer its placement's shortcut on a custom Button, so removing it silently
+        // deletes the shortcut from the app. Verified against a real `NSApp.mainMenu` dump.
+        if let placement = enclosingCommandGroupPlacement(from: node),
+           Self.standardPlacementKeys[placement]?.contains(key.lowercased()) == true {
+            return
+        }
 
         let location = member.period.startLocation(converter: converter)
         if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.standardShortcutOverride) {
@@ -381,6 +426,16 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             return
         }
         if hasModifierInChain(from: node, named: "accessibilityAddTraits") { return }
+
+        // A named accessibility action is the API Apple's guidance points at for a gesture with
+        // no visible control, and on a container it is the better answer rather than merely an
+        // acceptable one: `.isButton` on a scrollable map makes VoiceOver announce the whole
+        // map as a single button, which is worse than the state this rule is complaining about.
+        if hasModifierInChain(from: node, named: "accessibilityAction") { return }
+
+        // A multi-tap gesture is an accelerator layered over another affordance, not the
+        // primary way to operate a control. A single tap with no trait is the real case.
+        if let count = Self.numericArg(node, label: "count"), count >= 2 { return }
 
         let location = member.period.startLocation(converter: converter)
         if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.tapGestureMissingButtonTrait) {
