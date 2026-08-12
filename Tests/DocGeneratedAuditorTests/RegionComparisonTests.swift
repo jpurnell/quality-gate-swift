@@ -81,6 +81,46 @@ struct RegionComparisonTests {
         #expect(finding.severity == .error)
     }
 
+    @Test("A region holding the right rows in the wrong order is stale, and says so")
+    func reorderedRowsAreStale() async throws {
+        // Found by `checker-table`, which produces rows in registry order against a README
+        // whose rows a person had arranged. `missing` and `unexpected` are multiset
+        // comparisons, so a permutation empties both while `matches` stays false — and
+        // `staleness` returned no findings at all. A byte-mismatched region that reports
+        // nothing is the one outcome this checker must never produce: it is indistinguishable
+        // from a pass, in the exact place the whole design says silence is not allowed.
+        let root = try TemporaryDocProject.make(
+            masterPlan: """
+            ## Error Registry
+
+            | Error Case | Module | Description |
+            |------------|--------|-------------|
+            <!-- generated:error-registry -->
+            | `QualityGateError.testsFailed` | QualityGateCore | One or more tests failed. |
+            | `QualityGateError.buildFailed` | QualityGateCore | Swift build failed. |
+            <!-- /generated:error-registry -->
+            """,
+            extras: ["Sources/QualityGateCore/QualityGateError.swift": """
+            public enum QualityGateError: Error {
+
+                /// Swift build failed.
+                case buildFailed(exitCode: Int32)
+
+                /// One or more tests failed.
+                case testsFailed(count: Int)
+            }
+            """])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = try await Self.run(root)
+
+        #expect(result.status == .failed)
+        let finding = try #require(result.diagnostics.first {
+            $0.ruleId == "doc-generated.region-order"
+        })
+        #expect(finding.severity == .error)
+    }
+
     @Test("A region that is byte-correct in a file whose generator threw is a finding, not a pass")
     func generatorThrowIsAFinding() async throws {
         // The `6bd6109` lesson restated: a compilation that never happened is not a pass, and

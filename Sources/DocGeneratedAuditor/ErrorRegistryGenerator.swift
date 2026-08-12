@@ -98,13 +98,12 @@ public struct ErrorRegistryGenerator: RegionGenerator {
         return nil
     }
 
-    /// The module directory a source file belongs to — the first path component under
-    /// `Sources/`.
+    /// The module directory a source file belongs to.
+    ///
+    /// Shared with ``CheckerTableGenerator``, which needs the same answer for the same reason:
+    /// the module column names the directory, and the type's own name is not it.
     static func module(of file: URL, under sources: URL) -> String {
-        let sourceComponents = sources.standardizedFileURL.pathComponents
-        let fileComponents = file.standardizedFileURL.pathComponents
-        guard fileComponents.count > sourceComponents.count else { return "" }
-        return fileComponents[sourceComponents.count]
+        PackageTargets.module(of: file, under: sources)
     }
 
     /// Collects the cases of one named enum, with the abstract from each case's `///` run.

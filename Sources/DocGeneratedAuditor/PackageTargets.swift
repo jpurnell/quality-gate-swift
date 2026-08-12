@@ -55,6 +55,19 @@ public enum PackageTargets {
         return nil
     }
 
+    /// The module a source file belongs to — the first path component under `Sources/`.
+    ///
+    /// - Parameters:
+    ///   - file: The source file.
+    ///   - sources: The `Sources/` directory it was found under.
+    /// - Returns: The module directory's name, or `""` when the file is not under `sources`.
+    static func module(of file: URL, under sources: URL) -> String {
+        let sourceComponents = sources.standardizedFileURL.pathComponents
+        let fileComponents = file.standardizedFileURL.pathComponents
+        guard fileComponents.count > sourceComponents.count else { return "" }
+        return fileComponents[sourceComponents.count]
+    }
+
     /// The first paragraph after the symbol heading, joined onto one line.
     ///
     /// Stops at the first blank line, and refuses anything that begins a new block — a `##`

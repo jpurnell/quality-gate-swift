@@ -78,67 +78,86 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 
 | ID | Module | Description |
 |----|--------|-------------|
+<!-- generated:checker-table-correctness -->
+| `unreachable` | UnreachableCodeAuditor | Dead code via SwiftSyntax + IndexStore cross-reference |
 | `recursion` | RecursionAuditor | Self-forwarding inits, computed property cycles, mutual recursion via USR call-graph analysis |
-| `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
 | `concurrency` | ConcurrencyAuditor | Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation, cancellation checkpoints after `for await` loops |
+| `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
 | `fp-safety` | FloatingPointSafetyAuditor | Floating-point exact equality, unguarded division |
 | `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis |
-| `unreachable` | UnreachableCodeAuditor | Dead code via SwiftSyntax + IndexStore cross-reference |
 | `process-safety` | ProcessSafetyAuditor | Unsafe process spawning, command injection patterns |
 | `complexity` | ComplexityAnalyzer | Cognitive complexity per function, call-graph amplification, cross-module amplification, O(n) pattern detection |
 | `legibility` | LegibilityAnalyzer | Advisory (never gates): central-but-unoriented modules, dependency cycles, over-public surface; emits a reading-order / module-map artifact |
+<!-- /generated:checker-table-correctness -->
 
 ### Safety & Security
 
 | ID | Module | Description |
 |----|--------|-------------|
+<!-- generated:checker-table-safety-security -->
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
-| `keychain-secrets` | KeychainSecretsChecker | Credentials/tokens written to `UserDefaults` (plaintext plist, backup-swept) instead of the Keychain — key- and value-name secret detection with a Bool/Int-value guard |
-| `privacy-manifest` | PrivacyManifestChecker | App targets missing or with a malformed `PrivacyInfo.xcprivacy` — opt-in by app detection, so pure SPM libraries are skipped |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
 | `temporal-determinism` | TemporalDeterminismAuditor | Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time |
+| `keychain-secrets` | KeychainSecretsChecker | Credentials/tokens written to `UserDefaults` (plaintext plist, backup-swept) instead of the Keychain — key- and value-name secret detection with a Bool/Int-value guard |
+| `privacy-manifest` | PrivacyManifestChecker | App targets missing or with a malformed `PrivacyInfo.xcprivacy` — opt-in by app detection, so pure SPM libraries are skipped |
 | `hig-auditor` | HIGAuditor | Apple Human Interface Guidelines compliance for SwiftUI views |
+<!-- /generated:checker-table-safety-security -->
 
 ### Code Hygiene
 
 | ID | Module | Description |
 |----|--------|-------------|
+<!-- generated:checker-table-code-hygiene -->
+| `accessibility` | AccessibilityAuditor | SwiftUI accessibility: missing labels, fixed font sizes, color-only differentiation |
 | `logging` | LoggingAuditor | `print()` in production code, silent `catch` blocks, missing os.Logger usage |
 | `test-quality` | TestQualityAuditor | Floating-point assertions, missing test assertions, unseeded randomness in tests |
 | `context` | ContextAuditor | Missing consent guards, unguarded analytics, surveillance patterns |
-| `accessibility` | AccessibilityAuditor | SwiftUI accessibility: missing labels, fixed font sizes, color-only differentiation |
+| `idiom` | IdiomAuditor | Non-idiomatic Swift the language has a shorter form for; `// idiom:exempt` is recorded, never silent (advisory) |
+| `smells` | SmellPack | Structural smells in declarations: long parameter lists, feature envy, primitive obsession; `// smell:exempt` is recorded (advisory) |
+| `duplication` | DuplicationAuditor | Token-level clone detection across files and modules (advisory) |
+<!-- /generated:checker-table-code-hygiene -->
 
 ### Documentation
 
 | ID | Module | Description |
 |----|--------|-------------|
-| `doc-coverage` | DocCoverageChecker | Undocumented public APIs, inherited documentation detection, usage-priority ranking |
+<!-- generated:checker-table-documentation -->
 | `doc-lint` | DocLinter | DocC documentation build errors |
-| `doc-code` | DocCodeAuditor | Fenced Swift in DocC articles must compile against the built module — the article is one program (opt-in) |
+| `doc-code` | DocCodeAuditor | Fenced Swift in DocC articles must compile against the built module — the article is one program |
+| `doc-run` | DocCodeAuditor | DocC articles must *run* top to bottom without trapping, not merely compile — the article is one program (opt-in) |
+| `doc-claims` | DocCodeAuditor | Figures a DocC article publishes must match what that article's own program computes (opt-in) |
 | `doc-comment-code` | DocCodeAuditor | Fenced Swift in `///` and `/** */` doc comments must compile against the module the comment lives in — the unit is one fence (opt-in) |
+| `doc-generated` | DocGeneratedAuditor | Derived content committed as prose — rosters, registries, changelog links — must still match what it was derived from |
+| `doc-coverage` | DocCoverageChecker | Undocumented public APIs, inherited documentation detection, usage-priority ranking |
+<!-- /generated:checker-table-documentation -->
 
 ### Project Health
 
 | ID | Module | Description |
 |----|--------|-------------|
+<!-- generated:checker-table-project-health -->
 | `build` | BuildChecker | `swift build` wrapper — captures all compiler errors and warnings |
 | `test` | TestRunner | `swift test` wrapper — parses Swift Testing and XCTest results; flip detector flags scheduler-dependent pass↔fail outcome changes on an unchanged package; optional stress mode re-runs `// TIMING:`-tagged tests to provoke races |
-| `status` | StatusAuditor | Drift between project docs and actual code state; supports `--fix` |
-| `dependency-audit` | DependencyAuditor | Package.resolved sync, branch pins, local overrides, hallucinated import detection via AST-parsed manifests |
-| `release-readiness` | ReleaseReadinessAuditor | CHANGELOG entries, README placeholders, pending-work markers |
-| `swift-version` | SwiftVersionChecker | swift-tools-version validation and upgrade feasibility |
 | `memory-builder` | MemoryBuilder | Claude Code project memory generation and validation |
+| `status` | StatusAuditor | Drift between project docs and actual code state; supports `--fix` |
+| `swift-version` | SwiftVersionChecker | swift-tools-version validation and upgrade feasibility |
+| `dependency-audit` | DependencyAuditor | Package.resolved sync, branch pins, local overrides, hallucinated import detection via AST-parsed manifests |
+| `submodule-audit` | SubmoduleAuditor | Git submodule pin and allowlist compliance |
+| `release-readiness` | ReleaseReadinessAuditor | CHANGELOG entries, README placeholders, pending-work markers |
+<!-- /generated:checker-table-project-health -->
 
 ### Specialty
 
 | ID | Module | Description |
 |----|--------|-------------|
+<!-- generated:checker-table-specialty -->
 | `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference |
-| `disk-clean` | DiskCleaner | Build artifact and cache cleanup (opt-in) |
-| `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
-| `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
-| `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
+| `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
+| `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
+| `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
+<!-- /generated:checker-table-specialty -->
+| `disk-clean` | DiskCleaner | Build artifact and cache cleanup (opt-in) |
 
 `disk-clean`, `xcode-build`, `doc-run`, `doc-claims` and `doc-comment-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
 

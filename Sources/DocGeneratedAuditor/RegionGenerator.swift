@@ -80,7 +80,7 @@ public enum RegionGeneratorRegistry {
             ErrorRegistryGenerator(),
             ModuleStructureGenerator(),
             StatusRosterGenerator(),
-        ]
+        ] + CheckerCategory.allCases.map(CheckerTableGenerator.init(category:))
     }
 
     /// The registered ids.

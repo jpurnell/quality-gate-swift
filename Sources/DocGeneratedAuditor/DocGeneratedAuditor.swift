@@ -304,6 +304,28 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
                 suggestedFix: "Remove the line, or fix the source if the generator is the one "
                     + "that is wrong.")
         }
+
+        // A region that does not match and produces no finding is indistinguishable from a
+        // pass, which is the one outcome this checker must never reach. It is reachable:
+        // `missing` and `unexpected` are multiset comparisons, so a region holding exactly the
+        // right rows in the wrong order empties both while `matches` stays false. Found by
+        // `checker-table`, whose rows come out in registry order against a README somebody had
+        // arranged by hand.
+        //
+        // The guard is written as "no findings" rather than "is a permutation" on purpose: it
+        // backstops every future comparison that fails to explain itself, not just this one.
+        if findings.isEmpty {
+            return [Diagnostic(
+                severity: .error,
+                message: "Region `\(region.id)` holds exactly the lines its source produces, in "
+                    + "a different order. \(source)",
+                filePath: document.url.path,
+                lineNumber: region.openingLine,
+                ruleId: "doc-generated.region-order",
+                suggestedFix: "Reorder the region to match the generator. The order is derived "
+                    + "too — it is the order the source declares, and a reader uses it to find "
+                    + "things.")]
+        }
         return findings
     }
 }
