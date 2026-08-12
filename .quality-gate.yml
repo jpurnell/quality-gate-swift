@@ -51,9 +51,12 @@ minimumGateVersion: "2026-07-10"
 # from `git tag` are both refs, and a verdict that moves with a shallow clone is not hermetic.
 doc-generated:
   repositoryURL: "https://github.com/jpurnell/quality-gate-swift"
-  # tagPrefix is left at "" deliberately. This repository's tags are `v2.0.2` but also
-  # `2026.07.12`, so no single value produces four working links; settling the tags is the
-  # repair, and it is not one this checker can see.
+  # Settled at 3.0.0: the semver tags (`v1.0.0`, `v2.0.1`, `v2.0.2`, `v3.0.0`) carry a `v` and
+  # the two date-style tags (`2026.07.10`, `2026.07.12`) are the outliers, so `v` is the
+  # convention going forward. Compare *bases* pointing at those two, and at tags never pushed,
+  # still resolve to nothing — a link cannot be made correct by naming a ref that does not
+  # exist, and this checker cannot see refs to tell you so.
+  tagPrefix: "v"
 
 # v2 layout: the master plan is project-owned, not framework content.
 status:

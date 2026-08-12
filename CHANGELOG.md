@@ -2,6 +2,92 @@
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-08-12
+
+**The project's claims about itself are now checked.** Documentation must compile, run, and match
+the figures it publishes. Derived prose — module rosters, the error registry, changelog links, the
+checker reference — must match the tree or the gate fails. A suppression must say why. A released
+version must be resolvable by whoever reads about it. None of that was true in 2.x, and none of it
+required a new claim to become true: every rule below was measured against this repository, and
+most of them found something on their first run.
+
+### Breaking
+
+- **`QualityChecker` gains `summary` and `category`, with no default implementations.** An
+  external conformer will not compile until it adds both. This is deliberate: an extension-only
+  default dispatches statically through `any QualityChecker` and would hand an empty description
+  to every checker that forgot one, disarming the requirement exactly where it matters. The
+  README's description column — the column a reader actually uses — existed nowhere in source,
+  which is how four checkers shipped without a row and seven had by the time it was fixed. The
+  sentence now lives beside the `id` it describes, so forgetting it is a compile error rather
+  than a documentation error. 61 sites were updated, including examples inside doc comments,
+  which this package's own `doc-comment-code` refused to let pass until they matched.
+
+### Added
+
+- **`doc-generated` (new checker) — derived content committed as prose must still match what it
+  was derived from.** Ten regions across three files: six checker-reference tables in `README.md`,
+  the module list and status roster in `master_plan.md` (membership derived from `Package.swift`;
+  tick-boxes remain `status`'s and no generator ever flips one), the error registry derived from
+  `QualityGateError`'s cases and their `///` abstracts, and `CHANGELOG.md`'s link definitions.
+  `--fix` regenerates a stale region, changing only the bytes between the delimiters — it locates
+  the body as a character range rather than splitting and rejoining the file, which would rewrite
+  every line ending in a CRLF document while repairing three rows. On arrival it reported 65
+  findings against this repository, including seven modules absent from the architecture table, a
+  registry that had never listed `writeGuardViolation`, and four changelog link definitions that
+  had never been written at all.
+- **`quality-gate release` — the release-scoped observer.** The housekeeping obligations are
+  release-scoped and every enforcement mechanism was commit-scoped, so nothing ran at the moment
+  they came due. It checks that the places stating a version agree, that `[Unreleased]` has been
+  emptied, and that the plan was reconciled — the temporal question, which is illegitimate at
+  commit time and legitimate here because a release *is* the calendar event. Its first run found
+  a master plan last updated 2026-06-04, before 2.0.2 shipped.
+- **The release-tag invariant, split into the three questions it was conflating.** Parity (is the
+  documented version tagged), identity (does that tag contain the entry it claims), reachability
+  (is the tag actually going to the remote). Parity is advisory at commit time — the old rule
+  could only be satisfied by inverting the project's own gate-then-commit order — and blocking at
+  a push boundary. **No repository needs to change a hook:** git already hands `pre-push` its ref
+  list on stdin and the installed template already passes it through, so the check arrives with a
+  binary upgrade rather than a rollout. It found `v2.0.1` and `v2.0.2` present locally and absent
+  from the remote, with the CHANGELOG advertising 2.0.2 as current.
+- **`stochastic.exempt-no-justification`** — `// stochastic:exempt` must state why. A bare marker
+  still suppresses, so no passing gate starts failing, but it is reported. Two defects had hidden
+  behind bare markers in one release, each costing a misdiagnosis: a configured `seed` rendered
+  inert on the GPU path, and a robust optimiser redrawing 92 of 100 scenarios per call, so two
+  runs of the same optimisation solved different problems.
+- **`memory-index` region for `MemoryBuilder`.** The index used a per-line marker, so a generated
+  line that lost its tag became immortal — nothing could tell it from a hand-written one. The live
+  index carried five duplicated pairs, one saying 72 targets and another 116, both loaded at every
+  session start. A region expresses deletion; a line suffix cannot.
+
+### Fixed
+
+- **`a11y.swiftui.standard-shortcut-override` no longer flags the canonical form it asks for.** A
+  reserved key bound inside the standard `CommandGroup` placement that owns it is the system
+  behaviour, not a repurposing — and the rule's literal suggested fix was a functional regression,
+  since `CommandGroup(replacing:)` does not confer its placement's shortcut on a custom `Button`.
+- **`a11y.swiftui.tap-gesture-missing-button-trait` accepts `.accessibilityAction`** and no longer
+  flags multi-tap gestures. On a container, `.isButton` makes VoiceOver announce a whole scrollable
+  map as one button, which is worse than the state being reported.
+- **`doc-code` finds C modulemaps under `Source/` and `src/`.** `Sources` was hardcoded, so a real
+  dependency using the singular spelling was invisible and every fence importing it stopped at a
+  barrier — 15 errors behind 7 barriers in one project, with the diagnostic correctly saying the
+  count meant nothing while the cause was a directory that was never looked in.
+- **`doc-lint` no longer reports a dependency's build-graph noise as a project warning.** A
+  location-less diagnostic whose every absolute path lies under `.build/` is demoted to a note.
+  `build` had always dropped these lines; the two checkers now disagree by decision rather than by
+  accident of two regexes.
+- **A region matching its generator's output in the wrong order reported nothing while failing.**
+  `missing` and `unexpected` are multiset comparisons, so a permutation emptied both while the
+  bodies differed — a byte-mismatched region with a green verdict. Found by `checker-table`, the
+  first generator whose natural order differs from one a person arranged.
+
+
+### Earlier in this release
+
+Entries written as the work landed, before 3.0.0 had a heading to sit under. They are the same
+release and are kept in the order they were recorded.
+
 - **New checker `doc-comment-code`: the examples in `///` must compile too.** `doc-code` compiles the `.docc` catalogue; this compiles the doc comments the catalogue was copied *from*. The distinction is not theoretical. Commit `65471d7` repaired 26 articles in this package and found real API drift doing it — `Configuration.default` gone, `limitToFiles` retyped, `{ … }` placeholders that never parsed — and it touched **no doc comment**. `ImplementingCheckers.md` now shows a `MyChecker` that declares its helper, imports `QualityGateCore` and returns a real `CheckResult`, *because `doc-code` forced it to*; the `///` on `QualityChecker` itself still carries the abbreviated version, and Quick Help still serves it. **`doc-code` repaired the copy and could not see the original.** Against this repository the new checker finds **43 doc fences in 26 files — 20 Swift, 23 not (18 yaml, 2 json, 1 bash, 2 untagged), 0 exempt — of which 16 fail, with five root causes.** Ten of the sixteen are one `## Usage` template copied into ten auditors, and the obvious repair fails too: the block never says `import QualityGateCore`, so a reader who copies it out of Quick Help cannot build it. Four decisions are load-bearing. **(1) The compilation unit is one fence**, not the doc comment and not the file — `HIGAuditor.swift` carries one `///` run holding two unrelated fences, a usage example and a fragment of the *reader's* SwiftUI code, so concatenating them would import `doc-code`'s collision rule into a place where its premise is false. Nobody pastes a Quick Help panel. No collision detection runs. **(2) The preamble is `Foundation` plus the owning module and nothing widens it** — not the dependency closure, not `docCode.extraImports`. Injecting `QualityGateCore` would have turned ten failures into ten passes while the examples stayed uncopyable, and it could not have fixed the four `QualityGateTestKit` fences at any depth, because `SafetyAuditor` is not in that target's closure and must not be. A preamble generous enough to make the corpus green certifies documentation the reader cannot use. **(3) Extraction is SwiftSyntax trivia, never a line regex.** A regex reports 21 Swift doc fences here; the strict count is 20, and the difference is an inline code span in `ArticleAssembler.swift:66` — in the sentence explaining why the illustrative marker is an HTML comment. A regex extractor would report the rest of that doc comment as broken, in the file that documents the rule. **(4) Untagged and foreign-tagged fences are never guessed at**, and are counted in the coverage line, because a gate that under-reports its own coverage is indistinguishable from one that passes. `<!-- docs:illustrative -->` carries over unchanged, `/// `-prefixed — verified this session by rendering a doc comment containing it through `swift package generate-documentation`: the marker leaves no trace in the rendered page, the prose either side and the syntax-highlighted code listing all survive, and the raw string appears only in the symbol graph, which is source rather than output. Shipped **opt-in** (`--check doc-comment-code`; `--full` does not enable it), **error** severity with no knob that downgrades it, `isParallelSafe = true`, `.hermetic`, no `--fix` and specifically never an auto-inserted exemption. It lives in `Sources/DocCodeAuditor` — no 117th SPM target, since `Toolchain`, `ManifestLanguageMode`, `headerSearchPaths`, `generatedModuleMaps` and `ArticleAuditor.reduce` are all reused — but takes **its own checker id**, because a shared one would turn the freshly-green `doc-code` red on the day this landed, and a gate that is red on arrival gets skipped. The documentation itself is deliberately *not* repaired here: the rule and its remediation are separate commits so the 16 findings are visible before they are answered.
 
 - **`doc-code` reported PASSED for a catalogue in which it had typechecked nothing.** Every module in this package transitively depends on SwiftSyntax, so the assembled article's `import <Module>` failed with `<unknown>:0: error: missing required module '_SwiftSyntaxCShims'` and the compiler stopped before typechecking. Two bugs then made that invisible. **(1) The barrier test was a single string prefix.** It matched `no such module` only; the compiler has at least four ways to say it could not proceed, and the one this package produces was not it. **(2) An error with no article location was discarded.** `<unknown>:0:` has two colon-fields, `lineNumber(inHead:)` returned `nil`, and the parse loop `continue`d. Together they yielded `(errors: [], barrier: nil)` — a verdict indistinguishable from a clean article — while the coverage note still claimed "13 fences checked". This is precisely the failure `barrier` was introduced to prevent; the mechanism was right and the trigger was too narrow. **The fix is structural, not another list of phrasings**: an error the compiler could not attach to a line of the assembled program is, by construction, not a statement about a line of the article, so it is now recorded as a barrier and can never be silent. A list would need extending every time the compiler learns a new wording, and the cost of a missing entry is silence. The located `no such module` check is kept, because that diagnostic *does* name the import line and would otherwise send a reader to fix a line whose real problem is the build. The reduction moved out of `typecheck` into a pure `reduce(output:)` so it is testable without a toolchain — which is how the defect was isolated in the first place.
@@ -165,8 +251,9 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/2.0.2...HEAD
-[2.0.2]: https://github.com/jpurnell/quality-gate-swift/compare/2026.07.12...2.0.2
-[2026.07.12]: https://github.com/jpurnell/quality-gate-swift/compare/2026.07.10...2026.07.12
-[2026.07.10]: https://github.com/jpurnell/quality-gate-swift/compare/2.0.1...2026.07.10
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/jpurnell/quality-gate-swift/compare/v2.0.2...v3.0.0
+[2.0.2]: https://github.com/jpurnell/quality-gate-swift/compare/v2026.07.12...v2.0.2
+[2026.07.12]: https://github.com/jpurnell/quality-gate-swift/compare/v2026.07.10...v2026.07.12
+[2026.07.10]: https://github.com/jpurnell/quality-gate-swift/compare/v2.0.1...v2026.07.10
 <!-- /generated:changelog-links -->
