@@ -103,6 +103,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Generate initial status documents from actual project state (use with --check status)")
     var bootstrap: Bool = false
 
+    @Flag(name: .long, help: "Enforce the release-tag invariant at full strength, as a pre-push hook does (implied when git supplies a pushed-ref list on stdin)")
+    var releaseBoundary: Bool = false
+
     @Flag(name: .long, help: "Disable the incremental result cache (re-run every checker from scratch)")
     var noCache: Bool = false
 
@@ -150,7 +153,15 @@ struct QualityGateCLI: AsyncParsableCommand {
     /// The full checker registry (order matters for output), shared by the
     /// main run and `adopt` so a baseline is recorded by exactly the gate
     /// that will later enforce it.
-    static func checkerRegistry(configuration: Configuration) -> [any QualityChecker] {
+    /// The checkers this binary ships, in the order they run.
+    ///
+    /// - Parameters:
+    ///   - configuration: Supplies each checker's knobs.
+    ///   - pushedRefs: The refs git is about to push, when this run is a `pre-push` boundary.
+    ///     Only `release-readiness` consumes it, and only there do its tag rules gate.
+    static func checkerRegistry(
+        configuration: Configuration, pushedRefs: [PushedRef]? = nil
+    ) -> [any QualityChecker] {
         return [
             BuildChecker(),
             TestRunner(),
@@ -184,7 +195,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             ContextAuditor(),
             DependencyAuditor(),
             SubmoduleAuditor(),
-            ReleaseReadinessAuditor(),
+            ReleaseReadinessAuditor(pushedRefs: pushedRefs),
             FloatingPointSafetyAuditor(),
             StochasticDeterminismAuditor(),
             TemporalDeterminismAuditor(),
@@ -322,7 +333,12 @@ struct QualityGateCLI: AsyncParsableCommand {
         )
 
         // Build the full checker registry (order matters for output)
-        let allCheckers = Self.checkerRegistry(configuration: configuration)
+        // A `pre-push` hook receives the refs being pushed on stdin, and the installed hook
+        // template already passes its stdin through to this process — so the boundary is
+        // detected from data that is already arriving, and no repository has to change a hook
+        // to gain the check. `--release-boundary` covers CI, where there is no hook at all.
+        let pushedRefs = releaseBoundary ? (PushedRefs.fromStandardInput() ?? []) : PushedRefs.fromStandardInput()
+        let allCheckers = Self.checkerRegistry(configuration: configuration, pushedRefs: pushedRefs)
 
         // Determine effective checkers: --check all | --check X Y | config | defaults.
         // Destructive maintenance checkers (disk-clean) are opt-in even under "all".

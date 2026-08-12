@@ -33,8 +33,19 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.projectHealth
 
+    /// The refs git is about to push, when this run is a `pre-push` boundary.
+    ///
+    /// `nil` on an ordinary run, which is what keeps the tag rules advisory there. Injected
+    /// rather than read inside `check` so the auditor stays a pure function of its inputs and
+    /// the boundary behaviour is testable without a terminal, a hook, or a remote.
+    public let pushedRefs: [PushedRef]?
+
     /// Creates a new release readiness auditor.
-    public init() {}
+    ///
+    /// - Parameter pushedRefs: The refs being pushed, or `nil` outside a push boundary.
+    public init(pushedRefs: [PushedRef]? = nil) {
+        self.pushedRefs = pushedRefs
+    }
 
     /// Runs all release readiness rules.
     ///
@@ -63,12 +74,26 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 diagnostics.append(
                     contentsOf: Self.checkChangelog(content: content, version: version)
                 )
-                // Corrected invariant: the documented latest version MUST be tagged.
-                if config.checkVersionTagParity {
-                    let latest = Self.parseLatestChangelogVersion(content: content)
-                    diagnostics.append(
-                        contentsOf: Self.checkVersionTagParity(latestChangelogVersion: latest, tags: tags)
-                    )
+                // The invariant, split into the three questions it used to conflate: is the
+                // version tagged, does the tag contain what it claims, and is the tag actually
+                // going to the remote. See `ReleaseTagInvariant`.
+                if config.checkVersionTagParity, let latest = Self.parseLatestChangelogVersion(content: content) {
+                    diagnostics += ReleaseTagInvariant.parity(
+                        version: latest, tags: tags, isBoundary: pushedRefs != nil)
+
+                    if let tag = ReleaseTagInvariant.matchingTag(for: latest, in: tags) {
+                        let publishing = pushedRefs?.contains {
+                            !$0.isDeletion && $0.tagName == tag
+                        } ?? false
+                        diagnostics += ReleaseTagInvariant.identity(
+                            version: latest, tag: tag,
+                            changelogAtTag: changelog(at: tag, path: config.changelogPath, in: projectRoot),
+                            isPublishing: publishing)
+                    }
+
+                    diagnostics += ReleaseTagInvariant.boundary(
+                        version: latest, tags: tags, pushedRefs: pushedRefs,
+                        remoteHasTag: { remoteHasTag($0, in: projectRoot) })
                 }
             } catch {
                 diagnostics.append(Diagnostic(
@@ -412,6 +437,57 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 filePath: filePath,
                 ruleId: "release-unresolvable-dependency"
             )
+        }
+    }
+
+    /// Reads `CHANGELOG.md` as of a tag, for the identity check.
+    ///
+    /// - Parameters:
+    ///   - tag: The tag to read at.
+    ///   - path: The changelog's path relative to the project root.
+    ///   - directory: The project root.
+    /// - Returns: The file's contents at that tag, or `nil` when it cannot be read — which the
+    ///   caller treats as "no evidence", never as "mismatch".
+    private func changelog(at tag: String, path: String, in directory: String) -> String? {
+        // SECURITY: subprocess with hardcoded /usr/bin/git executable path
+        do {
+            let result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["show", "\(tag):\(path)"],
+                currentDirectory: directory
+            )
+            guard result.exitCode == 0 else { return nil }
+            return result.stdout
+        } catch {
+            Self.logger.notice("git show \(tag, privacy: .public):\(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Whether the remote already carries a tag.
+    ///
+    /// The only place this checker touches the network, and it is reached only at a push
+    /// boundary and only when the tag is absent from the refs being pushed — so the common
+    /// case, `git push --atomic origin HEAD vX.Y.Z`, answers from the ref list for free.
+    ///
+    /// - Parameters:
+    ///   - tag: The tag name.
+    ///   - directory: The project root.
+    /// - Returns: `true` when the remote has it. An unreachable remote answers `true`, because
+    ///   refusing a push on evidence we could not gather would block work for a network fault.
+    private func remoteHasTag(_ tag: String, in directory: String) -> Bool {
+        // SECURITY: subprocess with hardcoded /usr/bin/git executable path
+        do {
+            let result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["ls-remote", "--tags", "origin", "refs/tags/\(tag)"],
+                currentDirectory: directory
+            )
+            guard result.exitCode == 0 else { return true }
+            return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } catch {
+            Self.logger.notice("git ls-remote for \(tag, privacy: .public) failed; treating the remote as satisfied: \(error.localizedDescription, privacy: .public)")
+            return true
         }
     }
 
