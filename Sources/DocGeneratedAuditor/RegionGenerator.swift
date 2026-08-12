@@ -76,7 +76,10 @@ public enum RegionGeneratorRegistry {
     /// Every registered generator, in a stable order.
     public static var all: [any RegionGenerator] {
         [
+            ChangelogLinksGenerator(),
             ErrorRegistryGenerator(),
+            ModuleStructureGenerator(),
+            StatusRosterGenerator(),
         ]
     }
 

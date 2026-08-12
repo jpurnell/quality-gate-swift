@@ -85,6 +85,25 @@ governed by nothing.
 - ``GovernedDocuments``
 - ``GovernedDocument``
 
+### Generators
+
+- ``RegionGenerator``
+- ``RegionGeneratorRegistry``
+- ``RegionGeneratorError``
+- ``ChangelogLinksGenerator``
+- ``ErrorRegistryGenerator``
+- ``ModuleStructureGenerator``
+- ``StatusRosterGenerator``
+
+### Rosters
+
+- ``Roster``
+- ``PackageTargets``
+
+### Comparison
+
+- ``RegionDiff``
+
 ### Self-contradiction
 
 - ``SelfContradictionRule``

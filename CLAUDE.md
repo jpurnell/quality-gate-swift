@@ -76,12 +76,17 @@ DESIGN → RED (failing test) → GREEN (minimum to pass) → REFACTOR → DOCUM
 
 ### Design Proposals
 For non-trivial features (new checker, new protocol, architectural change):
-write a design proposal in `development-guidelines/project/plans/proposals/`
+write a design proposal in `project/plans/proposals/`
 before writing code.
 
 ### Session Protocol
-- **Start**: Read the latest file in `development-guidelines/project/summaries/`
-- **End**: Create a session summary in `development-guidelines/project/summaries/<YYYY-MM-DD>_<TaskName>.md`
+- **Start**: Read the latest file in `project/summaries/`
+- **End**: Create a session summary in `project/summaries/<YYYY-MM-DD>_<TaskName>.md`
+
+Both live at the repository root, not under `development-guidelines/`. The v2 layout made the
+plan and its history project-owned rather than framework content — `.quality-gate.yml` records
+the same move for `masterPlanPath`. The pre-v2 tree is kept at `development-guidelines.pre-v2/`,
+which is why a stale path still resolves to a real directory and reads as correct.
 
 ## Build Feedback
 

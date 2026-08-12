@@ -163,3 +163,6 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Reusable GitHub Actions workflow for cross-repo adoption
 - Security rule staleness workflow with automated issue creation
 - Guide document covering vision, design philosophy, architecture, and integration patterns
+
+<!-- generated:changelog-links -->
+<!-- /generated:changelog-links -->

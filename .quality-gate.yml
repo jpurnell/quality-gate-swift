@@ -47,6 +47,14 @@ ijs:
 # Ratchet when the repo starts depending on new gate rules.
 minimumGateVersion: "2026-07-10"
 
+# Facts the tree cannot supply. A repository URL read from `git remote` and a tag name read
+# from `git tag` are both refs, and a verdict that moves with a shallow clone is not hermetic.
+doc-generated:
+  repositoryURL: "https://github.com/jpurnell/quality-gate-swift"
+  # tagPrefix is left at "" deliberately. This repository's tags are `v2.0.2` but also
+  # `2026.07.12`, so no single value produces four working links; settling the tags is the
+  # repair, and it is not one this checker can see.
+
 # v2 layout: the master plan is project-owned, not framework content.
 status:
   guidelinesPath: "."
