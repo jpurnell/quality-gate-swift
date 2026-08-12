@@ -237,9 +237,13 @@ public struct DocLinter: QualityChecker, Sendable {
                 let severity = parseSeverity(severityStr)
 
                 diagnostics.append(Diagnostic(
-                    severity: severity,
-                    message: message,
-                    ruleId: "docc"
+                    severity: DependencyBuildNoise.isNoise(message) ? .note : severity,
+                    message: DependencyBuildNoise.isNoise(message)
+                        ? "\(message) — build-graph noise from a dependency artifact; the project under test cannot act on it."
+                        : message,
+                    ruleId: DependencyBuildNoise.isNoise(message)
+                        ? "doc-lint.dependency-build-noise"
+                        : "docc"
                 ))
             }
         }
