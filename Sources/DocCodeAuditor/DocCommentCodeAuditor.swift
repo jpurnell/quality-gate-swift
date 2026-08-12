@@ -76,7 +76,7 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     /// Hermetic: the verdict is a function of the working tree and the module built from it.
     ///
     /// No calendar, no network, no service. The one case that might otherwise argue for
-    /// ``Hermeticity/external`` — a module that was never built — is reported as a note with
+    /// `Hermeticity/external` — a module that was never built — is reported as a note with
     /// its reason, so the classification does not have to carry it and a genuine
     /// documentation failure keeps its authority to block the commit.
     public var hermeticity: Hermeticity { .hermetic }
@@ -97,16 +97,19 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
         let path = file.standardizedFileURL.path
         guard path.hasPrefix(root) else { return nil }
         let components = path.dropFirst(root.count).split(separator: "/")
-        guard components.count >= 3, components[0] == "Sources" else { return nil }
+        guard components.count >= 3, SourceLayout.isSourceRoot(String(components[0])) else { return nil }
         return String(components[1])
     }
 
     /// Every first-party `.swift` file under `Sources/`, grouped by owning module.
     static func modules(projectRoot: URL, configuration: Configuration) -> [String: [URL]] {
-        let sources = projectRoot.appendingPathComponent("Sources", isDirectory: true)
-        guard let walker = FileManager.default.enumerator(
-            at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else {
+        let roots = SourceLayout.spellings.map {
+            projectRoot.appendingPathComponent($0, isDirectory: true)
+        }
+        guard let walker = roots.lazy.compactMap({ root in
+            FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        }).first else {
             return [:]
         }
 

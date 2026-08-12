@@ -85,7 +85,7 @@ public struct DocCommentCensus: Sendable {
     ///
     /// An untagged fence is never guessed at. Both of the ones in this repository are prose
     /// diagrams that would produce a wall of parse errors if compiled, and guessing at them
-    /// is the ```` ```swiftui ```` bug with its sign flipped.
+    /// is the `swiftui`-fence bug with its sign flipped.
     public var foreignLanguages: [String] {
         Set(fences.filter { !$0.isSwift }
             .map { $0.language.isEmpty ? "(untagged)" : $0.language }).sorted()
@@ -256,7 +256,7 @@ public enum DocCommentFenceExtractor {
     /// Finds the fences in one doc comment's body lines.
     ///
     /// `Fence` is reused verbatim from ``ArticleAssembler`` — including its language-*token*
-    /// match, which `doc-code` earned by shipping the ```` ```swiftui ```` bug once — and so
+    /// match, which `doc-code` earned by shipping the `swiftui`-fence bug once — and so
     /// is the marker's "survives blank lines and nothing else" rule. Two spellings of that
     /// rule would mean two implementations, and one of them would drift.
     static func scan(_ lines: [CommentLine], path: String, token: TokenSyntax) -> [DocCommentFence] {

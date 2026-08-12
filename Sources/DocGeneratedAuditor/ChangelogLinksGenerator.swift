@@ -24,7 +24,7 @@ import QualityGateCore
 /// authority to block a commit.
 ///
 /// The cost of that decision is stated rather than hidden. A link definition has to name a ref
-/// *exactly*, so ``DocGeneratedConfig/tagPrefix`` has to supply the one thing the tree cannot,
+/// *exactly*, so `DocGeneratedConfig/tagPrefix` has to supply the one thing the tree cannot,
 /// and a repository whose tags are inconsistently prefixed cannot be served by any single
 /// value. This checker will not notice — it certifies that the definitions follow from the
 /// headings, never that the URLs resolve.

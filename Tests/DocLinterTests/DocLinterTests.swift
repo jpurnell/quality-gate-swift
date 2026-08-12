@@ -437,7 +437,7 @@ struct DocLinterTests {
         #expect(enriched[0].lineNumber == 42)
     }
 
-    @Test("Distributes multiple locations for same parameter name")
+    @Test("An ambiguous parameter name yields no location rather than a guess")
     func distributesMultipleLocations() throws {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("DocLinterTest-\(UUID().uuidString)")
@@ -479,10 +479,19 @@ struct DocLinterTests {
             sourceRoot: tmpDir.path
         )
 
-        #expect(enriched[0].filePath?.contains("Funcs.swift") == true)
-        #expect(enriched[1].filePath?.contains("Funcs.swift") == true)
-        #expect(enriched[0].lineNumber == 2)
-        #expect(enriched[1].lineNumber == 5)
+        // This test previously asserted that the two diagnostics were *distributed* across the
+        // two candidate signatures — the first to line 2, the second to line 5. That pairing was
+        // the bug: `entries` follows DocC's emission order and the location list follows file
+        // traversal order, and nothing aligns them. It landed correctly here only because the
+        // fixture has exactly two of each, in the same order. Against a real package with eight
+        // `seed:` parameters every guess missed, and three investigations were sent to files
+        // whose documentation was correct.
+        //
+        // The behaviour now: when a parameter name resolves to more than one signature, no
+        // location is assigned. A diagnostic with no location is a smaller failure than one with
+        // a confident wrong one, which spends a reader's attention in the wrong place.
+        #expect(enriched[0].filePath == nil)
+        #expect(enriched[1].filePath == nil)
     }
 
     @Test("Finds doc-comment parameter for not-found warnings")

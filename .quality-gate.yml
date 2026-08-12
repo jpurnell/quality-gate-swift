@@ -4,7 +4,10 @@ excludePatterns:
   # outer package would always fail the gate.
   - "**/Tests/UnreachableCodeAuditorTests/Fixtures/**"
 
-docTarget: QualityGateCore
+# docTarget is deliberately unset. Setting it pins doc-lint to one module and says nothing
+# about the rest — this package had it pinned to QualityGateCore, so a green doc-lint was a
+# statement about 1 target of 116 while the other 115 were never handed to DocC. Unset, every
+# target owning a .docc catalogue is checked.
 
 build:
   solverExpressionTimeThreshold: 500

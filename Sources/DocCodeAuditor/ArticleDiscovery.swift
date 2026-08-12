@@ -27,13 +27,21 @@ public enum ArticleDiscovery {
     /// - Returns: The catalogues, sorted by module name. Empty when the project has none.
     public static func catalogues(projectRoot: URL, configuration: Configuration) -> [Catalogue] {
         let manager = FileManager.default
-        let sources = projectRoot.appendingPathComponent("Sources", isDirectory: true)
 
         var byModule: [String: [URL]] = [:]
 
-        if let walker = manager.enumerator(
-            at: sources, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-        ) {
+        // `Sources` is SwiftPM's convention, not its requirement. A project laid out with
+        // `Source/` used to yield zero catalogues here — and zero catalogues is reported the same
+        // way as zero problems, so the checker passed having examined nothing. That is the
+        // failure mode this suite exists to prevent, shipped inside the suite.
+        for spelling in SourceLayout.spellings {
+            let sources = projectRoot.appendingPathComponent(spelling, isDirectory: true)
+            guard let walker = manager.enumerator(
+                at: sources, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
             for case let url as URL in walker where url.pathExtension == "docc" {
                 let module = url.deletingLastPathComponent().lastPathComponent
                 byModule[module, default: []] += markdown(under: url, excluding: configuration.excludePatterns)

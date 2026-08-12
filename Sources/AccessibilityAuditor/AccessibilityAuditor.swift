@@ -12,7 +12,7 @@ import SwiftParser
 /// Audits source files for accessibility violations across UI frontends.
 ///
 /// This is the orchestrator: for each source file it resolves which UI frontend(s)
-/// apply (via ``FrontendResolver``), then runs the matching ``AccessibilityDetector``s
+/// apply (via `FrontendResolver`), then runs the matching `AccessibilityDetector`s
 /// and collects their diagnostics. Today the SwiftUI detector is wired in; CLI and other
 /// frontends plug into the same dispatch.
 ///

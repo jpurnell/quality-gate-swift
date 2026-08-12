@@ -73,8 +73,28 @@ public struct DocLinter: QualityChecker, Sendable {
             packageContent = ""
         }
 
-        if let target = Self.resolveDocTarget(
-            configured: configuration.docTarget,
+        // Every target that owns a catalogue, not the first one that happens to appear in the
+        // manifest. `--target` is repeatable, so full coverage costs one invocation.
+        //
+        // The old behaviour took the first target of the first `.library` product and asked DocC
+        // about that alone — so a green `doc-lint` was a statement about one module out of 116,
+        // and the other 115 were never handed to DocC at all. That is not degraded coverage, it
+        // is absent coverage reported as a pass.
+        let documented = Self.documentedTargets(projectRoot: FileManager.default.currentDirectoryPath)
+        let explicit = configuration.docTarget
+
+        if let target = explicit {
+            // An explicitly configured target is still honoured: a project that says "document
+            // this one" is answering a different question and should get what it asked for.
+            arguments.append("--target")
+            arguments.append(target)
+        } else if !documented.isEmpty {
+            for target in documented {
+                arguments.append("--target")
+                arguments.append(target)
+            }
+        } else if let target = Self.resolveDocTarget(
+            configured: nil,
             packageContent: packageContent
         ) {
             arguments.append("--target")
@@ -131,12 +151,81 @@ public struct DocLinter: QualityChecker, Sendable {
             baseResult.diagnostics,
             sourceRoot: projectRoot
         )
+        var diagnostics = enrichedDiagnostics
+        let coverage = Self.coverageDiagnostic(explicit: explicit, documented: documented)
+        diagnostics.append(coverage)
+
         return CheckResult(
             checkerId: id,
-            status: baseResult.status,
-            diagnostics: enrichedDiagnostics,
+            status: coverage.severity == .error ? .failed : baseResult.status,
+            diagnostics: diagnostics,
             duration: duration
         )
+    }
+
+
+    /// Every target that owns a DocC catalogue, sorted.
+    ///
+    /// Probes the three directory names SwiftPM permits, for the same reason the C-modulemap
+    /// search does: `Sources` is the convention, not the rule, and a project laid out with
+    /// `Source/` would otherwise yield an empty list — which is indistinguishable from a project
+    /// with no documentation, and passes.
+    ///
+    /// - Parameter projectRoot: The package root.
+    /// - Returns: Target names owning a `.docc`, sorted for a stable command line.
+    static func documentedTargets(projectRoot: String) -> [String] {
+        let manager = FileManager.default
+        var targets: Set<String> = []
+
+        for spelling in ["Sources", "Source", "src"] {
+            let root = (projectRoot as NSString).appendingPathComponent(spelling)
+            // silent: most packages have only one of the three spellings, so an absent directory is the ordinary case
+            let entries = (try? manager.contentsOfDirectory(atPath: root)) ?? []
+            for entry in entries {
+                let module = (root as NSString).appendingPathComponent(entry)
+                // silent: a file rather than a directory under Sources/ simply owns no catalogue
+                let contents = (try? manager.contentsOfDirectory(atPath: module)) ?? []
+                if contents.contains(where: { $0.hasSuffix(".docc") }) {
+                    targets.insert(entry)
+                }
+            }
+        }
+        return targets.sorted()
+    }
+
+    /// What the run examined, stated whether it passed or failed.
+    ///
+    /// A checker that examined nothing and a checker that found nothing wrong must not print the
+    /// same thing. `doc-generated` already reports its region count on every run for exactly this
+    /// reason; `doc-lint` was written without it, and the consequence was a green verdict over
+    /// one module out of 116 that nobody could see from the output.
+    ///
+    /// - Parameters:
+    ///   - explicit: The configured `docTarget`, when one narrowed the run.
+    ///   - documented: The targets found to own a catalogue.
+    /// - Returns: A note describing coverage, or an error when nothing was examined.
+    static func coverageDiagnostic(explicit: String?, documented: [String]) -> Diagnostic {
+        if let explicit {
+            return Diagnostic(
+                severity: .note,
+                message: "doc-lint examined 1 target (`\(explicit)`), because `docTarget` is "
+                    + "configured. \(documented.count) target(s) own a catalogue; the rest were "
+                    + "not handed to DocC.",
+                ruleId: "doc-lint.coverage")
+        }
+        guard !documented.isEmpty else {
+            return Diagnostic(
+                severity: .error,
+                message: "doc-lint found no target owning a `.docc` catalogue, so it examined "
+                    + "nothing. A pass here would mean only that there was nothing to look at.",
+                ruleId: "doc-lint.no-coverage",
+                suggestedFix: "Add a catalogue, set `docTarget` explicitly, or exclude `doc-lint` "
+                    + "if this package is not documented with DocC.")
+        }
+        return Diagnostic(
+            severity: .note,
+            message: "doc-lint examined \(documented.count) target(s) owning a DocC catalogue.",
+            ruleId: "doc-lint.coverage")
     }
 
     /// Generates command-line arguments for the documentation generator.
@@ -152,6 +241,65 @@ public struct DocLinter: QualityChecker, Sendable {
         }
 
         return args
+    }
+
+
+    /// The location DocC printed beneath a diagnostic, if it printed one.
+    ///
+    /// Blank lines between the message and its `-->` are tolerated. Anything else ends the
+    /// search, so a diagnostic with no location of its own can never adopt the next one's — the
+    /// whole point of this change is that a wrong address is worse than none.
+    ///
+    /// - Parameters:
+    ///   - index: The line the message was found on.
+    ///   - lines: Every line of the output.
+    ///   - regex: The compiled continuation pattern.
+    /// - Returns: The path, line and column, or `nil` when no continuation follows.
+    static func locationBelow(
+        index: Int, lines: [String], regex: NSRegularExpression
+    ) -> (path: String, line: Int, column: Int)? {
+        var cursor = index + 1
+        while cursor < lines.count {
+            let candidate = lines[cursor].trimmingCharacters(in: .whitespaces)
+            if candidate.isEmpty { cursor += 1; continue }
+            let range = NSRange(candidate.startIndex..., in: candidate)
+            guard let match = regex.firstMatch(in: candidate, options: [], range: range) else {
+                return nil
+            }
+            let path = extractGroup(match, group: 1, from: candidate)
+            let line = Int(extractGroup(match, group: 2, from: candidate)) ?? 0
+            let column = Int(extractGroup(match, group: 3, from: candidate)) ?? 0
+            return (resolve(path: path), line, column)
+        }
+        return nil
+    }
+
+    /// Makes a DocC-relative path readable.
+    ///
+    /// DocC resolves these against the symbol-graph location, not the package root, so they
+    /// arrive as `../Portfolio/PortfolioUtilities.swift`. Printing that verbatim points a reader
+    /// at a path that does not exist. When the suffix identifies exactly one file under the
+    /// project, that file is the answer; when it identifies several, the relative path is kept
+    /// rather than a guess being made between them.
+    ///
+    /// - Parameter path: The path as DocC wrote it.
+    /// - Returns: An absolute path when one is unambiguous, else the input unchanged.
+    static func resolve(path: String) -> String {
+        guard path.hasPrefix("..") || !path.hasPrefix("/") else { return path }
+        let root = FileManager.default.currentDirectoryPath
+        let name = (path as NSString).lastPathComponent
+        let manager = FileManager.default
+
+        var matches: [String] = []
+        for spelling in ["Sources", "Source", "src", "Tests"] {
+            let directory = (root as NSString).appendingPathComponent(spelling)
+            guard let walker = manager.enumerator(atPath: directory) else { continue }
+            for case let relative as String in walker where (relative as NSString).lastPathComponent == name {
+                matches.append((directory as NSString).appendingPathComponent(relative))
+                if matches.count > 1 { return path }
+            }
+        }
+        return matches.count == 1 ? matches[0] : path
     }
 
     /// Parses DocC output for diagnostic messages.
@@ -183,6 +331,17 @@ public struct DocLinter: QualityChecker, Sendable {
         // Pattern for simple severity: message
         // Example: warning: 'MyType' doesn't exist at '/MyModule/MyType'
         let simplePattern = #"^(warning|error|note):\s*(.+)$"#
+
+        // Modern DocC (Swift 6.4) puts the message and the location on separate lines:
+        //
+        //     warning: Parameter 'seed' is missing documentation
+        //        --> ../Portfolio/PortfolioUtilities.swift:103:54-103:54
+        //
+        // Neither supported shape matched that, so every location was dropped and then guessed
+        // from an unrelated ordering. Measured on the run that found this: 0 of the diagnostics
+        // used the inline format — the supported paths were not incomplete, they were unreached.
+        // The end of the range is optional because it must be tolerated, not because it is used.
+        let continuationPattern = #"^\s*-->\s*(.+?):(\d+):(\d+)(?:-\d+:\d+)?$"#
         let simpleRegex: NSRegularExpression?
         do {
             simpleRegex = try NSRegularExpression(pattern: simplePattern, options: [])
@@ -191,8 +350,22 @@ public struct DocLinter: QualityChecker, Sendable {
             simpleRegex = nil
         }
 
-        for line in lines {
+        let continuationRegex: NSRegularExpression?
+        do {
+            continuationRegex = try NSRegularExpression(pattern: continuationPattern, options: [])
+        } catch {
+            logger.warning("Failed to compile continuation regex: \(error.localizedDescription, privacy: .public)")
+            continuationRegex = nil
+        }
+
+        for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // A continuation belongs to the diagnostic above it and is never one itself.
+            if trimmed.hasPrefix("-->") { continue }
+            // DocC prints the offending source under the location, with `|` gutters and a
+            // `╰─suggestion:` marker. None of it is a finding.
+            if trimmed.contains("╰─") { continue }
 
             // Skip empty lines and progress messages
             if trimmed.isEmpty { continue }
@@ -235,6 +408,24 @@ public struct DocLinter: QualityChecker, Sendable {
                 let message = extractGroup(match, group: 2, from: trimmed)
 
                 let severity = parseSeverity(severityStr)
+
+                // The location, if DocC put it on a following line. Blank lines between the two
+                // are tolerated; anything else ends the search, so a message with no location of
+                // its own never adopts the next diagnostic's.
+                if let continuationRegex,
+                   let location = Self.locationBelow(
+                    index: index, lines: lines, regex: continuationRegex) {
+                    diagnostics.append(Diagnostic(
+                        severity: DependencyBuildNoise.isNoise(message) ? .note : severity,
+                        message: message,
+                        filePath: location.path,
+                        lineNumber: location.line,
+                        columnNumber: location.column,
+                        ruleId: DependencyBuildNoise.isNoise(message)
+                            ? "doc-lint.dependency-build-noise"
+                            : "docc"))
+                    continue
+                }
 
                 diagnostics.append(Diagnostic(
                     severity: DependencyBuildNoise.isNoise(message) ? .note : severity,
@@ -393,9 +584,19 @@ public struct DocLinter: QualityChecker, Sendable {
             let sigLocations = findParameterInSignatures(paramName, files: onlySwift)
             let docLocations = findParameterInDocComments(paramName, files: onlySwift)
 
-            for (i, entry) in entries.enumerated() {
+            for entry in entries {
                 let locations = entry.isNotFound ? docLocations : sigLocations
-                guard let loc = i < locations.count ? locations[i] : locations.last else { continue }
+
+                // Only a unique answer is used. The previous version paired the i-th diagnostic
+                // with the i-th signature found, but `entries` follows DocC's emission order and
+                // the location list follows file traversal order — two orderings nothing aligns.
+                // With one `seed:` parameter in a package the guess landed by luck; with eight,
+                // every guess missed and sent three investigations to files that were correct.
+                //
+                // The `locations.last` fallback was worse still: once diagnostics outnumbered
+                // locations, every remaining one was assigned the same arbitrary file. It cannot
+                // be right and can only mislead, so it is gone rather than narrowed.
+                guard locations.count == 1, let loc = locations.first else { continue }
                 diagnostics[entry.index] = withLocation(diagnostics[entry.index], from: loc)
             }
         }

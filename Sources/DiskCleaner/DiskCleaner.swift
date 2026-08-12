@@ -75,7 +75,7 @@ public struct DiskCleaner: Sendable {
     ///
     /// - Parameters:
     ///   - dryRun: When `true`, reports what would be removed and deletes nothing.
-    ///   - runGitGC: When `true`, also runs `git gc --aggressive --prune=now` in a git
+    ///   - gcRequested: When `true`, also runs `git gc --aggressive --prune=now` in a git
     ///     repository. Never runs during a dry run — gc rewrites the object store, which
     ///     is precisely what a preview must not do.
     /// - Returns: A summary of what was, or would be, reclaimed.

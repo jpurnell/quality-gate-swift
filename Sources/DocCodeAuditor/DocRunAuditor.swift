@@ -20,7 +20,7 @@ import QualityGateCore
 /// a gate that cannot compile a legitimate construct will be worked around, and the
 /// workaround looks exactly like compliance — and rung 2 reintroduces it at the *link* step,
 /// where rung 1 had already solved it at the typecheck step. Hence the rpath in
-/// ``ArticleRunner/linkArguments(imports:searchPaths:source:)``.
+/// `ArticleRunner.linkArguments(imports:searchPaths:source:)`.
 ///
 /// ## Determinism is part of the verdict
 ///
@@ -65,7 +65,7 @@ public struct DocRunAuditor: QualityChecker, Sendable {
     /// A checker that runs arbitrary code and reads a clock or a network is not a pure
     /// function of the tree. The two-run comparison is exactly the test of whether it is, and
     /// an article that fails it is reported rather than trusted. Without that precheck this
-    /// would have to declare ``Hermeticity/temporal``, its findings would clamp to `.note`,
+    /// would have to declare `Hermeticity/temporal`, its findings would clamp to `.note`,
     /// and it could not fail the gate — which would make it decorative.
     ///
     /// Two hazards the precheck does not close, both worth knowing before trusting it: a

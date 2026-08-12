@@ -138,7 +138,7 @@ public struct RegionScan: Sendable, Equatable {
 /// ## Delimiters own their line
 ///
 /// A delimiter must be the entire line, modulo leading and trailing whitespace. That is what
-/// keeps an inline code span such as `` `<!-- generated:x -->` `` in a bulleted list from
+/// keeps an inline code span holding a delimiter — written `<!-- generated:x -->` — in a list from
 /// being read as a region, and it is the rule that lets this checker's own design document
 /// sit in the tree without being flagged.
 public enum RegionScanner {

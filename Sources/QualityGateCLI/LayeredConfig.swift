@@ -4,9 +4,9 @@ import QualityGateCore
 
 /// One place the CLI resolves layered configuration (Phase 1).
 ///
-/// Wires ``ConfigResolver`` to the real world: the repo config path from
+/// Wires `ConfigResolver` to the real world: the repo config path from
 /// `--config`, the overlay keyed by this checkout's project identity, and the
-/// user-global config from ``OverlayStore``. Overlay identity always uses the
+/// user-global config from `OverlayStore`. Overlay identity always uses the
 /// remote-derived slug — overlays are new state with no basename-era legacy
 /// to preserve, and they must survive re-clones.
 enum LayeredConfig {

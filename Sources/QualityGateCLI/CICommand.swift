@@ -8,7 +8,7 @@ import QualityGateCore
 
 /// `quality-gate ci` — the canonical CI invocation (Phase 2).
 ///
-/// One entrypoint, three callers: this subcommand computes a ``CIRunPlan``
+/// One entrypoint, three callers: this subcommand computes a `CIRunPlan`
 /// and re-enters the standard run path with the plan's arguments, so local
 /// hook, local manual run, and CI run cannot drift by construction. The
 /// plan forces determinism: no index build unless explicitly opted in, no

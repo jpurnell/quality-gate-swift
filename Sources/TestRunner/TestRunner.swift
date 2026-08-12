@@ -370,7 +370,7 @@ public struct TestRunner: QualityChecker, Sendable {
     /// bounded. Severity is `.warning` by default, `.error` under `strict`.
     ///
     /// - Parameters:
-    ///   - flips: The flips detected by ``FlipDetector``.
+    ///   - flips: The flips detected by `FlipDetector`.
     ///   - strict: When true, emit `.error` instead of `.warning`.
     /// - Returns: One diagnostic per flip.
     public static func flipDiagnostics(for flips: [TestOutcomeFlip], strict: Bool) -> [Diagnostic] {

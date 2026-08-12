@@ -77,6 +77,30 @@ most of them found something on their first run.
   location-less diagnostic whose every absolute path lies under `.build/` is demoted to a note.
   `build` had always dropped these lines; the two checkers now disagree by decision rather than by
   accident of two regexes.
+- **`doc-lint` examined 1 target out of 116 and reported the result as the project's
+  documentation verdict.** It asked DocC about the first target of the first `.library` product —
+  or, here, whatever `docTarget` named — and the other 115 were never handed to DocC at all. That
+  is not degraded coverage, it is absent coverage reported as a pass. It now enumerates every
+  target owning a `.docc` catalogue and passes each in one invocation (`--target` is repeatable),
+  going from 1 to 31 on this package and exposing 19 real defects: 15 cross-module symbol
+  references that DocC cannot resolve, three nested code spans it was reading as symbol links,
+  and a parameter documented by its external label instead of its internal name. All fixed.
+- **`doc-lint` now asserts its own coverage.** Examining zero targets is an error, and every run
+  reports what it looked at. A checker that examined nothing and a checker that found nothing
+  wrong must not print the same thing — `doc-generated` had this property from the start and
+  `doc-code` was written without it.
+- **DocC diagnostics were reported against the wrong file and line.** Swift 6.4's DocC puts the
+  message and its location on separate lines (`--> ../Path.swift:103:54-103:54`), matching neither
+  supported pattern, so every location was dropped — measured on one run, *zero* diagnostics used
+  the inline format. The recovery then paired diagnostics to candidate signatures **positionally**,
+  the i-th warning taking the i-th signature found, from two orderings nothing aligns. With one
+  matching parameter in a package it landed by luck; with eight, every guess missed and sent three
+  investigations to files whose documentation was correct. The continuation format is now parsed,
+  and ambiguity yields *no* location rather than a confident wrong one.
+- **`Sources/` was hardcoded in three places that scan the project under test.** A package laid
+  out with `Source/` or `src/` would have had zero articles discovered and passed green. Now one
+  `SourceLayout` type is consulted everywhere, matching the dependency-side fix.
+
 - **A region matching its generator's output in the wrong order reported nothing while failing.**
   `missing` and `unexpected` are multiset comparisons, so a permutation emptied both while the
   bodies differed — a byte-mismatched region with a green verdict. Found by `checker-table`, the

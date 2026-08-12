@@ -11,10 +11,10 @@ import QualityGateCore
 /// - `concurrency.preconcurrency-import-unnecessary` — `@preconcurrency import`
 ///   where no imported symbol is used in a Sendable-requiring context.
 ///
-/// The analysis logic is split into pure functions (``analyzeStoredProperties``,
-/// ``analyzeIsolationCrossings``, ``analyzePreconcurrencyImport``) so that
+/// The analysis logic is split into pure functions (`analyzeStoredProperties`,
+/// `analyzeIsolationCrossings`, `analyzePreconcurrencyImport`) so that
 /// unit tests can exercise them without a live IndexStoreDB session. The
-/// ``run(configuration:)`` entry point orchestrates the full index-backed pass.
+/// `run(configuration:)` entry point orchestrates the full index-backed pass.
 ///
 /// ## Graceful degradation
 /// When the index store is unavailable, the pass emits a single `.note`

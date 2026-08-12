@@ -51,7 +51,7 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
 
     /// Safe to run in the concurrent group — and that placement is what orders it correctly.
     ///
-    /// ``CheckerRunner`` runs every non-parallel-safe checker to completion first, then the
+    /// `CheckerRunner` runs every non-parallel-safe checker to completion first, then the
     /// parallel-safe ones together. `BuildChecker` declares itself non-parallel-safe, so
     /// declaring this checker parallel-safe is precisely what guarantees it reads a finished
     /// `.build/debug` instead of racing `swift build` writing into it. Declaring `false`
@@ -68,7 +68,7 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     /// No calendar, no network, no service. The one input that is not source — the built
     /// module — is derived from the same commit, and the toolchain is already folded into
     /// the cache's gate identity, so a byte-identical commit checked twice returns the same
-    /// answer. The case that might otherwise argue for ``Hermeticity/external`` — a module
+    /// answer. The case that might otherwise argue for `Hermeticity/external` — a module
     /// that was never built — is handled explicitly as a `.skipped` result carrying its
     /// reason, so the classification does not have to carry it, and a genuine documentation
     /// failure keeps its authority to block the commit.
@@ -126,7 +126,7 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     static func swiftSources(under projectRoot: URL, excluding patterns: [String]) -> [String] {
         let manager = FileManager.default
         var files: [String] = []
-        for subdirectory in ["Sources", "Tests"] {
+        for subdirectory in SourceLayout.spellings + ["Tests"] {
             let directory = projectRoot.appendingPathComponent(subdirectory, isDirectory: true)
             guard let walker = manager.enumerator(
                 at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
