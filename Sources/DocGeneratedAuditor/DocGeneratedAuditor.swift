@@ -117,6 +117,7 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
 
         var diagnostics: [Diagnostic] = []
         var coverage = RegionCoverage()
+        var usedGenerators: Set<String> = []
 
         for document in documents {
             let contents: String
@@ -127,7 +128,7 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: "Cannot read governed document: \(error.localizedDescription)",
-                    filePath: document.relativePath,
+                    filePath: document.url.path,
                     ruleId: "doc-generated.document-unreadable"))
                 continue
             }
@@ -144,35 +145,78 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
                 Diagnostic(
                     severity: .error,
                     message: defect.message,
-                    filePath: document.relativePath,
+                    filePath: document.url.path,
                     lineNumber: defect.line,
                     ruleId: defect.ruleId)
             }
 
             for region in scan.regions {
                 coverage.regionsFound += 1
-                coverage.unknownIDs += 1
-                diagnostics.append(Diagnostic(
-                    severity: .error,
-                    message: "No generator is registered for region `\(region.id)`. "
-                        + "A region nothing can regenerate reads as governed and is not.",
-                    filePath: document.relativePath,
-                    lineNumber: region.openingLine,
-                    ruleId: "doc-generated.region-unknown-id",
-                    suggestedFix: "Correct the id, remove the delimiters, or contribute a "
-                        + "`RegionGenerator` conformance for `\(region.id)`."))
+                guard let generator = RegionGeneratorRegistry.generator(for: region.id) else {
+                    coverage.unknownIDs += 1
+                    diagnostics.append(Diagnostic(
+                        severity: .error,
+                        message: "No generator is registered for region `\(region.id)`. "
+                            + "A region nothing can regenerate reads as governed and is not.",
+                        filePath: document.url.path,
+                        lineNumber: region.openingLine,
+                        ruleId: "doc-generated.region-unknown-id",
+                        suggestedFix: "Correct the id, remove the delimiters, or contribute a "
+                            + "`RegionGenerator` conformance for `\(region.id)`."))
+                    continue
+                }
+                usedGenerators.insert(generator.id)
+
+                let generated: String
+                do {
+                    generated = try generator.generate(
+                        projectRoot: projectRoot,
+                        currentBody: region.body,
+                        configuration: configuration)
+                } catch let error as RegionGeneratorError {
+                    guard case .ungeneratable(let reason) = error else { continue }
+                    Self.logger.notice("Region '\(region.id, privacy: .public)' is ungeneratable: \(reason, privacy: .public)")
+                    diagnostics.append(Diagnostic(
+                        severity: .error,
+                        message: "Region `\(region.id)` could not be regenerated: \(reason) "
+                            + "↳ derived from: \(generator.derivedFrom)",
+                        filePath: document.url.path,
+                        lineNumber: region.openingLine,
+                        ruleId: "doc-generated.region-ungeneratable",
+                        suggestedFix: "Supply what the generator needs, or remove the region. "
+                            + "A regeneration that never happened is not a match."))
+                    continue
+                } catch {
+                    Self.logger.error("Generator '\(generator.id, privacy: .public)' threw: \(error.localizedDescription, privacy: .public)")
+                    diagnostics.append(Diagnostic(
+                        severity: .error,
+                        message: "Generator `\(generator.id)` failed: \(error.localizedDescription) "
+                            + "↳ derived from: \(generator.derivedFrom)",
+                        filePath: document.url.path,
+                        lineNumber: region.openingLine,
+                        ruleId: "doc-generated.generator-failed"))
+                    continue
+                }
+
+                coverage.regionsRegenerated += 1
+                diagnostics += Self.staleness(
+                    region: region, generated: generated, generator: generator,
+                    document: document)
             }
 
             diagnostics += SelfContradictionRule.contradictions(in: contents).map { contradiction in
                 Diagnostic(
                     severity: .error,
                     message: contradiction.message,
-                    filePath: document.relativePath,
+                    filePath: document.url.path,
                     lineNumber: contradiction.line,
                     ruleId: contradiction.ruleId,
                     suggestedFix: "Decide which side is true and make both lines say it.")
             }
         }
+
+        coverage.generatorsUnused = RegionGeneratorRegistry.ids
+            .filter { !usedGenerators.contains($0) }.count
 
         diagnostics.append(Diagnostic(
             severity: .note,
@@ -185,6 +229,76 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
             status: failed ? .failed : .passed,
             diagnostics: diagnostics,
             duration: ContinuousClock.now - started)
+    }
+
+    /// One finding per wrong row, rather than one finding per stale region.
+    ///
+    /// This is the fallback the design named as most likely to be needed, and it is needed.
+    /// `BaselineLedger.contentHash` hashes the rule plus *the flagged line as the file holds
+    /// it now*, falling back to the message only when there is no readable line. A single
+    /// finding anchored at the opening delimiter would therefore hash a line that never
+    /// changes: every row of a twenty-nine-row roster would share one ledger record, adopting
+    /// it would silently cover drift that has not happened yet, and the sixty-third module
+    /// would arrive already baselined. Per-row findings restore the property the whole
+    /// rollout depends on — green today, and the *next* drift gates at the commit that causes
+    /// it.
+    ///
+    /// So the two halves are anchored differently, and deliberately:
+    ///
+    /// - An **extra** line exists in the document, so it is reported at its own line number
+    ///   and its identity is that line's text. Editing it ends the match, which is correct:
+    ///   churned content is new judgment territory.
+    /// - A **missing** line does not exist in the document, so there is no line to anchor to
+    ///   and its identity falls back to the message. The message therefore carries no line
+    ///   number — inserting a paragraph above the region would otherwise orphan every
+    ///   recorded debt in the file at once.
+    static func staleness(
+        region: GeneratedRegion,
+        generated: String,
+        generator: any RegionGenerator,
+        document: GovernedDocument
+    ) -> [Diagnostic] {
+        let diff = RegionDiff(
+            current: region.body, generated: generated,
+            bodyStartLine: region.openingLine + 1)
+        guard !diff.matches else { return [] }
+
+        let source = "↳ derived from: \(generator.derivedFrom)"
+
+        if diff.differsOnlyInWhitespace {
+            return [Diagnostic(
+                severity: .error,
+                message: "Region `\(region.id)` differs from the generator's output in "
+                    + "whitespace only. \(source)",
+                filePath: document.url.path,
+                lineNumber: region.openingLine,
+                ruleId: "doc-generated.region-whitespace",
+                suggestedFix: "Rewrite the region from its source. The comparison is "
+                    + "byte-exact on purpose: \"close enough\" is not the claim.")]
+        }
+
+        var findings: [Diagnostic] = diff.missing.map { line in
+            Diagnostic(
+                severity: .error,
+                message: "Region `\(region.id)` in \(document.relativePath) is missing a line "
+                    + "its source produces: \(line) \(source)",
+                filePath: document.url.path,
+                ruleId: "doc-generated.region-missing-line",
+                suggestedFix: "Add the line to the region, or fix the source if the generator "
+                    + "is the one that is wrong.")
+        }
+        findings += diff.unexpected.map { extra in
+            Diagnostic(
+                severity: .error,
+                message: "Region `\(region.id)` contains a line its source does not produce: "
+                    + "\(extra.text) \(source)",
+                filePath: document.url.path,
+                lineNumber: extra.line,
+                ruleId: "doc-generated.region-extra-line",
+                suggestedFix: "Remove the line, or fix the source if the generator is the one "
+                    + "that is wrong.")
+        }
+        return findings
     }
 }
 
