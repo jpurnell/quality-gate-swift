@@ -85,8 +85,18 @@ before writing code.
 
 Both live at the repository root, not under `development-guidelines/`. The v2 layout made the
 plan and its history project-owned rather than framework content — `.quality-gate.yml` records
-the same move for `masterPlanPath`. The pre-v2 tree is kept at `development-guidelines.pre-v2/`,
-which is why a stale path still resolves to a real directory and reads as correct.
+the same move for `masterPlanPath`.
+
+The pre-v2 tree used to be kept at `development-guidelines.pre-v2/`, and that note used to warn
+that a stale path still resolved to a real directory and so read as correct. **It was removed on
+2026-08-13**, so a stale path now fails loudly, which is the better failure. Everything it held
+was verified present under `project/` first: all twenty of its `02_IMPLEMENTATION_PLANS/UPCOMING/`
+designs are in `project/plans/`, most in `completed/` because they shipped. See
+`development-guidelines/project/plans/project-state-cleanup.md` for the survey.
+
+`development-guidelines/` itself remains — a vendored copy with no `.git` of its own. If a `.git`
+appears inside it, something has re-cloned it in place and this repository has a nested repository
+again, which is how project state leaks into the shared framework's history.
 
 ## Build Feedback
 

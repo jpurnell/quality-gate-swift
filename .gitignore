@@ -34,10 +34,12 @@ latestReport.json
 .ijs-corpus/
 build/
 
-# Vendored development-guidelines framework (managed, replaceable)
+# Vendored development-guidelines framework (managed, replaceable).
+# A plain directory with no .git of its own. If a .git appears in here, something
+# re-cloned it in place and this repo has a nested repository again — see
+# MIGRATION_REPORT.md. The pre-v2 tree was removed 2026-08-13.
 /development-guidelines/
 /.claude/skills/
-/development-guidelines.pre-v2/
 
 # Python bytecode from scripts/benchmarks/
 __pycache__/
