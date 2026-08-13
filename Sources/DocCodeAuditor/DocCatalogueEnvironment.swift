@@ -79,6 +79,11 @@ enum DocCatalogueEnvironment {
         options.headerSearchPaths = DocCodeAuditor.headerSearchPaths(
             projectRoot: projectRoot, configuration: configuration)
         options.moduleMapFiles = DocCodeAuditor.generatedModuleMaps(projectRoot: projectRoot)
+        // The package's own macro plugins, for the same reason swift-testing's are passed: a
+        // fence using a macro this package declares would otherwise fail on a missing
+        // implementation, which is a fact about the build rather than about the documentation.
+        options.toolchainFlags += MacroPlugins.flags(
+            projectRoot: projectRoot, buildDirectory: searchPath)
 
         return Resolved(options: options, notes: notes)
     }

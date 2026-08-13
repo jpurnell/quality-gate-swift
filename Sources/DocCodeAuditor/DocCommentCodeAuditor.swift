@@ -288,6 +288,11 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
 
             var options = DocCodeAuditOptions()
             options.moduleSearchPath = searchPath
+            // A package's own macros are as unreachable as swift-testing's were without their
+            // plugin: the fence fails on a missing implementation rather than on anything the
+            // author wrote, and the natural repair is an exemption the gate did not earn.
+            options.toolchainFlags += MacroPlugins.flags(
+                projectRoot: projectRoot, buildDirectory: searchPath)
             options.imports = Self.preambleImports(module: module, configuration: configuration)
             options.languageFlags = mode.flags
             options.headerSearchPaths = headerSearchPaths
