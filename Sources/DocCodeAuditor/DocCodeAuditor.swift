@@ -393,14 +393,13 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         let path = verdict.articlePath
 
-        // Coverage first, and always — pass or fail.
+        // Coverage first, and always — pass or fail. Derived from the verdict rather
+        // than restated from its fields, so a barriered article cannot report the
+        // fences it handed to an aborted compile as fences it checked.
         diagnostics.append(
             Diagnostic(
                 severity: .note,
-                message: """
-                    \(verdict.fencesFound) Swift fences: \(verdict.fencesChecked) checked, \
-                    \(verdict.fencesExempt) exempt.
-                    """,
+                message: verdict.coverage.summary,
                 filePath: path,
                 ruleId: "doc-code.coverage"))
 

@@ -60,6 +60,29 @@ public struct ArticleVerdict: Sendable, Codable {
     public var passed: Bool {
         collisions.isEmpty && compileErrors.isEmpty && barrier == nil
     }
+
+    /// What this article's audit actually examined.
+    ///
+    /// **A barrier means nothing was examined.** `fencesChecked` counts the fences
+    /// handed to the compiler, and it is computed when the article is assembled —
+    /// before typechecking runs. A `no such module` aborts the compile, so when a
+    /// barrier is reported none of those fences were checked at all.
+    ///
+    /// Until this property existed the coverage line said `12 Swift fences: 12
+    /// checked` for such an article: the exact words a fully examined article
+    /// prints. The barrier was reported separately as an error, so the run was not
+    /// silent — but its *coverage* was wrong, and a reader totalling checked fences
+    /// across a catalogue was counting fences no compiler had seen.
+    public var coverage: AnalysisCoverage {
+        guard let barrier else {
+            return AnalysisCoverage(
+                unit: "Swift fence", found: fencesFound,
+                examined: fencesChecked, exempt: fencesExempt)
+        }
+        return AnalysisCoverage(
+            unit: "Swift fence", found: fencesFound, examined: 0, exempt: fencesExempt,
+            unanalyzed: ["compilation stopped at \(barrier)": fencesChecked])
+    }
 }
 
 /// Everything the typechecker needs beyond the article itself.
