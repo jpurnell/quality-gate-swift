@@ -117,6 +117,10 @@ let package = Package(
             targets: ["TemporalDeterminismAuditor"]
         ),
         .library(
+            name: "GPUSafetyAuditor",
+            targets: ["GPUSafetyAuditor"]
+        ),
+        .library(
             name: "MemoryLifecycleGuard",
             targets: ["MemoryLifecycleGuard"]
         ),
@@ -645,6 +649,20 @@ let package = Package(
         ),
 
         .target(
+            name: "GPUSafetyAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            exclude: ["GPUSafetyAuditor.docc"]
+        ),
+        .testTarget(
+            name: "GPUSafetyAuditorTests",
+            dependencies: ["GPUSafetyAuditor"]
+        ),
+
+        .target(
             name: "MemoryLifecycleGuard",
             dependencies: [
                 "QualityGateCore",
@@ -1083,6 +1101,7 @@ let package = Package(
                 "FloatingPointSafetyAuditor",
                 "StochasticDeterminismAuditor",
                 "TemporalDeterminismAuditor",
+                "GPUSafetyAuditor",
                 "MemoryLifecycleGuard",
                 "MCPReadinessAuditor",
                 "ProcessSafetyAuditor",

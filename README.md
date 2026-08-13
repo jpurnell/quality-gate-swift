@@ -98,6 +98,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
 | `temporal-determinism` | TemporalDeterminismAuditor | Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time |
+| `gpu-safety` | GPUSafetyAuditor | Metal kernels that index by thread id with no bound, and dispatches that round up — the conditions for silent out-of-bounds reads and writes |
 | `keychain-secrets` | KeychainSecretsChecker | Credentials/tokens written to `UserDefaults` (plaintext plist, backup-swept) instead of the Keychain — key- and value-name secret detection with a Bool/Int-value guard |
 | `privacy-manifest` | PrivacyManifestChecker | App targets missing or with a malformed `PrivacyInfo.xcprivacy` — opt-in by app detection, so pure SPM libraries are skipped |
 | `hig-auditor` | HIGAuditor | Apple Human Interface Guidelines compliance for SwiftUI views |
