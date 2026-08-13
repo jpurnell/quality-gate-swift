@@ -12,8 +12,8 @@ It is not a linter that nags about whitespace. It is a **gate**: code that viola
 
 Three numbers frame it:
 
-- **30 checkers**, each an independent Swift package module with its own tests and documentation.
-- **1,677 tests** covering the checkers themselves — the tool is held to the standard it enforces.
+- **42 checkers**, each an independent Swift package module with its own tests and documentation.
+- **2,871 tests** covering the checkers themselves — the tool is held to the standard it enforces.
 - **Zero regex.** Every rule walks the Swift **AST** (abstract syntax tree) via Apple's SwiftSyntax. It understands scope, type context, and control flow — so it catches real defects and produces very few false positives.
 
 ### The core idea
@@ -69,7 +69,7 @@ Checkers that conform to `FixableChecker` can repair issues automatically with `
 - **A gate, not a suggestion.** Because false positives are rare, the tool can enforce. Bad code doesn't merge. There is no backlog of ignored warnings.
 - **No override culture.** Exemptions exist (`// SAFETY:`, `// Justification:`), but every one is a single inline comment that states *why* — recorded, not silent. You can see every place the rules were consciously relaxed.
 - **It travels with the code.** Pre-commit hook, pre-push hook, CI via SARIF, Xcode build phase — the same canonical run path in every environment, so "passes on my machine" and "passes in CI" mean the same thing.
-- **It dogfoods itself.** quality-gate-swift runs its own 30 checkers on every push. The tool is subject to its own gate.
+- **It dogfoods itself.** quality-gate-swift runs its own 42 checkers on every push. The tool is subject to its own gate.
 
 ---
 
@@ -173,5 +173,5 @@ Configuration lives in `.quality-gate.yml` (which checkers, exemption keywords, 
 
 ## 7. One-paragraph summary (for quick ingestion)
 
-quality-gate-swift is an AST-powered static-analysis gate for Swift that enforces correctness, safety, and concurrency rules on every commit and push. Its 30 checkers walk the SwiftSyntax tree rather than matching regex, so they catch structural defects — crashes, data races, unsafe pointers, unguarded division — with few enough false positives to *block* rather than merely warn. It integrates into a strict TDD workflow via git hooks, GitHub Actions (SARIF/Code Scanning), and an Xcode build phase, and dogfoods itself against its own 1,677-test suite. Its value is proven by Harbor, a shipping biofeedback product where a user-stop-mislabeled-as-completed async race survived TDD and three green gate cycles; that single failure became the specification for three new concurrency checkers, and the tool's hard-won precision (turning 1,064 vendored-SDK false positives into 0) is what makes its gate trustworthy enough to enforce.
+quality-gate-swift is an AST-powered static-analysis gate for Swift that enforces correctness, safety, and concurrency rules on every commit and push. Its 42 checkers walk the SwiftSyntax tree rather than matching regex, so they catch structural defects — crashes, data races, unsafe pointers, unguarded division — with few enough false positives to *block* rather than merely warn. It integrates into a strict TDD workflow via git hooks, GitHub Actions (SARIF/Code Scanning), and an Xcode build phase, and dogfoods itself against its own 1,677-test suite. Its value is proven by Harbor, a shipping biofeedback product where a user-stop-mislabeled-as-completed async race survived TDD and three green gate cycles; that single failure became the specification for three new concurrency checkers, and the tool's hard-won precision (turning 1,064 vendored-SDK false positives into 0) is what makes its gate trustworthy enough to enforce.
 ```
