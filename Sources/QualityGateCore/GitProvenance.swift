@@ -55,7 +55,7 @@ public struct GitProvenance: Sendable {
     ///   - repoPath: The directory being gated (the git repo root, or any path within it).
     ///   - sinceSHA: The last recorded commit SHA; only commits after it are captured.
     ///     When `nil`, up to the most recent 20 subjects are captured.
-    /// - Returns: A ``Result``; all-`nil`/empty on any failure. Never throws.
+    /// - Returns: A ``GitProvenance/Result``; all-`nil`/empty on any failure. Never throws.
     public static func capture(repoPath: String, sinceSHA: String?) -> Result {
         let headSHA = runGit(["rev-parse", "HEAD"], in: repoPath)
         let subjects = captureSubjects(repoPath: repoPath, sinceSHA: sinceSHA, headSHA: headSHA)

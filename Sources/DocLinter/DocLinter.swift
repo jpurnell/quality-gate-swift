@@ -152,6 +152,7 @@ public struct DocLinter: QualityChecker, Sendable {
             sourceRoot: projectRoot
         )
         var diagnostics = enrichedDiagnostics
+        diagnostics += Self.ambiguousLinkDiagnostics(projectRoot: projectRoot)
         let coverage = Self.coverageDiagnostic(explicit: explicit, documented: documented)
         diagnostics.append(coverage)
 
@@ -163,6 +164,52 @@ public struct DocLinter: QualityChecker, Sendable {
         )
     }
 
+
+    /// Symbol links that could mean this package's type or the standard library's.
+    ///
+    /// Scoped by construction: the declared-type scan looks only for names in
+    /// ``AmbiguousSymbolLink/stdlibNames``, so a package that declares no colliding
+    /// type does no reference scanning at all and this costs one directory walk.
+    ///
+    /// Runs alongside DocC's own findings rather than inside them, because DocC
+    /// resolves a bare link happily — the ambiguity is invisible to it by design.
+    /// That is precisely why the rule exists.
+    ///
+    /// - Parameter projectRoot: The package root.
+    /// - Returns: One warning per ambiguous reference, ordered by file then line.
+    static func ambiguousLinkDiagnostics(projectRoot: String) -> [Diagnostic] {
+        let declared = DeclaredTypes.colliding(
+            projectRoot: projectRoot, names: AmbiguousSymbolLink.stdlibNames)
+        guard !declared.isEmpty else { return [] }
+
+        var diagnostics: [Diagnostic] = []
+        for spelling in ["Sources", "Source", "src"] {
+            let root = URL(fileURLWithPath: projectRoot).appendingPathComponent(spelling)
+            guard let walker = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            ) else { continue }
+            for case let url as URL in walker {
+                let isArticle = url.pathExtension == "md"
+                let isSwift = url.pathExtension == "swift"
+                guard isArticle || isSwift else { continue }
+                // silent: an unreadable file yields no findings; it is already DocC's to report
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                // In Swift, only doc comments carry symbol links; ordinary comments and
+                // string literals containing double backticks are not references.
+                let searchable = isSwift
+                    ? text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+                        .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("///") ? String($0) : "" }
+                        .joined(separator: "\n")
+                    : text
+                diagnostics += AmbiguousSymbolLink
+                    .findings(in: searchable, declaredLocally: declared)
+                    .map { AmbiguousSymbolLink.diagnostic(for: $0, path: url.path) }
+            }
+        }
+        return diagnostics.sorted {
+            ($0.filePath ?? "", $0.lineNumber ?? 0) < ($1.filePath ?? "", $1.lineNumber ?? 0)
+        }
+    }
 
     /// Every target that owns a DocC catalogue, sorted.
     ///

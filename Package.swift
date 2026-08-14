@@ -315,7 +315,11 @@ let package = Package(
 
         .target(
             name: "DocLinter",
-            dependencies: ["QualityGateCore"],
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
             exclude: ["DocLinter.docc"]
         ),
         .testTarget(
