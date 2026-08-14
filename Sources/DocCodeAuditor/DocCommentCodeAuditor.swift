@@ -232,6 +232,15 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
             projectRoot: projectRoot, configuration: configuration)
         let moduleMapFiles = DocCodeAuditor.generatedModuleMaps(projectRoot: projectRoot)
 
+        // Read once for the same reason: "was this plugin built" and "what does it
+        // register" have one answer per run, and the answer is what tells a missing
+        // build apart from a missing `providingMacros` entry when the compiler calls
+        // both of them "plugin for module not found".
+        let macroEnvironment = MacroDiagnosis.Environment.read(
+            projectRoot: projectRoot,
+            buildDirectory: configuration.docCode.moduleSearchPath
+                ?? projectRoot.appendingPathComponent(".build/debug").path)
+
         for module in byModule.keys.sorted() {
             let files = byModule[module] ?? []
             let censuses = files.compactMap { Self.census(of: $0) }.filter { $0.found > 0 }
@@ -309,7 +318,7 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
         let verdicts = await audit(work)
         let checked = verdicts.count
         for verdict in verdicts {
-            diagnostics += Self.diagnostics(for: verdict)
+            diagnostics += Self.diagnostics(for: verdict, macros: macroEnvironment)
         }
 
         let failed = diagnostics.contains { $0.severity == .error }
@@ -405,7 +414,10 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     // MARK: - Reporting
 
     /// Turns one fence's verdict into diagnostics.
-    static func diagnostics(for verdict: DocCommentFenceVerdict) -> [Diagnostic] {
+    static func diagnostics(
+        for verdict: DocCommentFenceVerdict,
+        macros: MacroDiagnosis.Environment = .unknown
+    ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
         let attribution = verdict.declarationName.map { " on '\($0)'" } ?? ""
 
@@ -446,6 +458,25 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
                             preamble is Foundation plus this module only, on purpose: whatever \
                             the fence has to say to compile is exactly what a reader copying \
                             it out of Quick Help has to type.
+                            """))
+            } else if let macro = MacroDiagnosis.parse(error.message) {
+                // The compiler blames the plugin in both of the situations that produce
+                // this message, and only one of them is about the plugin. Say which.
+                diagnostics.append(
+                    Diagnostic(
+                        severity: .error,
+                        message: """
+                            The doc comment example\(attribution) uses `@\(macro.macroName)`, \
+                            which did not expand. \
+                            \(MacroDiagnosis.explain(macro, in: macros))
+                            """,
+                        filePath: verdict.filePath,
+                        lineNumber: error.fileLine,
+                        ruleId: "doc-comment-code.macro-unexpanded",
+                        suggestedFix: """
+                            This is a defect in the package, not in the example. Do not mark the \
+                            fence illustrative to silence it — the example is correct and the \
+                            macro is not reaching it.
                             """))
             } else {
                 diagnostics.append(
