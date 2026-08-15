@@ -367,8 +367,16 @@ struct QualityGateCLI: AsyncParsableCommand {
             allIDs: allCheckers.map(\.id)
         )
 
+        // `consistency` audits the run, so it cannot be *in* the run.
+        //
+        // It reads telemetry, and the current run's telemetry is written after every checker
+        // completes — so as a checker in the sweep it could only ever see the previous run,
+        // and reported that run's findings inside a run whose verdict it appeared to describe.
+        // It is now a post-run stage over the in-memory results (below, after `runner.run`).
+        // `--check consistency` still selects it; what changed is when it runs.
+        let consistencySelected = effectiveCheckers.contains(ConsistencyChecker().id)
         let checkersToRun = allCheckers.filter { checker in
-            effectiveCheckers.contains(checker.id)
+            effectiveCheckers.contains(checker.id) && checker.id != ConsistencyChecker().id
         }
 
         // `disk-clean` was a checker until cleanup moved off the QualityChecker protocol.
@@ -379,7 +387,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        if checkersToRun.isEmpty {
+        // `consistency` alone is a legitimate invocation — it is no longer in `checkersToRun`,
+        // so an empty sweep with it selected is a consistency-only run, not an empty one.
+        if checkersToRun.isEmpty && !consistencySelected {
             print("No checkers enabled. Nothing to do.")
             return
         }
@@ -442,6 +452,37 @@ struct QualityGateCLI: AsyncParsableCommand {
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
             }
         )
+
+        // The post-run stage. `consistency` audits the results above rather than the newest
+        // telemetry on disk, which is the previous run — appended before the reporter and
+        // before `TelemetryEmission.emit`, which reads this result to embed the score.
+        if consistencySelected {
+            do {
+                // `--check consistency` on its own has no current run to audit — the sweep is
+                // empty, and auditing zero results would score a vacuous 1.00 while printing
+                // what a real pass prints. That is the failure this project keeps finding, so
+                // isolation takes the fallback path, which reads the newest persisted run and
+                // names it.
+                let checker = ConsistencyChecker()
+                let consistencyResult = checkersToRun.isEmpty
+                    ? try await checker.check(configuration: configuration)
+                    : try await checker.audit(results: allResults, configuration: configuration)
+                allResults.append(overrideProcessor.apply(to: consistencyResult))
+            } catch {
+                // Loud, never silent: a corpus that cannot be read is a fact about the run.
+                Self.logger.error("Consistency audit failed: \(error.localizedDescription, privacy: .public)")
+                allResults.append(CheckResult(
+                    checkerId: ConsistencyChecker().id,
+                    status: .passed,
+                    diagnostics: [Diagnostic(
+                        severity: .note,
+                        message: "Consistency audit could not run: \(error.localizedDescription)",
+                        ruleId: "consistency-unavailable"
+                    )],
+                    duration: .zero
+                ))
+            }
+        }
         // Decaying baseline (Phase 4c §3): recorded debts become notes with
         // their expiry visible; expired debts return as re-verify warnings;
         // new findings gate. Applied before trial mode so both transforms

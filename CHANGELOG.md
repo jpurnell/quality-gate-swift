@@ -29,10 +29,32 @@
   rewritten or annotated is still open: rewriting erases the record of the bug, annotating
   keeps a pulse whose numbers no longer reproduce.
 
-  Not yet fixed, and tracked in `ConsistencySeverityAndProvenance.md`: `consistency` still
-  reports the *previous* run, because it reads the newest telemetry on disk and the current
-  run's is written after every checker completes. Reproduced in this repository on 2026-08-15
-  across three consecutive runs.
+- **`consistency` now audits the run it is printed inside of.**
+
+  It read the newest telemetry on disk, and the current run's telemetry is written *after*
+  every checker completes — so "newest" was always the run before. A clean run reported the
+  previous run's findings, which meant a project on a zero-warning policy could not reach zero
+  on the run after any failure. The only workaround was to run the gate twice and believe the
+  second answer.
+
+  Reproduced here on 2026-08-15 across three consecutive runs: run 1 failed `doc-generated` and
+  `test-quality`; run 2 was clean but warned `missing-assertion` ×49 and `doc-generated.coverage`
+  ×21 — one cluster per checker that had failed the run before; run 3, on an identical tree, was
+  clean.
+
+  `consistency` is no longer a checker in the sweep. It runs as a post-run stage over the run's
+  in-memory results, after the sweep and before telemetry emission — an ordering that matters,
+  since emission reads the consistency result to embed the score. `--check consistency` still
+  selects it.
+
+  In isolation there is no current run to audit, so it falls back to the newest persisted
+  record and **names** it (`Auditing previous run <timestamp> — no current run in scope`)
+  rather than auditing an empty result set and reporting a vacuous 1.00. Every result now
+  states which run it describes.
+
+  Architectural consequence, recorded in `project/master_plan.md`: **a checker that audits a
+  run must run after it.** `QualityChecker.check(configuration:)` stays results-free; a checker
+  needing the run's results becomes a post-run stage rather than reaching for persisted state.
 
 ### Changed
 

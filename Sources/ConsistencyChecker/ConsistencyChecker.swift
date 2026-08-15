@@ -26,8 +26,49 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
     /// Creates a new consistency checker.
     public init() {}
 
+    /// Which run a consistency result describes.
+    ///
+    /// The distinction is the point: a score printed inside a run reads as a statement about
+    /// that run, and for a long time it was not one.
+    enum AuditedRun: Sendable {
+        /// The run that just completed, audited from its in-memory results.
+        case current([CheckResult])
+        /// No current run in scope — `--check consistency` in isolation. Falls back to the
+        /// newest persisted telemetry, and says so.
+        case newestPersisted
+    }
+
+    /// Audits the run that just completed.
+    ///
+    /// This is the entry point the CLI uses. `QualityChecker.check(configuration:)` receives
+    /// only a `Configuration` — by design, and worth keeping — so a checker that needs the
+    /// run's results cannot be a checker in the sweep. It becomes a post-run stage instead,
+    /// which is the ADR this change carries: *a checker that audits a run must run after it.*
+    ///
+    /// - Parameters:
+    ///   - results: Every `CheckResult` from this run, including skipped checkers.
+    ///   - configuration: Project configuration.
+    /// - Returns: A `CheckResult` describing this run's consistency with the institutional pulse.
+    public func audit(
+        results: [CheckResult],
+        configuration: Configuration
+    ) async throws -> CheckResult {
+        try await evaluate(.current(results), configuration: configuration)
+    }
+
     /// Runs the institutional consistency check against the IJS corpus.
+    ///
+    /// Retained for `--check consistency` in isolation, where there is no current run to audit.
+    /// The lag is legitimate here rather than accidental — the caller asked for consistency
+    /// alone — and the result says which run it read.
     public func check(configuration: Configuration) async throws -> CheckResult {
+        try await evaluate(.newestPersisted, configuration: configuration)
+    }
+
+    private func evaluate(
+        _ auditedRun: AuditedRun,
+        configuration: Configuration
+    ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let config = configuration.consistency
 
@@ -92,17 +133,52 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
             endDate: now
         )
 
-        guard let latestMetadata = recentMetadata.sorted(by: { $0.timestamp > $1.timestamp }).first else {
-            return makeResult(
-                startTime: startTime,
-                status: .passed,
-                diagnostics: [
-                    Diagnostic(
-                        severity: .note,
-                        message: "Pulse found (\(pulse.weekLabel)) but no recent telemetry metadata — consistency check skipped",
-                        ruleId: "consistency-no-metadata"
-                    )
-                ]
+        // Which run is being audited, and the note that says so. The current run's telemetry
+        // is written *after* every checker completes, so "newest on disk" is always the run
+        // before — which is how a clean run reported the previous run's findings and the only
+        // workaround was "run it again and believe the second answer".
+        let latestMetadata: CheckResultMetadata
+        let provenanceNote: Diagnostic
+        switch auditedRun {
+        case .current(let results):
+            latestMetadata = CheckResultMetadata(
+                projectID: projectID,
+                timestamp: Date(),
+                environment: ProcessInfo.processInfo.environment["CI"] != nil ? .ci : .local,
+                // Resolved the same way `TelemetryEmission` resolves it, so the record this
+                // audit reasons over and the record that gets persisted name the same owner.
+                decisionOwner: ProcessInfo.processInfo.environment["USER"] ?? "local",
+                results: results,
+                overrides: [],
+                riskTier: RiskTier(rawValue: config.defaultRiskTier) ?? .operational,
+                ethicalFlags: [],
+                consistencyScore: nil
+            )
+            provenanceNote = Diagnostic(
+                severity: .note,
+                message: "Auditing the current run.",
+                ruleId: "consistency-audited-run"
+            )
+
+        case .newestPersisted:
+            guard let newest = recentMetadata.sorted(by: { $0.timestamp > $1.timestamp }).first else {
+                return makeResult(
+                    startTime: startTime,
+                    status: .passed,
+                    diagnostics: [
+                        Diagnostic(
+                            severity: .note,
+                            message: "Pulse found (\(pulse.weekLabel)) but no recent telemetry metadata — consistency check skipped",
+                            ruleId: "consistency-no-metadata"
+                        )
+                    ]
+                )
+            }
+            latestMetadata = newest
+            provenanceNote = Diagnostic(
+                severity: .note,
+                message: "Auditing previous run \(ISO8601DateFormatter().string(from: newest.timestamp)) — no current run in scope.",
+                ruleId: "consistency-audited-run"
             )
         }
 
@@ -122,7 +198,8 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         let auditor = PolicyDiscoveryAuditor(writer: writer, scorer: scorer)
         let report = await auditor.audit(metadata: latestMetadata, against: pulse)
 
-        var diagnostics: [Diagnostic] = []
+        // First, so a reader knows which run the findings below describe before reading them.
+        var diagnostics: [Diagnostic] = [provenanceNote]
 
         for finding in report.findings {
             let severity: Diagnostic.Severity = finding.isRecurringInPulse ? .warning : .note
