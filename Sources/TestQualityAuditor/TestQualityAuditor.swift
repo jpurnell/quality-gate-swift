@@ -73,6 +73,18 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
             allOverrides.append(contentsOf: result.overrides)
         }
 
+        // Property coverage reads Sources/ as well as Tests/, because the finding is
+        // about a function that owes an invariant, not about any individual test.
+        //
+        // Opt-in by rule id until a project's worklist is burned down. It arrives with 69
+        // findings on this package, and a rule that is red on arrival gets skipped — the
+        // lesson `doc-code` already paid for, where sixteen findings were enough to justify
+        // shipping opt-in and promoting it only once the corpus was repaired. Enable with
+        // `enabledCheckers: ["test-quality.property-coverage"]`.
+        if configuration.enabledCheckers.contains(PropertyCoverage.ruleId) {
+            allDiagnostics += Self.propertyCoverageDiagnostics(projectRoot: currentDir)
+        }
+
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
 
@@ -207,6 +219,56 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
             visitor.diagnostics + fpResult.diagnostics,
             visitor.overrides + fpResult.overrides
         )
+    }
+
+    // MARK: - Property Coverage
+
+    /// Shape-bearing functions in `Sources/` that no property-shaped test exercises.
+    ///
+    /// Reads both trees once. The source pass classifies functions by shape; the test
+    /// pass collects the symbols named inside property-shaped tests; coverage extends
+    /// one fixed level of delegation. ``PropertyCoverage`` documents why that depth is
+    /// one and why it is not configurable.
+    ///
+    /// - Parameter projectRoot: The package root.
+    /// - Returns: One warning per uncovered candidate, ordered by file then line.
+    static func propertyCoverageDiagnostics(projectRoot: String) -> [Diagnostic] {
+        let manager = FileManager.default
+        var candidates: [PropertyCoverage.Candidate] = []
+        var calls: [String: Set<String>] = [:]
+
+        for spelling in ["Sources", "Source", "src"] {
+            let root = URL(fileURLWithPath: projectRoot).appendingPathComponent(spelling)
+            guard let walker = manager.enumerator(
+                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            ) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                guard !url.path.contains(".build/"), !url.path.contains(".docc/") else { continue }
+                // silent: an unreadable source file contributes no candidates, so the run reports fewer rather than a clean sweep
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let found = PropertyCoverage.candidates(in: text, path: url.path)
+                candidates += found.candidates
+                for (caller, callees) in found.calls {
+                    calls[caller, default: []].formUnion(callees)
+                }
+            }
+        }
+        guard !candidates.isEmpty else { return [] }
+
+        var covered: Set<String> = []
+        let tests = URL(fileURLWithPath: projectRoot).appendingPathComponent("Tests")
+        if let walker = manager.enumerator(
+            at: tests, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                guard !url.path.contains(".build/") else { continue }
+                // silent: an unreadable test file contributes no coverage, erring toward reporting a candidate
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                covered.formUnion(PropertyCoverage.propertyCoveredSymbols(inTestSource: text))
+            }
+        }
+
+        return PropertyCoverage.findings(
+            candidates: candidates, calls: calls, coveredDirectly: covered)
     }
 }
 

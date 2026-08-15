@@ -240,14 +240,20 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
             for memberIndex in component {
                 let decl = callable[memberIndex]
+                // An unbounded cycle is a crash on untrusted input, not a style note. A
+                // stack overflow cannot be caught by the caller, it takes the process. This
+                // was reported as a warning while the finding was true: four correct
+                // findings sat unread in BusinessMath's output — competing with 53 errors
+                // from a stale worktree — until someone went looking for warnings
+                // specifically, and the crashable path was public API taking user input.
                 diagnostics.append(Diagnostic(
-                    severity: .warning,
-                    message: "function '\(decl.signature.displayName)' participates in a mutual recursion cycle with no base case",
+                    severity: .error,
+                    message: "function '\(decl.signature.displayName)' re-enters a mutual recursion cycle with no bound. Recursion depth grows with input length, so input that is merely long — not malformed — overflows the stack. A stack overflow cannot be caught by the caller.",
                     filePath: decl.location.file,
                     lineNumber: decl.location.line,
                     columnNumber: decl.location.column,
                     ruleId: "recursion.mutual-cycle",
-                    suggestedFix: "Add a guard-driven base case to one of the cycle participants."
+                    suggestedFix: "Bound the descent — a depth counter checked by a guard in the body of each participant — or make the cycle iterative. The guard must appear in the participant itself: a bound reached through a helper is not visible to a reader deciding whether this function terminates, and the check is for that reader. Choose the limit against the smallest stack the code can run on — a cooperative executor's thread is far smaller than the main thread's, so a bound verified in a scratch program can still overflow under a test runner."
                 ))
             }
         }

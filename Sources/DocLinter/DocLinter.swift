@@ -963,7 +963,13 @@ public struct DocLinter: QualityChecker, Sendable {
         return String(string[range])
     }
 
-    private static func parseSeverity(_ string: String) -> Diagnostic.Severity {
+    /// Maps DocC's severity word onto a ``Diagnostic/Severity``.
+    ///
+    /// Internal rather than private so its totality can be asserted: every input maps
+    /// to a severity, and an unrecognised one degrades to `.warning` rather than
+    /// causing the diagnostic to be dropped. A dropped diagnostic is a finding the
+    /// reader never sees, which is the failure mode this checker has already had once.
+    static func parseSeverity(_ string: String) -> Diagnostic.Severity {
         switch string.lowercased() {
         case "error":
             return .error

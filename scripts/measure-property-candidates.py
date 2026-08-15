@@ -89,12 +89,52 @@ for f in (root / "Tests").rglob("*.swift"):
         for sym in re.findall(r"\b([A-Za-z_]\w*)\s*\(", body):
             covered.add(sym)
 
-# Keep a renderer only where its module also has a parser: round-trip or nothing.
-parser_modules = {c["module"] for c in candidates if c["kind"] == "parser"}
+# Keep a renderer only where the SAME FILE also parses. Module scope was too coarse:
+# QualityGateCore contains parsers, so formatDuration, renderTable and two
+# writeDiagnostic overloads were classified round-trip while having no inverse at all.
+# A round-trip needs its two halves in the same type; same file is the usable proxy.
+parser_files = {c["path"] for c in candidates if c["kind"] == "parser"}
 candidates = [c for c in candidates
-              if c["kind"] != "renderer?" or c["module"] in parser_modules]
+              if c["kind"] != "renderer?" or c["path"] in parser_files]
 for c in candidates:
     if c["kind"] == "renderer?": c["kind"] = "round-trip"
+# A property exercising `matchingParen` exercises `matching`, which it delegates to.
+# Counting only directly-named symbols reports well-tested primitives as uncovered —
+# false positives whose repair is writing a redundant test.
+calls = collections.defaultdict(set)          # caller name -> names it calls
+for f in (root / "Sources").rglob("*.swift"):
+    if any(p.startswith(".build") for p in f.parts) or ".docc" in str(f): continue
+    text = strip_ml(f.read_text(errors="replace"))
+    for m in FUNC.finditer(text):
+        caller = m.group(1)
+        i = text.find("{", m.end())
+        if i < 0: continue
+        depth, j = 0, i
+        while j < len(text):
+            if text[j] == "{": depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0: break
+            j += 1
+        for callee in re.findall(r"\b([A-Za-z_]\w*)\s*\(", text[i:j]):
+            if callee != caller: calls[caller].add(callee)
+
+# Coverage extends exactly ONE level of delegation, and the depth is fixed rather
+# than tunable. A thin wrapper's invariant is its delegate's invariant, so a property
+# on `matchingParen` genuinely covers `matching`. Two levels is already claiming a
+# property about code the test never mentions, and the count is violently sensitive to
+# the choice: measured here at 76 / 35 / 23 / 16 uncovered for depths 1 / 2 / 3 / 6.
+# A finding count that moves like that on a knob with no principled value is not a
+# finding count.
+frontier, seen = set(covered), set(covered)
+for _ in range(1):
+    nxt = set()
+    for name in frontier:
+        nxt |= calls.get(name, set()) - seen
+    if not nxt: break
+    seen |= nxt; frontier = nxt
+covered = seen
+
 uncovered = [c for c in candidates if c["name"] not in covered]
 by_kind = collections.Counter(c["kind"] for c in uncovered)
 by_module = collections.Counter(c["module"] for c in uncovered)
@@ -111,5 +151,5 @@ print("most concentrated modules:")
 for mod, v in by_module.most_common(10): print(f"    {mod:32s} {v}")
 print()
 print("sites (first 40, by module):")
-for c in sorted(uncovered, key=lambda c: (c["module"] or "", c["path"], c["line"]))[:40]:
+for c in sorted(uncovered, key=lambda c: (c["module"] or "", c["path"], c["line"]))[:400]:
     print(f"    {c['path']}:{c['line']}  {c['kind']:11s} {c['name']}")

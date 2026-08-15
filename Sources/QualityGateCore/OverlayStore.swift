@@ -95,7 +95,12 @@ public struct OverlayStore: Sendable {
     /// Path separators and traversal dots become underscores, so every
     /// overlay stays strictly inside `overlays/` no matter what the
     /// identity resolution produced.
-    private static func sanitized(_ identity: String) -> String {
+    /// Internal rather than private so the containment property can be asserted
+    /// directly: whatever the identity resolution produced, the result contains no
+    /// path separator and no traversal, and is never empty. That is a security
+    /// boundary, and a boundary asserted only through its callers is one example
+    /// away from being unasserted.
+    static func sanitized(_ identity: String) -> String {
         let component = identity
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "\\", with: "_")

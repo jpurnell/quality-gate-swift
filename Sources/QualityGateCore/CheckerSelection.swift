@@ -38,6 +38,18 @@ public enum CheckerSelection {
             // Explicit ids run as requested.
             return requested
         } else if !configuredEnabled.isEmpty {
+            // `all` means the same thing here as it does on the command line. Without this
+            // the obvious repair for a dropped `enabledCheckers` key —
+            //
+            //     enabledCheckers:
+            //       - all
+            //
+            // returns ["all"], matches no checker id, and runs *nothing*, silently. A
+            // reader correcting one invisible misconfiguration would land one step deeper
+            // into the same failure, and the run would still print PASSED.
+            if configuredEnabled.contains("all") {
+                return allIDs.filter { !excludeSet.contains($0) }
+            }
             return configuredEnabled.filter { !excludeSet.contains($0) }
         } else {
             // Default (no --check, no config): everything except the opt-in checkers.

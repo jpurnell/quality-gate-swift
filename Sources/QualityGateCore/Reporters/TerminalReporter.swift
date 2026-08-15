@@ -5,8 +5,22 @@ import Foundation
 /// Uses ANSI colors and symbols for clear visual feedback.
 public struct TerminalReporter: Reporter, Sendable {
 
+    /// How many checkers the registry holds, when the caller knows.
+    ///
+    /// The summary reports what the run *found*. Without this it cannot report what the
+    /// run *was* — and a 35-checker run prints exactly what a 42-checker run prints.
+    /// BusinessMath ran 35 of 42 for as long as its config file existed, because a
+    /// mistyped key silently selected a narrower set; one line here would have made that
+    /// visible on every run, to anyone, without archaeology.
+    public let rosterSize: Int?
+
     /// Creates a new TerminalReporter instance.
-    public init() {}
+    ///
+    /// - Parameter rosterSize: Total registered checkers, so the summary can state its
+    ///   denominator. `nil` omits the line rather than guessing.
+    public init(rosterSize: Int? = nil) {
+        self.rosterSize = rosterSize
+    }
 
     /// Outputs results in a human-readable terminal format.
     ///
@@ -57,6 +71,14 @@ public struct TerminalReporter: Reporter, Sendable {
 
         if totalErrors > 0 || totalWarnings > 0 {
             output.write("   \(totalErrors) error(s), \(totalWarnings) warning(s)\n")
+        }
+        // Every run states its denominator. The second clause appears only when the
+        // numbers differ, so a full run reads `42 of 42 checkers` and stops there.
+        if let rosterSize, rosterSize > 0 {
+            let ran = results.count
+            var line = "   \(ran) of \(rosterSize) checkers"
+            if ran < rosterSize { line += " · \(rosterSize - ran) not selected" }
+            output.write(line + "\n")
         }
         output.write("==========================================\n\n")
     }

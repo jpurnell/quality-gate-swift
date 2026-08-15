@@ -1725,6 +1725,18 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// silently running old rules (Phase 0.6). nil means no pin.
     public var minimumGateVersion: String?
 
+    /// Keys the file set that this version does not define, recorded during decoding.
+    ///
+    /// Transient and deliberately outside `CodingKeys`: it describes *this read* of the
+    /// file, not content the file should carry, and it must never round-trip back into
+    /// one.
+    ///
+    /// Recorded rather than thrown. Strict decoding is a breaking change for any
+    /// repository carrying a stale key, and it should break with a fix in hand rather
+    /// than a wall — so the first release reports the keys and continues. See
+    /// ``UnknownConfigurationKeys`` for what this cost when it was silent.
+    public var unknownKeys: UnknownConfigurationKeys?
+
     /// Creates a new configuration with the specified values.
     public init(
         parallelWorkers: Int? = nil,
@@ -1885,7 +1897,7 @@ public struct Configuration: Sendable, Codable, Equatable {
 // MARK: - Custom Decoding for Optional Fields
 
 extension Configuration {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case parallelWorkers
         case excludePatterns
         case vendorPaths
@@ -1937,8 +1949,25 @@ extension Configuration {
     }
 
     /// Creates a configuration by decoding from the given decoder.
+    ///
+    /// **Decoding is strict about key names.** Every field below uses
+    /// `decodeIfPresent(…) ?? default`, so a key the schema does not define would
+    /// otherwise be discarded in silence — and a discarded key is a statement the gate
+    /// never heard. BusinessMath wrote `checkers:` where the schema says
+    /// `enabledCheckers`, and consequently ran 35 checkers while its file claimed 42,
+    /// with `recursion` among those never run. See ``UnknownConfigurationKeys``.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // Asked with a permissive key type, because a container keyed by the schema's own
+        // enum can only ever report keys inside that enum — which is exactly why an
+        // unknown key was invisible.
+        // silent: a decoder that cannot offer a permissive container reports no unknown keys
+        if let permissive = try? decoder.container(keyedBy: AnyCodingKey.self) {
+            let present = Set(permissive.allKeys.map(\.stringValue))
+            let known = Set(CodingKeys.allCases.map(\.stringValue))
+            unknownKeys = UnknownConfigurationKeys.check(present: present, known: known)
+        }
 
         parallelWorkers = try container.decodeIfPresent(Int.self, forKey: .parallelWorkers)
         excludePatterns = try container.decodeIfPresent([String].self, forKey: .excludePatterns) ?? []

@@ -28,12 +28,15 @@ public enum ReporterFactory {
 
     /// Creates a reporter for the specified format.
     ///
-    /// - Parameter format: The desired output format.
+    /// - Parameters:
+    ///   - format: The desired output format.
+    ///   - rosterSize: Total registered checkers, so a terminal summary can state its
+    ///     denominator. `nil` omits the line rather than guessing at it.
     /// - Returns: A reporter instance.
-    public static func create(for format: OutputFormat) -> any Reporter {
+    public static func create(for format: OutputFormat, rosterSize: Int? = nil) -> any Reporter {
         switch format {
         case .terminal:
-            return TerminalReporter()
+            return TerminalReporter(rosterSize: rosterSize)
         case .json:
             return JSONReporter()
         case .sarif:

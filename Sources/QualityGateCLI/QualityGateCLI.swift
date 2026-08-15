@@ -287,6 +287,21 @@ struct QualityGateCLI: AsyncParsableCommand {
             telemetryCorpusPath: telemetryCorpusPath
         ))
 
+        // A key the schema does not define was discarded during decoding, and a discarded
+        // key is a statement the gate never heard. Reported at startup, before any checker
+        // runs, because the consequence is *which checkers run at all* — BusinessMath wrote
+        // `checkers:` for `enabledCheckers` and ran 35 of 42 for as long as the file
+        // existed, with `recursion` among those never run.
+        //
+        // Advisory for one release: this is a breaking change for any repository carrying a
+        // stale key, and it should break with a fix in hand rather than a wall.
+        if let unknown = configuration.unknownKeys {
+            FileHandle.standardError.write(Data(
+                ("⚠️  configuration: " + unknown.message
+                 + "\n   This is advisory in this release and will become an error.\n\n")
+                    .utf8))
+        }
+
         // Run environment (Phase 1): resident behaves as always; foreign
         // redirects every write into the overlay and enforces read-only
         // analysis structurally (WriteGuard + Maintainer's Promise).
@@ -381,7 +396,12 @@ struct QualityGateCLI: AsyncParsableCommand {
         default:
             outputFormat = .terminal
         }
-        let reporter = ReporterFactory.create(for: outputFormat)
+        // The registry, not the selection: the summary's denominator is how many
+        // checkers exist, so a narrowed run is self-reporting rather than requiring
+        // someone to already suspect it.
+        let reporter = ReporterFactory.create(
+            for: outputFormat,
+            rosterSize: Self.checkerRegistry(configuration: configuration).count)
 
         if verbose {
             print("Running \(checkersToRun.count) checkers concurrently...")

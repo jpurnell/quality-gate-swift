@@ -30,6 +30,35 @@ private final class ManifestVisitor: SyntaxVisitor {
         "library", "executable", "plugin", "product",
     ]
 
+    /// Whether this factory call is a direct element of `Package(targets:)`.
+    ///
+    /// Walks up to the enclosing array and asks whether that array is the `targets:`
+    /// argument of a `Package(…)` call. A dependency reference sits inside a
+    /// `dependencies:` array instead, and fails the test.
+    static func declaresTarget(_ node: FunctionCallExprSyntax) -> Bool {
+        var current = Syntax(node).parent
+        while let syntax = current {
+            if let argument = syntax.as(LabeledExprSyntax.self) {
+                // LabeledExprSyntax -> LabeledExprListSyntax -> FunctionCallExprSyntax
+                if argument.label?.text == "targets",
+                   let call = syntax.parent?.parent?.as(FunctionCallExprSyntax.self),
+                   call.calledExpression.as(DeclReferenceExprSyntax.self)?
+                       .baseName.text == "Package" {
+                    return true
+                }
+                // Reached a labelled argument that is not `Package(targets:)` — a
+                // `dependencies:` list. This call is a reference, not a declaration.
+                if argument.label != nil { return false }
+            }
+            current = syntax.parent
+        }
+        // Reached the top without passing through any labelled argument, so this is a
+        // bare `.target(…)` fragment rather than something nested in a manifest.
+        // Callers legitimately pass such fragments — `extractExcludePaths` is documented
+        // against one — and a fragment is a declaration by construction.
+        return true
+    }
+
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self) else {
             return .visitChildren
@@ -46,7 +75,18 @@ private final class ManifestVisitor: SyntaxVisitor {
             }
         }
 
-        if Self.targetFactories.contains(name) {
+        // Only a factory call that is a *direct element of `Package(targets:)`* declares a
+        // target. Two nearby constructs use the same spelling and declare nothing: a
+        // dependency written `.target(name: "Beta")`, and a product's `targets: ["Alpha"]`.
+        // Counting those invented modules — `extractTargetNames` returned
+        // ["Target0", "SomeDependency"] for a manifest declaring one target — and an invented
+        // module name makes the hallucinated-import check treat an undeclared import as
+        // declared, which is a false negative in the one direction that matters.
+        //
+        // `DocGeneratedAuditor.PackageTargets` already descends correctly and carries the same
+        // comment; this parser did not, and no example test covered a manifest whose target had
+        // a `.target(name:)` dependency.
+        if Self.targetFactories.contains(name), Self.declaresTarget(node) {
             if let targetName = stringArgument(labeled: "name", in: node) {
                 info.targetNames.append(targetName)
             }

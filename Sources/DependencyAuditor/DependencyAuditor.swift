@@ -748,6 +748,11 @@ private final class ImportVisitor: SyntaxVisitor {
     override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
         guard let firstComponent = node.path.first else { return .skipChildren }
         let moduleName = firstComponent.name.text
+        // SwiftParser recovers from malformed source by synthesising a missing token, so
+        // `import . import` yields two imports whose module name is the empty string. An
+        // empty name is not a module: downstream it is compared against the declared set,
+        // where it matches nothing and reports a hallucinated import that was never written.
+        guard !moduleName.isEmpty else { return .skipChildren }
         let line = node.startLocation(converter: converter).line
 
         let isGuarded = canImportGuards[moduleName]?.contains(where: { $0 < line }) ?? false

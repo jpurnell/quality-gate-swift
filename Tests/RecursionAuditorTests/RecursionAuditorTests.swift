@@ -150,7 +150,11 @@ struct RecursionAuditorTests {
         let result = try await audit(code)
         let cycles = result.diagnostics.filter { $0.ruleId == "recursion.mutual-cycle" }
         #expect(cycles.count >= 2, "Expected both participants of the cycle to be flagged")
-        #expect(cycles.allSatisfy { $0.severity == .warning })
+        // Error, not warning: an unbounded cycle is a crash on untrusted input, and a
+        // stack overflow cannot be caught by the caller. Promoted in the fix for
+        // `UnboundedRecursionIsAnError.md`, where four correct findings sat unread
+        // because the severity told the reader not to care.
+        #expect(cycles.allSatisfy { $0.severity == .error })
     }
 
     @Test("Does not flag intra-file mutual recursion that has a base case")

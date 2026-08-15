@@ -236,7 +236,12 @@ enum RecursionIndexPass {
             if graph.componentHasBaseCase(component) { continue }
 
             let ruleId: String
-            let severity: Diagnostic.Severity = .warning
+            // Error, for the same reason as the AST pass: an unbounded cycle is a crash on
+            // untrusted input, in the category this gate already treats as an error under
+            // `pointer-escape` and `gpu-safety`. A warning is a claim that the finding is
+            // optional, and in practice worse than optional — it competes for attention with
+            // whatever else the run is emitting.
+            let severity: Diagnostic.Severity = .error
 
             if graph.isProtocolWitnessCycle(component) {
                 ruleId = "recursion.protocol-witness-cycle"
@@ -250,12 +255,12 @@ enum RecursionIndexPass {
                 guard let info = graph.symbolInfo(for: usr) else { continue }
                 diagnostics.append(Diagnostic(
                     severity: severity,
-                    message: "function '\(info.displayName)' participates in a \(ruleId == "recursion.cross-module-cycle" ? "cross-module " : ruleId == "recursion.protocol-witness-cycle" ? "protocol witness " : "")mutual recursion cycle with no base case",
+                    message: "function '\(info.displayName)' re-enters a \(ruleId == "recursion.cross-module-cycle" ? "cross-module " : ruleId == "recursion.protocol-witness-cycle" ? "protocol witness " : "")mutual recursion cycle with no bound. Recursion depth grows with input length, so input that is merely long — not malformed — overflows the stack. A stack overflow cannot be caught by the caller.",
                     filePath: info.filePath,
                     lineNumber: info.line,
                     columnNumber: info.column,
                     ruleId: ruleId,
-                    suggestedFix: "Add a guard-driven base case to one of the cycle participants."
+                    suggestedFix: "Bound the descent — a depth counter checked by a guard in the body of each participant — or make the cycle iterative. The guard must appear in the participant itself: a bound reached through a helper is not visible to a reader deciding whether this function terminates, and the check is for that reader. Choose the limit against the smallest stack the code can run on — a cooperative executor's thread is far smaller than the main thread's, so a bound verified in a scratch program can still overflow under a test runner."
                 ))
             }
         }

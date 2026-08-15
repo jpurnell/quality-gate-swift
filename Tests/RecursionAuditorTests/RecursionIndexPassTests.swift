@@ -207,7 +207,11 @@ struct RecursionIndexPassTests {
         let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
         let crossModuleDiags = diagnostics.filter { $0.ruleId == "recursion.cross-module-cycle" }
         #expect(crossModuleDiags.count >= 2)
-        #expect(crossModuleDiags.allSatisfy { $0.severity == .warning })
+        // Error, not warning: an unbounded cycle is a crash on untrusted input, and a
+        // stack overflow cannot be caught by the caller. Promoted in the fix for
+        // `UnboundedRecursionIsAnError.md`, where four correct findings sat unread
+        // because the severity told the reader not to care.
+        #expect(crossModuleDiags.allSatisfy { $0.severity == .error })
     }
 
     @Test("Protocol witness cycle diagnostic uses correct rule ID")
@@ -231,7 +235,11 @@ struct RecursionIndexPassTests {
         let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
         let witnessDiags = diagnostics.filter { $0.ruleId == "recursion.protocol-witness-cycle" }
         #expect(!witnessDiags.isEmpty)
-        #expect(witnessDiags.allSatisfy { $0.severity == .warning })
+        // Error, not warning: an unbounded cycle is a crash on untrusted input, and a
+        // stack overflow cannot be caught by the caller. Promoted in the fix for
+        // `UnboundedRecursionIsAnError.md`, where four correct findings sat unread
+        // because the severity told the reader not to care.
+        #expect(witnessDiags.allSatisfy { $0.severity == .error })
     }
 
     // MARK: - Graceful degradation

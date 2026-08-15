@@ -47,7 +47,7 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let started = ContinuousClock.now
         let root = FileManager.default.currentDirectoryPath
-        let scan = Self.scan(root: root)
+        let scan = Self.scan(root: root, excludePatterns: configuration.excludePatterns)
 
         var diagnostics = scan.diagnostics
         // Emitted on every run, pass or fail, including when the answer is zero.
@@ -74,9 +74,16 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
 
     /// Scans a directory tree. Pure over the file system it is given.
     ///
-    /// - Parameter root: Directory to scan.
+    /// - Parameters:
+    ///   - root: Directory to scan.
+    ///   - excludePatterns: Glob patterns from configuration. Glob markers are stripped and
+    ///     the remainder matched as a substring of the relative path, which is the rule
+    ///     `SourceWalker` already applies. A checker that walks the tree itself has to honour
+    ///     the project's exclusions explicitly, or the documented key silently does nothing
+    ///     here — which is how a repository can carry a correct `excludePatterns` entry and
+    ///     still be unable to make this checker stop reading a directory.
     /// - Returns: Diagnostics and a coverage statement.
-    public static func scan(root: String) -> Scan {
+    public static func scan(root: String, excludePatterns: [String] = []) -> Scan {
         let fileManager = FileManager.default
         // silent: no readable manifest means no exclude lists, so every .metal file is treated as compiled
         let manifest = (try? String(
@@ -102,6 +109,7 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
             // rule work into eight permanent errors, and the fix would be to stop
             // testing the rule.
             if relative.hasPrefix("Tests/") || relative.contains("/Tests/") { continue }
+            if isExcluded(relativePath: relative, patterns: excludePatterns) { continue }
             let fullPath = root + "/" + relative
 
             if relative.hasSuffix(".metal") {
@@ -159,5 +167,27 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
             + " · \(kernelCount) kernel(s) examined"
             + (deadFileCount > 0 ? " · \(deadFileCount) excluded from every target" : "")
         return Scan(diagnostics: sorted, coverageLine: coverage)
+    }
+
+    /// Whether `relativePath` matches any configured exclude pattern.
+    ///
+    /// Glob markers (`**/`, `/**`, `*`) are stripped and the remainder matched as a
+    /// substring, which is exactly `SourceWalker.isExcluded`'s rule — a pattern has to mean
+    /// the same thing whether a checker asks the shared walker for files or walks the tree
+    /// itself, or the same entry excludes a path from one checker and not another.
+    ///
+    /// - Parameters:
+    ///   - relativePath: Path relative to the scan root.
+    ///   - patterns: Configured exclude patterns. Empty never matches.
+    /// - Returns: `true` when any non-empty stripped pattern is a substring of the path.
+    private static func isExcluded(relativePath: String, patterns: [String]) -> Bool {
+        for pattern in patterns {
+            let stripped = pattern
+                .replacingOccurrences(of: "**/", with: "")
+                .replacingOccurrences(of: "/**", with: "")
+                .replacingOccurrences(of: "*", with: "")
+            if !stripped.isEmpty, relativePath.contains(stripped) { return true }
+        }
+        return false
     }
 }
