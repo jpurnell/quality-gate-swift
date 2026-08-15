@@ -165,7 +165,13 @@ public enum MetalKernelParser {
         matching(in: text, openAt: open, open: "{", close: "}")
     }
 
-    private static func matching(
+    /// The shared bracket matcher behind ``matchingParen(in:openAt:)`` and
+    /// ``matchingBrace(in:openAt:)``.
+    ///
+    /// Internal rather than private so its invariant can be asserted directly. Both
+    /// public wrappers delegate here, which makes this the one place a
+    /// delimiter-specific bug could hide while both wrappers' own tests pass.
+    static func matching(
         in text: String, openAt open: String.Index, open openCharacter: Character,
         close closeCharacter: Character
     ) -> String.Index? {
