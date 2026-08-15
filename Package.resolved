@@ -1,5 +1,5 @@
 {
-  "originHash" : "5c38a55fdb3396c13881a94ded5d8b4315d2094fcfcf3444da1f7574026679f6",
+  "originHash" : "3d66cfe6d865b7e5195b746bc70248cdff2442ba6159d8cc598ae4a71988c7ba",
   "pins" : [
     {
       "identity" : "businessmath",
@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/quality-gate-types.git",
       "state" : {
-        "revision" : "f371fb2b43f3377b1099729d2d3abbc4e1ce0477",
-        "version" : "1.3.0"
+        "revision" : "5834f2b446fcabb256bd2bd5ca0307ccd0cf7d42",
+        "version" : "1.4.0"
       }
     },
     {

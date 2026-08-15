@@ -223,10 +223,16 @@ public actor PolicyDiscoveryAuditor {
 
     // MARK: - Helpers
 
+    /// Rule ids this run actually violated.
+    ///
+    /// Filters on `isViolation`, not on the enclosing checker's status. A checker's *failure*
+    /// is not a property of each diagnostic it emitted: `doc-code` failing on one compile error
+    /// still prints its coverage note, and counting that note reported a rule as violated whose
+    /// every occurrence is severity `note` and which is emitted when the checker *succeeds*.
     private func extractFailedRuleIds(from results: [CheckResult]) -> Set<String> {
         var ruleIds = Set<String>()
         for result in results {
-            for diagnostic in result.diagnostics {
+            for diagnostic in result.diagnostics where diagnostic.isViolation {
                 if let ruleId = diagnostic.ruleId {
                     ruleIds.insert(ruleId)
                 }
@@ -235,10 +241,15 @@ public actor PolicyDiscoveryAuditor {
         return ruleIds
     }
 
+    /// Maps each violated rule id to the checker that reported it.
+    ///
+    /// Filtered identically to `extractFailedRuleIds` — a lookup built over a wider set than
+    /// the ids it serves would attribute rules that never make it into a finding, and the two
+    /// drifting apart is how the original counting bug stayed invisible.
     private func buildCheckerLookup(from results: [CheckResult]) -> [String: String] {
         var lookup: [String: String] = [:]
         for result in results {
-            for diagnostic in result.diagnostics {
+            for diagnostic in result.diagnostics where diagnostic.isViolation {
                 if let ruleId = diagnostic.ruleId {
                     lookup[ruleId] = result.checkerId
                 }

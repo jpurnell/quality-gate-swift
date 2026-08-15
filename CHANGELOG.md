@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`consistency` no longer counts notes as violations.** ⚠️ **This changes every project's
+  score.**
+
+  Checker-level failure was being used as a proxy for diagnostic-level violation: when a
+  checker failed, every diagnostic it emitted was counted against its rule, notes included.
+  `doc-code.coverage` — severity `note` in all 12,844 recorded occurrences, and emitted
+  precisely when the checker *succeeds* — accumulated a violation cluster of 1,903 that no
+  repository could drive to zero, because emitting it is the success path.
+
+  Counting now filters on `Diagnostic.isViolation` (`severity >= .warning`), which ships in
+  `quality-gate-types` 1.4.0 so the gate and the Institutional Judgment System cannot disagree
+  about what a violation is. Applied at three sites:
+  `PolicyDiscoveryAuditor.extractFailedRuleIds`, `.buildCheckerLookup`, and
+  `PulseRefiner.detectClusters`.
+
+  Severity decides, never the rule's name. `doc-generated.region-missing-line` reads
+  note-shaped and is `error` in all 639 recorded occurrences; its cluster is unchanged. Expect
+  pure-note clusters (`doc-code.coverage` at 1,903, `doc-comment-code.coverage` at 9,408) to
+  vanish and error-backed ones (`exact-double-equality` at 2,149) not to move.
+
+  **Existing corpus clusters remain wrong until a pulse regenerates** — that is a corpus
+  operation, not a code one, and is deliberately not done here. Whether historical pulses get
+  rewritten or annotated is still open: rewriting erases the record of the bug, annotating
+  keeps a pulse whose numbers no longer reproduce.
+
+  Not yet fixed, and tracked in `ConsistencySeverityAndProvenance.md`: `consistency` still
+  reports the *previous* run, because it reads the newest telemetry on disk and the current
+  run's is written after every checker completes. Reproduced in this repository on 2026-08-15
+  across three consecutive runs.
+
+### Changed
+
+- `quality-gate-types` requirement moves to `from: "1.4.0"`.
+
 ## [3.0.0] — 2026-08-12
 
 **The project's claims about itself are now checked.** Documentation must compile, run, and match
