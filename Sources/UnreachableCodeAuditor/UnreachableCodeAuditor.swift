@@ -30,7 +30,16 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "UnreachableCodeAuditor")
 
     /// Unique identifier for this checker.
+    ///
+    /// The literal must stay *here*, on the declaration: `doc-generated` derives the README's
+    /// checker tables by reading this initializer, and an indirection through a constant left
+    /// it unable to find the declaration for a checker its registry lists — six regions failed
+    /// to regenerate rather than silently dropping a row, which is the checker working.
     public let id = "unreachable"
+
+    /// The same id at type level, for the static diagnostic builders. Derived from an instance
+    /// rather than a second literal so the two cannot drift.
+    static let checkerId = UnreachableCodeAuditor().id
 
     /// Human-readable name for display.
     public let name = "Unreachable Code Auditor"
@@ -73,12 +82,19 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// - **SwiftPM** — auto-builds an isolated index store under
     ///   `.build/index-build` and runs the full reachability pass.
     /// - **Xcode** — looks up an existing index store under
-    ///   `~/Library/Developer/Xcode/DerivedData/`. If the user hasn't
-    ///   built recently a `.note` is emitted; the gate is never failed
-    ///   purely on a missing or stale index. A separate `.note` is
-    ///   emitted when the located store is older than the newest source.
+    ///   `~/Library/Developer/Xcode/DerivedData/`. A *missing* store is still
+    ///   a `.note`: nothing was found, and nothing is claimed.
     /// - **Plain** — cross-module is skipped with a `.note`; only the
     ///   syntactic pass runs.
+    ///
+    /// A **stale or undateable** index is different, and no longer a note. The cross-module
+    /// pass does not run and an error-severity barrier replaces the findings it would have
+    /// produced — see `indexProvenance(located:)`. This reverses the previous contract, under
+    /// which the gate was never failed on a stale index: an advisory line is something a
+    /// reader scrolls past, and the reader who scrolls past it acts on findings computed
+    /// against a program that no longer exists.
+    ///
+    /// The syntactic pass is unaffected in every case, because it reads the sources directly.
     ///
     /// - Parameters:
     ///   - root: Absolute URL of the project root.
@@ -113,7 +129,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         // Cross-module pass.
         do {
             var located: StoreLocator.LocatedStore?
-            located = try StoreLocator.locate(projectKind: kind)
+            located = try StoreLocator.locate(projectKind: kind, excludePatterns: effectiveExcludes)
 
             // v5: optional auto-build for Xcode projects/workspaces.
             if (located == nil || located?.isStale == true)
@@ -137,17 +153,16 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             // A stale index reports symbols at their old line numbers; once source
             // above them shifts (e.g. an added `#if canImport` guard), those lines
             // no longer line up with the current file — `// LIVE:` markers are missed
-            // and live symbols look dead. Rather than fail the gate on unreliable
-            // data, skip the cross-module pass entirely (like a missing store) and
-            // point the user at a rebuild. The syntactic pass has already run.
-            guard Self.shouldRunCrossModule(located: located2) else {
-                diagnostics.append(Diagnostic(
-                    severity: .note,
-                    message: "Index store at \(located2.url.path) is older than the newest source file — cross-module analysis skipped to avoid false positives from stale line numbers. Build the project in Xcode and re-run, or pass `--auto-build-xcode`.",
-                    ruleId: "unreachable.cross_module.stale"
-                ))
-                throw SkipMarker.skipped
-            }
+            // and live symbols look dead. The barrier replaces the cross-module findings
+            // rather than accompanying them; the syntactic pass has already run and is
+            // unaffected, because it reads the sources directly.
+            //
+            // This was a `.note` that let the run pass. A note is advice, and the reader
+            // who scrolls past it is the reader who deletes live public API on a stale
+            // index's authority — which is what all but happened.
+            let provenance = Self.indexProvenance(located: located2)
+            diagnostics.append(contentsOf: provenance.diagnostics)
+            guard provenance.shouldRun else { throw SkipMarker.skipped }
             let dylib = try Self.locateLibIndexStore()
             let targetTypeByModule: [String: String]
             switch kind {
@@ -204,6 +219,62 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     static func shouldRunCrossModule(located: StoreLocator.LocatedStore?) -> Bool {
         guard let located else { return false }
         return !located.isStale
+    }
+
+    /// What to say about the index before reading it, and whether to read it at all.
+    ///
+    /// The barrier **replaces** the cross-module findings rather than accompanying them.
+    /// Emitting both invites the reader to act on the findings and treat the barrier as
+    /// noise, which is precisely what would have happened in the case that produced this
+    /// rule: three plausible dead symbols and one advisory line about timestamps.
+    ///
+    /// - Parameter located: The located store, carrying its measurement when it has one.
+    /// - Returns: The diagnostics to emit, and whether the index may be read.
+    static func indexProvenance(
+        located: StoreLocator.LocatedStore
+    ) -> (diagnostics: [Diagnostic], shouldRun: Bool) {
+        guard let measurement = located.measurement else {
+            // An asserted store from the legacy initializer: nothing was measured, so there is
+            // nothing to report. Preserves the behavior of callers that have not adopted the
+            // measured path.
+            return ([], !located.isStale)
+        }
+
+        switch measurement {
+        case .measured(let freshness) where freshness.isStale:
+            return ([freshness.staleBarrier(
+                checkerId: checkerId,
+                subject: "reachability",
+                storeURL: located.url
+            )], false)
+
+        case .measured(let freshness):
+            return ([freshness.coverageNote(checkerId: checkerId)], true)
+
+        case .noIndexUnits:
+            // Worse than stale, and a different sentence. An index holding no units yields no
+            // references, so *every* symbol in the package reads as unreachable — the largest
+            // false-positive surface this checker has. It cannot be reported as staleness
+            // because the timestamps that sentence would quote do not exist.
+            return ([Diagnostic(
+                severity: .error,
+                message: """
+                    The index store at \(located.url.path) holds no unit records, so \
+                    reachability could not be determined. Read as-is it would report every \
+                    symbol in the package as unreachable.
+                    """,
+                ruleId: "\(checkerId).index.unmeasurable",
+                suggestedFix: """
+                    Build the project — `swift build` — and re-run. If the store is being \
+                    written to a path this checker does not read, that is a configuration \
+                    fault rather than a missing build.
+                    """
+            )], false)
+
+        case .noSources:
+            // Nothing to be stale against; there is no reachability question to answer.
+            return ([], false)
+        }
     }
 
     /// Build the Xcode project / workspace via `xcodebuild` and return a

@@ -40,41 +40,121 @@ public enum StoreLocator {
         public var url: URL
         /// Whether the store is outdated relative to current sources.
         public var isStale: Bool
+        /// The measurement backing `isStale`, when one could be taken.
+        ///
+        /// Nil only for stores built through the legacy `init(url:isStale:)`, where the caller
+        /// asserted a verdict instead of measuring one. A checker that wants to report *why*
+        /// a store is stale — the two timestamps a barrier must carry — reads this.
+        public var measurement: IndexFreshnessMeasurement?
 
-        /// Creates a located store with the given URL and staleness flag.
+        /// Creates a located store with an asserted staleness flag and no measurement.
         public init(url: URL, isStale: Bool) {
             self.url = url
             self.isStale = isStale
+            self.measurement = nil
+        }
+
+        /// Creates a located store whose staleness is derived from a measurement.
+        ///
+        /// - Parameters:
+        ///   - url: The store directory.
+        ///   - measurement: The comparison of index units against sources. Only
+        ///     `.measured` can make a store stale: an index that could not be dated is
+        ///     unmeasured, which is a different statement from current.
+        public init(url: URL, measurement: IndexFreshnessMeasurement) {
+            self.url = url
+            self.measurement = measurement
+            switch measurement {
+            case .measured(let freshness): self.isStale = freshness.isStale
+            case .noIndexUnits, .noSources: self.isStale = false
+            }
         }
     }
 
     /// Locate an index store appropriate to a `ProjectKind`.
-    public static func locate(projectKind: ProjectKind) throws -> LocatedStore? {
+    ///
+    /// - Parameters:
+    ///   - projectKind: The detected project layout.
+    ///   - excludePatterns: Patterns whose files must not count toward the source timestamp,
+    ///     so an excluded file cannot make an index look stale.
+    /// - Returns: The located store, or nil when the layout has none.
+    public static func locate(
+        projectKind: ProjectKind,
+        excludePatterns: [String] = []
+    ) throws -> LocatedStore? {
         switch projectKind {
         case .swiftPM(let packageRoot):
             let url = try ensureFresh(packageRoot: packageRoot)
-            return LocatedStore(url: url, isStale: false)
+            // Measured, not asserted. `ensureFresh` cannot guarantee what this claims:
+            // `needsRebuild` stats the top-level store directory, whose mtime does not move
+            // when a unit nested under `v5/units` is rewritten — on this repository that
+            // directory sat eight days behind the units inside it.
+            return located(store: url, projectRoot: packageRoot, excludePatterns: excludePatterns)
 
         case .xcode(let projectFile, let root):
-            return locateXcode(file: projectFile, root: root)
+            return locateXcode(file: projectFile, root: root, excludePatterns: excludePatterns)
 
         case .xcworkspace(let workspaceFile, let root):
-            return locateXcode(file: workspaceFile, root: root)
+            return locateXcode(file: workspaceFile, root: root, excludePatterns: excludePatterns)
 
         case .plain:
             return nil
         }
     }
 
-    private static func locateXcode(file: URL, root: URL) -> LocatedStore? {
+    /// Builds a `LocatedStore` by measuring `store` against the sources under `projectRoot`.
+    ///
+    /// The whole project tree is walked, not a named list of target directories. SwiftPM
+    /// target paths are configurable, so `Sources`/`Tests` is a guess about a layout rather
+    /// than a fact about one — and a guess that is wrong in the *fresh* direction fails
+    /// silently, which is the failure this whole type exists to remove. `SourceWalker` already
+    /// owns this project's single definition of what is not source (`.build`, `.git`,
+    /// `DerivedData`, Xcode containers, and the rest), so dependency checkouts and build
+    /// products stay out without a second skip list being invented here.
+    ///
+    /// Test sources are in scope, and must be: `unreachable` roots every symbol in a test
+    /// target because the test runner is the implicit entry point, so adding or deleting a
+    /// test is precisely the edit that changes reachability. Measuring against product code
+    /// alone would leave that edit unable to invalidate the index it changes the meaning of.
+    ///
+    /// - Parameters:
+    ///   - store: The index store directory, as returned by the locator — never a fixed path,
+    ///     since a package can hold several stores of differing ages and only the one actually
+    ///     read says anything about the answer.
+    ///   - projectRoot: The project root to walk.
+    ///   - excludePatterns: Patterns excluded from the source timestamp.
+    /// - Returns: A store carrying its measurement.
+    static func located(
+        store: URL,
+        projectRoot: URL,
+        excludePatterns: [String]
+    ) -> LocatedStore {
+        LocatedStore(
+            url: store,
+            measurement: IndexFreshness.measure(
+                storeURL: store,
+                sourceRoots: [projectRoot],
+                excludePatterns: excludePatterns
+            )
+        )
+    }
+
+    private static func locateXcode(
+        file: URL,
+        root: URL,
+        excludePatterns: [String]
+    ) -> LocatedStore? {
         let name = file.deletingPathExtension().lastPathComponent
         guard let url = locateInDerivedData(
             projectName: name,
             projectPath: file,
             derivedDataRoot: defaultDerivedDataRoot()
         ) else { return nil }
-        let isStale = isIndexStoreStale(store: url, sourcesRoot: root)
-        return LocatedStore(url: url, isStale: isStale)
+        // Xcode's DerivedData store keeps its units at the same `v5/units` path, so the same
+        // measurement applies. It previously used `isIndexStoreStale`, which compares against
+        // the store directory and so cannot see a rewritten unit — the defect that made the
+        // SwiftPM path's asserted freshness invisible for as long as it was.
+        return located(store: url, projectRoot: root, excludePatterns: excludePatterns)
     }
 
     // MARK: - Xcode scheme parsing
