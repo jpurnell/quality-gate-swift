@@ -29,6 +29,29 @@
   rewritten or annotated is still open: rewriting erases the record of the bug, annotating
   keeps a pulse whose numbers no longer reproduce.
 
+- **A violation counts wherever it was reported.** ⚠️ **This moves scores in the opposite
+  direction from the note fix above — it widens what counts.**
+
+  Counting required `status == .failed` **and** `isViolation`. Those are two different tests,
+  and the status one was wrong: a checker can pass while emitting warnings — `doc-lint` does —
+  and the filter dropped those warnings along with the whole checker. Score impact therefore
+  depended on whether a checker chose to *fail* or merely *warn*, a decision each checker makes
+  for its own reasons and unrelated to how serious the finding is. A rule could be violated
+  every run for weeks and never score.
+
+  Severity is now the only test, at both sites. `extractFailedRuleIds` is renamed
+  `extractViolatedRuleIds`, because failure is no longer what it asks.
+
+  Checker-level attribution still asks about failure: anomaly matching is about *checkers*, and
+  a checker that passed did not fail whatever it reported on the way. That filter stays.
+
+  Resolved 2026-08-15 — §15's first open question in
+  `ConsistencySeverityAndProvenance.md`, deliberately decided separately from the note fix so
+  the two opposite-direction score movements are attributable.
+
+  **Regenerate the pulse after deploying this.** Cluster construction now counts warnings in
+  passing checkers, so existing clusters understate.
+
 - **`consistency` now audits the run it is printed inside of.**
 
   It read the newest telemetry on disk, and the current run's telemetry is written *after*

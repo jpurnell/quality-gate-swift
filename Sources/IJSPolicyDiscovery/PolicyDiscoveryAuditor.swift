@@ -56,16 +56,25 @@ public actor PolicyDiscoveryAuditor {
         metadata: CheckResultMetadata,
         against pulse: InstitutionalPulse
     ) -> ConsistencyReport {
-        let failedResults = metadata.results.filter { $0.status == .failed }
-        let failedRuleIds = extractFailedRuleIds(from: failedResults)
-        let failedCheckerIds = Set(failedResults.map(\.checkerId))
+        // Severity decides, not the enclosing checker's status. A checker can pass while
+        // emitting warnings — `doc-lint` does — and those warnings are violations. Requiring
+        // `status == .failed` made score impact depend on whether a checker chose to fail or
+        // merely warn, which is a decision each checker makes for its own reasons and is
+        // unrelated to how serious the finding is. A rule could be violated every run for
+        // weeks without ever scoring.
+        let violatedRuleIds = extractViolatedRuleIds(from: metadata.results)
+        let checkerLookup = buildCheckerLookup(from: metadata.results)
+        // Checker-level attribution still asks about *failure*: a checker that passed did not
+        // fail, whatever it reported along the way. Anomalies are about checkers, so this is
+        // the one place the status remains the right question.
+        let failedCheckerIds = Set(metadata.results.filter { $0.status == .failed }.map(\.checkerId))
 
         var findings: [ConsistencyFinding] = []
 
         findings.append(contentsOf: matchClusters(
-            failedRuleIds: failedRuleIds,
+            failedRuleIds: violatedRuleIds,
             clusters: pulse.violationClusters,
-            checkerLookup: buildCheckerLookup(from: failedResults)
+            checkerLookup: checkerLookup
         ))
 
         findings.append(contentsOf: matchAnomalies(
@@ -74,15 +83,15 @@ public actor PolicyDiscoveryAuditor {
         ))
 
         findings.append(contentsOf: matchUnaddressedPolicies(
-            failedRuleIds: failedRuleIds,
+            failedRuleIds: violatedRuleIds,
             policies: pulse.proposedPolicyUpdates,
-            checkerLookup: buildCheckerLookup(from: failedResults)
+            checkerLookup: checkerLookup
         ))
 
         findings.append(contentsOf: detectSuppressionPatterns(
             metadata: metadata,
             clusters: pulse.violationClusters,
-            checkerLookup: buildCheckerLookup(from: failedResults)
+            checkerLookup: checkerLookup
         ))
 
         let baselineValidity = inferBaselineValidity(from: pulse)
@@ -225,11 +234,20 @@ public actor PolicyDiscoveryAuditor {
 
     /// Rule ids this run actually violated.
     ///
-    /// Filters on `isViolation`, not on the enclosing checker's status. A checker's *failure*
-    /// is not a property of each diagnostic it emitted: `doc-code` failing on one compile error
-    /// still prints its coverage note, and counting that note reported a rule as violated whose
-    /// every occurrence is severity `note` and which is emitted when the checker *succeeds*.
-    private func extractFailedRuleIds(from results: [CheckResult]) -> Set<String> {
+    /// Severity is the only test. Two things it deliberately does **not** consult:
+    ///
+    /// The enclosing checker's *failure* is not a property of each diagnostic it emitted —
+    /// `doc-code` failing on one compile error still prints its coverage note, and counting
+    /// that note reported a rule as violated whose every occurrence is `note` and which is
+    /// emitted when the checker *succeeds*.
+    ///
+    /// Nor is the checker's *success* a property of its diagnostics. `doc-lint` passes while
+    /// emitting warnings; those are violations, and requiring `status == .failed` dropped them
+    /// with the whole checker. That made score impact depend on whether a checker chose to fail
+    /// or merely warn — a decision unrelated to how serious the finding is.
+    ///
+    /// Formerly `extractFailedRuleIds`, renamed because failure is no longer what it asks.
+    private func extractViolatedRuleIds(from results: [CheckResult]) -> Set<String> {
         var ruleIds = Set<String>()
         for result in results {
             for diagnostic in result.diagnostics where diagnostic.isViolation {

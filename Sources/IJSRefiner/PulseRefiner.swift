@@ -370,12 +370,17 @@ public actor PulseRefiner {
         var ruleProjects: [String: Set<String>] = [:]
 
         for meta in metadata {
-            for result in meta.results where result.status == .failed {
-                // `isViolation`, not merely "the checker failed". A failing checker's notes
-                // describe what it did — coverage, skips, environment — and are not violations
-                // of their rule. Counting them gave `doc-code.coverage` a cluster of 1,903
-                // from a diagnostic that is `note` in all 12,844 recorded occurrences and is
-                // emitted when the checker *succeeds*, so no repository could drive it to zero.
+            for result in meta.results {
+                // Severity is the only test, in both directions.
+                //
+                // A failing checker's notes are not violations: counting them gave
+                // `doc-code.coverage` a cluster of 1,903 from a diagnostic that is `note` in
+                // all 12,844 recorded occurrences and is emitted when the checker *succeeds*,
+                // so no repository could drive it to zero.
+                //
+                // And a passing checker's warnings *are* violations: `doc-lint` passes while
+                // emitting them, and a `status == .failed` filter dropped them with the whole
+                // checker — so a rule could be violated every run for weeks and never cluster.
                 for diagnostic in result.diagnostics where diagnostic.isViolation {
                     guard let ruleId = diagnostic.ruleId else { continue }
                     ruleOccurrences[ruleId, default: 0] += 1
