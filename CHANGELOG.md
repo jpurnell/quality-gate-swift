@@ -29,6 +29,26 @@
   rewritten or annotated is still open: rewriting erases the record of the bug, annotating
   keeps a pulse whose numbers no longer reproduce.
 
+- **The auditor's own findings are no longer counted as violations.**
+
+  A `consistency-finding.*` diagnostic reports *on* violations; it is not a violation of
+  anything in the code — the coverage-note category error one level up, made about the auditor
+  rather than about a checker.
+
+  It was structurally invisible until the change below: `consistency` reports `passed` or
+  `warning` and **never** `failed`, so the old status filter dropped it every time. Counting
+  warnings from passing checkers swept it in, and a pulse regeneration surfaced it —
+  `consistency-finding.clusterMatch` at **322 occurrences**.
+
+  It never self-corrects. In a normal run the audit happens before its own result is appended,
+  so it cannot see itself and produces no finding — but the telemetry written afterwards
+  carries the warning, so every run feeds the cluster and nothing drives it down. In the
+  isolation path (`--check consistency`), which audits persisted telemetry rather than the
+  current run, the loop closes properly: it matches its own earlier finding.
+
+  Excluded at both counting sites. A companion test pins `docc` still clustering, so excluding
+  the auditor cannot drift into excluding passing checkers and undo the change below.
+
 - **A violation counts wherever it was reported.** ⚠️ **This moves scores in the opposite
   direction from the note fix above — it widens what counts.**
 
