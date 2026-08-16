@@ -110,6 +110,41 @@ struct DispatchRulesTests {
         #expect(diagnostics.count == 1)
     }
 
+    /// `waitUntilCompleted()` is not a Metal spelling. `MCP.Server`, `Process`-style
+    /// wrappers and hand-written actors all name their shutdown wait the same thing,
+    /// and a file that never mentions Metal cannot be holding an `MTLCommandBuffer`.
+    /// Matching the bare method name reported a server's blocking run loop as silent
+    /// GPU memory corruption.
+    @Test("Stays silent in a file with no Metal context")
+    func silentWithoutMetalContext() {
+        let source = """
+            func runServer() async throws {
+                try await server.start(transport: StdioTransport())
+                await server.waitUntilCompleted()
+            }
+            """
+        #expect(DispatchRules.diagnose(swiftSource: source, path: "MatchHost.swift")
+            .filter { $0.ruleId == DispatchRules.uncheckedCommandBufferID }.isEmpty)
+    }
+
+    /// The import alone establishes the context, even where the receiver is named
+    /// something this rule could never enumerate.
+    @Test("Fires when the file imports Metal and the receiver is opaquely named")
+    func firesOnMetalImportWithOpaqueReceiver() {
+        let source = """
+            import Metal
+
+            func execute() {
+                cb.commit()
+                cb.waitUntilCompleted()
+                use(out.contents())
+            }
+            """
+        let diagnostics = DispatchRules.diagnose(swiftSource: source, path: "Device.swift")
+            .filter { $0.ruleId == DispatchRules.uncheckedCommandBufferID }
+        #expect(diagnostics.count == 1)
+    }
+
     @Test("Diagnostics are ordered by line")
     func orderedByLine() {
         let source = """

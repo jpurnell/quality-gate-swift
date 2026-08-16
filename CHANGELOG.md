@@ -29,6 +29,35 @@
   rewritten or annotated is still open: rewriting erases the record of the bug, annotating
   keeps a pulse whose numbers no longer reproduce.
 
+- **`gpu-safety` rule 3 no longer fires on files with no Metal in them.**
+
+  `waitUntilCompleted()` is not a Metal spelling. `MCP.Server`, `Process`-style wrappers and
+  hand-written actors all name their blocking shutdown wait exactly that, and rule 3 matched the
+  bare method name — so it reported a server's run loop as silent GPU memory corruption in a
+  package with no Metal anywhere in it. An error a reader cannot act on, in a rule whose entire
+  value is that its errors are real.
+
+  The rule is now gated on `hasMetalContext(_:)`, computed once per file. A file that never
+  names Metal cannot hold an `MTLCommandBuffer`, so `import Metal` / `MetalKit` /
+  `MetalPerformanceShaders` and any `MTL` type are a sound gate. `commandBuffer` and
+  `CommandBuffer` are admitted alongside them because the buffer is often reached through a
+  helper that carries the import rather than the file that uses it — without those, this false
+  positive would have been traded for a false *negative* on real dispatch code, which is the
+  worse trade for a rule that emits errors.
+
+  Two limitations, stated because the fix is a heuristic rather than type resolution. It is a
+  raw substring scan, not a syntactic one, so `MTL` inside a comment or string literal turns the
+  rule back on — the right direction for a safety rule, but the false positive is reachable
+  again in a file that merely mentions Metal. And it is file-scoped: a large file with genuine
+  Metal code elsewhere plus an unrelated `waitUntilCompleted()` still fires. Both need the
+  receiver's type, which this auditor does not resolve.
+
+  Of the two new tests, only `silentWithoutMetalContext` is red before the change — that one is
+  the bug. `firesOnMetalImportWithOpaqueReceiver` passed already; it is a ratchet against
+  someone later "tightening" the gate into receiver-name matching, which would miss every buffer
+  not literally named `commandBuffer`. The existing six needed no edits: their fixtures already
+  say `commandBuffer` or `MTLSize`, so they keep their context.
+
 - **The auditor's own findings are no longer counted as violations.**
 
   A `consistency-finding.*` diagnostic reports *on* violations; it is not a violation of

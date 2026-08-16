@@ -22,9 +22,41 @@ public enum DispatchRules {
     public static func diagnose(swiftSource: String, path: String) -> [Diagnostic] {
         let tree = Parser.parse(source: swiftSource)
         let converter = SourceLocationConverter(fileName: path, tree: tree)
-        let visitor = DispatchVisitor(path: path, converter: converter)
+        let visitor = DispatchVisitor(
+            path: path,
+            converter: converter,
+            checkCommandBuffers: hasMetalContext(swiftSource))
         visitor.walk(tree)
         return visitor.diagnostics.sorted { ($0.lineNumber ?? 0) < ($1.lineNumber ?? 0) }
+    }
+
+    /// Whether the file could plausibly hold an `MTLCommandBuffer`.
+    ///
+    /// Rule 3 has only a method name to go on, and `waitUntilCompleted()` is not a
+    /// Metal spelling: `MCP.Server`, process wrappers and hand-written actors all name
+    /// their blocking shutdown wait exactly that. Matching the bare name reported a
+    /// server's run loop as silent GPU memory corruption in a package with no Metal
+    /// anywhere in it — an error a reader cannot act on, in a rule whose whole value is
+    /// that its errors are real.
+    ///
+    /// A file that never names Metal cannot be holding a command buffer, so the import
+    /// or any `MTL` type is a sound gate. `commandBuffer` and `makeCommandBuffer` are
+    /// admitted alongside it because the type is often reached through a helper that
+    /// carries the import instead, and losing those would trade this false positive for
+    /// a false negative on real dispatch code.
+    ///
+    /// - Parameter source: File contents.
+    /// - Returns: `true` when the file mentions Metal in any of those forms.
+    static func hasMetalContext(_ source: String) -> Bool {
+        let markers = [
+            "import Metal",
+            "import MetalKit",
+            "import MetalPerformanceShaders",
+            "MTL",
+            "commandBuffer",
+            "CommandBuffer",
+        ]
+        return markers.contains { source.contains($0) }
     }
 }
 
@@ -38,9 +70,13 @@ final class DispatchVisitor: SyntaxVisitor {
     /// Set once `waitUntilCompleted()` is seen, cleared by a status check.
     private var awaitingStatusCheck: AbsolutePosition?
 
-    init(path: String, converter: SourceLocationConverter) {
+    /// Whether rule 3 runs at all — see ``DispatchRules/hasMetalContext(_:)``.
+    private let checkCommandBuffers: Bool
+
+    init(path: String, converter: SourceLocationConverter, checkCommandBuffers: Bool) {
         self.path = path
         self.converter = converter
+        self.checkCommandBuffers = checkCommandBuffers
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -48,7 +84,7 @@ final class DispatchVisitor: SyntaxVisitor {
         let called = node.calledExpression.trimmedDescription
 
         // Rule 3 — order matters, so this runs on the call itself.
-        if called.hasSuffix("waitUntilCompleted") {
+        if checkCommandBuffers, called.hasSuffix("waitUntilCompleted") {
             awaitingStatusCheck = node.positionAfterSkippingLeadingTrivia
         }
 
