@@ -12,6 +12,11 @@ import IJSRefiner
 /// anomaly patterns, and unaddressed policy proposals.
 public actor PolicyDiscoveryAuditor {
 
+    /// The checker whose diagnostics describe the corpus rather than the code, and so are
+    /// never violations. Spelled here rather than imported: `ConsistencyChecker` is downstream
+    /// of this module, and depending on it to learn one string would invert the graph.
+    static let auditorCheckerId = "consistency"
+
     private let writer: any CorpusTransport
     private let exemptions: [ConsistencyExemption]
     private let scorer: ConsistencyScorer
@@ -249,7 +254,12 @@ public actor PolicyDiscoveryAuditor {
     /// Formerly `extractFailedRuleIds`, renamed because failure is no longer what it asks.
     private func extractViolatedRuleIds(from results: [CheckResult]) -> Set<String> {
         var ruleIds = Set<String>()
-        for result in results {
+        // The auditor's own findings are excluded: a `consistency-finding.*` diagnostic reports
+        // *on* violations and is not one. In the post-run path this is belt and braces — the
+        // audit runs before its own result is appended, so it cannot see itself. In the
+        // isolation path (`--check consistency`), which audits persisted telemetry, it can and
+        // did: without this, it matches its own earlier finding and reports a finding about it.
+        for result in results where result.checkerId != Self.auditorCheckerId {
             for diagnostic in result.diagnostics where diagnostic.isViolation {
                 if let ruleId = diagnostic.ruleId {
                     ruleIds.insert(ruleId)

@@ -15,6 +15,14 @@ public actor PulseRefiner {
     static let logger = Logger(subsystem: "com.quality-gate", category: "PulseRefiner")
     static let minimumConsecutiveAppearances = 3
     static let minimumAffectedProjectsForRecurring = 2
+
+    /// The checker whose diagnostics describe the corpus rather than the code.
+    ///
+    /// Its id is spelled here rather than imported: `ConsistencyChecker` is downstream of this
+    /// module, and depending on it to learn one string would invert the graph. The cost of the
+    /// literal is that a rename must update this line, which is why the tests assert on the
+    /// behaviour rather than on the constant.
+    static let auditorCheckerId = "consistency"
     private let writer: any CorpusTransport
 
     /// Creates a new pulse refiner.
@@ -370,7 +378,16 @@ public actor PulseRefiner {
         var ruleProjects: [String: Set<String>] = [:]
 
         for meta in metadata {
-            for result in meta.results {
+            // The auditor's own output is not evidence about the code it audits. A
+            // `consistency-finding.*` diagnostic reports *on* violations; it is not a
+            // violation of anything, which is the coverage-note category error one level up.
+            //
+            // It stayed hidden while counting required a failed checker, because `consistency`
+            // reports `passed` or `warning` and never `failed`. The moment warnings from
+            // passing checkers began counting, it accumulated 322 occurrences in one pulse —
+            // and it inflates monotonically, since every run's telemetry carries the finding
+            // and nothing can ever drive it down.
+            for result in meta.results where result.checkerId != Self.auditorCheckerId {
                 // Severity is the only test, in both directions.
                 //
                 // A failing checker's notes are not violations: counting them gave
