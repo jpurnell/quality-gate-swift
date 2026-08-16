@@ -65,17 +65,29 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
+        // Resolved once per run: whether a trap is a defect depends on who calls the target it
+        // sits in. An empty map (not SwiftPM, or `describe` failed) resolves every file to
+        // `.executable`, which is the strict reading — a layout we cannot determine gets the
+        // rule that assumes an end user is watching.
+        let targetTypes = TargetTypeMap.describe(packageRoot: currentDir)
+
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let result = try await auditDirectory(
                 at: sourcesPath,
-                configuration: configuration
+                configuration: configuration,
+                targetTypes: targetTypes
             )
             allDiagnostics.append(contentsOf: result.diagnostics)
             allOverrides.append(contentsOf: result.overrides)
+            if let note = Self.trapNote(counted: result.countedTraps, targetKind: "library, test or plugin") {
+                allDiagnostics.append(note)
+            }
         }
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
+        // A counted trap is a note, and notes do not fail a gate — the status must follow the
+        // findings that assert a defect, not the count of the ones that do not.
+        let status: CheckResult.Status = allDiagnostics.contains { $0.isViolation } ? .failed : .passed
 
         return CheckResult(
             checkerId: id,
@@ -107,7 +119,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         )
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
+        let status: CheckResult.Status = result.diagnostics.contains { $0.isViolation } ? .failed : .passed
 
         return CheckResult(
             checkerId: id,
@@ -122,14 +134,16 @@ public struct SafetyAuditor: QualityChecker, Sendable {
 
     private func auditDirectory(
         at path: String,
-        configuration: Configuration
-    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        configuration: Configuration,
+        targetTypes: TargetTypeMap = TargetTypeMap(targets: [])
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
+        var countedTraps: [String: Int] = [:]
 
         guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], [])
+            return ([], [], [:])
         }
 
         while let relativePath = enumerator.nextObject() as? String {
@@ -147,17 +161,19 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(
                     source,
                     fileName: fullPath,
-                    configuration: configuration
+                    configuration: configuration,
+                    targetTypes: targetTypes
                 )
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
+                for (rule, n) in result.countedTraps { countedTraps[rule, default: 0] += n }
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
 
-        return (diagnostics, overrides)
+        return (diagnostics, overrides, countedTraps)
     }
 
     private func shouldExclude(path: String, patterns: [String]) -> Bool {
@@ -182,15 +198,18 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     private func auditSourceCode(
         _ source: String,
         fileName: String,
-        configuration: Configuration
-    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        configuration: Configuration,
+        targetTypes: TargetTypeMap = TargetTypeMap(targets: [])
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
         let sourceFile = Parser.parse(source: source)
 
         // Run code-safety checks
         let safetyVisitor = SafetyVisitor(
             fileName: fileName,
             source: source,
-            exemptionPatterns: configuration.safetyExemptions
+            exemptionPatterns: configuration.safetyExemptions,
+            trapPolicy: configuration.trapPolicy,
+            targetType: targetTypes.targetType(forFile: fileName)
         )
         safetyVisitor.walk(sourceFile)
 
@@ -206,7 +225,39 @@ public struct SafetyAuditor: QualityChecker, Sendable {
 
         return (
             diagnostics: safetyVisitor.diagnostics + securityVisitor.diagnostics,
-            overrides: safetyVisitor.overrides + securityVisitor.overrides
+            overrides: safetyVisitor.overrides + securityVisitor.overrides,
+            countedTraps: safetyVisitor.countedTraps
+        )
+    }
+
+    /// One line stating what was counted rather than reported.
+    ///
+    /// A checker that examined less than everything must say so — the standing rule this
+    /// project applies to `doc-lint`, `doc-code` and `gpu-safety`. Silence here would let a
+    /// reader conclude a library has no traps when it has seventy, and a count that *moves* is
+    /// the signal worth having.
+    ///
+    /// - Parameters:
+    ///   - counted: Traps not reported, by rule id.
+    ///   - targetKind: What kind of target they were found in, for the sentence.
+    /// - Returns: The note, or `nil` when nothing was counted — a checker with nothing to say
+    ///   should say nothing.
+    static func trapNote(counted: [String: Int], targetKind: String) -> Diagnostic? {
+        let total = counted.values.reduce(0, +)
+        guard total > 0 else { return nil }
+        let breakdown = counted
+            .sorted { $0.value > $1.value }
+            .map { "\($0.key) \($0.value)" }
+            .joined(separator: ", ")
+        let plural = total == 1 ? "" : "s"
+        let message = "\(total) trap\(plural) in \(targetKind) code counted, not reported "
+            + "(\(breakdown)). There the caller is a programmer with a stack trace, and a trap "
+            + "is the documented way to report a logic failure. Set `trapPolicy: forbidden` to "
+            + "report them, or `justified` to require a stated reason."
+        return Diagnostic(
+            severity: .note,
+            message: message,
+            ruleId: "safety.traps-counted"
         )
     }
 }
@@ -221,11 +272,27 @@ private final class SafetyVisitor: SyntaxVisitor {
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
 
-    init(fileName: String, source: String, exemptionPatterns: [String]) {
+    /// How traps are treated here — see ``TrapPolicy``.
+    let trapPolicy: TrapPolicy
+    /// The type of the target owning this file, which decides who the caller is.
+    let targetType: TargetType
+    /// Traps not reported, by rule id. Counted so the run can state what it did not report:
+    /// "not a defect" is not the same as "not worth knowing".
+    var countedTraps: [String: Int] = [:]
+
+    init(
+        fileName: String,
+        source: String,
+        exemptionPatterns: [String],
+        trapPolicy: TrapPolicy = .default,
+        targetType: TargetType = .executable
+    ) {
         self.fileName = fileName
         self.source = source
         self.exemptionPatterns = exemptionPatterns
         self.sourceLines = source.lines
+        self.trapPolicy = trapPolicy
+        self.targetType = targetType
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -386,6 +453,33 @@ private final class SafetyVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
+        // Whether a trap is a defect depends on who the caller is. In an executable the caller
+        // is an end user who cannot act on a crash; in a library, test or plugin the caller is
+        // a programmer with a stack trace, and trapping on misuse is the language's documented
+        // mechanism for a logic failure. A trap naming unfinished work reports either way.
+        let trapMessage = Self.messageLiteral(of: node)
+        switch trapPolicy.verdict(targetType: targetType, message: trapMessage) {
+        case .count:
+            countedTraps[ruleId, default: 0] += 1
+            return .visitChildren
+
+        case .requireJustification:
+            guard !hasJustification(line: line) else { return .visitChildren }
+            diagnostics.append(Diagnostic(
+                severity: .warning,
+                message: message + " Add a `// Justification:` comment stating why this trap is correct here.",
+                filePath: fileName,
+                lineNumber: line,
+                columnNumber: location.column,
+                ruleId: ruleId,
+                suggestedFix: "// Justification: <why trapping is the right behaviour for this caller>"
+            ))
+            return .visitChildren
+
+        case .report:
+            break
+        }
+
         diagnostics.append(Diagnostic(
             severity: .error,
             message: message,
@@ -397,6 +491,25 @@ private final class SafetyVisitor: SyntaxVisitor {
         ))
 
         return .visitChildren
+    }
+
+    /// The first string literal argument of a trap call, when it has one.
+    ///
+    /// `precondition(x != y, "Can't advance past endIndex")` → the message. Used to tell a
+    /// documented contract from unfinished work.
+    static func messageLiteral(of node: FunctionCallExprSyntax) -> String? {
+        for argument in node.arguments {
+            if let literal = argument.expression.as(StringLiteralExprSyntax.self) {
+                return literal.segments.description
+            }
+        }
+        return nil
+    }
+
+    /// Whether the line above carries a `// Justification:` comment.
+    func hasJustification(line: Int) -> Bool {
+        guard line >= 2, line - 2 < sourceLines.count else { return false }
+        return sourceLines[line - 2].contains("// Justification:")
     }
 
     // MARK: - Unowned Detection

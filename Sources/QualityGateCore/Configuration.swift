@@ -1581,6 +1581,14 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Comment patterns that suppress safety warnings.
     public var safetyExemptions: [String]
 
+    /// How `safety` treats `fatalError` / `precondition` / `assertionFailure`.
+    ///
+    /// Defaults to ``TrapPolicy/aggregate``: a finding in an executable target, a counted note
+    /// in a library, test or plugin. Whether a trap is a defect depends on who the caller is —
+    /// an end user cannot act on one, a calling programmer can. Set `forbidden` for the
+    /// pre-policy behaviour, or `justified` to require a `// Justification:` comment.
+    public var trapPolicy: TrapPolicy
+
     /// Checkers to run. Empty means all checkers are enabled.
     public var enabledCheckers: [String]
 
@@ -1743,6 +1751,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         excludePatterns: [String] = [],
         vendorPaths: [String] = [],
         safetyExemptions: [String] = ["// SAFETY:"],
+        trapPolicy: TrapPolicy = .default,
         enabledCheckers: [String] = [],
         buildConfiguration: String? = nil,
         testFilter: String? = nil,
@@ -1793,6 +1802,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.excludePatterns = excludePatterns
         self.vendorPaths = vendorPaths
         self.safetyExemptions = safetyExemptions
+        self.trapPolicy = trapPolicy
         self.enabledCheckers = enabledCheckers
         self.buildConfiguration = buildConfiguration
         self.testFilter = testFilter
@@ -1902,6 +1912,7 @@ extension Configuration {
         case excludePatterns
         case vendorPaths
         case safetyExemptions
+        case trapPolicy
         case enabledCheckers
         case buildConfiguration
         case testFilter
@@ -1973,6 +1984,7 @@ extension Configuration {
         excludePatterns = try container.decodeIfPresent([String].self, forKey: .excludePatterns) ?? []
         vendorPaths = try container.decodeIfPresent([String].self, forKey: .vendorPaths) ?? []
         safetyExemptions = try container.decodeIfPresent([String].self, forKey: .safetyExemptions) ?? ["// SAFETY:"]
+        trapPolicy = try container.decodeIfPresent(TrapPolicy.self, forKey: .trapPolicy) ?? .default
         enabledCheckers = try container.decodeIfPresent([String].self, forKey: .enabledCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
