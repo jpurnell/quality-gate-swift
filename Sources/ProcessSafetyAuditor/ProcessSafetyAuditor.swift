@@ -22,7 +22,7 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
     public let name = "Process Safety Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Unsafe process spawning, command injection patterns"
+    public let summary = "Pipe-buffer deadlock: waitUntilExit() before reading pipe output"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness

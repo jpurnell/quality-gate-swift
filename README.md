@@ -85,7 +85,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
 | `fp-safety` | FloatingPointSafetyAuditor | Floating-point exact equality, unguarded division |
 | `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis |
-| `process-safety` | ProcessSafetyAuditor | Unsafe process spawning, command injection patterns |
+| `process-safety` | ProcessSafetyAuditor | Pipe-buffer deadlock: waitUntilExit() before reading pipe output |
 | `complexity` | ComplexityAnalyzer | Cognitive complexity per function, call-graph amplification, cross-module amplification, O(n) pattern detection |
 | `legibility` | LegibilityAnalyzer | Advisory (never gates): central-but-unoriented modules, dependency cycles, over-public surface; emits a reading-order / module-map artifact |
 <!-- /generated:checker-table-correctness -->

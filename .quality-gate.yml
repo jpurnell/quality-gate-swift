@@ -19,6 +19,18 @@ security:
   # CLI tool operates on configured paths (not user input) and spawns
   # hardcoded system processes — path-traversal, command-injection, and
   # insecure-transport are false positives in this context.
+  #
+  # What that reasoning missed, recorded 2026-08-16. security.command-injection
+  # is named and worded for injection ("validate and sanitize dynamic
+  # arguments") but its mechanism is `callee == "Process"` — it flags EVERY
+  # Process/NSTask construction and never inspects an argument. The injection
+  # judgement above is sound; disabling the rule on that basis also removed the
+  # only signal pointing at every direct Process() site in the tree. Nine were
+  # sitting there unbounded, and one of them cost 46 minutes to a hang.
+  # Re-enabling as-is is not the fix — the rule needs splitting into an
+  # injection rule that earns its name and a containment rule that keeps the
+  # construction signal. See project/plans/proposals/
+  # ProcessSafetyAuditorCatchesTheClass.md.
   enabledRules:
     - security.hardcoded-secret
     - security.weak-crypto
