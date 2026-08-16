@@ -54,6 +54,12 @@ public struct StatusAuditor: FixableChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.projectHealth
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.institutional
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Description of what fix mode does.
     public let fixDescription = """
     Patches Master Plan and Implementation Checklist to match actual code state:

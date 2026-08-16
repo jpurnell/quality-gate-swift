@@ -36,6 +36,12 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// The per-frontend detectors this auditor dispatches to.
     private let detectors: [any AccessibilityDetector]
 

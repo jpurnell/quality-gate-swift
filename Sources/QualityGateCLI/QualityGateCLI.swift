@@ -116,6 +116,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Force foreign mode: the repo is analyzed read-only, every write redirects to the overlay (~/.quality-gate/overlays/<identity>/), and --fix is refused.")
     var foreign: Bool = false
 
+    @Option(name: .long, help: "Run a named selection: code (checkers that judge the source and write nothing), docs, or all. Implies --foreign: a profile run analyses read-only and redirects every write to the overlay.")
+    var profile: CheckerProfile?
+
     @Flag(name: .long, help: "Force resident mode even when the repo has no config and an overlay exists.")
     var resident: Bool = false
 
@@ -262,7 +265,15 @@ struct QualityGateCLI: AsyncParsableCommand {
             hasRepoConfig = resolution.provenance.repoConfigPath != nil
             // Auto-detection requires a real overlay config; forcing foreign
             // only requires somewhere to redirect writes to.
-            if resolution.hasOverlayConfig || foreign {
+            //
+            // `--profile` forces it too. A profile exists to point the gate at a repository the
+            // operator does not own, and such a run must leave nothing behind — so the overlay
+            // is required rather than optional, and foreign mode is not a flag the caller can
+            // forget. Selection and write-behaviour are different axes, and coupling them here
+            // is deliberate: the failure mode of forgetting `--foreign` is writing into a
+            // stranger's checkout, which is not a mistake worth preserving the orthogonality
+            // for.
+            if resolution.hasOverlayConfig || foreign || profile != nil {
                 overlayDirectory = resolution.overlayDirectory
             }
             if verbose, resolution.provenance.overlayConfigPath != nil
@@ -306,11 +317,19 @@ struct QualityGateCLI: AsyncParsableCommand {
         // redirects every write into the overlay and enforces read-only
         // analysis structurally (WriteGuard + Maintainer's Promise).
         let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        // `--profile` and `--resident` are contradictory: one says "this repository is not
+        // mine", the other says "write into it anyway". Refused loudly rather than resolved by
+        // precedence, because whichever way precedence fell it would be silent.
+        if profile != nil && resident {
+            print("ERROR: --profile implies --foreign; --resident contradicts it.")
+            print("A profile run analyses a repository read-only. Drop one of the two flags.")
+            throw ExitCode(1)
+        }
         let runEnvironment = RunEnvironment.detect(
             repoRoot: repoRoot,
             hasRepoConfig: hasRepoConfig,
             overlayDirectory: overlayDirectory,
-            forceForeign: foreign,
+            forceForeign: foreign || profile != nil,
             forceResident: resident)
         if runEnvironment.isForeign {
             if fix {
@@ -359,7 +378,7 @@ struct QualityGateCLI: AsyncParsableCommand {
 
         // Determine effective checkers: --check all | --check X Y | config | defaults.
         // Destructive maintenance checkers (disk-clean) are opt-in even under "all".
-        let effectiveCheckers = CheckerSelection.resolve(
+        let preProfileCheckers = CheckerSelection.resolve(
             requested: check,
             excluded: exclude,
             configuredEnabled: configuration.enabledCheckers,
@@ -374,6 +393,22 @@ struct QualityGateCLI: AsyncParsableCommand {
         // and reported that run's findings inside a run whose verdict it appeared to describe.
         // It is now a post-run stage over the in-memory results (below, after `runner.run`).
         // `--check consistency` still selects it; what changed is when it runs.
+        // `--profile` supplies the base selection; `--check` and `--exclude` compose on top, so
+        // `--profile code --exclude complexity` means what it looks like. The profile filters
+        // on what each checker *declares* — see `CheckerKind` and `CheckerEffect` — so it
+        // cannot drift from the registry the way a list of ids beside it would.
+        let effectiveCheckers: [String]
+        if let profile {
+            let base = Set(profile.checkerIDs(from: allCheckers))
+            let excludeSet = Set(exclude)
+            let explicit = Set(check.filter { $0 != "all" })
+            effectiveCheckers = allCheckers.map(\.id).filter { id in
+                (base.contains(id) || explicit.contains(id)) && !excludeSet.contains(id)
+            }
+        } else {
+            effectiveCheckers = preProfileCheckers
+        }
+
         let consistencySelected = effectiveCheckers.contains(ConsistencyChecker().id)
         let checkersToRun = allCheckers.filter { checker in
             effectiveCheckers.contains(checker.id) && checker.id != ConsistencyChecker().id

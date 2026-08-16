@@ -29,6 +29,8 @@ public struct MyChecker: QualityChecker, Sendable {
     public let name = "My Custom Checker"
     public let summary = "The findings this checker reports, in one noun phrase"
     public let category = CheckerCategory.codeHygiene
+    public let kind = CheckerKind.code
+    public let effect = CheckerEffect.readOnly
 
     public init() {}
 
@@ -82,6 +84,8 @@ public struct ConfigurationRespectingChecker: QualityChecker, Sendable {
     public let name = "Configuration-Respecting Checker"
     public let summary = "Findings this checker reports, honouring the configured exclusions"
     public let category = CheckerCategory.codeHygiene
+    public let kind = CheckerKind.code
+    public let effect = CheckerEffect.readOnly
 
     let allFiles: [SourceFile]
 
@@ -158,6 +162,8 @@ public struct ThreadSafeAuditor: QualityChecker, Sendable {
     public let name = "Safety Auditor"
     public let summary = "Force unwraps and force casts, found by parsing each file independently"
     public let category = CheckerCategory.safetySecurity
+    public let kind = CheckerKind.code
+    public let effect = CheckerEffect.readOnly
 
     public func check(configuration: Configuration) async throws -> CheckResult {
         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
@@ -171,6 +177,8 @@ public final class UnsafeChecker: QualityChecker, @unchecked Sendable {
     public let name = "Unsafe Checker"
     public let summary = "Findings from a checker that mutates shared state, which is why it is not parallel-safe"
     public let category = CheckerCategory.safetySecurity
+    public let kind = CheckerKind.code
+    public let effect = CheckerEffect.readOnly
 
     var results: [String] = [] // Not thread-safe!
 

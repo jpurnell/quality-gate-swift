@@ -36,6 +36,8 @@ struct CheckerTableGeneratorTests {
             public let name = "\(type)"
             public let summary = "\(summary)"
             public let category = CheckerCategory.\(category)
+            let kind = CheckerKind.code
+            let effect = CheckerEffect.readOnly
 
             public func check(configuration: Configuration) async throws -> CheckResult {
                 CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)

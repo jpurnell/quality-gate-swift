@@ -29,6 +29,13 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    /// `convention`: `os.Logger` over `print` is a house rule. The error-handling rules here are closer to defects, but the checker is one unit and its centre of gravity is style.
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     private let config: LoggingAuditorConfig
 
     /// Creates a logging auditor.

@@ -20,6 +20,8 @@ struct HermeticityTests {
         let name = "Stub"
         let summary = "Test double; not a documented checker"
         let category = CheckerCategory.specialty
+        let kind = CheckerKind.code
+        let effect = CheckerEffect.readOnly
         let hermeticity: Hermeticity
         let result: CheckResult
 
@@ -32,6 +34,8 @@ struct HermeticityTests {
         let name = "Throwing"
         let summary = "Test double; not a documented checker"
         let category = CheckerCategory.specialty
+        let kind = CheckerKind.code
+        let effect = CheckerEffect.readOnly
         let hermeticity: Hermeticity
 
         func check(configuration: Configuration) async throws -> CheckResult {
@@ -78,6 +82,8 @@ struct HermeticityTests {
         let name = "Defaulting"
         let summary = "Test double; not a documented checker"
         let category = CheckerCategory.specialty
+        let kind = CheckerKind.code
+        let effect = CheckerEffect.readOnly
         func check(configuration: Configuration) async throws -> CheckResult {
             CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
         }

@@ -31,6 +31,13 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness
+
+    /// What this checker's findings are about — see `CheckerKind`.
+    /// `convention`: naming and length thresholds judge how code reads, which is the author's call.
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
     /// Read-only over parsed sources; safe to run concurrently.
     public var isParallelSafe: Bool { true }
 

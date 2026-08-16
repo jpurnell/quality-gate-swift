@@ -50,6 +50,13 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    /// decided 2026-08-16: fix the noisy rules rather than hide from them
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Creates a new TestQualityAuditor instance.
     public init() {}
 

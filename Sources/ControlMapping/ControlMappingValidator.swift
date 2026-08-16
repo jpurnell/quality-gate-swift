@@ -22,6 +22,12 @@ public struct ControlMappingValidator: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.specialty
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Days a catalog may go un-reviewed before staleness warns.
     let freshnessHorizonDays: Int
 

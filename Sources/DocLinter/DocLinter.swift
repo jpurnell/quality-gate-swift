@@ -34,6 +34,12 @@ public struct DocLinter: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.documentation
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.documentation
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Creates a new DocLinter instance.
     public init() {}
 

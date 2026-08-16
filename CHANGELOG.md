@@ -2,6 +2,66 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`--profile code` — run the checkers that judge code, and nothing else.** Built to make
+  surveying unfamiliar Swift repositories one command rather than eleven hand-assembled
+  exclusions.
+
+  The exclusions were not merely tedious. Forgetting `--exclude consistency` scores a
+  stranger's repository against *our* institutional pulse, and forgetting `--exclude status`
+  measures it against our Master Plan — both produce findings rather than errors, so nothing
+  announces the mistake.
+
+  **`--profile` implies `--foreign`.** A profile run analyses read-only and redirects every
+  write to the overlay; `--resident` alongside it is refused as contradictory rather than
+  resolved by precedence, because whichever way precedence fell it would be silent. Selection
+  and write-behaviour are different axes and coupling them is deliberate: the failure mode of
+  forgetting `--foreign` is writing into someone else's checkout.
+
+  `--check` and `--exclude` compose on top, so `--profile code --check legibility` runs the
+  code profile plus legibility — the classification decides the default, not what is reachable.
+
+  Measured against `kylehughes/Coalesced`: 26 of 43 checkers, same 8 errors as the hand-built
+  command, one fewer warning (the "No CHANGELOG" finding, correctly dropped as a convention
+  judgment about someone else's repository), and nothing written anywhere.
+
+### Changed
+
+- **`QualityChecker` gains `kind` and `effect`, with no default implementations.** ⚠️
+  Source-breaking for external conformers, exactly as `summary` and `category` were in 3.0.0.
+  Released as a minor version because the external conformer set is empty — recorded here so a
+  future reader does not mistake it for an oversight.
+
+  A default would defeat the point. The runner holds checkers as `any QualityChecker`, so a
+  witness supplied only by an extension dispatches statically and would classify every checker
+  whose author never considered the question — silently, and plausibly.
+
+  ``CheckerKind`` answers whose standard is being applied: `code`, `documentation`,
+  `convention`, `institutional`. It is deliberately not ``CheckerCategory``, which groups the
+  README for readability and does not carve at this joint — `consistency` and `status` are
+  `specialty` there, and `institutional` here.
+
+  ``CheckerEffect`` answers what a checker leaves behind: `readOnly`, `writesOutsideTree`,
+  `writesTree`. Three cases rather than a Bool because the distinction is real and was got
+  wrong once: `memory-builder` was assumed to have written into a surveyed clone and had in
+  fact written to `~/.claude/projects/…`. Compilation output is explicitly *not* a write —
+  treating `.build/` as mutation would make the property vacuous.
+
+  Profiles derive from both. Membership cannot drift from the registry, because there is no
+  second list to keep in sync: a new checker does not compile until it is classified.
+
+- **`logging`, `idiom`, `legibility`, `swift-version`, `hig-auditor` and `context` are
+  `convention`, not `code`.** They judge how code *reads*, or apply a standard someone else
+  did not sign up to — `os.Logger` over `print` is a house rule, HIG conformance is Apple's
+  taste, and `context`'s consent-and-surveillance findings are a judgment about a stranger's
+  product decisions rather than a defect report. All remain reachable with `--check`.
+
+  `test-quality` stays `code`, deliberately. The case against it was its false positives, and
+  all eight in the Coalesced run came from `missing-assertion` — a rule with its own proposal
+  to fix. Excluding the checker would treat the symptom and hide the evidence that produced the
+  fix; the checkers most worth surveying are the ones we trust least.
+
 ### Fixed
 
 - **`consistency` no longer counts notes as violations.** ⚠️ **This changes every project's

@@ -63,6 +63,12 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// The rule identifier stamped on every clone diagnostic.
     static let ruleId = "duplication.clone"
 

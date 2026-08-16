@@ -24,6 +24,12 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Function names whose pointer-accepting parameters are documented as
     /// safe to outlive the with-block (e.g. specific vDSP entry points).
     private let allowedEscapeFunctions: Set<String>

@@ -28,6 +28,13 @@ public struct IdiomAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    /// `convention`: Swift idiom shades into taste, and taste is not a defect report.
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// The idiom configuration in effect for this instance.
     public let config: IdiomConfig
     /// Project root override (injectable for tests); nil means the current directory.

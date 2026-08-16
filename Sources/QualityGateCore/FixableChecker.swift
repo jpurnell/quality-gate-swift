@@ -14,6 +14,8 @@ import Foundation
 ///     let name = "My Checker"
 ///     let summary = "Formatting issues this checker can correct in place"
 ///     let category = CheckerCategory.codeHygiene
+///     let kind = CheckerKind.code
+///     let effect = CheckerEffect.readOnly
 ///     let fixDescription = "Corrects formatting issues in source files."
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {

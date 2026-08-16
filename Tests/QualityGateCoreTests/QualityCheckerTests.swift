@@ -16,6 +16,8 @@ struct QualityCheckerTests {
         let name: String
         let summary = "Test double; not a documented checker"
         let category = CheckerCategory.specialty
+        let kind = CheckerKind.code
+        let effect = CheckerEffect.readOnly
         let shouldPass: Bool
         let mockDiagnostics: [Diagnostic]
 

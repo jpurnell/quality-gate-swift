@@ -52,6 +52,12 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.projectHealth
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Description of what fix mode does.
     public let fixDescription = "Updates swift-tools-version in Package.swift to the configured minimum after verifying the project builds at that version."
 

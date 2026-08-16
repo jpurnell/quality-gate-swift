@@ -27,6 +27,28 @@ public struct PluginChecker: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public var category: CheckerCategory { .specialty }
 
+    /// What this plugin's findings are about — see `CheckerKind`.
+    ///
+    /// `convention` for every plugin, and not because plugins are unimportant: a plugin's rules
+    /// are whoever configured them, so the gate cannot claim they judge code by a standard any
+    /// stranger would recognise. Treating an arbitrary third-party rule set as `CheckerKind.code`
+    /// would put it in a profile aimed at repositories nobody here owns, reporting somebody
+    /// else's house rules as defects.
+    ///
+    /// The Tier-2 contract should eventually carry this, so a plugin declares what it judges
+    /// the way a built-in checker does. Until it does, the conservative classification is the
+    /// honest one.
+    public var kind: CheckerKind { .convention }
+
+    /// What this plugin leaves behind — see `CheckerEffect`.
+    ///
+    /// Declared `CheckerEffect.readOnly` because the contract gives the gate no way to know
+    /// otherwise — a plugin is an external executable and could write anything. That is a real
+    /// limit of this declaration rather than a guarantee, and it is the second reason plugins
+    /// are excluded from survey profiles by their `kind`: the effect cannot be verified, so
+    /// nothing should rely on it.
+    public var effect: CheckerEffect { .readOnly }
+
     /// Creates the adapter for one plugin entry.
     public init(plugin: PluginConfig) {
         self.plugin = plugin

@@ -37,6 +37,12 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.safetySecurity
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Creates a GPU safety auditor.
     public init() {}
 

@@ -48,6 +48,19 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.safetySecurity
+
+    /// What this checker's findings are about — see `CheckerKind`.
+    ///
+    /// `convention`, not `code`. The standard is Apple's rather than this project's, but it is
+    /// still a convention: a CLI tool, a deliberately unconventional interface, or an app
+    /// targeting a different design language is not *defective* for departing from the HIG.
+    /// Reported against a repository nobody here owns, these findings are an opinion about
+    /// someone's design decisions — the same reason `context` sits here despite scanning
+    /// source.
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
     /// Describes the auto-fix behavior applied by this checker.
     public let fixDescription = "Inserts TODO-marked HIG scaffolding (Settings scene, .commands, .help, .contextMenu)."
 

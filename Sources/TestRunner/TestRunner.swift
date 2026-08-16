@@ -43,6 +43,12 @@ public struct TestRunner: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.projectHealth
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Spawns `swift test`, which locks the SwiftPM `.build` directory — must run
     /// sequentially, outside the concurrent task group.
     public var isParallelSafe: Bool { false }

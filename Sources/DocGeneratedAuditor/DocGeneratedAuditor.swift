@@ -54,6 +54,13 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.documentation
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    /// reads as documentation; judges *our* generated regions
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Pure read plus an in-memory regeneration: no build lock, no subprocess.
     public var isParallelSafe: Bool { true }
 

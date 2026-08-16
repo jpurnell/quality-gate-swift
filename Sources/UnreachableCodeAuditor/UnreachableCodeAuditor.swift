@@ -50,6 +50,12 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Cross-module dead-code analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

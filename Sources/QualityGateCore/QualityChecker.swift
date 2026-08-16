@@ -14,6 +14,8 @@ import Foundation
 ///     let name = "My Custom Checker"
 ///     let summary = "The findings this checker reports, in one noun phrase"
 ///     let category = CheckerCategory.codeHygiene
+///     let kind = CheckerKind.code
+///     let effect = CheckerEffect.readOnly
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
 ///         // Perform checks...
@@ -59,6 +61,28 @@ public protocol QualityChecker: Sendable {
     ///
     /// An editorial judgment, frozen into a type on purpose — see ``CheckerCategory``.
     var category: CheckerCategory { get }
+
+    /// What this checker's findings are *about* — see ``CheckerKind``.
+    ///
+    /// Distinct from ``category``, which groups the README for readability. This answers whose
+    /// standard is being applied, and it is what `--profile` filters on: a checker that judges
+    /// our conventions or scores against our institutional pulse tells a stranger's repository
+    /// nothing about itself.
+    ///
+    /// No default, for the reason ``summary`` has none — a witness supplied only by an
+    /// extension dispatches statically through `any QualityChecker` and would classify every
+    /// checker whose author never considered the question.
+    var kind: CheckerKind { get }
+
+    /// What this checker leaves behind — see ``CheckerEffect``.
+    ///
+    /// Separate from ``kind`` because a checker can judge code correctly and still write
+    /// something, and a survey profile pointed at repositories nobody here owns needs to know
+    /// that independently of what the checker judges.
+    ///
+    /// No default: a checker that writes and forgets to declare it is exactly the failure this
+    /// prevents, and ``CheckerEffect/readOnly`` is what such a checker would inherit.
+    var effect: CheckerEffect { get }
 
     /// Run the quality check and return results.
     ///

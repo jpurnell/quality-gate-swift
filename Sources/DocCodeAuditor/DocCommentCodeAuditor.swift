@@ -61,6 +61,12 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.documentation
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.documentation
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Safe to run in the concurrent group — and that placement is what orders it correctly.
     ///
     /// `CheckerRunner` runs every non-parallel-safe checker to completion first, and

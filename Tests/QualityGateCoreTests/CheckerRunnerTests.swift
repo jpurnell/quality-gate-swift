@@ -10,6 +10,8 @@ private struct FakeChecker: QualityChecker {
     let name: String
     let summary = "Test double; not a documented checker"
     let category = CheckerCategory.specialty
+    let kind = CheckerKind.code
+    let effect = CheckerEffect.readOnly
     let status: CheckResult.Status
     let delay: Duration
     /// Optional tracker to record concurrent execution.

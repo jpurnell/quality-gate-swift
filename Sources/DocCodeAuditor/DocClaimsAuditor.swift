@@ -60,6 +60,12 @@ public struct DocClaimsAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.documentation
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.documentation
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Safe to run in the concurrent group; every article is instrumented and executed in
     /// its own temporary directory.
     public var isParallelSafe: Bool { true }

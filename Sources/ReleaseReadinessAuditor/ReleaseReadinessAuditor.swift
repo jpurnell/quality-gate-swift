@@ -33,6 +33,12 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.projectHealth
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// The refs git is about to push, when this run is a `pre-push` boundary.
     ///
     /// `nil` on an ordinary run, which is what keeps the tag rules advisory there. Injected

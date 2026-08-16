@@ -33,6 +33,13 @@ public struct ContextAuditor: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    /// scans source, but reports a values judgment — presumptuous on code we do not own
+    public let kind = CheckerKind.convention
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Creates a new ContextAuditor instance.
     public init() {}
 

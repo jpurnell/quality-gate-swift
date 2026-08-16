@@ -26,6 +26,12 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness
 
+    /// What this checker's findings are about — see `CheckerKind`.
+    public let kind = CheckerKind.code
+
+    /// What this checker leaves behind — see `CheckerEffect`.
+    public let effect = CheckerEffect.readOnly
+
     /// Cross-module complexity analysis depends on the whole source tree (its call-graph
     /// amplification spans every module), so the result is cacheable keyed by all Swift
     /// sources + the manifests. Over-inclusive by design (a re-run on any change, never a
