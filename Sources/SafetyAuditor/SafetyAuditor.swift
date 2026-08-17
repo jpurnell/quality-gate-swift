@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 #if canImport(os)
 import os
 #endif
@@ -52,6 +53,22 @@ public struct SafetyAuditor: QualityChecker, Sendable {
 
     /// Creates a new SafetyAuditor instance.
     public init() {}
+
+    /// Declares this checker cacheable on the whole source tree.
+    ///
+    /// The verdict is a function of the source and of `swift package describe`, whose answer is
+    /// itself a function of `Package.swift` — and the manifests are part of the fingerprint. The
+    /// slowest checker in the gate, and it re-ran in full on every invocation until now.
+    ///
+    /// `wholeSource` is deliberately over-inclusive: over-including an input costs a cache miss,
+    /// while under-including one serves a stale pass, which is the only way caching can be
+    /// *wrong* rather than merely slow.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
 
     /// Run the safety audit on the current directory.
     public func check(configuration: Configuration) async throws -> CheckResult {

@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 #if canImport(os)
 import os
 #endif
@@ -85,6 +86,20 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     public init(config: DuplicationConfig = DuplicationConfig(), root: String? = nil) {
         self.config = config
         self.root = root
+    }
+
+    /// Declares this checker cacheable on the whole source tree.
+    ///
+    /// Purely syntactic over the source tree: no subprocess, no clock, no corpus.
+    ///
+    /// `wholeSource` is deliberately over-inclusive: over-including an input costs a cache miss,
+    /// while under-including one serves a stale pass, which is the only way caching can be
+    /// *wrong* rather than merely slow.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: root ?? FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
     }
 
     /// Runs in-package clone detection and reports each clone pair once.

@@ -251,6 +251,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
+        .package(url: "https://github.com/swiftlang/swift-subprocess.git", from: "1.0.0"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "5.0.0"),
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
@@ -286,6 +287,7 @@ let package = Package(
         .target(
             name: "SafetyAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -1001,6 +1003,7 @@ let package = Package(
         .target(
             name: "DuplicationAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
