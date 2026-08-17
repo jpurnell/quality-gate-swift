@@ -14,20 +14,72 @@ public enum SourceWalker {
         "DerivedData", "build", "Build", "Pods", "Carthage", "node_modules",
     ]
 
+    /// What a walk covered, and what it left out.
+    ///
+    /// A checker's silence has been over-read twice in a single day. `process-safety` passed for
+    /// months while six deadlocks sat in directories its walk was never pointed at, and the
+    /// git-ignore change read as inert because the file count happened to stay at 640 — two
+    /// unrelated changes cancelling exactly. Both times the scope was known and thrown away.
+    ///
+    /// So exclusions are returned alongside the files, and checkers that emit a coverage note
+    /// state them. A run that read less than the whole tree should say how much less.
+    public struct WalkResult: Sendable {
+        /// Absolute paths of the `.swift` files the walk hands to a checker.
+        public let files: [String]
+        /// `.swift` files skipped because they matched `excludePatterns` from configuration.
+        public let excludedByPattern: Int
+        /// `.swift` files skipped because git ignores them individually.
+        public let excludedByGitIgnore: Int
+        /// Whole directories skipped because git ignores them.
+        ///
+        /// Counted as directories rather than as the files within, deliberately: descending into
+        /// an ignored tree purely to count it would mean enumerating `.build`, the largest thing
+        /// on disk and the very reason the skip exists. A coarse honest number beats an expensive
+        /// or invented precise one.
+        public let gitIgnoredDirectories: Int
+
+        /// The scope clause for a coverage note, or `nil` when the walk read everything it found.
+        ///
+        /// Absent rather than "0 excluded" so the ordinary case stays quiet: a clause printed on
+        /// every run stops being read, and this one needs to be read on the runs where it appears.
+        public var exclusionClause: String? {
+            var parts: [String] = []
+            if excludedByPattern > 0 { parts.append("\(excludedByPattern) excluded by config") }
+            if excludedByGitIgnore > 0 { parts.append("\(excludedByGitIgnore) git-ignored") }
+            if gitIgnoredDirectories > 0 {
+                let noun = gitIgnoredDirectories == 1 ? "directory" : "directories"
+                parts.append("\(gitIgnoredDirectories) git-ignored \(noun)")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        }
+    }
+
     /// Returns absolute paths of every `.swift` file under `root`,
     /// skipping the default-skip set, `*.xcodeproj` / `*.xcworkspace`
     /// containers, and anything matching `excludePatterns`.
+    ///
+    /// A thin wrapper over ``walk(under:excludePatterns:)``, kept so the existing call sites are
+    /// untouched by the addition of exclusion reporting.
     public static func swiftFiles(under root: URL, excludePatterns: [String] = []) -> [String] {
+        walk(under: root, excludePatterns: excludePatterns).files
+    }
+
+    /// Walks `root`, returning the `.swift` files found *and* an account of what was left out.
+    public static func walk(under root: URL, excludePatterns: [String] = []) -> WalkResult {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles],
             errorHandler: nil
-        ) else { return [] }
+        ) else { return WalkResult(files: [], excludedByPattern: 0, excludedByGitIgnore: 0, gitIgnoredDirectories: 0) }
 
         let ignored = gitIgnoredPaths(under: root)
         var out: [String] = []
+        var byPattern = 0
+        var byIgnoreFile = 0
+        var ignoredDirectories = 0
+
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
             let isDirectory: Bool
@@ -38,21 +90,38 @@ public enum SourceWalker {
                 isDirectory = false
             }
             if isDirectory {
+                // The default skip list is tested *first*, and the order is load-bearing for the
+                // reported number. `.build` and `.swiftpm` are both default-skipped and
+                // git-ignored; charging them to git-ignore would give every repository a large
+                // count dominated by build output, saying nothing about the scope decision this
+                // reporting exists to expose — and a number nobody reads is worse than none.
                 if defaultSkipDirectories.contains(name)
                     || name.hasSuffix(".xcodeproj")
-                    || name.hasSuffix(".xcworkspace")
-                    || ignored.contains(url.standardizedFileURL.path) {
+                    || name.hasSuffix(".xcworkspace") {
+                    enumerator.skipDescendants()
+                } else if ignored.contains(url.standardizedFileURL.path) {
+                    ignoredDirectories += 1
                     enumerator.skipDescendants()
                 }
                 continue
             }
             guard url.pathExtension == "swift" else { continue }
             let path = url.path
-            if shouldExclude(path: path, patterns: excludePatterns) { continue }
-            if ignored.contains(url.standardizedFileURL.path) { continue }
+            if shouldExclude(path: path, patterns: excludePatterns) {
+                byPattern += 1
+                continue
+            }
+            if ignored.contains(url.standardizedFileURL.path) {
+                byIgnoreFile += 1
+                continue
+            }
             out.append(path)
         }
-        return out
+        return WalkResult(
+            files: out,
+            excludedByPattern: byPattern,
+            excludedByGitIgnore: byIgnoreFile,
+            gitIgnoredDirectories: ignoredDirectories)
     }
 
     /// Absolute paths git has been told to ignore under `root`.

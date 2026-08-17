@@ -48,7 +48,8 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let files = SourceWalker.swiftFiles(under: root, excludePatterns: configuration.excludePatterns)
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
+        let files = scan.files
 
         var allDiagnostics: [Diagnostic] = []
         for path in files {
@@ -65,7 +66,8 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
         allDiagnostics.append(Diagnostic(
             severity: .note,
             message: "process-safety examined \(files.count) files for 1 rule "
-                + "(process.wait-before-read); unbounded reads are the separate concern of bounded-io",
+                + "(process.wait-before-read); unbounded reads are the separate concern of bounded-io"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
             ruleId: "process-safety.coverage"))
 
         let duration = ContinuousClock.now - startTime

@@ -64,7 +64,8 @@ public struct LivenessAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let started = ContinuousClock.now
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let files = SourceWalker.swiftFiles(under: root, excludePatterns: configuration.excludePatterns)
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
+        let files = scan.files
 
         var diagnostics: [Diagnostic] = []
         var examined = 0
@@ -84,9 +85,12 @@ public struct LivenessAuditor: QualityChecker, Sendable {
         // Emitted on every run, pass or fail, including when the answer is zero — a silent pass
         // from this checker's predecessor was read as a guarantee it never made.
         let coverage = LivenessScan(diagnostics: [], examined: examined, skipped: skipped)
+        // The exclusion clause appears only when something was left out, so a reduced scope
+        // reads as a statement rather than as boilerplate nobody scans.
+        let scope = scan.exclusionClause.map { " · \($0)" } ?? ""
         diagnostics.append(Diagnostic(
             severity: .note,
-            message: coverage.coverageLine + " across \(files.count) files",
+            message: coverage.coverageLine + " across \(files.count) files" + scope,
             ruleId: "liveness.coverage"))
 
         let failed = diagnostics.contains { $0.severity == .error }
