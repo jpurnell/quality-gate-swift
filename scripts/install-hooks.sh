@@ -46,23 +46,87 @@ set -euo pipefail
 # <branch>` — never by exit status.
 cat > /dev/null
 
-echo "Pre-push: verifying build compiles clean..."
-swift build < /dev/null 2>&1 | tee /tmp/qg-build.log
-if grep -q "error:" /tmp/qg-build.log; then
-    echo "ERROR: Build failed. Fix before pushing."
-    exit 1
+# Run the gate, not a private copy of build+test.
+#
+# This hook used to invoke `swift build` and `swift test` directly. The gate runs both as
+# checkers, so the coverage was duplicated — and because the hook never called the gate, it
+# could not use the gate's result cache. Every push paid the full build and suite again,
+# minutes after the pre-commit hook had just run them over the same tree. Measured at 308s on
+# a push where nothing had changed since the commit.
+#
+# Running the gate instead is the same build and the same suite, plus the twenty-odd static
+# checkers the raw commands never ran at all, and it is cache-aware.
+#
+# The fallback below matters: if the gate is not installed, verifying nothing is not an
+# option, so the old commands still run.
+QG_BIN="/usr/local/custom/bin/quality-gate"
+if [[ ! -x "$QG_BIN" ]]; then
+    echo "⚠️  quality-gate not found — falling back to build + test"
+    swift build < /dev/null 2>&1 | tee /tmp/qg-build.log
+    if grep -q "error:" /tmp/qg-build.log; then
+        echo "ERROR: Build failed. Fix before pushing."
+        exit 1
+    fi
+    if ! swift test < /dev/null 2>&1 | tee /tmp/qg-test.log; then
+        echo "ERROR: Tests failed. Fix before pushing."
+        exit 1
+    fi
+    echo "Pre-push passed (build + tests, no gate)."
+    exit 0
 fi
 
-echo "Pre-push: running test suite..."
-if ! swift test < /dev/null 2>&1 | tee /tmp/qg-test.log; then
-    echo "ERROR: Tests failed. Fix before pushing."
+echo "Pre-push: running quality gate..."
+if "$QG_BIN" < /dev/null 2>&1; then
+    echo "Pre-push passed (quality gate)."
+else
+    echo ""
+    echo "❌ Quality gate FAILED — push blocked."
     exit 1
 fi
-
-echo "Pre-push passed (build + tests)."
 HOOK
 
 chmod +x "$HOOK_FILE"
 echo "Installed pre-push hook at $HOOK_FILE"
+
+# ---------------------------------------------------------------------------
+# pre-commit
+#
+# CLAUDE.md states that a pre-commit hook runs the gate on every commit. That was true of one
+# machine and not of the repository: nothing here installed it, so a fresh clone had no
+# pre-commit enforcement whatsoever while the documentation said otherwise. Installed here so
+# the claim and the repository agree.
+# ---------------------------------------------------------------------------
+COMMIT_HOOK="$HOOK_DIR/pre-commit"
+if [[ -f "$COMMIT_HOOK" ]]; then
+    echo "pre-commit hook already exists at $COMMIT_HOOK"
+else
+    cat > "$COMMIT_HOOK" << 'COMMITHOOK'
+#!/bin/bash
+# quality-gate pre-commit hook (installed by scripts/install-hooks.sh)
+#
+# Output is never truncated. This ran `| tail -3` for a time, which kept the summary line and
+# discarded the findings above it — so a blocked commit reported only that it had been blocked.
+# Reading three lines of a report is not reading the report.
+set -uo pipefail
+
+QG_BIN="/usr/local/custom/bin/quality-gate"
+if [[ ! -x "$QG_BIN" ]]; then
+    echo "⚠️  quality-gate not found — skipping pre-commit checks"
+    exit 0
+fi
+
+echo "🔍 Running quality gate..."
+if "$QG_BIN" 2>&1; then
+    exit 0
+else
+    echo ""
+    echo "❌ Quality gate FAILED — commit blocked."
+    echo "   Fix the issues above. Never --no-verify."
+    exit 1
+fi
+COMMITHOOK
+    chmod +x "$COMMIT_HOOK"
+    echo "Installed pre-commit hook at $COMMIT_HOOK"
+fi
 echo "The hook verifies a clean build and passing tests before push."
 echo "To remove: rm $HOOK_FILE"
