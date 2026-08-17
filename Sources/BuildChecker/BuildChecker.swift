@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 #if canImport(os)
 import os
 #endif
@@ -56,6 +57,22 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Creates a new BuildChecker instance.
     public init() {}
 
+    /// Declares this checker cacheable on the whole source tree.
+    ///
+    /// "Does this package compile" is a function of the sources and the manifests, both in the
+    /// fingerprint, and of the toolchain, which `gateIdentityHash` salts in.
+    ///
+    /// A cache hit means the compiler did not run. That is sound for *this* checker's verdict —
+    /// the same sources under the same toolchain still compile — but it is worth stating,
+    /// because a hit does not repopulate `.build`. Anything that needs artifacts rather than a
+    /// verdict must not infer their existence from this checker passing.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
+
     /// Run the build check.
     ///
     /// Executes `swift build` and parses any compiler diagnostics.
@@ -109,6 +126,19 @@ public struct BuildChecker: QualityChecker, Sendable {
             with: "",
             options: .regularExpression
         )
+    }
+
+    /// The last `lines` lines of `text`, for reporting a failure no pattern matched.
+    ///
+    /// Bounded because build output can be enormous and a diagnostic is read by a human; the
+    /// tail is where the failure is.
+    static func tail(of text: String, lines: Int) -> String {
+        // `.lines`, not `split(separator: "\n")` — CRLF is one Swift `Character`, so splitting on
+        // a newline literal returns a CRLF document as a single element and the "tail" becomes
+        // the whole build log. Caught by the gate's own newline-split rule on this very helper.
+        let all = text.lines
+        guard all.count > lines else { return text }
+        return all.suffix(lines).joined(separator: "\n")
     }
 
     /// Parse Swift compiler output into diagnostics.
@@ -212,6 +242,27 @@ public struct BuildChecker: QualityChecker, Sendable {
                 ))
             } else {
                 status = .failed
+                // A failure must always say something.
+                //
+                // `parseBuildOutput` matches `File.swift:line:col: severity: message`, which is
+                // the shape of a *compiler* diagnostic. A build can fail in other shapes —
+                // linker errors (`error: Ld … failed with a nonzero exit code`), code-signing,
+                // a manifest that will not evaluate — and those parse to nothing. The result was
+                // then `.failed` with an empty diagnostics array, so the gate printed
+                // `✗ [build] FAILED (72.32s)` and not one word about why.
+                //
+                // Observed 2026-08-17: a test target missing a dependency took the gate red, and
+                // the cause was only found by running `swift build --build-tests` by hand. The
+                // checker that exists to surface compiler output had surfaced none of it.
+                if diagnostics.isEmpty {
+                    diagnostics.append(Diagnostic(
+                        severity: .error,
+                        message: "swift build failed (exit \(exitCode)) with no parseable "
+                            + "compiler diagnostic — the failure is below, verbatim:\n"
+                            + Self.tail(of: output, lines: 20),
+                        ruleId: "build-unparsed-failure"
+                    ))
+                }
             }
         }
 

@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 #if canImport(os)
 import os
 #endif
@@ -42,6 +43,24 @@ public struct DocLinter: QualityChecker, Sendable {
 
     /// Creates a new DocLinter instance.
     public init() {}
+
+    /// Declares this checker cacheable on the source tree **and the DocC catalogues**.
+    ///
+    /// `wholeSource` would be an under-specification here. It collects `.swift` files, and this
+    /// checker also reads the `.md` inside `.docc` catalogues — so an edited article would keep a
+    /// stale verdict. `wholeSourceAndDocs` covers what is actually read.
+    ///
+    /// The DocC build this spawns is a function of the same sources plus the toolchain, and
+    /// `gateIdentityHash` folds the toolchain version and the gate binary's own identity into
+    /// every key. A verdict is never replayed across a toolchain that did not produce it.
+    ///
+    /// At ~208s this is the largest remaining item in the gate once `test` is cached.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSourceAndDocs(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
 
     /// Run the documentation linter.
     ///

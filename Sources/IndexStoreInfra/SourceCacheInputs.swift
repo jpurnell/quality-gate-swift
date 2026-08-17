@@ -43,6 +43,54 @@ public enum SourceCacheInputs {
         return CacheInputs(files: files, salt: configurationSalt(configuration))
     }
 
+    /// Every input `wholeSource` covers, **plus the DocC catalogues**.
+    ///
+    /// `wholeSource` collects `.swift` files. A documentation checker also reads the `.md` files
+    /// inside `.docc` catalogues, and those are not Swift — so fingerprinting a doc checker with
+    /// `wholeSource` would let an edited article keep a stale verdict. Under-specifying an input
+    /// is the only way a cache can be *wrong* rather than merely slow, so the doc checkers get a
+    /// set that covers what they actually read.
+    ///
+    /// - Parameters:
+    ///   - projectRoot: The package root.
+    ///   - configuration: Project configuration, digested into the salt.
+    /// - Returns: Inputs covering Swift sources, manifests, `.gitignore`, and DocC markdown.
+    public static func wholeSourceAndDocs(projectRoot: URL, configuration: Configuration) -> CacheInputs {
+        let base = wholeSource(projectRoot: projectRoot, configuration: configuration)
+        return CacheInputs(files: base.files + docCatalogueFiles(under: projectRoot), salt: base.salt)
+    }
+
+    /// Files inside `.docc` catalogues under `projectRoot`.
+    ///
+    /// Catalogues hold markdown, tutorials and resources; all of them can change what DocC
+    /// reports, so all of them are inputs.
+    private static func docCatalogueFiles(under projectRoot: URL) -> [String] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: projectRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles],
+            errorHandler: nil
+        ) else { return [] }
+
+        var found: [String] = []
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDirectory == true {
+                // Descend into `.docc`; skip the build output that would otherwise dominate.
+                if SourceWalker.defaultSkipDirectories.contains(name) {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            if url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasSuffix(".docc") }) {
+                found.append(url.path)
+            }
+        }
+        return found.sorted()
+    }
+
     /// A stable digest of the entire configuration, for the cache salt.
     static func configurationSalt(_ configuration: Configuration) -> String {
         let encoder = JSONEncoder()

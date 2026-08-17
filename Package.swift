@@ -296,17 +296,18 @@ let package = Package(
         ),
         .testTarget(
             name: "SafetyAuditorTests",
-            dependencies: ["SafetyAuditor"]
+            dependencies: [
+                "IndexStoreInfra","SafetyAuditor"]
         ),
 
         .target(
             name: "BuildChecker",
-            dependencies: ["QualityGateCore"],
+            dependencies: ["QualityGateCore", "IndexStoreInfra"],
             exclude: ["BuildChecker.docc"]
         ),
         .testTarget(
             name: "BuildCheckerTests",
-            dependencies: ["BuildChecker"]
+            dependencies: ["BuildChecker", "IndexStoreInfra"]
         ),
 
         .target(
@@ -321,12 +322,13 @@ let package = Package(
         ),
         .testTarget(
             name: "TestRunnerTests",
-            dependencies: ["TestRunner"]
+            dependencies: ["TestRunner", "IndexStoreInfra"]
         ),
 
         .target(
             name: "DocLinter",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -335,7 +337,8 @@ let package = Package(
         ),
         .testTarget(
             name: "DocLinterTests",
-            dependencies: ["DocLinter"]
+            dependencies: [
+                "IndexStoreInfra","DocLinter"]
         ),
 
         .target(
@@ -441,6 +444,7 @@ let package = Package(
         .target(
             name: "PointerEscapeAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -449,7 +453,8 @@ let package = Package(
         ),
         .testTarget(
             name: "PointerEscapeAuditorTests",
-            dependencies: ["PointerEscapeAuditor"]
+            dependencies: [
+                "IndexStoreInfra","PointerEscapeAuditor"]
         ),
 
         .target(
@@ -494,6 +499,7 @@ let package = Package(
         .target(
             name: "AccessibilityAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "AccessibilityCore",
                 "AccessibilitySwiftUI",
                 "AccessibilityCLI",
@@ -505,7 +511,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AccessibilityAuditorTests",
-            dependencies: ["AccessibilityAuditor"]
+            dependencies: [
+                "IndexStoreInfra","AccessibilityAuditor"]
         ),
 
         .target(
@@ -531,6 +538,7 @@ let package = Package(
         .target(
             name: "LoggingAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -539,12 +547,14 @@ let package = Package(
         ),
         .testTarget(
             name: "LoggingAuditorTests",
-            dependencies: ["LoggingAuditor"]
+            dependencies: [
+                "IndexStoreInfra","LoggingAuditor"]
         ),
 
         .target(
             name: "TestQualityAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 // exact-double-equality and fp-equality are one rule. The
                 // detector lives in FloatingPointSafetyAuditor; this checker
@@ -563,6 +573,7 @@ let package = Package(
         .target(
             name: "ContextAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -571,12 +582,14 @@ let package = Package(
         ),
         .testTarget(
             name: "ContextAuditorTests",
-            dependencies: ["ContextAuditor"]
+            dependencies: [
+                "IndexStoreInfra","ContextAuditor"]
         ),
 
         .target(
             name: "DependencyAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -585,16 +598,19 @@ let package = Package(
         ),
         .testTarget(
             name: "DependencyAuditorTests",
-            dependencies: ["DependencyAuditor"]
+            dependencies: [
+                "IndexStoreInfra","DependencyAuditor"]
         ),
 
         .target(
             name: "SubmoduleAuditor",
-            dependencies: ["QualityGateCore"]
+            dependencies: [
+                "IndexStoreInfra","QualityGateCore"]
         ),
         .testTarget(
             name: "SubmoduleAuditorTests",
-            dependencies: ["SubmoduleAuditor"]
+            dependencies: [
+                "IndexStoreInfra","SubmoduleAuditor"]
         ),
 
         .target(
@@ -610,6 +626,7 @@ let package = Package(
         .target(
             name: "FloatingPointSafetyAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -618,12 +635,14 @@ let package = Package(
         ),
         .testTarget(
             name: "FloatingPointSafetyAuditorTests",
-            dependencies: ["FloatingPointSafetyAuditor"]
+            dependencies: [
+                "IndexStoreInfra","FloatingPointSafetyAuditor"]
         ),
 
         .target(
             name: "MCPReadinessAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -632,12 +651,14 @@ let package = Package(
         ),
         .testTarget(
             name: "MCPReadinessAuditorTests",
-            dependencies: ["MCPReadinessAuditor"]
+            dependencies: [
+                "IndexStoreInfra","MCPReadinessAuditor"]
         ),
 
         .target(
             name: "StochasticDeterminismAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -646,12 +667,14 @@ let package = Package(
         ),
         .testTarget(
             name: "StochasticDeterminismAuditorTests",
-            dependencies: ["StochasticDeterminismAuditor"]
+            dependencies: [
+                "IndexStoreInfra","StochasticDeterminismAuditor"]
         ),
 
         .target(
             name: "TemporalDeterminismAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -666,6 +689,7 @@ let package = Package(
         .target(
             name: "GPUSafetyAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -772,6 +796,7 @@ let package = Package(
         .target(
             name: "HIGAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -784,7 +809,7 @@ let package = Package(
 
         .target(
             name: "XcodeBuildChecker",
-            dependencies: ["QualityGateCore", "BuildChecker"]
+            dependencies: ["QualityGateCore", "BuildChecker", "IndexStoreInfra"]
         ),
 
         // MARK: - IndexStoreInfra
@@ -814,7 +839,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AppIntentsAuditorTests",
-            dependencies: ["AppIntentsAuditor"]
+            dependencies: [
+                "IndexStoreInfra","AppIntentsAuditor"]
         ),
 
         // MARK: - IJS Modules
@@ -992,6 +1018,7 @@ let package = Package(
         .target(
             name: "IdiomAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -1012,11 +1039,13 @@ let package = Package(
         ),
         .testTarget(
             name: "DuplicationAuditorTests",
-            dependencies: ["DuplicationAuditor"]
+            dependencies: [
+                "IndexStoreInfra","DuplicationAuditor"]
         ),
         .target(
             name: "SmellPack",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -1029,6 +1058,7 @@ let package = Package(
         .target(
             name: "KeychainSecretsChecker",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -1036,15 +1066,18 @@ let package = Package(
         ),
         .testTarget(
             name: "KeychainSecretsCheckerTests",
-            dependencies: ["KeychainSecretsChecker"]
+            dependencies: [
+                "IndexStoreInfra","KeychainSecretsChecker"]
         ),
         .target(
             name: "PrivacyManifestChecker",
-            dependencies: ["QualityGateCore"]
+            dependencies: [
+                "IndexStoreInfra","QualityGateCore"]
         ),
         .testTarget(
             name: "PrivacyManifestCheckerTests",
-            dependencies: ["PrivacyManifestChecker"]
+            dependencies: [
+                "IndexStoreInfra","PrivacyManifestChecker"]
         ),
         .target(
             name: "ControlMapping",

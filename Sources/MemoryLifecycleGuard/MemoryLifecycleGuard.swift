@@ -36,6 +36,22 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     /// Creates a new memory lifecycle guard.
     public init() {}
 
+    /// Declares this checker cacheable on the source tree it reads.
+    ///
+    /// Syntactic analysis over the sources, with no clock, corpus, network or out-of-tree path
+    /// among its inputs — so the same tree under the same gate binary yields the same verdict.
+    /// `gateIdentityHash` folds in the binary's identity and the toolchain, so a rebuild or a
+    /// compiler change invalidates every entry.
+    ///
+    /// `wholeSourceAndDocs` rather than `wholeSource`: it is the wider set, and over-including
+    /// an input costs a cache miss while under-including one serves a stale pass.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSourceAndDocs(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
+
     /// Audits all Swift source files under the `Sources/` directory for memory lifecycle violations.
     ///
     /// Runs Pass 1 (syntactic) unconditionally, then attempts Pass 2 (index-backed)
