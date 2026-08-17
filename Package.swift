@@ -775,7 +775,7 @@ let package = Package(
         ),
         .testTarget(
             name: "IndexStoreInfraTests",
-            dependencies: ["IndexStoreInfra"]
+            dependencies: ["IndexStoreInfra", "QualityGateCore"]
         ),
 
         // MARK: - AppIntentsAuditor

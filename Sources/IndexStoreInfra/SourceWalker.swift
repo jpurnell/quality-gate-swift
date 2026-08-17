@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 #if canImport(os)
 import os
 #endif
@@ -25,6 +26,7 @@ public enum SourceWalker {
             errorHandler: nil
         ) else { return [] }
 
+        let ignored = gitIgnoredPaths(under: root)
         var out: [String] = []
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
@@ -38,7 +40,8 @@ public enum SourceWalker {
             if isDirectory {
                 if defaultSkipDirectories.contains(name)
                     || name.hasSuffix(".xcodeproj")
-                    || name.hasSuffix(".xcworkspace") {
+                    || name.hasSuffix(".xcworkspace")
+                    || ignored.contains(url.standardizedFileURL.path) {
                     enumerator.skipDescendants()
                 }
                 continue
@@ -46,9 +49,60 @@ public enum SourceWalker {
             guard url.pathExtension == "swift" else { continue }
             let path = url.path
             if shouldExclude(path: path, patterns: excludePatterns) { continue }
+            if ignored.contains(url.standardizedFileURL.path) { continue }
             out.append(path)
         }
         return out
+    }
+
+    /// Absolute paths git has been told to ignore under `root`.
+    ///
+    /// ## Why the walk needs this at all
+    ///
+    /// The enumeration above reads the filesystem, so it has always audited whatever happened to
+    /// sit on disk — including vendored trees this repository does not own and cannot fix. That
+    /// is incoherent for a `convention`-kind checker, which reports a house rule: a vendored
+    /// dependency never agreed to it. It found a real deadlock in a vendored script once, and
+    /// that bug was fixed at its source, which is where such fixes have to go anyway.
+    ///
+    /// ## Ignored, deliberately not untracked
+    ///
+    /// The two are one flag apart and conflating them would be far worse than the problem being
+    /// solved. A `.swift` file written a minute ago and not yet staged is **untracked and
+    /// entirely ours**. Were the walk to skip untracked files, the gate's verdict would depend on
+    /// what had been staged rather than on the code: add a checker, watch the gate pass, then
+    /// turn it red by running `git add`. Ignored is the honest signal, because it is someone
+    /// deliberately declaring a path outside the repository.
+    ///
+    /// A directory that is not a git repository yields nothing here and is walked in full —
+    /// foreign-mode surveys point at strangers' packages, and silently reducing a survey to zero
+    /// files while reporting success is precisely the failure this walk must not have.
+    private static func gitIgnoredPaths(under root: URL) -> Set<String> {
+        // silent: no git, no exclusion — a non-repository is walked in full, exactly as before.
+        guard let result = try? ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"],
+            currentDirectory: root.path,
+            timeout: 30
+        ) else {
+            return []
+        }
+        guard result.exitCode == 0 else { return [] }
+
+        let base = root.standardizedFileURL
+        var paths: Set<String> = []
+        // `.lines`, not `split(separator: "\n")`: CRLF is a single Swift `Character`, so splitting
+        // on a newline literal returns a whole CRLF document as one element and the ignore set
+        // ends up holding a single nonsense path. Caught by the gate's own newline-split rule on
+        // the first run of this function.
+        for line in result.stdout.lines {
+            let relative = line.trimmingCharacters(in: .whitespaces)
+            guard !relative.isEmpty else { continue }
+            // `--directory` collapses a wholly-ignored directory to a single trailing-slash entry.
+            let trimmed = relative.hasSuffix("/") ? String(relative.dropLast()) : relative
+            paths.insert(base.appendingPathComponent(trimmed).standardizedFileURL.path)
+        }
+        return paths
     }
 
     private static func shouldExclude(path: String, patterns: [String]) -> Bool {
