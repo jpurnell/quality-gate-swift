@@ -373,32 +373,6 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         return nil
     }
 
-    /// Verifies the documented latest version has a matching git tag (the release invariant).
-    ///
-    /// This is the corrected direction: rather than asking whether the current
-    /// tag is documented, it asks whether the *documented* version is tagged —
-    /// the failure mode where a CHANGELOG races ahead of the tags and consumers
-    /// cannot resolve the package.
-    ///
-    /// - Parameters:
-    ///   - latestChangelogVersion: The latest released version from the CHANGELOG, or nil.
-    ///   - tags: The project's git tags (with or without a `v` prefix).
-    /// - Returns: A single `.error` diagnostic when the version is untagged, else empty.
-    static func checkVersionTagParity(latestChangelogVersion: String?, tags: [String]) -> [Diagnostic] {
-        guard let version = latestChangelogVersion else { return [] }
-        let normalizedTags = Set(tags.map(normalizeVersion))
-        guard normalizedTags.contains(normalizeVersion(version)) else {
-            return [
-                Diagnostic(
-                    severity: .error,
-                    message: "CHANGELOG documents version \(version) but no matching git tag exists — consumers cannot resolve this release. Tag it (e.g. `git tag v\(version) && git push --tags`).",
-                    ruleId: "release-untagged-version"
-                )
-            ]
-        }
-        return []
-    }
-
     /// Extracts dependency versions a README advertises for consumers to resolve against.
     ///
     /// Recognizes `from: "X.Y.Z"` and `.exact("X.Y.Z")` (the latter also covers

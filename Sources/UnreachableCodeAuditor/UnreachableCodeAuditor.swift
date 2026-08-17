@@ -213,19 +213,6 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
 
     private enum SkipMarker: Error { case skipped }
 
-    /// Whether the cross-module (index-backed) pass should run for a located store.
-    ///
-    /// A `nil` store means none was found; a stale store's recorded line numbers may
-    /// have drifted from the current source, making its reachability findings — and
-    /// the `// LIVE:` line matching that guards them — unreliable. In both cases the
-    /// cross-module pass is skipped so the gate never fails on data it can't trust.
-    ///
-    /// - Parameter located: The located index store, or `nil`.
-    /// - Returns: `true` only when a fresh store is present.
-    static func shouldRunCrossModule(located: StoreLocator.LocatedStore?) -> Bool {
-        guard let located else { return false }
-        return !located.isStale
-    }
 
     /// What to say about the index before reading it, and whether to read it at all.
     ///

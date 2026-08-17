@@ -151,9 +151,9 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
                 projectID: projectID,
                 timestamp: Date(),
                 environment: ProcessInfo.processInfo.environment["CI"] != nil ? .ci : .local,
-                // Resolved the same way `TelemetryEmission` resolves it, so the record this
-                // audit reasons over and the record that gets persisted name the same owner.
-                decisionOwner: ProcessInfo.processInfo.environment["USER"] ?? "local",
+                // Both this audit and the record `TelemetryEmission` persists resolve ownership
+                // through `IJSConfig.resolvedOwner`, so they cannot name different owners.
+                decisionOwner: configuration.ijs.resolvedOwner(),
                 results: results,
                 overrides: [],
                 riskTier: RiskTier(rawValue: config.defaultRiskTier) ?? .operational,

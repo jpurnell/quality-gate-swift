@@ -52,7 +52,7 @@ enum TelemetryEmission {
             }
 
         let isCI = ProcessInfo.processInfo.environment["CI"] != nil
-        let author = ProcessInfo.processInfo.environment["USER"] ?? "local"
+        let author = configuration.ijs.resolvedOwner()
         let allOverrides = results.flatMap(\.overrides)
         let complianceCount = results.map(\.complianceRecords.count).reduce(0, +)
         let overrideRecords = allOverrides.map { override in

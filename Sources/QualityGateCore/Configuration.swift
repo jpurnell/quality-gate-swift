@@ -107,6 +107,99 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
     public static let `default` = ConsistencyCheckerConfig()
 }
 
+/// Institutional Judgment System identity: who a judgement belongs to, and where the corpus lives.
+///
+/// ## Why this is separate from ``ConsistencyCheckerConfig``
+///
+/// `consistency:` configures a *checker* — its threshold, its exemptions, its scoring weights.
+/// `ijs:` describes the *system the checker reports into*: which project this is, who owns the
+/// decisions, and which corpus receives them. The two overlap on `projectID`, `corpusPath` and
+/// `defaultRiskTier` because a checker needs to know where it is writing; the identity fields do
+/// not belong to any one checker.
+///
+/// ## What this fixes
+///
+/// The block was documented in the org-judgement-system README and written into every repository
+/// by `scripts/onboard-corpus.sh`, and the schema did not define it — so `Configuration` discarded
+/// it during decoding and nothing downstream could tell it had ever been written. Telemetry
+/// worked only because `consistency:` happened to carry the same three values.
+///
+/// The two fields unique to it had no consumers at all, and one of them mattered:
+/// **`decisionOwner` fell back to `$USER`**, so a run on a self-hosted CI runner attributed its
+/// judgements to the machine account rather than to a person or team. A corpus of institutional
+/// judgement whose owner field records `runner` is a corpus that cannot answer the question it
+/// exists for.
+public struct IJSConfig: Sendable, Equatable {
+    /// Stable identifier for this project within the corpus.
+    public var projectID: String?
+    /// Filesystem path of the judgement corpus.
+    public var corpusPath: String?
+    /// Who owns the judgements this project records.
+    ///
+    /// Falls back to `$USER` when absent, which is right for a developer's machine and wrong for
+    /// a shared runner — the reason this is configurable at all.
+    public var decisionOwner: String?
+    /// Default risk tier for decisions that do not state one.
+    public var defaultRiskTier: Int?
+    /// Git remote of the corpus, for onboarding and for tooling that clones it fresh.
+    ///
+    /// Not used by the dashboard's sync, which reads the clone's own `origin`, nor by `ci`, which
+    /// takes `--corpus-remote`. It records the intended remote so a corpus can be re-cloned from
+    /// configuration rather than from memory.
+    public var remoteURL: String?
+
+    /// Creates an IJS identity configuration.
+    public init(
+        projectID: String? = nil,
+        corpusPath: String? = nil,
+        decisionOwner: String? = nil,
+        defaultRiskTier: Int? = nil,
+        remoteURL: String? = nil
+    ) {
+        self.projectID = projectID
+        self.corpusPath = corpusPath
+        self.decisionOwner = decisionOwner
+        self.defaultRiskTier = defaultRiskTier
+        self.remoteURL = remoteURL
+    }
+
+    /// The empty identity: every field absent, every consumer falling back as it did before.
+    public static let `default` = IJSConfig()
+
+    /// Who to record as the owner of a judgement.
+    ///
+    /// Configuration first, then `$USER`, then `fallback`. The order is the point: a developer's
+    /// machine has a meaningful `$USER` and usually no configured owner, while a shared runner has
+    /// a meaningless one — `runner`, `_service` — and needs configuration to say who the
+    /// judgements actually belong to.
+    ///
+    /// **Every consumer must resolve ownership through here.** `ConsistencyChecker` reasons over a
+    /// record that `TelemetryEmission` later persists, and if the two resolve differently the
+    /// corpus contains an audit of one owner's decisions filed under another's. That constraint
+    /// was previously a comment asking the next person to keep two call sites in step; it is now
+    /// a single call site.
+    public func resolvedOwner(fallback: String = "local") -> String {
+        if let decisionOwner, !decisionOwner.isEmpty { return decisionOwner }
+        return ProcessInfo.processInfo.environment["USER"] ?? fallback
+    }
+}
+
+extension IJSConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case projectID, corpusPath, decisionOwner, defaultRiskTier, remoteURL
+    }
+
+    /// Creates a configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
+        corpusPath = try container.decodeIfPresent(String.self, forKey: .corpusPath)
+        decisionOwner = try container.decodeIfPresent(String.self, forKey: .decisionOwner)
+        defaultRiskTier = try container.decodeIfPresent(Int.self, forKey: .defaultRiskTier)
+        remoteURL = try container.decodeIfPresent(String.self, forKey: .remoteURL)
+    }
+}
+
 extension ConsistencyCheckerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions, useRemoteIdentity
@@ -1686,6 +1779,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for ConsistencyChecker (IJS).
     public var consistency: ConsistencyCheckerConfig
 
+    /// Institutional Judgment System identity — see ``IJSConfig``.
+    public var ijs: IJSConfig
+
     /// Per-checker configuration for ComplexityAnalyzer (advisory).
     public var complexity: ComplexityAnalyzerConfig
 
@@ -1782,6 +1878,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         build: BuildCheckerConfig = .default,
         xcodeBuild: XcodeBuildCheckerConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
+        ijs: IJSConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
         legibility: LegibilityAnalyzerConfig = .default,
         docCoverage: DocCoverageConfig = .default,
@@ -1833,6 +1930,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.build = build
         self.xcodeBuild = xcodeBuild
         self.consistency = consistency
+        self.ijs = ijs
         self.complexity = complexity
         self.legibility = legibility
         self.docCoverage = docCoverage
@@ -1943,6 +2041,7 @@ extension Configuration {
         case build
         case xcodeBuild
         case consistency
+        case ijs
         case complexity
         case legibility
         case docCoverage
@@ -2015,6 +2114,7 @@ extension Configuration {
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
+        ijs = try container.decodeIfPresent(IJSConfig.self, forKey: .ijs) ?? .default
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default
         legibility = try container.decodeIfPresent(LegibilityAnalyzerConfig.self, forKey: .legibility) ?? .default
         docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
