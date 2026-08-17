@@ -457,9 +457,14 @@ public enum ArticleRunner {
             try? err.close()
         }
 
-        let process = Process()
+        // Not routed through ProcessRunner because this streams to file handles rather than
+        // capturing to memory, and doc-run must tell a trap from a clean exit — the runner
+        // reports 124 for any timeout and does not surface terminationReason.
+        //
         // SAFETY: subprocess runs the executable this checker just linked in its own
         // temporary directory, from the article under audit
+        // Unbounded: bounded by wait(for:timeout:) below, which polls and SIGKILLs at the deadline.
+        let process = Process()
         process.executableURL = executable
         process.arguments = ["-AppleLocale", options.locale, "-AppleLanguages", "(en)"]
         process.currentDirectoryURL = work
@@ -501,9 +506,11 @@ public enum ArticleRunner {
         }
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
+            // Unbounded: reaps a process this line has just SIGKILLed, so it returns at once.
             process.waitUntilExit()
             return .timedOut
         }
+        // Unbounded: the loop above exited because isRunning went false; this only reaps.
         process.waitUntilExit()
         return process.terminationReason == .uncaughtSignal
             ? .signalled(process.terminationStatus)
@@ -512,20 +519,12 @@ public enum ArticleRunner {
 
     /// Runs `xcrun` with `arguments`, returning its combined output and status.
     static func capture(arguments: [String]) -> (status: Int32, text: String) {
-        let process = Process()
-        let pipe = Pipe()
-        // SAFETY: subprocess with `/usr/bin/xcrun swiftc` over a file this checker just
-        // wrote into its own temporary directory
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = pipe
-
         do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+            // SAFETY: subprocess with `/usr/bin/xcrun swiftc` over a file this checker just
+            // wrote into its own temporary directory
+            let result = try ProcessRunner.run(
+                "/usr/bin/xcrun", arguments: arguments, mergeStderr: true, timeout: 300)
+            return (result.exitCode, result.stdout)
         } catch {
             logger.error("Could not run swiftc: \(error.localizedDescription, privacy: .public)")
             return (1, "error: could not run swiftc: \(error.localizedDescription)")

@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Shared git fixture plumbing for the corpusd write-queue tests.
 ///
@@ -36,21 +37,15 @@ enum GitFixture {
     /// - Throws: ``FixtureError`` on a nonzero exit.
     @discardableResult
     static func git(_ arguments: [String], cwd: String) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        process.environment = scrubbed(environment: ProcessInfo.processInfo.environment)
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        // Drain before wait: prevents the 64 KB pipe-buffer deadlock.
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(decoding: outputData, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard process.terminationStatus == 0 else {
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: arguments,
+            currentDirectory: cwd,
+            environment: scrubbed(environment: ProcessInfo.processInfo.environment),
+            mergeStderr: true,
+            timeout: 120)
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.exitCode == 0 else {
             throw FixtureError(
                 description: "git \(arguments.joined(separator: " ")) failed: \(output)")
         }

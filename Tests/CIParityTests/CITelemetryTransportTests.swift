@@ -27,17 +27,14 @@ struct CITelemetryTransportTests {
     }
 
     private func git(_ arguments: [String], cwd: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = cwd
-        process.environment = ProcessInfo.processInfo.environment
-            .filter { !$0.key.hasPrefix("GIT_") }
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: arguments,
+            currentDirectory: cwd.path,
+            environment: ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") },
+            mergeStderr: true,
+            timeout: 120)
+        guard result.exitCode == 0 else {
             throw TransportAcceptanceError.gitFailed(arguments.joined(separator: " "))
         }
     }

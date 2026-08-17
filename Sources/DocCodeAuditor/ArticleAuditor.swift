@@ -207,21 +207,13 @@ public enum ArticleAuditor {
         arguments += options.toolchainFlags
         arguments += options.languageFlags
 
-        let process = Process()
-        let pipe = Pipe()
-        // SAFETY: subprocess with `/usr/bin/xcrun swiftc -typecheck` over a file this
-        // checker just wrote into its own temporary directory
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = pipe
-
         let output: String
         do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            output = String(data: data, encoding: .utf8) ?? ""
+            // SAFETY: subprocess with `/usr/bin/xcrun swiftc -typecheck` over a file this
+            // checker just wrote into its own temporary directory
+            let result = try ProcessRunner.run(
+                "/usr/bin/xcrun", arguments: arguments, mergeStderr: true, timeout: 300)
+            output = result.stdout
         } catch {
             logger.error("Could not run swiftc to typecheck \(source.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return ([RawError(line: 1, message: "could not run swiftc: \(error.localizedDescription)")], nil)

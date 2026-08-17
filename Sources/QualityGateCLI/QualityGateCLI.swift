@@ -28,6 +28,7 @@ import SubmoduleAuditor
 import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
 import StochasticDeterminismAuditor
+import BoundedIOAuditor
 import GPUSafetyAuditor
 import LivenessAuditor
 import TemporalDeterminismAuditor
@@ -209,6 +210,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             MCPReadinessAuditor(),
             ProcessSafetyAuditor(),
             LivenessAuditor(),
+            BoundedIOAuditor(),
             KeychainSecretsChecker(config: configuration.keychainSecrets),
             PrivacyManifestChecker(config: configuration.privacyManifest),
             ControlMappingValidator(),

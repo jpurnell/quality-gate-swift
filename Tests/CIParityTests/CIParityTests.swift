@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import Testing
 
 /// Phase 2, workstream 2 — the determinism parity harness.
@@ -71,22 +72,20 @@ struct CIParityTests {
         cwd: URL,
         extraEnvironment: [String: String] = [:]
     ) throws -> Int32 {
-        let process = Process()
-        process.executableURL = try Self.gateBinary()
-        process.arguments = arguments
-        process.currentDirectoryURL = cwd
         var environment = scrubbedEnvironment()
         environment["TZ"] = "UTC"
         environment.removeValue(forKey: "QG_FOREIGN_REPO_ROOT")
         for (key, value) in extraEnvironment {
             environment[key] = value
         }
-        process.environment = environment
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus
+        let result = try ProcessRunner.run(
+            try Self.gateBinary().path,
+            arguments: arguments,
+            currentDirectory: cwd.path,
+            environment: environment,
+            mergeStderr: true,
+            timeout: 300)
+        return result.exitCode
     }
 
     /// Replaces machine-specific absolute paths so runs from different

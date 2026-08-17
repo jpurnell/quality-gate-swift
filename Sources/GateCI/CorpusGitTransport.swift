@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// The interim git transport for CI telemetry (Phase 2 §4).
 ///
@@ -68,17 +69,15 @@ public struct CorpusGitTransport: Sendable {
 
     /// Whether the clone's index holds anything to commit.
     private func hasStagedChanges() throws -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["diff", "--cached", "--quiet"]
-        process.currentDirectoryURL = workdir
-        process.environment = Self.scrubbed(environment: ProcessInfo.processInfo.environment)
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: ["diff", "--cached", "--quiet"],
+            currentDirectory: workdir.path,
+            environment: Self.scrubbed(environment: ProcessInfo.processInfo.environment),
+            mergeStderr: true,
+            timeout: 120)
         // git diff --quiet: exit 1 means differences exist.
-        return process.terminationStatus == 1
+        return result.exitCode == 1
     }
 
     /// The environment for spawned git: hook-leak variables removed
@@ -95,23 +94,19 @@ public struct CorpusGitTransport: Sendable {
 
     /// Runs git, throwing with combined output on a nonzero exit.
     private func run(_ arguments: [String], cwd: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = cwd
-        process.environment = Self.scrubbed(environment: ProcessInfo.processInfo.environment)
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        // Drain the pipe before waiting: a full pipe buffer (~64 KB) would
-        // deadlock a chatty git invocation against waitUntilExit().
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let output = String(decoding: outputData, as: UTF8.self)
+        // Through the kernel. Draining before waiting fixed the pipe-buffer deadlock; it could
+        // not fix EOF waiting on a descriptor some git helper still holds, and a push to a
+        // remote can block on the network besides.
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: arguments,
+            currentDirectory: cwd.path,
+            environment: Self.scrubbed(environment: ProcessInfo.processInfo.environment),
+            mergeStderr: true,
+            timeout: 300)
+        guard result.exitCode == 0 else {
             throw TransportError(
-                description: "git \(arguments.joined(separator: " ")) failed: \(output)")
+                description: "git \(arguments.joined(separator: " ")) failed: \(result.stdout)")
         }
     }
 }

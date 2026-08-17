@@ -45,6 +45,24 @@ public enum ProcessRunner: Sendable {
         public let exitCode: Int32
     }
 
+    /// Disarms SIGPIPE, once, before the first stdin payload is written.
+    ///
+    /// Writing to a pipe whose reader has gone raises SIGPIPE, and its default disposition
+    /// **terminates the process** — the signal arrives before the syscall can return an error, so
+    /// no amount of `try?` intercepts it. A child that exits without reading its input is an
+    /// ordinary thing (`sh -c "echo done"` does it), and it must not be able to kill the gate.
+    ///
+    /// Found by the test written for exactly this case: the suite died with signal 13 rather than
+    /// failing an expectation, which is what a process-wide signal looks like from the outside.
+    ///
+    /// Changing global signal disposition from a library is a real side effect and is not done
+    /// lightly. The alternative is worse: every caller passing `stdin` inherits a way to be killed
+    /// by a well-behaved child. Ignoring SIGPIPE turns it into `EPIPE` on the write, which is a
+    /// value the code above already handles.
+    private static let sigpipeIgnored: Void = {
+        signal(SIGPIPE, SIG_IGN)
+    }()
+
     /// Runs a process with the given executable and arguments.
     ///
     /// - Parameters:
@@ -55,6 +73,9 @@ public enum ProcessRunner: Sendable {
     ///     Pass an explicit environment to isolate a child from inherited state —
     ///     e.g. scrubbing `GIT_*` vars so a `git` subprocess ignores an ambient
     ///     repository set by a git hook.
+    ///   - stdin: Payload written to the child's standard input, then closed so the child sees
+    ///     EOF. Written on its own thread: a payload past the ~64 KB pipe buffer blocks until the
+    ///     child drains it, and a child that reads to EOF before replying would never drain.
     ///   - mergeStderr: If true, stderr is merged into stdout.
     ///   - timeout: Wall-clock budget. On expiry the child is terminated, whatever output
     ///     arrived is returned, and `exitCode` is non-zero with the timeout named in `stderr` —
@@ -67,6 +88,7 @@ public enum ProcessRunner: Sendable {
         arguments: [String] = [],
         currentDirectory: String? = nil,
         environment: [String: String]? = nil,
+        stdin: Data? = nil,
         mergeStderr: Bool = false,
         timeout: TimeInterval = 600
     ) throws -> Output {
@@ -78,6 +100,12 @@ public enum ProcessRunner: Sendable {
         }
         if let environment {
             process.environment = environment
+        }
+
+        // A stdin payload gets its own pipe, written on its own thread — see below.
+        let stdinPipe: Pipe? = stdin == nil ? nil : Pipe()
+        if let stdinPipe {
+            process.standardInput = stdinPipe
         }
 
         let stdoutPipe = Pipe()
@@ -105,6 +133,26 @@ public enum ProcessRunner: Sendable {
         try? stdoutPipe.fileHandleForWriting.close()  // silent: already closed if the child exited first, which is not an error
         if let stderrPipe {
             try? stderrPipe.fileHandleForWriting.close()  // silent: same
+        }
+
+        // The write runs on its own thread, and that is not tidiness.
+        //
+        // A pipe write blocks once the payload exceeds the ~64 KB buffer and stays blocked until
+        // the child drains it. A child that reads its input to EOF before emitting anything —
+        // the ordinary shape for a filter — will not drain until the write finishes. Writing
+        // inline would therefore deadlock the two of us against each other: the mirror image of
+        // the read-side hang this file already exists to prevent, and the bug `PluginRunner`
+        // carries today by writing its payload on the calling thread.
+        if let stdinPipe, let stdin {
+            _ = Self.sigpipeIgnored
+            Thread {
+                let handle = stdinPipe.fileHandleForWriting
+                // EPIPE when the child exits without reading is the child's choice, not a
+                // failure of the run — the payload simply was not wanted.
+                // silent: the child declined the input; that is its prerogative, not our error.
+                try? handle.write(contentsOf: stdin)
+                try? handle.close()  // silent: EOF is what ends a child that reads until it
+            }.start()
         }
 
         // Read stdout and stderr concurrently to prevent pipe-buffer deadlock.

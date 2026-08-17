@@ -112,16 +112,14 @@ struct ForeignModeAcceptanceTests {
     }
 
     private func runGit(_ arguments: [String], in directory: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = directory
-        process.environment = scrubbedEnvironment()
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: arguments,
+            currentDirectory: directory.path,
+            environment: scrubbedEnvironment(),
+            mergeStderr: true,
+            timeout: 120)
+        guard result.exitCode == 0 else {
             throw AcceptanceError.processFailed("git \(arguments.joined(separator: " "))")
         }
     }

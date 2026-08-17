@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 #if canImport(os)
 import os
 #endif
@@ -83,22 +84,16 @@ public enum Toolchain {
 
     /// Runs `xcrun` with `arguments`, returning its trimmed output.
     private static func run(_ arguments: [String]) -> String? {
-        let process = Process()
-        let pipe = Pipe()
-        // SAFETY: subprocess with hardcoded `/usr/bin/xcrun` and fixed query arguments
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
+        // Through the kernel: `xcrun` can block indefinitely resolving a toolchain, and a query
+        // for a compiler flag must not be able to hang the whole run.
         do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let value = String(data: data, encoding: .utf8)?
+            // SAFETY: subprocess with hardcoded `/usr/bin/xcrun` and fixed query arguments
+            let result = try ProcessRunner.run(
+                "/usr/bin/xcrun", arguments: arguments, timeout: 60)
+            guard result.exitCode == 0 else { return nil }
+            let value = result.stdout
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (value?.isEmpty ?? true) ? nil : value
+            return value.isEmpty ? nil : value
         } catch {
             logger.warning("Could not probe the toolchain via xcrun \(arguments.joined(separator: " "), privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil

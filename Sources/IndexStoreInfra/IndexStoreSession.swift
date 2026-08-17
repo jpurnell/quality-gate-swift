@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import IndexStoreDB
 #if canImport(os)
 import os
@@ -97,23 +98,17 @@ public final class IndexStoreSession: Sendable {
 
     /// Runs `executable` with `arguments` and returns trimmed stdout, or nil on failure.
     private static func captureStdout(_ executable: String, _ arguments: [String]) -> String? {
-        let pipe = Pipe()
-        // SAFETY: callers pass hardcoded executable paths (xcode-select, xcrun)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        // Through the kernel. This runs during index setup, before anything else can report a
+        // problem, so a hang here is a gate that never starts rather than one that fails.
         do {
-            try process.run()
+            // SAFETY: callers pass hardcoded executable paths (xcode-select, xcrun)
+            let result = try ProcessRunner.run(executable, arguments: arguments, timeout: 60)
+            guard result.exitCode == 0 else { return nil }
+            let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            return output.isEmpty ? nil : output
         } catch {
             logger.warning("Failed to run \(executable, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (output?.isEmpty == false) ? output : nil
     }
 }

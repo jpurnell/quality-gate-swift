@@ -91,59 +91,46 @@ public enum PluginRunner {
             stdin: payload, timeoutSeconds: timeoutSeconds)
     }
 
-    /// The one spawn path: stdin payload, drained pipes, wall-clock timeout.
+    /// The one spawn path, delegated to the audited kernel.
+    ///
+    /// This used to spawn its own `Process` and carried three ways to hang, all of which read as
+    /// careful code. It armed a watchdog that called `terminate()`, which bounds the *child* and
+    /// not the *read*: a plugin whose child leaves a grandchild holding the inherited write end
+    /// keeps the pipe open, so `readDataToEndOfFile()` never returned and the `.timedOut` result
+    /// it had just recorded was never reached — the timeout fired into a line that could not run.
+    /// It also wrote its stdin payload inline, which blocks past the pipe buffer against a plugin
+    /// that reads to EOF before replying.
+    ///
+    /// None of that was carelessness; it had the most deliberate hang-handling in the codebase.
+    /// It is the reason the rule is containment rather than judgement: the wrong version looked
+    /// bounded locally and the right version does not.
     private static func invoke(
         executable: String,
         arguments: [String],
         stdin: Data?,
         timeoutSeconds: Int
     ) -> Outcome {
-        let process = Process() // SAFETY: executable resolved from explicit config or PATH convention
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stdoutPipe
-
-        let stdinPipe = Pipe()
-        process.standardInput = stdinPipe
-
+        let result: ProcessRunner.Output
         do {
-            try process.run()
+            result = try ProcessRunner.run(
+                executable,
+                arguments: arguments,
+                stdin: stdin,
+                mergeStderr: true,
+                timeout: TimeInterval(timeoutSeconds))
         } catch {
             logger.warning("plugin launch failed: \(error.localizedDescription, privacy: .public)")
             return .launchFailed(reason: error.localizedDescription)
         }
 
-        if let stdin {
-            stdinPipe.fileHandleForWriting.write(stdin)
-        }
-        stdinPipe.fileHandleForWriting.closeFile()
-
-        // Watchdog: terminate on budget exhaustion. The main thread drains
-        // stdout (before waiting — the 64 KB pipe-deadlock rule), so the
-        // watchdog is a timer, not a reader.
-        let timedOutFlag = Mutex(false)
-        let watchdog = DispatchWorkItem {
-            timedOutFlag.withLock { $0 = true }
-            process.terminate()
-        }
-        DispatchQueue.global().asyncAfter(
-            deadline: .now() + .seconds(timeoutSeconds), execute: watchdog)
-
-        let output = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        watchdog.cancel()
-
-        if timedOutFlag.withLock({ $0 }) {
+        // 124 is the runner's timeout code, by the shell convention. Distinguishing it from a
+        // plugin's own exit status is why the runner names the timeout rather than throwing.
+        if result.exitCode == 124 {
             return .timedOut(seconds: timeoutSeconds)
         }
-        guard process.terminationStatus == 0 else {
-            return .failed(
-                exitCode: process.terminationStatus,
-                output: String(decoding: output, as: UTF8.self))
+        guard result.exitCode == 0 else {
+            return .failed(exitCode: result.exitCode, output: result.stdout)
         }
-        return .responded(output)
+        return .responded(Data(result.stdout.utf8))
     }
 }

@@ -1,5 +1,6 @@
 import CorpusKit
 import Foundation
+import QualityGateCore
 
 /// One validated write bound for the corpus (Phase 3b §1).
 ///
@@ -232,21 +233,17 @@ public actor CorpusWriteQueue {
     /// The output pipe is drained before `waitUntilExit()` — a full ~64 KB
     /// pipe buffer would deadlock a chatty invocation.
     private func executeGit(_ arguments: [String]) throws -> (status: Int32, output: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: workingClone)
-        process.environment = Self.scrubbed(environment: ProcessInfo.processInfo.environment)
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        // Drain the pipe before waiting to avoid the pipe-buffer deadlock.
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(decoding: outputData, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (process.terminationStatus, output)
+        // Through the kernel. Draining before waiting fixed the pipe-buffer deadlock and left
+        // the other one: EOF needs every inherited write end closed, so a git subcommand that
+        // leaves a helper holding the pipe hung this queue with no deadline to stop it.
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: arguments,
+            currentDirectory: workingClone,
+            environment: Self.scrubbed(environment: ProcessInfo.processInfo.environment),
+            mergeStderr: true,
+            timeout: 300)
+        return (result.exitCode, result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// The environment for spawned git: hook-leak variables removed

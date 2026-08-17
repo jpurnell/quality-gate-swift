@@ -49,19 +49,23 @@ func burn(_ iterations: Int) {
 
 // --- Variant A: the current pattern — blocking read + blocking wait ---
 func blockingSpawn(seconds: String) {
+    // Unbounded: this benchmark exists to reproduce the blocking-subprocess pattern and measure the pool starvation it causes; bounding it would erase the experiment.
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/sleep")
     p.arguments = [seconds]
     let pipe = Pipe()
     p.standardOutput = pipe
     try? p.run()
+    // Unbounded: this benchmark exists to reproduce the blocking-subprocess pattern and measure the pool starvation it causes; bounding it would erase the experiment.
     _ = pipe.fileHandleForReading.readDataToEndOfFile()
+    // Unbounded: this benchmark exists to reproduce the blocking-subprocess pattern and measure the pool starvation it causes; bounding it would erase the experiment.
     p.waitUntilExit()
 }
 
 // --- Variant B: suspend instead of blocking ---
 func asyncSpawn(seconds: String) async {
     await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        // Unbounded: this benchmark exists to reproduce the blocking-subprocess pattern and measure the pool starvation it causes; bounding it would erase the experiment.
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sleep")
         p.arguments = [seconds]

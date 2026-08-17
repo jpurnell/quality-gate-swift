@@ -33,6 +33,7 @@ struct QualityGatePlugin: CommandPlugin {
         }
 
         // Run the quality-gate tool with the provided arguments
+        // Unbounded: a sandboxed SPM plugin cannot import package libraries; one pipe, drained before the wait.
         let process = Process()
         process.executableURL = executable.url
         process.arguments = arguments
@@ -63,6 +64,7 @@ struct QualityGatePlugin: CommandPlugin {
               !chunk.isEmpty {
             combined.append(chunk)
         }
+        // Unbounded: a sandboxed SPM plugin cannot import package libraries; one pipe, drained before the wait.
         process.waitUntilExit()
 
         if let output = String(data: combined, encoding: .utf8), !output.isEmpty {

@@ -121,6 +121,10 @@ let package = Package(
             targets: ["GPUSafetyAuditor"]
         ),
         .library(
+            name: "BoundedIOAuditor",
+            targets: ["BoundedIOAuditor"]
+        ),
+        .library(
             name: "LivenessAuditor",
             targets: ["LivenessAuditor"]
         ),
@@ -687,6 +691,22 @@ let package = Package(
         ),
 
         .target(
+            name: "BoundedIOAuditor",
+            dependencies: [
+                "QualityGateCore",
+                "IndexStoreInfra",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ,
+            exclude: ["BoundedIOAuditor.docc"]
+        ),
+        .testTarget(
+            name: "BoundedIOAuditorTests",
+            dependencies: ["BoundedIOAuditor"]
+        ),
+
+        .target(
             name: "MemoryLifecycleGuard",
             dependencies: [
                 "QualityGateCore",
@@ -1066,6 +1086,7 @@ let package = Package(
         .target(
             name: "GateCI",
             dependencies: [
+                "QualityGateCore",
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
             ]
         ),
@@ -1090,6 +1111,7 @@ let package = Package(
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
+                "BoundedIOAuditor",
                 "LivenessAuditor",
                 "QualityGateCore",
                 "NarrativeCore",
