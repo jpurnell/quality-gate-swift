@@ -312,6 +312,7 @@ let package = Package(
         .target(
             name: "TestRunner",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

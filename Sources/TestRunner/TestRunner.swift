@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 #if canImport(os)
 import os
 #endif
@@ -55,6 +56,29 @@ public struct TestRunner: QualityChecker, Sendable {
 
     /// Creates a new TestRunner instance.
     public init() {}
+
+    /// Declares the suite cacheable on the whole source tree.
+    ///
+    /// A test result is a function of the source that produced it, and **this project already
+    /// enforces the invariants that make that true**: `TemporalDeterminismAuditor` forbids
+    /// wall-clock nondeterminism and asserting on elapsed time, `StochasticDeterminismAuditor`
+    /// forbids unseeded randomness, and no test in the suite constructs a `URLSession`. Caching
+    /// here is not a new assumption — it is the one the determinism checkers already police.
+    ///
+    /// The fingerprint also folds in `gateIdentityHash`: the gate binary's size and mtime plus
+    /// the toolchain version, so a rebuild, a redeploy or a compiler change invalidates every
+    /// cached result. A suite cannot be replayed across a toolchain it did not run under.
+    ///
+    /// **A cache hit means the tests did not run.** That is the point and it is worth stating
+    /// plainly: this is 358 of the gate's ~490 seconds, and the run it saves is the pre-push
+    /// hook immediately after a pre-commit hook that already ran them with nothing changed
+    /// between. `--no-cache` forces execution when that is not what you want.
+    public func cacheInputs(configuration: Configuration) -> CacheInputs? {
+        SourceCacheInputs.wholeSource(
+            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            configuration: configuration
+        )
+    }
 
     /// Run the test suite.
     ///
