@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import Testing
 
 /// Phase 1, workstream 4 — the acceptance test, automated.
@@ -131,36 +132,31 @@ struct ForeignModeAcceptanceTests {
         cwd: URL,
         qgHome: URL
     ) throws -> (exitCode: Int32, output: String) {
-        let process = Process()
-        process.executableURL = try Self.gateBinary()
-        process.arguments = arguments
-        process.currentDirectoryURL = cwd
         var environment = scrubbedEnvironment()
         environment["QUALITY_GATE_HOME"] = qgHome.path
         environment.removeValue(forKey: "QG_FOREIGN_REPO_ROOT")
-        process.environment = environment
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+        // Routed through the bounded runner rather than a hand-rolled Process. This helper spawns
+        // the gate itself, whose output far exceeds the ~64 KB pipe buffer, so the old
+        // wait-then-read ordering could deadlock — and a hung acceptance test is indistinguishable
+        // from the suite simply being slow.
+        let result = try ProcessRunner.run(
+            try Self.gateBinary().path,
+            arguments: arguments,
+            currentDirectory: cwd.path,
+            environment: environment,
+            mergeStderr: true,
+            timeout: 300)
+        return (result.exitCode, result.stdout)
     }
 
     private func gitPorcelain(in directory: URL) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["status", "--porcelain"]
-        process.currentDirectoryURL = directory
-        process.environment = scrubbedEnvironment()
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = try ProcessRunner.run(
+            "/usr/bin/git",
+            arguments: ["status", "--porcelain"],
+            currentDirectory: directory.path,
+            environment: scrubbedEnvironment(),
+            timeout: 60)
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Every file under a directory tree, relative paths, for content asserts.

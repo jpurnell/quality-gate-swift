@@ -38,24 +38,35 @@ struct QualityGatePlugin: CommandPlugin {
         process.arguments = arguments
         process.currentDirectoryURL = context.package.directoryURL
 
-        // Forward output to the console
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
+        // One pipe for both streams, drained before waiting.
+        //
+        // This plugin spawns the gate on a consumer's build, and a full run produces far more
+        // than the ~64 KB pipe buffer holds. The previous ordering waited for exit and only then
+        // read, so the child blocked writing while this process blocked waiting — a deadlock on
+        // any project large enough to matter, in the one code path shipped to other people.
+        //
+        // Both streams share a pipe deliberately. Draining two pipes in sequence reintroduces the
+        // same deadlock on whichever is read second, and draining them concurrently is not
+        // available here: `performCommand` is async, where `DispatchGroup.wait()` is unavailable,
+        // and `Pipe` is not `Sendable` so it cannot cross into a detached task. One pipe needs no
+        // concurrency at all, and since both streams were only ever printed to stdout in
+        // sequence, merging them also preserves the order the tool actually emitted them in.
+        let combinedPipe = Pipe()
+        process.standardOutput = combinedPipe
+        process.standardError = combinedPipe
 
         try process.run()
+
+        var combined = Data()
+        // silent: a closed handle ends the drain — the normal exit path when the child finishes.
+        while let chunk = (try? combinedPipe.fileHandleForReading.read(upToCount: 64 * 1024)) ?? nil,
+              !chunk.isEmpty {
+            combined.append(chunk)
+        }
         process.waitUntilExit()
 
-        // Print the output
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        if let output = String(data: outputData, encoding: .utf8), !output.isEmpty {
+        if let output = String(data: combined, encoding: .utf8), !output.isEmpty {
             print(output, terminator: "")
-        }
-        if let errorOutput = String(data: errorData, encoding: .utf8), !errorOutput.isEmpty {
-            print(errorOutput, terminator: "")
         }
 
         // Exit with the same code as the quality-gate tool

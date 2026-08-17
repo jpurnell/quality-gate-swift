@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import Testing
 
 /// Phase 2 §4 end-to-end — P3a realized: a `quality-gate ci --corpus-remote`
@@ -79,14 +80,6 @@ struct CITelemetryTransportTests {
         """.write(to: fixture.appendingPathComponent(".quality-gate.yml"), atomically: true, encoding: .utf8)
 
         // Run `ci` with the corpus remote and a simulated GitHub identity.
-        let process = Process()
-        process.executableURL = try Self.gateBinary()
-        process.arguments = [
-            "ci", "--corpus-remote", bare.path,
-            "--output-dir", sandbox.appendingPathComponent("artifacts").path,
-            "--checkers", "legibility",
-        ]
-        process.currentDirectoryURL = fixture
         var environment = ProcessInfo.processInfo.environment
             .filter { !$0.key.hasPrefix("GIT_") }
         environment["GITHUB_ACTIONS"] = "true"
@@ -94,13 +87,20 @@ struct CITelemetryTransportTests {
         environment["GITHUB_RUN_ID"] = "7"
         environment["GITHUB_SHA"] = "1111111111111111111111111111111111111111"
         environment["GITHUB_REPOSITORY"] = "fixture/transport"
-        process.environment = environment
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        // The bounded runner: this spawns the gate and pushes to a git remote, so both the pipe
+        // buffer and the network are ways for the old wait-then-read ordering to hang the suite.
+        let result = try ProcessRunner.run(
+            try Self.gateBinary().path,
+            arguments: [
+                "ci", "--corpus-remote", bare.path,
+                "--output-dir", sandbox.appendingPathComponent("artifacts").path,
+                "--checkers", "legibility",
+            ],
+            currentDirectory: fixture.path,
+            environment: environment,
+            mergeStderr: true,
+            timeout: 300)
+        let output = result.stdout
 
         #expect(output.contains("Telemetry pushed to corpus remote"))
 

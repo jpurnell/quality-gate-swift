@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import Testing
 import CorpusKit
 
@@ -65,18 +66,16 @@ struct SecondWriterTripwireTests {
     }
 
     private func runGate(cwd: URL) throws -> String {
-        let process = Process()
-        process.executableURL = try Self.gateBinary()
-        process.arguments = ["--check", "legibility", "--no-index-build"]
-        process.currentDirectoryURL = cwd
-        process.environment = ProcessInfo.processInfo.environment
-            .filter { !$0.key.hasPrefix("GIT_") }
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        // The bounded runner, not a hand-rolled Process: this spawns the gate, whose output
+        // exceeds the pipe buffer, and the old wait-then-read ordering could deadlock.
+        let result = try ProcessRunner.run(
+            try Self.gateBinary().path,
+            arguments: ["--check", "legibility", "--no-index-build"],
+            currentDirectory: cwd.path,
+            environment: ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") },
+            mergeStderr: true,
+            timeout: 300)
+        return result.stdout
     }
 
     /// The owner identity the gate run itself will record (its own telemetry

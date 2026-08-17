@@ -444,9 +444,24 @@ public enum DashboardApp: Sendable {
             }
             semaphore.signal()
         }
-        semaphore.wait()
+        // The write reaches git through the corpus transport, and that path reads a subprocess
+        // pipe without a deadline of its own. Waiting here with no bound therefore freezes the
+        // whole TUI on a hang two layers down, with no message and no way out. The deadline does
+        // not repair the read — it stops this thread being the second casualty.
+        if semaphore.wait(timeout: .now() + Self.corpusWriteDeadline) == .timedOut {
+            logger.warning("Calibration write exceeded \(Self.corpusWriteDeadline, privacy: .public)s; the task continues in the background.")
+            state.statusMessage = "Calibration write is taking longer than \(Int(Self.corpusWriteDeadline))s — still running in the background."
+            return
+        }
         state.statusMessage = outcome.withLock { $0 }
     }
+
+    /// How long the synchronous event loop will wait on an async corpus write before telling the
+    /// user it is still running.
+    ///
+    /// Generous rather than tight: a first write to a cold corpus does real git work, and a
+    /// deadline that fires during normal operation trains people to ignore it.
+    private static let corpusWriteDeadline: TimeInterval = 30
 
     private static func stdinReady(timeoutMs: Int32) -> Bool {
         #if canImport(Darwin) || canImport(Glibc)

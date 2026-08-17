@@ -1,4 +1,5 @@
 import Foundation
+import IndexStoreInfra
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -36,38 +37,44 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
     /// Creates a new process safety auditor.
     public init() {}
 
-    /// Scans all Swift files under `Sources/` for pipe deadlock patterns.
+    /// Scans every Swift file under the project root for pipe deadlock patterns.
+    ///
+    /// Previously this walked a hardcoded `Sources/` and ignored `configuration` entirely, so it
+    /// had never examined `Tests/` or `Plugins/` — and a deadlock hangs a test suite exactly as
+    /// thoroughly as it hangs the tool. It also read each file with a throwing call inside the
+    /// walk, so one unreadable file aborted the entire scan. Both are corrected here: the walk
+    /// comes from `SourceWalker`, which honours the configured exclusions and the shared skip
+    /// list, and an unreadable file is skipped rather than fatal.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let files = SourceWalker.swiftFiles(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
-
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: scans Sources/ under cwd only
-            allDiagnostics = try auditDirectory(at: sourcesPath)
+        for path in files {
+            // silent: an unreadable file must not abort the walk, as a throwing read once did.
+            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
+                continue
+            }
+            allDiagnostics.append(contentsOf: auditSource(source, fileName: path))
         }
+
+        // Emitted pass or fail. This checker's silence was once read as "subprocesses here cannot
+        // hang", when it meant "nobody wrote the one shape it matches" — and it matches exactly
+        // one. Saying so is the difference between a guarantee and a scope.
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "process-safety examined \(files.count) files for 1 rule "
+                + "(process.wait-before-read); unbounded reads are the separate concern of bounded-io",
+            ruleId: "process-safety.coverage"))
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
-        return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, duration: duration)
-    }
-
-    private func auditDirectory(at path: String) throws -> [Diagnostic] {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return []
-        }
-
-        var diagnostics: [Diagnostic] = []
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-            let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-            diagnostics.append(contentsOf: auditSource(source, fileName: fullPath))
-        }
-        return diagnostics
+        // Any finding fails, note excepted. This checker reports at `.warning`, so testing for
+        // `.error` alone would pass a file containing the very deadlock it exists to detect —
+        // which is precisely what happened when the coverage note was first added here, and it
+        // silently downgraded six real findings the widened walk had just uncovered.
+        let failed = allDiagnostics.contains { $0.severity != .note }
+        return CheckResult(checkerId: id, status: failed ? .failed : .passed, diagnostics: allDiagnostics, duration: duration)
     }
 
     /// Audits a single source file for pipe deadlock patterns.

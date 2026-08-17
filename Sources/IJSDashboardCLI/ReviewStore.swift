@@ -134,7 +134,19 @@ enum ReviewStore {
             result.withLock { $0 = message }
             semaphore.signal()
         }
-        semaphore.wait()
+        // A bare wait here hands the TUI's liveness to whatever `body` awaits. The deadline keeps
+        // the event loop's fate in the event loop: the task is left running and its result
+        // discarded, which is the right trade for a display refresh.
+        if semaphore.wait(timeout: .now() + Self.bridgeDeadline) == .timedOut {
+            logger.warning("Bridged actor call exceeded \(Self.bridgeDeadline, privacy: .public)s; showing a timeout notice.")
+            return "Timed out after \(Int(Self.bridgeDeadline))s — still running in the background."
+        }
         return result.withLock { $0 }
     }
+
+    /// How long the synchronous event loop will wait on a bridged actor call.
+    ///
+    /// Shorter than the corpus-write deadline because this one blocks an interactive redraw: a
+    /// display that stops repainting for thirty seconds reads as a crash.
+    private static let bridgeDeadline: TimeInterval = 10
 }

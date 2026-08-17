@@ -121,6 +121,10 @@ let package = Package(
             targets: ["GPUSafetyAuditor"]
         ),
         .library(
+            name: "LivenessAuditor",
+            targets: ["LivenessAuditor"]
+        ),
+        .library(
             name: "MemoryLifecycleGuard",
             targets: ["MemoryLifecycleGuard"]
         ),
@@ -667,6 +671,22 @@ let package = Package(
         ),
 
         .target(
+            name: "LivenessAuditor",
+            dependencies: [
+                "QualityGateCore",
+                "IndexStoreInfra",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ,
+            exclude: ["LivenessAuditor.docc"]
+        ),
+        .testTarget(
+            name: "LivenessAuditorTests",
+            dependencies: ["LivenessAuditor"]
+        ),
+
+        .target(
             name: "MemoryLifecycleGuard",
             dependencies: [
                 "QualityGateCore",
@@ -683,6 +703,7 @@ let package = Package(
         .target(
             name: "ProcessSafetyAuditor",
             dependencies: [
+                "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -1069,6 +1090,7 @@ let package = Package(
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
+                "LivenessAuditor",
                 "QualityGateCore",
                 "NarrativeCore",
                 "GateCI",
@@ -1131,13 +1153,13 @@ let package = Package(
         // against fixture upstream repos (foreign mode's read-only promise).
         .testTarget(
             name: "ForeignModeAcceptanceTests",
-            dependencies: ["QualityGateCLI"]
+            dependencies: ["QualityGateCLI", "QualityGateCore"]
         ),
         // Phase 2 acceptance: local run and `ci` run of the same fixture
         // must produce byte-identical diagnostics (the parity guarantee).
         .testTarget(
             name: "CIParityTests",
-            dependencies: ["QualityGateCLI"]
+            dependencies: ["QualityGateCLI", "QualityGateCore"]
         ),
 
         // MARK: - IJS MCP Server

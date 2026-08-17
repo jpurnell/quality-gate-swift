@@ -29,6 +29,7 @@ import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
 import StochasticDeterminismAuditor
 import GPUSafetyAuditor
+import LivenessAuditor
 import TemporalDeterminismAuditor
 import MCPReadinessAuditor
 import ProcessSafetyAuditor
@@ -207,6 +208,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             MemoryLifecycleGuard(),
             MCPReadinessAuditor(),
             ProcessSafetyAuditor(),
+            LivenessAuditor(),
             KeychainSecretsChecker(config: configuration.keychainSecrets),
             PrivacyManifestChecker(config: configuration.privacyManifest),
             ControlMappingValidator(),
