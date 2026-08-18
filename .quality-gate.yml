@@ -19,13 +19,13 @@ security:
   # CLI tool operates on configured paths (not user input), so path-traversal
   # and insecure-transport remain false positives in this context.
   #
-  # security.command-injection is rewritten but NOT YET ENABLED here, and the
-  # order matters: a rule name in this file binds to whatever mechanism the
+  # security.command-injection is ENABLED, and the order that got it here is
+  # worth keeping: a rule name in this file binds to whatever mechanism the
   # *running* binary has. The pre-commit hook runs the deployed gate, so
-  # enabling the rule before deploying the rewrite wakes the OLD mechanism —
-  # which is what happened on the first attempt at this commit, and it blocked
-  # it by flagging a bare Process() in ArticleRunner.swift. Deploy first, then
-  # add `- security.command-injection` to enabledRules below.
+  # enabling the rule in the same commit that rewrote it woke the OLD
+  # mechanism — it blocked that commit by flagging a bare Process() in
+  # ArticleRunner.swift. Config is data, the mechanism is code, and they ship
+  # separately: land the rewrite, deploy, then enable.
   #
   # It used to match `callee == "Process"` — every construction, no argument
   # ever inspected — under a name and a CWE describing a different hazard, and
@@ -50,6 +50,7 @@ security:
   # containment half — note completed/, not proposals/, where the old comment
   # pointed after the file moved.
   enabledRules:
+    - security.command-injection
     - security.hardcoded-secret
     - security.weak-crypto
     - security.eval-js
