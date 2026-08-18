@@ -139,14 +139,11 @@ public enum TrapPolicy: String, Sendable, Codable, CaseIterable, Equatable {
     public static let `default` = TrapPolicy.aggregate
 
     /// What a trap warrants.
-    public enum Verdict: Sendable, Equatable {
-        /// A finding, as before.
-        case report
-        /// Not a finding; counted into the run's aggregate note.
-        case count
-        /// A finding unless the site carries a `// Justification:` comment.
-        case requireJustification
-    }
+    /// What to do about one trap.
+    ///
+    /// A typealias since the shape moved to ``GraduatedPolicy``: the three outcomes were never
+    /// specific to traps, and `TrapPolicy.Verdict` stays spelled the same at every call site.
+    public typealias Verdict = PolicyVerdict
 
     /// Message fragments that mark a trap as unfinished work rather than a contract.
     ///
@@ -165,18 +162,7 @@ public enum TrapPolicy: String, Sendable, Codable, CaseIterable, Equatable {
     ///   - message: The trap's message literal, when it has one.
     /// - Returns: The verdict.
     public func verdict(targetType: TargetType, message: String?) -> Verdict {
-        // Unfinished work outranks everything, including the target-type relaxation.
-        if let message, Self.namesUnfinishedWork(message) {
-            return .report
-        }
-        if targetType == .executable {
-            return .report
-        }
-        switch self {
-        case .forbidden: return .report
-        case .justified: return .requireJustification
-        case .aggregate: return .count
-        }
+        verdict(in: targetType, evidence: message)
     }
 
     /// Whether a trap message describes work that was not done.
@@ -184,4 +170,43 @@ public enum TrapPolicy: String, Sendable, Codable, CaseIterable, Equatable {
         let lowered = message.lowercased()
         return unfinishedWorkMarkers.contains { lowered.contains($0) }
     }
+}
+
+// MARK: - GraduatedPolicy
+
+/// Traps, as a graduated policy.
+///
+/// The ladder — escalation, strict context, level — now lives in ``GraduatedPolicy`` rather than
+/// here. This conformance supplies only what is specific to traps, which is the test of whether
+/// that shape is right: a level, one context predicate, one escalation, and a noun.
+extension TrapPolicy: GraduatedPolicy {
+
+    /// The strength this policy is being held at.
+    public var level: PolicyLevel {
+        switch self {
+        case .forbidden: return .forbidden
+        case .justified: return .justified
+        case .aggregate: return .aggregate
+        }
+    }
+
+    /// An executable's caller is an end user, so the relaxation never applies there.
+    ///
+    /// - Parameter context: The owning target's type.
+    /// - Returns: `true` for an executable target.
+    public func alwaysReports(in context: TargetType) -> Bool {
+        context == .executable
+    }
+
+    /// A trap naming unfinished work is not a documented precondition.
+    ///
+    /// - Parameter evidence: The trap's message literal, when it has one.
+    /// - Returns: `true` when the message names work that was not done.
+    public func escalates(_ evidence: String?) -> Bool {
+        guard let evidence else { return false }
+        return Self.namesUnfinishedWork(evidence)
+    }
+
+    /// The noun the aggregate note counts.
+    public var aggregateNoun: String { "trap" }
 }
