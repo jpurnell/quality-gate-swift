@@ -45,7 +45,7 @@ public struct IdiomAuditor: QualityChecker, Sendable {
     ///
     /// - Parameters:
     ///   - config: Rule thresholds and knobs; defaults throughout.
-    ///   - root: Project root to walk; nil uses `FileManager.default.currentDirectoryPath`.
+    ///   - root: Project root to walk; nil uses the configuration's resolved project root.
     public init(config: IdiomConfig = IdiomConfig(), root: String? = nil) {
         self.config = config
         self.root = root
@@ -75,7 +75,7 @@ public struct IdiomAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -88,7 +88,7 @@ public struct IdiomAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
-        let rootPath = root ?? fileManager.currentDirectoryPath
+        let rootPath = root ?? configuration.resolvedProjectRoot.path
 
         var filePaths: [String] = []
         for topLevel in ["Sources", "Tests"] {

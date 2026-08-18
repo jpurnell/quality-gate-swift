@@ -58,7 +58,7 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -69,7 +69,7 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
     /// - Returns: A `CheckResult` carrying the diagnostics and a coverage line.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let started = ContinuousClock.now
-        let root = FileManager.default.currentDirectoryPath
+        let root = configuration.resolvedProjectRoot.path
         let scan = Self.scan(root: root, excludePatterns: configuration.excludePatterns)
 
         var diagnostics = scan.diagnostics

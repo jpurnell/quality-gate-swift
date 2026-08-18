@@ -80,6 +80,24 @@
 
 ### Changed
 
+- **A checker is now a pure function of (root, configuration).** `Configuration` gains
+  `projectRoot` — runtime state set by the CLI from `RunEnvironment`, deliberately
+  excluded from `CodingKeys` so it never reaches a `.quality-gate.yml` or perturbs a
+  cache salt — and `resolvedProjectRoot`, whose lazy cwd fallback preserves exact prior
+  behavior for every caller that never sets it. ~96 reads of
+  `FileManager.default.currentDirectoryPath` across 55 files now flow through the
+  configuration; the eight that remain each mean "where the user invoked this" and are
+  enumerated with reasons in `project/plans/proposals/CheckerRootThreading.md`.
+
+  The same pass closed the spawn half: `swift build`, `swift test`, `xcodebuild`, and
+  plugin subprocesses now run with `currentDirectory:` set to the resolved root instead
+  of inheriting the process cwd — previously the existence check and the subprocess
+  could silently examine different trees whenever the root diverged from cwd. Toolchain
+  probes and spawns that pass their target explicitly (`--package-path`) are exempt by
+  classification, not omission. Both halves are pinned end-to-end:
+  `ProjectRootEndToEndTests` (read) and `BuildCheckerRootTests` (spawn) drive checkers
+  at a fixture root while the process cwd is the gate's own checkout.
+
 - **`QualityChecker` gains `kind` and `effect`, with no default implementations.** ⚠️
   Source-breaking for external conformers, exactly as `summary` and `category` were in 3.0.0.
   Released as a minor version because the external conformer set is empty — recorded here so a

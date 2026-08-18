@@ -81,14 +81,14 @@ public struct DocClaimsAuditor: QualityChecker, Sendable {
     /// Inputs whose change could change the verdict — the same set the other rungs read.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         DocCodeAuditor.cacheInputs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 
     /// Runs the check against the current directory.
     public func check(configuration: Configuration) async throws -> CheckResult {
         try await check(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 

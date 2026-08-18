@@ -72,7 +72,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -82,7 +82,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         let startTime = ContinuousClock.now
 
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let testsPath = (currentDir as NSString).appendingPathComponent("Tests")
 
         var allDiagnostics: [Diagnostic] = []

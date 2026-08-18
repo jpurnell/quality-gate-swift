@@ -62,7 +62,7 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -78,7 +78,7 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let config = configuration.mcpReadiness
 
         // Collect directories to scan

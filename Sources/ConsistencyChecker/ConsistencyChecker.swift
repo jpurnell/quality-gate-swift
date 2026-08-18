@@ -107,7 +107,7 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         }
 
         let projectID = config.projectID
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).lastPathComponent
+            ?? configuration.resolvedProjectRoot.lastPathComponent
         let corpus = CorpusPath(basePath: corpusBasePath, projectID: projectID)
         let writer = DirectCorpusTransport()
 

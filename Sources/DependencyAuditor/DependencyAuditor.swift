@@ -99,7 +99,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -115,7 +115,7 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         let clock = ContinuousClock()
         let start = clock.now
 
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
         let packageSwiftPath = projectRoot + "/Package.swift"
         let hasRootManifest = FileManager.default.fileExists(atPath: packageSwiftPath) // SAFETY: CLI reads Package.swift from cwd
 

@@ -86,9 +86,13 @@ public enum PluginRunner {
             logger.warning("plugin request encoding failed: \(error.localizedDescription, privacy: .public)")
             return .launchFailed(reason: "request encoding failed: \(error.localizedDescription)")
         }
+        // The plugin runs *in* the root it is asked about: a plugin that resolves
+        // relative paths gets the tree the request names, not wherever the gate
+        // happened to be invoked.
         return invoke(
             executable: executable, arguments: ["check"],
-            stdin: payload, timeoutSeconds: timeoutSeconds)
+            stdin: payload, timeoutSeconds: timeoutSeconds,
+            currentDirectory: request.projectRoot)
     }
 
     /// The one spawn path, delegated to the audited kernel.
@@ -108,13 +112,15 @@ public enum PluginRunner {
         executable: String,
         arguments: [String],
         stdin: Data?,
-        timeoutSeconds: Int
+        timeoutSeconds: Int,
+        currentDirectory: String? = nil
     ) -> Outcome {
         let result: ProcessRunner.Output
         do {
             result = try ProcessRunner.run(
                 executable,
                 arguments: arguments,
+                currentDirectory: currentDirectory,
                 stdin: stdin,
                 mergeStderr: true,
                 timeout: TimeInterval(timeoutSeconds))

@@ -97,7 +97,7 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     /// *wrong* rather than merely slow.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: root ?? FileManager.default.currentDirectoryPath),
+            projectRoot: URL(fileURLWithPath: root ?? configuration.resolvedProjectRoot.path),
             configuration: configuration
         )
     }
@@ -110,7 +110,7 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     ///   sorted by path then line for deterministic output.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let start = ContinuousClock.now
-        let files = collectFiles()
+        let files = collectFiles(rootPath: root ?? configuration.resolvedProjectRoot.path)
         let classes = CloneDetector.detectClasses(files: files, minTokens: config.minTokens)
         let severity: Diagnostic.Severity = config.warnOnClones ? .warning : .note
 
@@ -170,7 +170,7 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     public func fingerprints() throws -> [CloneFingerprint] {
         let window = max(1, config.minTokens)
         var result: [CloneFingerprint] = []
-        for file in collectFiles() {
+        for file in collectFiles(rootPath: root ?? FileManager.default.currentDirectoryPath) {
             let hashes = CloneDetector.windowHashes(for: file, window: window)
             for index in CloneDetector.winnowedIndices(of: hashes, winnowWindow: window) {
                 guard index < hashes.count,
@@ -208,9 +208,8 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
 
     /// Collects and tokenizes every `.swift` file under `Sources/` (and
     /// `Tests/` unless excluded), sorted by root-relative path.
-    private func collectFiles() -> [FileTokenStream] {
+    private func collectFiles(rootPath: String) -> [FileTokenStream] {
         let fileManager = FileManager.default
-        let rootPath = root ?? fileManager.currentDirectoryPath
         var directories = ["Sources"]
         if !config.excludeTests {
             directories.append("Tests")

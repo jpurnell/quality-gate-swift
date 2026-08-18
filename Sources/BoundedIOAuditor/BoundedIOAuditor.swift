@@ -89,7 +89,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -97,7 +97,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// Scans every Swift file under the project root.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let started = ContinuousClock.now
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let root = configuration.resolvedProjectRoot
         let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var diagnostics: [Diagnostic] = []

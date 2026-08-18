@@ -78,7 +78,7 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
     /// Inputs whose change could change the verdict.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         Self.cacheInputs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 
@@ -107,10 +107,10 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
         return CacheInputs(files: files.sorted(), salt: salt)
     }
 
-    /// Runs the check against the current directory.
+    /// Runs the check against the configuration's resolved project root.
     public func check(configuration: Configuration) async throws -> CheckResult {
         try await check(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 

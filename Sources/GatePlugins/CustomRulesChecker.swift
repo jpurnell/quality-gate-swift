@@ -54,7 +54,7 @@ public struct CustomRulesChecker: QualityChecker, Sendable {
                 diagnostics: [], duration: ContinuousClock.now - startTime)
         }
 
-        let scanRoot = root ?? FileManager.default.currentDirectoryPath
+        let scanRoot = root ?? configuration.resolvedProjectRoot.path
         let files = Self.swiftFiles(under: scanRoot)
 
         var diagnostics: [Diagnostic] = []

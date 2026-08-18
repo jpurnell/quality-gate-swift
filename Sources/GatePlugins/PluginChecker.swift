@@ -81,7 +81,7 @@ public struct PluginChecker: QualityChecker, Sendable {
         }
 
         let request = PluginCheckRequest(
-            projectRoot: FileManager.default.currentDirectoryPath,
+            projectRoot: configuration.resolvedProjectRoot.path,
             config: plugin.config)
         let outcome = PluginRunner.check(
             executable: executable, request: request,

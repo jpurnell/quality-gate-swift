@@ -154,7 +154,7 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     /// Inputs whose change could change the verdict.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         Self.cacheInputs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 
@@ -198,7 +198,7 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     /// Runs the check against the current directory.
     public func check(configuration: Configuration) async throws -> CheckResult {
         try await check(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 

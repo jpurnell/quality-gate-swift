@@ -56,7 +56,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -76,7 +76,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
         }
 
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []

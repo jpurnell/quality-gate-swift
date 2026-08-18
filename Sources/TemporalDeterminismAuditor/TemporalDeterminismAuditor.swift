@@ -43,7 +43,7 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -58,7 +58,7 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let scan = TemporalScan.scanDirectories(
-            root: FileManager.default.currentDirectoryPath,
+            root: configuration.resolvedProjectRoot.path,
             config: configuration.temporalDeterminism
         )
         let duration = ContinuousClock.now - startTime

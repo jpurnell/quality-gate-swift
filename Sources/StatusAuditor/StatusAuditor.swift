@@ -78,7 +78,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
 
         let guidelinesPath = (currentDir as NSString).appendingPathComponent(
             configuration.status.guidelinesPath
@@ -174,7 +174,7 @@ public struct StatusAuditor: FixableChecker, Sendable {
         configuration: Configuration
     ) async throws -> FixResult {
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let guidelinesPath = (currentDir as NSString).appendingPathComponent(
             configuration.status.guidelinesPath
         )

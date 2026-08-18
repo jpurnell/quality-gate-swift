@@ -75,7 +75,7 @@ public struct TestRunner: QualityChecker, Sendable {
     /// between. `--no-cache` forces execution when that is not what you want.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -86,7 +86,7 @@ public struct TestRunner: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
         guard FileManager.default.fileExists(atPath: packagePath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
             let duration = ContinuousClock.now - startTime
@@ -105,7 +105,7 @@ public struct TestRunner: QualityChecker, Sendable {
         }
 
         let args = testArguments(for: configuration)
-        let (output, exitCode) = try await runSwiftTest(arguments: args)
+        let (output, exitCode) = try await runSwiftTest(arguments: args, in: projectRoot)
 
         var result = Self.createResult(output: output, exitCode: exitCode, duration: ContinuousClock.now - startTime)
 
@@ -162,7 +162,7 @@ public struct TestRunner: QualityChecker, Sendable {
         await Self.withCPUContention(enabled: stress.contention) {
             for _ in 0..<stress.runs {
                 // silent: a failed stress invocation is best-effort; skip that run's roster
-                guard let (output, _) = try? await self.runSwiftTest(arguments: ["--parallel"] + filterArgs) else { continue }
+                guard let (output, _) = try? await self.runSwiftTest(arguments: ["--parallel"] + filterArgs, in: projectRoot) else { continue }
                 rosters.append(TestRosterParser.parse(output))
             }
         }
@@ -577,11 +577,12 @@ public struct TestRunner: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
-    private func runSwiftTest(arguments: [String]) async throws -> (output: String, exitCode: Int32) {
+    private func runSwiftTest(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
         // SAFETY: runs swift test to execute the project's test suite
         let result = try ProcessRunner.run(
             "/usr/bin/swift",
-            arguments: ["test"] + arguments
+            arguments: ["test"] + arguments,
+            currentDirectory: root
         )
 
         // Combine stdout and stderr

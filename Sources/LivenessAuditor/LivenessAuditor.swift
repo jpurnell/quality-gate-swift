@@ -67,7 +67,7 @@ public struct LivenessAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -79,7 +79,7 @@ public struct LivenessAuditor: QualityChecker, Sendable {
     /// test suite exactly as thoroughly as it hangs the tool.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let started = ContinuousClock.now
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let root = configuration.resolvedProjectRoot
         let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
         let files = scan.files
 

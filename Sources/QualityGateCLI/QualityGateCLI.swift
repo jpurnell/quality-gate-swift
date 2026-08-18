@@ -182,7 +182,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             UnreachableCodeAuditor(),
             RecursionAuditor(),
             ConcurrencyAuditor(
-                firstPartyModules: PackageManifestParser.firstPartyTargets(at: FileManager.default.currentDirectoryPath),
+                firstPartyModules: PackageManifestParser.firstPartyTargets(at: configuration.resolvedProjectRoot.path),
                 allowPreconcurrencyImports: Set(configuration.concurrency.allowPreconcurrencyImports),
                 justificationKeyword: configuration.concurrency.justificationKeyword,
                 cancellationCheckpointStrict: configuration.concurrency.cancellationCheckpointStrict
@@ -335,6 +335,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             overlayDirectory: overlayDirectory,
             forceForeign: foreign || profile != nil,
             forceResident: resident)
+        // The one place the resolved root enters the configuration artery. Every checker
+        // downstream reads `configuration.resolvedProjectRoot` instead of the process cwd.
+        configuration.projectRoot = runEnvironment.repoRoot
         if runEnvironment.isForeign {
             if fix {
                 print("ERROR: --fix is refused in foreign mode — the findings are yours, the code isn't.")
@@ -563,7 +566,7 @@ struct QualityGateCLI: AsyncParsableCommand {
 
         // Handle --bootstrap: generate initial status documents
         if bootstrap {
-            let currentDir = FileManager.default.currentDirectoryPath
+            let currentDir = configuration.resolvedProjectRoot.path
             let guidelinesDir = (currentDir as NSString).appendingPathComponent(
                 configuration.status.guidelinesPath
             )

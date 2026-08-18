@@ -46,7 +46,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
     /// so the result is cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -67,7 +67,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
 
         // Find all Swift files in Sources/
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var totalPublicAPIs = 0
@@ -216,7 +216,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         documentedAPIs: Int,
         configuration: Configuration
     ) async throws -> (diagnostics: [Diagnostic], inheritedCount: Int) {
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
 
         guard let located = try StoreLocator.locate(projectKind: kind) else {

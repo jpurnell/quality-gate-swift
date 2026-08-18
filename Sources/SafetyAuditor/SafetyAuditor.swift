@@ -65,7 +65,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     /// *wrong* rather than merely slow.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -76,7 +76,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
 
         // Find all Swift files in Sources/
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []

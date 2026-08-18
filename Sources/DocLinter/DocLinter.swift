@@ -57,7 +57,7 @@ public struct DocLinter: QualityChecker, Sendable {
     /// At ~208s this is the largest remaining item in the gate once `test` is cached.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -68,7 +68,7 @@ public struct DocLinter: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
 
         guard FileManager.default.fileExists(atPath: packagePath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
@@ -105,7 +105,7 @@ public struct DocLinter: QualityChecker, Sendable {
         // about that alone — so a green `doc-lint` was a statement about one module out of 116,
         // and the other 115 were never handed to DocC at all. That is not degraded coverage, it
         // is absent coverage reported as a pass.
-        let documented = Self.documentedTargets(projectRoot: FileManager.default.currentDirectoryPath)
+        let documented = Self.documentedTargets(projectRoot: projectRoot)
         let explicit = configuration.docTarget
 
         if let target = explicit {
@@ -147,7 +147,7 @@ public struct DocLinter: QualityChecker, Sendable {
             result = try ProcessRunner.run(
                 "/usr/bin/swift",
                 arguments: arguments,
-                currentDirectory: FileManager.default.currentDirectoryPath
+                currentDirectory: projectRoot
             )
         } catch {
             Self.logger.error("Failed to run documentation generator: \(error.localizedDescription, privacy: .public)")

@@ -90,14 +90,14 @@ public struct DocRunAuditor: QualityChecker, Sendable {
     /// other. The salt differs because the configuration is encoded whole.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         DocCodeAuditor.cacheInputs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 
     /// Runs the check against the current directory.
     public func check(configuration: Configuration) async throws -> CheckResult {
         try await check(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 

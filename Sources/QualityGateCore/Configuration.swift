@@ -1658,6 +1658,27 @@ public struct CustomRuleConfig: Sendable, Equatable, Codable {
 /// ```
 public struct Configuration: Sendable, Codable, Equatable {
 
+    /// The resolved repository root this run analyzes, set by the CLI from
+    /// `RunEnvironment` after root resolution. `nil` until then.
+    ///
+    /// Runtime state, deliberately **not** part of `CodingKeys`: a `.quality-gate.yml`
+    /// cannot set it, it never appears in encoded configuration, and therefore it never
+    /// perturbs a configuration-digest cache salt — two checkouts of the same repo at
+    /// different paths must salt identically. Checkers read it through
+    /// ``resolvedProjectRoot``, never directly.
+    public var projectRoot: URL?
+
+    /// The root a checker should analyze: ``projectRoot`` when the CLI resolved one,
+    /// else the process working directory — read lazily at call time, which preserves
+    /// the exact prior behavior for every caller that never sets the root (tests that
+    /// construct a `Configuration` and chdir afterwards included).
+    ///
+    /// A checker is a pure function of (root, configuration); this is the root half.
+    /// See `project/plans/proposals/CheckerRootThreading.md`.
+    public var resolvedProjectRoot: URL {
+        projectRoot ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+
     /// Number of parallel workers for test execution.
     /// If nil, defaults to 80% of system cores.
     public var parallelWorkers: Int?

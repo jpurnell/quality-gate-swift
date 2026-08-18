@@ -38,7 +38,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     /// stale reuse).
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -135,7 +135,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     /// Scans all Swift source files under Sources/ and returns per-function complexity records.
     public func scanProject(configuration: Configuration) -> [FunctionComplexityRecord] {
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allRecords: [FunctionComplexityRecord] = []
@@ -299,8 +299,8 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         records: [FunctionComplexityRecord],
         configuration: Configuration
     ) async throws -> [CrossModuleCallEdge] {
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let kind = ProjectKind.detect(at: cwd)
+        let root = configuration.resolvedProjectRoot
+        let kind = ProjectKind.detect(at: root)
 
         guard let located = try StoreLocator.locate(projectKind: kind) else {
             throw IndexStorePassError.noIndexStore

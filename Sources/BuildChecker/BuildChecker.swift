@@ -68,7 +68,7 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// verdict must not infer their existence from this checker passing.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -80,7 +80,7 @@ public struct BuildChecker: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
 
         guard FileManager.default.fileExists(atPath: packagePath) else {
@@ -100,7 +100,7 @@ public struct BuildChecker: QualityChecker, Sendable {
         }
 
         let args = buildArguments(for: configuration)
-        let (output, exitCode) = try await runSwiftBuild(arguments: args)
+        let (output, exitCode) = try await runSwiftBuild(arguments: args, in: projectRoot)
 
         let duration = ContinuousClock.now - startTime
         return Self.createResult(output: output, exitCode: exitCode, duration: duration)
@@ -310,11 +310,12 @@ public struct BuildChecker: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
-    private func runSwiftBuild(arguments: [String]) async throws -> (output: String, exitCode: Int32) {
+    private func runSwiftBuild(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
         // SAFETY: runs swift build to check compilation
         let result = try ProcessRunner.run(
             "/usr/bin/swift",
-            arguments: ["build"] + arguments
+            arguments: ["build"] + arguments,
+            currentDirectory: root
         )
 
         // Combine stdout and stderr since Swift outputs diagnostics to stderr

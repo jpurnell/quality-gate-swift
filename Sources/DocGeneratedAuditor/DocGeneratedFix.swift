@@ -25,7 +25,7 @@ extension DocGeneratedAuditor: FixableChecker {
             + "preserved, and a region no generator can produce is left alone."
     }
 
-    /// Applies fixes against the current directory.
+    /// Applies fixes against the configuration's resolved project root.
     ///
     /// - Parameters:
     ///   - diagnostics: Ignored, deliberately — see ``fix(projectRoot:configuration:)``.
@@ -35,7 +35,7 @@ extension DocGeneratedAuditor: FixableChecker {
         diagnostics: [Diagnostic], configuration: Configuration
     ) async throws -> FixResult {
         try await fix(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration)
     }
 

@@ -57,7 +57,7 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         let startTime = ContinuousClock.now
         let config = configuration.xcodeBuild
 
-        let projectArgs = try resolveProjectArguments(config)
+        let projectArgs = try resolveProjectArguments(config, root: configuration.resolvedProjectRoot.path)
 
         guard let projectArgs else {
             let duration = ContinuousClock.now - startTime
@@ -75,7 +75,8 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             )
         }
 
-        let scheme = try config.scheme ?? discoverScheme(projectArgs: projectArgs)
+        let scheme = try config.scheme ?? discoverScheme(
+            projectArgs: projectArgs, root: configuration.resolvedProjectRoot.path)
 
         let destinations = config.destinations.isEmpty
             ? ["generic/platform=macOS"]
@@ -94,7 +95,8 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             // SAFETY: runs xcodebuild to check compilation
             let result = try ProcessRunner.run(
                 "/usr/bin/xcodebuild",
-                arguments: args
+                arguments: args,
+                currentDirectory: configuration.resolvedProjectRoot.path
             )
 
             let combinedOutput = result.stdout + "\n" + result.stderr
@@ -136,7 +138,8 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     // MARK: - Private
 
     private func resolveProjectArguments(
-        _ config: XcodeBuildCheckerConfig
+        _ config: XcodeBuildCheckerConfig,
+        root: String
     ) throws -> [String]? {
         if let workspace = config.workspace {
             return ["-workspace", workspace]
@@ -145,9 +148,8 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             return ["-project", project]
         }
 
-        let cwd = FileManager.default.currentDirectoryPath
         // SAFETY: CLI reads local cwd directory listing for Xcode project auto-discovery
-        let contents = try FileManager.default.contentsOfDirectory(atPath: cwd)
+        let contents = try FileManager.default.contentsOfDirectory(atPath: root)
 
         if let workspace = contents.first(where: { $0.hasSuffix(".xcworkspace") }) {
             return ["-workspace", workspace]
@@ -159,14 +161,15 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         return nil
     }
 
-    private func discoverScheme(projectArgs: [String]) throws -> String {
+    private func discoverScheme(projectArgs: [String], root: String) throws -> String {
         var args = ["-list", "-json"]
         args.append(contentsOf: projectArgs)
 
         // SAFETY: runs xcodebuild -list to discover available schemes
         let result = try ProcessRunner.run(
             "/usr/bin/xcodebuild",
-            arguments: args
+            arguments: args,
+            currentDirectory: root
         )
 
         guard result.exitCode == 0 else {

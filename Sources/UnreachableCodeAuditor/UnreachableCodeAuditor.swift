@@ -60,7 +60,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -73,7 +73,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// - Parameter configuration: Project configuration (excludes are honored).
     /// - Returns: A `CheckResult` with one diagnostic per finding.
     public func check(configuration: Configuration) async throws -> CheckResult {
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let cwd = configuration.resolvedProjectRoot
         return try await audit(at: cwd, configuration: configuration)
     }
 

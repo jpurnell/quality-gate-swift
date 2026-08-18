@@ -36,7 +36,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -50,7 +50,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var sources: [(fileName: String, source: String)] = []
@@ -182,7 +182,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
     /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
     private func runIndexStorePass(configuration: Configuration) async throws -> [Diagnostic] {
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
 
         guard let located = try StoreLocator.locate(projectKind: kind) else {

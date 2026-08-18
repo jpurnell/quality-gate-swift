@@ -72,7 +72,7 @@ enum TelemetryEmission {
         // Capture git provenance so metric snapshots can be joined to the
         // human work behind them. Best-effort: a provenance failure must
         // never fail the gate.
-        let gatedProjectDir = FileManager.default.currentDirectoryPath
+        let gatedProjectDir = configuration.resolvedProjectRoot.path
         let corpus = CorpusPath(basePath: corpusPath, projectID: projectID)
         // Phase 3a §8: enforcement-path writes ride the fail-open transport.
         // A down/unreachable corpus spools to ~/.quality-gate/spool/ and each
@@ -261,7 +261,7 @@ enum TelemetryEmission {
             return await analyzer.orientationReport(
                 configuration: configuration, timestamp: timestamp, projectID: projectID)
         }
-        let root = FileManager.default.currentDirectoryPath
+        let root = configuration.resolvedProjectRoot.path
         inputs.files.append((root as NSString).appendingPathComponent("README.md"))
         let plan = (configuration.status.guidelinesPath as NSString)
             .appendingPathComponent(configuration.status.masterPlanPath)

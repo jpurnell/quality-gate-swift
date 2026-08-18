@@ -62,7 +62,7 @@ public struct SmellPack: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -73,7 +73,7 @@ public struct SmellPack: QualityChecker, Sendable {
     /// it finds.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let scanRoot = root ?? FileManager.default.currentDirectoryPath
+        let scanRoot = root ?? configuration.resolvedProjectRoot.path
 
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []

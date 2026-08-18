@@ -47,7 +47,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -63,7 +63,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
         let config = configuration.memoryLifecycle
 
@@ -83,6 +83,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         if config.useIndexStore && !allDiagnostics.isEmpty {
             do {
                 let pass2Diagnostics = try await runIndexPass(
+                    root: configuration.resolvedProjectRoot,
                     pass1Diagnostics: allDiagnostics,
                     taskProperties: allTaskInfos,
                     delegateProperties: allDelegateInfos,
@@ -112,13 +113,13 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     // MARK: - Pass 2 (index-backed)
 
     private func runIndexPass(
+        root: URL,
         pass1Diagnostics: [Diagnostic],
         taskProperties: [LifecycleIndexPass.TaskPropertyInfo],
         delegateProperties: [LifecycleIndexPass.DelegatePropertyInfo],
         streamCreationSites: [LifecycleIndexPass.StreamCreationInfo]
     ) async throws -> [Diagnostic] {
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let kind = ProjectKind.detect(at: cwd)
+        let kind = ProjectKind.detect(at: root)
 
         guard let located = try StoreLocator.locate(projectKind: kind) else {
             return pass1Diagnostics + [LifecycleIndexPass.unavailableNote()]
@@ -150,7 +151,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
 
         // Resolve cross-file stream termination sites.
         var terminationSites: [LifecycleIndexPass.StreamTerminationSite] = []
-        let sourceFiles = SourceWalker.swiftFiles(under: cwd)
+        let sourceFiles = SourceWalker.swiftFiles(under: root)
         let allSymbols = ConformanceQuery.symbolsInFiles(sourceFiles, in: session)
         for sym in allSymbols {
             if sym.symbol.name == "finish" || sym.symbol.name == "onTermination" {

@@ -72,7 +72,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// - Returns: Check result with version diagnostics and verification status.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
 
         // Parse tools-version from Package.swift
@@ -127,7 +127,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         diagnostics: [Diagnostic],
         configuration: Configuration
     ) async throws -> FixResult {
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
         let packagePath = (projectRoot as NSString).appendingPathComponent("Package.swift")
 
         guard FileManager.default.fileExists(atPath: packagePath) else { // SAFETY: CLI reads Package.swift from cwd; no user-supplied path component
@@ -149,7 +149,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         try rewritten.write(toFile: packagePath, atomically: true, encoding: .utf8)
 
         // Verify build
-        let (_, exitCode) = try await runSwiftBuild()
+        let (_, exitCode) = try await runSwiftBuild(
+            in: (packagePath as NSString).deletingLastPathComponent)
 
         if exitCode == 0 {
             // Build succeeded — keep the change
@@ -415,7 +416,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
             }
         }
 
-        let (output, exitCode) = try await runSwiftBuild()
+        let (output, exitCode) = try await runSwiftBuild(
+            in: (packagePath as NSString).deletingLastPathComponent)
 
         if exitCode == 0 {
             return .upgradeable
@@ -425,23 +427,26 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         }
     }
 
-    /// Run `swift build` and return the combined output and exit code.
-    private func runSwiftBuild() async throws -> (output: String, exitCode: Int32) {
+    /// Run `swift build` in the package's directory and return the combined output and exit code.
+    private func runSwiftBuild(in root: String) async throws -> (output: String, exitCode: Int32) {
         return try await runProcess(
             executable: "/usr/bin/swift",
-            arguments: ["build"]
+            arguments: ["build"],
+            currentDirectory: root
         )
     }
 
     /// Run a process and capture combined stdout/stderr.
     private func runProcess(
         executable: String,
-        arguments: [String]
+        arguments: [String],
+        currentDirectory: String? = nil
     ) async throws -> (output: String, exitCode: Int32) {
         // SAFETY: CLI tool runs swift commands
         let result = try ProcessRunner.run(
             executable,
-            arguments: arguments
+            arguments: arguments,
+            currentDirectory: currentDirectory
         )
 
         return (result.stdout + "\n" + result.stderr, result.exitCode)

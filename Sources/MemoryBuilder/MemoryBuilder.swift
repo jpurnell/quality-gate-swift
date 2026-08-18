@@ -44,7 +44,7 @@ public struct MemoryBuilder: QualityChecker, Sendable {
     /// - Returns: A check result with diagnostics for each written or skipped file.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let projectRoot = FileManager.default.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
 
         // Load global CLAUDE.md for deduplication
         let globalClaudePath = NSHomeDirectory() + "/.claude/CLAUDE.md"

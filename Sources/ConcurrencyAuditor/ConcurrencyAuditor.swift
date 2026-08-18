@@ -50,7 +50,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSource(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -92,7 +92,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let fileManager = FileManager.default
-        let currentDir = fileManager.currentDirectoryPath
+        let currentDir = configuration.resolvedProjectRoot.path
         let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
 
         var allDiagnostics: [Diagnostic] = []
@@ -190,8 +190,8 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
 
     /// Attempts to locate an index store and run the cross-file concurrency pass.
     private func runIndexPass(configuration: Configuration) async throws -> [Diagnostic] {
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let kind = ProjectKind.detect(at: cwd)
+        let root = configuration.resolvedProjectRoot
+        let kind = ProjectKind.detect(at: root)
 
         guard let located = try StoreLocator.locate(projectKind: kind) else {
             return [ConcurrencyIndexPass.unavailableNote()]

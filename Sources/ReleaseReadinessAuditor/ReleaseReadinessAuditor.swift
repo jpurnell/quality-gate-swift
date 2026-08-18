@@ -61,7 +61,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         let startTime = ContinuousClock.now
         let config = configuration.releaseReadiness
         let fileManager = FileManager.default
-        let projectRoot = fileManager.currentDirectoryPath
+        let projectRoot = configuration.resolvedProjectRoot.path
 
         var diagnostics: [Diagnostic] = []
 

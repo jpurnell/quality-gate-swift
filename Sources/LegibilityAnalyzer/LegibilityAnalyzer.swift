@@ -55,7 +55,7 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -159,7 +159,7 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         timestamp: Date,
         projectID: String
     ) async -> OrientationReport {
-        let cwd = FileManager.default.currentDirectoryPath
+        let cwd = configuration.resolvedProjectRoot.path
         var graph = loadDeclaredGraph(cwd: cwd, config: configuration.legibility)
         if configuration.legibility.useIndexStore,
            let semantic = await resolveSemantics(configuration: configuration, cwd: cwd),
@@ -229,7 +229,7 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
         format: OrientFormat
     ) async throws -> String {
         let config = configuration.legibility
-        let cwd = FileManager.default.currentDirectoryPath
+        let cwd = configuration.resolvedProjectRoot.path
 
         var graph = loadDeclaredGraph(cwd: cwd, config: config)
         var overPublic: [OverPublicOccurrence] = []
@@ -313,7 +313,7 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let config = configuration.legibility
-        let cwd = FileManager.default.currentDirectoryPath
+        let cwd = configuration.resolvedProjectRoot.path
 
         // Prefer the semantic (IndexStore) graph — real fan-in + over-public —
         // and fall back to the declared Package.swift graph when the index is

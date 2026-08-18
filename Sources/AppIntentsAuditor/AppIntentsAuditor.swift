@@ -45,7 +45,7 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
         SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
     }
@@ -64,7 +64,7 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
             )
         }
 
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let root = configuration.resolvedProjectRoot
         let swiftFiles = SourceWalker.swiftFiles(
             under: root,
             excludePatterns: config.excludePaths
