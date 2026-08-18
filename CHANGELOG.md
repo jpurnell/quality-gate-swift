@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A timed-out child's descendants now die with it.** The deadline (shipped `1e9f643`)
+  bounded the gate's *wait* but leaked the process *tree*: `Process.terminate()` on a
+  child that had already exited is a no-op, so a grandchild holding the pipe survived —
+  observed in the wild as a `swift-test` orphan alive after 6h55m. `Process` already
+  spawns every child as leader of a fresh process group, and a group outlives its
+  leader, so the fix is deadline-side only: `kill(-child, SIGTERM)`, the existing grace,
+  then `kill(-child, SIGKILL)` as the guarantee. Two probes first *refuted* the planned
+  fixes — the naive red test passed (Foundation already group-signals a live child), and
+  the proposed `posix_spawn` rewrite would have re-created what Foundation provides. The
+  handoff's swift-subprocess migration is therefore **not needed for this bug** — its
+  teardown is also just a group signal — and the wrong plan is kept, struck through, in
+  `project/plans/proposals/SubprocessDescendantReaping.md`. A descendant that re-groups
+  itself (`setsid`) still escapes; that limitation is shared by every mechanism
+  considered and is recorded as out of scope.
+
 ### Performance
 
 - **A warm gate run is 2.1 seconds.** Down from 15.9s measured the same day on the same

@@ -204,10 +204,24 @@ public enum ProcessRunner: Sendable {
         var timedOut = false
         if readers.wait(timeout: .now() + timeout) == .timedOut {
             timedOut = true
-            process.terminate()
-            // Give the child a moment to die and release the descriptors, then stop waiting on
+            // Signal the child's process GROUP by id, not just the child. `Process` spawns the
+            // child as leader of a fresh group, and a group outlives its leader — so this
+            // reaches descendants even when the child exited long ago and only a grandchild
+            // holds the pipe (the shape that leaked a `swift-test` orphan for 6h55m;
+            // `terminate()` on an exited child is a no-op). A fresh child pid can never equal
+            // this process's own pgid, so the negative-pid signal cannot strike the gate
+            // itself; when the whole group is already gone it is ESRCH, a no-op.
+            _ = kill(-process.processIdentifier, SIGTERM)
+            // Belt-and-braces for the direct child in case the group signal found nothing —
+            // preserves the pre-group behavior if Foundation ever stops group-spawning.
+            if process.isRunning {
+                process.terminate()
+            }
+            // Give the group a moment to die and release the descriptors, then stop waiting on
             // the readers regardless: a deadline that can itself hang is not a deadline.
             _ = readers.wait(timeout: .now() + 5)
+            // The guarantee, for whatever ignored SIGTERM. ESRCH when everything is dead.
+            _ = kill(-process.processIdentifier, SIGKILL)
         }
 
         if !timedOut {

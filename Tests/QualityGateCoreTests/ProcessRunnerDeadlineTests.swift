@@ -91,3 +91,83 @@ struct ProcessRunnerDeadlineTests {
         #expect(out.exitCode == 124)
     }
 }
+
+/// Tests that a timed-out child's descendants die with it.
+///
+/// The deadline above bounds *our wait*, not *their lifetime*: `Process.terminate()`
+/// signals the direct child alone, so a child that spawned helpers dies while they
+/// continue. Reproduced in the wild as a `swift-test` orphan alive after 6h55m.
+/// The fix spawns every child as the leader of a fresh process group and signals the
+/// group at the deadline — see `project/plans/proposals/SubprocessDescendantReaping.md`.
+@Suite("ProcessRunner descendant reaping")
+struct ProcessRunnerDescendantTests {
+
+    /// **The orphan reproduction.** The child prints its background grandchild's pid and
+    /// **exits immediately** — this is the shape that leaks. `Process` spawns the child
+    /// as leader of its own process group, so a child still alive at the deadline takes
+    /// its group down with `terminate()`; but `terminate()` on an *exited* child is a
+    /// no-op, and the grandchild it left behind survived — reproduced as a `swift-test`
+    /// orphan alive after 6h55m. The group outlives its leader, so the fix signals the
+    /// group by id at the deadline.
+    @Test("a grandchild orphaned by an exited child dies at the deadline", .timeLimit(.minutes(1)))
+    func orphanedGrandchildDiesAtDeadline() throws {
+        let out = try ProcessRunner.run(
+            "/bin/sh",
+            arguments: ["-c", "sleep 300 & echo $!; exit 0"],
+            timeout: 2
+        )
+        // The grandchild holds the inherited pipe open, so the run still hits the
+        // deadline even though the child exited at once — the 46-minute Alamofire shape.
+        #expect(out.exitCode == 124, "the deadline itself must still fire")
+
+        let pidText = out.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let grandchild = Int32(pidText), grandchild > 1 else {
+            Issue.record("could not parse the grandchild pid from: \(out.stdout.debugDescription)")
+            return
+        }
+        // Whatever happens below, do not leak the very orphan this test demonstrates.
+        defer { _ = kill(grandchild, SIGKILL) }
+
+        // The kill sequence is SIGTERM → grace → SIGKILL, so give it a bounded moment.
+        // `kill(pid, 0)` probes liveness: ESRCH means the process is gone.
+        var alive = true
+        for _ in 0..<50 where alive {
+            if kill(grandchild, 0) == -1 && errno == ESRCH {
+                alive = false
+            } else {
+                usleep(100_000)
+            }
+        }
+        #expect(alive == false, "grandchild \(grandchild) outlived the deadline — the orphan leak")
+    }
+
+    /// The regression guard for what already worked: a child still *alive* at the
+    /// deadline takes its whole group with it, because `Process` made it a group
+    /// leader and the runner signals the group.
+    @Test("a grandchild of a still-running child dies at the deadline", .timeLimit(.minutes(1)))
+    func liveChildGroupDiesAtDeadline() throws {
+        let out = try ProcessRunner.run(
+            "/bin/sh",
+            arguments: ["-c", "sleep 300 & echo $!; wait"],
+            timeout: 2
+        )
+        #expect(out.exitCode == 124, "the deadline itself must still fire")
+
+        let pidText = out.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let grandchild = Int32(pidText), grandchild > 1 else {
+            Issue.record("could not parse the grandchild pid from: \(out.stdout.debugDescription)")
+            return
+        }
+        defer { _ = kill(grandchild, SIGKILL) }
+
+        var alive = true
+        for _ in 0..<50 where alive {
+            if kill(grandchild, 0) == -1 && errno == ESRCH {
+                alive = false
+            } else {
+                usleep(100_000)
+            }
+        }
+        #expect(alive == false, "grandchild \(grandchild) outlived the deadline")
+    }
+}
