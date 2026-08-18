@@ -22,7 +22,7 @@ private func diagnose(
     let visitor = StochasticVisitor(
         filePath: filePath,
         converter: converter,
-        sourceLines: source.components(separatedBy: "\n"),
+        sourceLines: source.lines,
         flagCollectionShuffle: flagCollectionShuffle,
         flagGlobalState: flagGlobalState,
         exemptFunctions: exemptFunctions
@@ -636,7 +636,7 @@ private func diagnoseUnseeded(
         seedableSignatures: harvestSignatures(apiSource),
         filePath: filePath,
         converter: converter,
-        sourceLines: source.components(separatedBy: "\n")
+        sourceLines: source.lines
     )
     visitor.walk(tree)
     return visitor.diagnostics

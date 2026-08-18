@@ -6,13 +6,16 @@ import IJSSensor
 @Suite("StatisticalAnomaly")
 struct StatisticalAnomalyTests {
 
-    private let testDate: Date = {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        fmt.timeZone = TimeZone(identifier: "UTC")
-        fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: "2026-04-25")!
-    }()
+    /// 2026-04-25T00:00:00Z, as an instant rather than as text to be parsed.
+    ///
+    /// A `DateFormatter` round-trip here bought nothing and cost two failure modes: the parse
+    /// returns an optional, so the value needed either a trap or a fallback, and a fallback puts
+    /// `??` on the same line as a `yyyy-MM-dd` literal — which is exactly the shape
+    /// `test-quality`'s `hardcoded-date` rule reads as "a stand-in for now that will drift past
+    /// its time window". This is a fixed reference instant, and saying so in seconds makes it
+    /// unambiguous and total. The spelling matches `OrientationCardsTests` and
+    /// `StoreLocatorFreshnessTests`.
+    private let testDate = Date(timeIntervalSince1970: 1_777_075_200)
 
     private func makeAnomaly(
         direction: AnomalyDirection = .negative,

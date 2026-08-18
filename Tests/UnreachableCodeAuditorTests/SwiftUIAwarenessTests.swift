@@ -28,7 +28,7 @@ struct SwiftUIAwarenessTests {
         result.diagnostics.contains { d in
             d.ruleId == Self.ruleId
             && (d.message.contains(name) == true)
-            && (file == nil || d.filePath?.contains(file!) == true)
+            && (file.map { d.filePath?.contains($0) == true } ?? true)
         }
     }
 

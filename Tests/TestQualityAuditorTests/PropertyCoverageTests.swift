@@ -168,9 +168,13 @@ struct PropertyCoverageTests {
             PropertyCoverage.Candidate(name: "a2", shape: .parser, path: "A.swift", line: 9),
             PropertyCoverage.Candidate(name: "a1", shape: .parser, path: "A.swift", line: 2),
         ]
+        // Compared as (path, line) rather than as a zero-padded string key. The padding
+        // existed only to make a lexicographic sort agree with a numeric one, which is an
+        // assumption about how many digits a line number has; the tuple ordering *is* the
+        // ordering under test.
         let keys = PropertyCoverage.findings(
             candidates: unsorted, calls: [:], coveredDirectly: []
-        ).map { "\($0.filePath ?? "")#\(String(format: "%04d", $0.lineNumber ?? 0))" }
-        #expect(keys == keys.sorted())
+        ).map { ($0.filePath ?? "", $0.lineNumber ?? 0) }
+        #expect(keys.elementsEqual(keys.sorted(by: <), by: ==))
     }
 }

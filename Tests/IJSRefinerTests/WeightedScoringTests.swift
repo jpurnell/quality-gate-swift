@@ -15,7 +15,7 @@ struct WeightedScoringTests {
         fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: string)!
+        return fmt.date(from: string) ?? Date(timeIntervalSince1970: 0)
     }
 
     private func makeMetadata(
@@ -73,7 +73,7 @@ struct WeightedScoringTests {
     }
 
     @Test("Safety checker failure causes large score drop")
-    func safetyFailure() async {
+    func safetyFailure() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
@@ -85,7 +85,7 @@ struct WeightedScoringTests {
         let scores = await refiner.computeWeightedScores(
             projectMetadata: ["test-project": metadata]
         )
-        let score = scores["test-project"]!
+        let score = try #require(scores["test-project"])
         // safety weight is 1.0 out of total ~ 1.0 + 0.8 + 0.8 + 0.1 = 2.7
         // fail weight = 1.0, so score = 1.0 - 1.0/2.7 ~ 0.63
         #expect(score < 0.7)
@@ -93,7 +93,7 @@ struct WeightedScoringTests {
     }
 
     @Test("Informational checker failure causes small score drop")
-    func informationalFailure() async {
+    func informationalFailure() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
@@ -105,7 +105,7 @@ struct WeightedScoringTests {
         let scores = await refiner.computeWeightedScores(
             projectMetadata: ["test-project": metadata]
         )
-        let score = scores["test-project"]!
+        let score = try #require(scores["test-project"])
         // status weight is 0.1 out of total ~ 1.0 + 1.0 + 0.8 + 0.1 = 2.9
         // fail weight = 0.1, score = 1.0 - 0.1/2.9 ~ 0.97
         #expect(score > 0.95)
@@ -113,7 +113,7 @@ struct WeightedScoringTests {
     }
 
     @Test("Multiple runs averaged across metadata entries")
-    func averageAcrossRuns() async {
+    func averageAcrossRuns() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
@@ -130,7 +130,7 @@ struct WeightedScoringTests {
         let scores = await refiner.computeWeightedScores(
             projectMetadata: ["test-project": metadata]
         )
-        let score = scores["test-project"]!
+        let score = try #require(scores["test-project"])
         // Run 1: score = 1.0 (all pass)
         // Run 2: score = 0.0 (all fail)
         // Average: 0.5

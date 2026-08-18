@@ -101,7 +101,7 @@ struct DiagnosticTests {
         }
         """
 
-        let data = json.data(using: .utf8)!
+        let data = Data(json.utf8)
         let decoder = JSONDecoder()
         let diagnostic = try decoder.decode(Diagnostic.self, from: data)
 

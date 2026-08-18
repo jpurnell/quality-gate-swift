@@ -70,14 +70,20 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         )
     }
 
-    /// Run the safety audit on the current directory.
+    /// Runs the safety audit over every Swift file the project owns.
+    ///
+    /// The walk was a hardcoded `Sources/` under the resolved root, so a force unwrap in
+    /// `Plugins/`, in `Tests/`, or at the package root passed a gate that forbids force
+    /// unwraps unconditionally — the same narrow-scope defect that let six deadlocks sit
+    /// under `process-safety` for months. `SourceWalker` is the correction and the reason
+    /// pointing at the root is safe: it refuses build output, Xcode containers and
+    /// git-ignored trees, so widening the scope does not start auditing vendored code this
+    /// repository does not own.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        // Find all Swift files in Sources/
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
@@ -86,20 +92,28 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         // sits in. An empty map (not SwiftPM, or `describe` failed) resolves every file to
         // `.executable`, which is the strict reading — a layout we cannot determine gets the
         // rule that assumes an end user is watching.
-        let targetTypes = TargetTypeMap.describe(packageRoot: currentDir)
+        let targetTypes = TargetTypeMap.describe(packageRoot: root.path)
 
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = try await auditDirectory(
-                at: sourcesPath,
-                configuration: configuration,
-                targetTypes: targetTypes
-            )
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-            if let note = Self.trapNote(counted: result.countedTraps, targetKind: "library, test or plugin") {
-                allDiagnostics.append(note)
-            }
+        let result = auditFiles(
+            scan.files,
+            configuration: configuration,
+            targetTypes: targetTypes
+        )
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        allOverrides.append(contentsOf: result.overrides)
+        if let note = Self.trapNote(counted: result.countedTraps, targetKind: "library, test or plugin") {
+            allDiagnostics.append(note)
         }
+
+        // Emitted pass or fail. A checker that examined nothing must not print what a checker
+        // that found nothing prints — and this one spent its whole life examining one directory
+        // while reporting on a package.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "safety examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "safety.coverage"))
 
         let duration = ContinuousClock.now - startTime
         // A counted trap is a note, and notes do not fail a gate — the status must follow the
@@ -149,35 +163,29 @@ public struct SafetyAuditor: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files.
+    ///
+    /// Takes the file list rather than a directory because deciding *which* files a run owns
+    /// is `SourceWalker`'s job, and duplicating that decision here is what produced two
+    /// different answers — a private enumerator that honoured `excludePatterns` but not the
+    /// git-ignore rule, the default skip list, or Xcode containers. The exclusion filter that
+    /// used to live here is applied by the walk, so the local `shouldExclude` / `pathMatches`
+    /// pair has gone with it.
+    private func auditFiles(
+        _ paths: [String],
         configuration: Configuration,
         targetTypes: TargetTypeMap = TargetTypeMap(targets: [])
-    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
-        let fileManager = FileManager.default
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
         var countedTraps: [String: Int] = [:]
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], [], [:])
-        }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-
-            // Check exclude patterns
-            if shouldExclude(path: fullPath, patterns: configuration.excludePatterns) {
-                continue
-            }
-
+        for path in paths {
             do {
-                let source = try String(contentsOfFile: fullPath, encoding: .utf8)
+                let source = try String(contentsOfFile: path, encoding: .utf8)
                 let result = auditSourceCode(
                     source,
-                    fileName: fullPath,
+                    fileName: path,
                     configuration: configuration,
                     targetTypes: targetTypes
                 )
@@ -185,31 +193,12 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                 overrides.append(contentsOf: result.overrides)
                 for (rule, n) in result.countedTraps { countedTraps[rule, default: 0] += n }
             } catch {
-                Self.logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                Self.logger.warning("Skipping unreadable source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
 
         return (diagnostics, overrides, countedTraps)
-    }
-
-    private func shouldExclude(path: String, patterns: [String]) -> Bool {
-        for pattern in patterns {
-            if pathMatches(path: path, pattern: pattern) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func pathMatches(path: String, pattern: String) -> Bool {
-        // Simple glob matching for common patterns
-        if pattern.contains("**") {
-            let component = pattern.replacingOccurrences(of: "**/", with: "")
-                .replacingOccurrences(of: "/**", with: "")
-            return path.contains(component)
-        }
-        return path.contains(pattern.replacingOccurrences(of: "*", with: ""))
     }
 
     private func auditSourceCode(

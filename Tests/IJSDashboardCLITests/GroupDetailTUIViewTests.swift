@@ -206,7 +206,7 @@ struct GroupDetailTUIViewTests {
             state: state,
             width: 100
         )
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         #expect(lines.count > state.groupDetailHeaderLines)
         // Members are listed sorted; the first is appA.
         #expect(lines[state.groupDetailHeaderLines].contains("appA"))

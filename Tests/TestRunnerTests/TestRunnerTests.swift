@@ -22,7 +22,7 @@ struct TestRunnerTests {
     // MARK: - Swift Testing Output Parsing
 
     @Test("Parses Swift Testing failure")
-    func parsesSwiftTestingFailure() {
+    func parsesSwiftTestingFailure() throws {
         let output = """
         Test "My test" recorded an issue at MyTests.swift:42:9: Expectation failed: (actual → 5) == 10
         """
@@ -30,7 +30,7 @@ struct TestRunnerTests {
         let diagnostics = TestRunner.parseTestOutput(output)
 
         #expect(diagnostics.count == 1)
-        let diagnostic = diagnostics.first!
+        let diagnostic = try #require(diagnostics.first)
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.filePath?.contains("MyTests.swift") == true)
         #expect(diagnostic.lineNumber == 42)
@@ -69,7 +69,7 @@ struct TestRunnerTests {
     // MARK: - XCTest Output Parsing
 
     @Test("Parses XCTest failure format")
-    func parsesXCTestFailure() {
+    func parsesXCTestFailure() throws {
         let output = """
         /path/to/MyTests.swift:42: error: -[MyTests testSomething] : XCTAssertEqual failed: ("5") is not equal to ("10")
         """
@@ -77,7 +77,7 @@ struct TestRunnerTests {
         let diagnostics = TestRunner.parseTestOutput(output)
 
         #expect(diagnostics.count == 1)
-        let diagnostic = diagnostics.first!
+        let diagnostic = try #require(diagnostics.first)
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.filePath == "/path/to/MyTests.swift")
         #expect(diagnostic.lineNumber == 42)

@@ -37,6 +37,17 @@ public enum SourceWalker {
         /// on disk and the very reason the skip exists. A coarse honest number beats an expensive
         /// or invented precise one.
         public let gitIgnoredDirectories: Int
+        /// Directories skipped because they carry their own `Package.swift`.
+        ///
+        /// A nested manifest means a *different* package — its own targets, its own rules,
+        /// neither built nor released by this one. Auditing it reports our house rules against
+        /// someone else's code, which is the incoherence the git-ignore rule above exists to
+        /// prevent, arriving by a route `.gitignore` cannot describe: a checked-in prototype
+        /// or a sibling package is tracked, not ignored.
+        ///
+        /// Counted as directories for the same reason as `gitIgnoredDirectories`: the walk
+        /// stops at the boundary rather than descending to count what it has just declined.
+        public let nestedPackageDirectories: Int
 
         /// The scope clause for a coverage note, or `nil` when the walk read everything it found.
         ///
@@ -49,6 +60,10 @@ public enum SourceWalker {
             if gitIgnoredDirectories > 0 {
                 let noun = gitIgnoredDirectories == 1 ? "directory" : "directories"
                 parts.append("\(gitIgnoredDirectories) git-ignored \(noun)")
+            }
+            if nestedPackageDirectories > 0 {
+                let noun = nestedPackageDirectories == 1 ? "package" : "packages"
+                parts.append("\(nestedPackageDirectories) nested \(noun)")
             }
             return parts.isEmpty ? nil : parts.joined(separator: ", ")
         }
@@ -72,13 +87,18 @@ public enum SourceWalker {
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles],
             errorHandler: nil
-        ) else { return WalkResult(files: [], excludedByPattern: 0, excludedByGitIgnore: 0, gitIgnoredDirectories: 0) }
+        ) else {
+            return WalkResult(
+                files: [], excludedByPattern: 0, excludedByGitIgnore: 0,
+                gitIgnoredDirectories: 0, nestedPackageDirectories: 0)
+        }
 
         let ignored = gitIgnoredPaths(under: root)
         var out: [String] = []
         var byPattern = 0
         var byIgnoreFile = 0
         var ignoredDirectories = 0
+        var nestedPackages = 0
 
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
@@ -102,6 +122,12 @@ public enum SourceWalker {
                 } else if ignored.contains(url.standardizedFileURL.path) {
                     ignoredDirectories += 1
                     enumerator.skipDescendants()
+                } else if fm.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
+                    // A different package. Only reachable for a *nested* directory — the
+                    // enumerator never yields `root` itself, so a package's own manifest can
+                    // never make it walk itself away and report a clean pass over zero files.
+                    nestedPackages += 1
+                    enumerator.skipDescendants()
                 }
                 continue
             }
@@ -121,7 +147,8 @@ public enum SourceWalker {
             files: out,
             excludedByPattern: byPattern,
             excludedByGitIgnore: byIgnoreFile,
-            gitIgnoredDirectories: ignoredDirectories)
+            gitIgnoredDirectories: ignoredDirectories,
+            nestedPackageDirectories: nestedPackages)
     }
 
     /// Absolute paths git has been told to ignore under `root`.

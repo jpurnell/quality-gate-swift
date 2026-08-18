@@ -22,7 +22,7 @@ struct BuildCheckerTests {
     // MARK: - Output Parsing Tests
 
     @Test("Parses error with file location")
-    func parsesErrorWithLocation() {
+    func parsesErrorWithLocation() throws {
         let output = """
         /path/to/File.swift:42:15: error: cannot find 'foo' in scope
             let x = foo
@@ -32,7 +32,7 @@ struct BuildCheckerTests {
         let diagnostics = BuildChecker.parseBuildOutput(output)
 
         #expect(diagnostics.count == 1)
-        let diagnostic = diagnostics.first!
+        let diagnostic = try #require(diagnostics.first)
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.filePath == "/path/to/File.swift")
         #expect(diagnostic.lineNumber == 42)
@@ -41,7 +41,7 @@ struct BuildCheckerTests {
     }
 
     @Test("Parses warning with file location")
-    func parsesWarningWithLocation() {
+    func parsesWarningWithLocation() throws {
         let output = """
         /path/to/File.swift:10:5: warning: variable 'x' was never used
             let x = 5
@@ -51,7 +51,7 @@ struct BuildCheckerTests {
         let diagnostics = BuildChecker.parseBuildOutput(output)
 
         #expect(diagnostics.count == 1)
-        let diagnostic = diagnostics.first!
+        let diagnostic = try #require(diagnostics.first)
         #expect(diagnostic.severity == .warning)
         #expect(diagnostic.filePath == "/path/to/File.swift")
         #expect(diagnostic.lineNumber == 10)
@@ -92,7 +92,7 @@ struct BuildCheckerTests {
     }
 
     @Test("Parses note with file location")
-    func parsesNoteWithLocation() {
+    func parsesNoteWithLocation() throws {
         let output = """
         /path/to/File.swift:5:10: note: 'foo' declared here
             func foo() {}
@@ -102,7 +102,7 @@ struct BuildCheckerTests {
         let diagnostics = BuildChecker.parseBuildOutput(output)
 
         #expect(diagnostics.count == 1)
-        let diagnostic = diagnostics.first!
+        let diagnostic = try #require(diagnostics.first)
         #expect(diagnostic.severity == .note)
         #expect(diagnostic.filePath == "/path/to/File.swift")
         #expect(diagnostic.lineNumber == 5)
@@ -430,14 +430,14 @@ struct BuildCheckerTests {
     // MARK: - Error Message Quality Tests
 
     @Test("Provides actionable error messages")
-    func providesActionableMessages() {
+    func providesActionableMessages() throws {
         let output = """
         /path/to/File.swift:42:15: error: cannot find 'NetworkManager' in scope
         """
 
         let diagnostics = BuildChecker.parseBuildOutput(output)
 
-        let diagnostic = diagnostics.first!
+        let diagnostic = try #require(diagnostics.first)
         // Message should include the original error text
         #expect(diagnostic.message.contains("cannot find") ||
                 diagnostic.message.contains("NetworkManager"))

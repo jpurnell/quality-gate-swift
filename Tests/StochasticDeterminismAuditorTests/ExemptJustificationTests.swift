@@ -86,7 +86,7 @@ struct ExemptJustificationTests {
         let visitor = StochasticVisitor(
             filePath: "test.swift",
             converter: converter,
-            sourceLines: source.components(separatedBy: "\n"),
+            sourceLines: source.lines,
             flagCollectionShuffle: true,
             flagGlobalState: true,
             exemptFunctions: []

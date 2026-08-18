@@ -288,7 +288,7 @@ struct TUIViewTests {
             state: state,
             width: 80
         )
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         #expect(lines.count > DetailTabBar.barLineIndex)
         let barLine = lines[DetailTabBar.barLineIndex]
         #expect(barLine.contains("Summary"))
@@ -356,7 +356,7 @@ struct TUIViewTests {
             state: state,
             width: 80
         )
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         let headerIdx = lines.firstIndex(where: { $0.contains("Project") && $0.contains("Status") })
         let sunsetIdx = lines.firstIndex(where: { $0.contains("Sunset") })
         if let headerIdx, let sunsetIdx {
@@ -493,7 +493,7 @@ struct TUIViewTests {
             pulse: pulse
         )
 
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
 
         // Find indices of the compact pulse line and the project table header
         let pulseLineIdx = lines.firstIndex(where: { $0.contains("Pulse") && $0.contains("688") })
@@ -510,7 +510,7 @@ struct TUIViewTests {
     @Test("Detail checkers tab with many checkers exceeds typical terminal height")
     func detailCheckersOverflow() {
         let checkerRates = Dictionary(uniqueKeysWithValues:
-            (0..<25).map { ("checker_\(String(format: "%02d", $0))", Double($0) / 24.0) }
+            (0..<25).map { ("checker_\(twoDigits($0))", Double($0) / 24.0) }
         )
         let summary = makeProjectSummary(
             id: "overflow-test",
@@ -528,7 +528,7 @@ struct TUIViewTests {
             state: state,
             width: 80
         )
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         #expect(lines.count > 24, "25 checkers should produce more lines than a 24-row terminal")
     }
 
@@ -555,7 +555,7 @@ struct TUIViewTests {
             state: state,
             width: width
         )
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         for (idx, line) in lines.enumerated() {
             let visLen = ANSIStringMetrics.visibleLength(String(line))
             #expect(visLen <= width, "Line \(idx) visible length \(visLen) exceeds width \(width)")
@@ -764,7 +764,7 @@ struct TUIViewTests {
         )
         #expect(output.contains("MyGroup"))
         // Members should not appear as individual rows when collapsed
-        let lines = output.split(separator: "\n")
+        let lines = output.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         let projectLines = lines.filter { $0.contains("appA") || $0.contains("appB") }
         #expect(projectLines.isEmpty)
     }
@@ -864,4 +864,14 @@ private func makeTrends() -> [TrendPoint] {
         TrendPoint(date: Date(timeIntervalSince1970: 1747440000), value: 0.9),
         TrendPoint(date: Date(timeIntervalSince1970: 1747526400), value: 1.0),
     ]
+}
+
+/// A two-digit, zero-padded decimal — `5` becomes `"05"`.
+///
+/// Not `String(format: "%02d")`: that bridges to the C printf ABI, where an argument-type
+/// mistake is a runtime `SIGSEGV` rather than a compile error, and the gate forbids it. Not
+/// `IntegerFormatStyle` either — that is locale-aware, and a fixture date string must be the
+/// same bytes under every locale the suite might run in.
+private func twoDigits(_ value: Int) -> String {
+    value < 10 ? "0\(value)" : "\(value)"
 }

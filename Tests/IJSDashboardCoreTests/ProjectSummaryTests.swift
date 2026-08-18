@@ -35,7 +35,7 @@ struct ProjectSummaryTests {
     }
 
     @Test("Checker breakdown shows per-checker pass rates")
-    func checkerBreakdown() {
+    func checkerBreakdown() throws {
         let runs = makeRunsWithCheckers(
             checkerResults: [
                 ["safety": true, "build": false],
@@ -43,8 +43,8 @@ struct ProjectSummaryTests {
             ]
         )
         let summary = ProjectSummary.compute(projectID: "test", from: runs)
-        #expect(abs(summary.checkerPassRates["safety"]! - 1.0) < 1e-6)
-        #expect(abs(summary.checkerPassRates["build"]! - 0.5) < 1e-6)
+        #expect(abs(try #require(summary.checkerPassRates["safety"]) - 1.0) < 1e-6)
+        #expect(abs(try #require(summary.checkerPassRates["build"]) - 0.5) < 1e-6)
     }
 
     @Test("Override count accumulates across runs")

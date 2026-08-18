@@ -34,8 +34,11 @@ struct ProjectRootEndToEndTests {
         // gate's own (clean) sources and find nothing at the fixture's path.
         let result = try await SafetyAuditor().check(configuration: configuration)
 
+        // Symlink-resolved on both sides: the walk enumerates URLs, which resolves macOS's
+        // `/var` → `/private/var`, so the raw strings name one file in two spellings.
+        let base = fixtureRoot.resolvingSymlinksInPath().path
         let fixtureFindings = result.diagnostics.filter {
-            ($0.filePath ?? "").hasPrefix(fixtureRoot.path)
+            (($0.filePath ?? "") as NSString).resolvingSymlinksInPath.hasPrefix(base)
         }
         #expect(fixtureFindings.contains { ($0.ruleId ?? "").contains("force-unwrap") },
                 "expected the fixture's force unwrap to be found; got: \(result.diagnostics.map { ($0.ruleId ?? "?", $0.filePath ?? "?") })")

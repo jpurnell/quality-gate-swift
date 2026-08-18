@@ -122,13 +122,24 @@ struct Bench {
 
         print("cores=\(cores)  pool width=\(cores)")
         print("plan: \(cpus) CPU tasks + \(spawns) spawn tasks (sleep \(SLEEP)s each)")
-        print(String(format: "one CPU task = %.3fs  (serial CPU total = %.1fs)",
-                     calibSec, calibSec * Double(cpus)))
+        print("one CPU task = \(fixed(calibSec, 3))s  (serial CPU total = \(fixed(calibSec * Double(cpus), 1))s)")
         for trial in 1...TRIALS {
             let b = await runTrial(blocking: true, plan: plan)
             let a = await runTrial(blocking: false, plan: plan)
-            print(String(format: "trial %d  blocking=%.2fs  async=%.2fs  ratio=%.2fx",
-                         trial, b, a, b / a))
+            print("trial \(trial)  blocking=\(fixed(b, 2))s  async=\(fixed(a, 2))s  ratio=\(fixed(b / a, 2))x")
         }
     }
+}
+
+/// A fixed-point decimal rendering, locale-independent.
+///
+/// Not `String(format:)`: that bridges to the C printf ABI, where passing the wrong argument
+/// type is a runtime `SIGSEGV` rather than a compile error. `FloatingPointFormatStyle` is
+/// locale-aware, and a benchmark whose numbers change separator under a different locale is
+/// not comparable across the machines it exists to compare.
+func fixed(_ value: Double, _ places: Int) -> String {
+    value.formatted(
+        .number.precision(.fractionLength(places))
+            .grouping(.never)
+            .locale(Locale(identifier: "en_US_POSIX")))
 }

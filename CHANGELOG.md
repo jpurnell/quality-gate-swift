@@ -4,6 +4,35 @@
 
 ### Fixed
 
+- **`safety` audits the whole repository, not a hardcoded `Sources/`.** The checker
+  appended the literal `Sources` to the resolved project root, so a force unwrap in
+  `Plugins/`, in `Tests/`, or at the package root passed a gate that forbids force
+  unwraps unconditionally. This is the same narrow-scope defect that let six deadlocks
+  sit under `process-safety` for months, and the fix is the same one: the walk comes from
+  `SourceWalker`, which is what makes pointing at the root safe — it already refuses
+  build output, Xcode containers and git-ignored trees. The private enumerator that used
+  to live in `auditDirectory` is gone with it; it honoured `excludePatterns` but not the
+  git-ignore rule, the default skip list, or `.xcodeproj` containers, so the checker had
+  two different answers to "which files are ours" depending on which code path asked.
+
+  The widened walk found **74 real findings** in this repository — 42 force unwraps, 12
+  C-printf format calls and 20 newline-literal splits, including one in the SwiftPM
+  plugin where a CRLF build log would make `suffix(20)` print the entire log instead of
+  its last 20 lines. All are fixed in this commit, none suppressed. `safety` now also
+  emits a `safety.coverage` note stating how many files it read, because a checker that
+  examined nothing must not print what a checker that found nothing prints.
+
+- **`SourceWalker` no longer descends into a nested package.** A directory carrying its
+  own `Package.swift` is a *different* package — its own manifest, targets and rules,
+  neither built nor released by the one being audited — so reporting this project's house
+  rules against it is the same incoherence the git-ignore rule exists to prevent,
+  arriving by a route `.gitignore` cannot describe: a checked-in prototype is tracked,
+  not ignored. It generalises without a list to maintain, and the count is reported in
+  `WalkResult.exclusionClause` alongside the other exclusions rather than being silent.
+  Two such packages exist here: the `docref` prototype kept as the evidence behind a
+  written proposal, and the cross-module test fixture. The root's own manifest cannot
+  skip the root — the enumerator never yields the root itself, and a test pins it.
+
 - **A timed-out child's descendants now die with it.** The deadline (shipped `1e9f643`)
   bounded the gate's *wait* but leaked the process *tree*: `Process.terminate()` on a
   child that had already exited is a no-op, so a grandchild holding the pipe survived —

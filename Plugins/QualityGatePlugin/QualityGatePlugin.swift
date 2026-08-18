@@ -19,7 +19,11 @@ struct QualityGatePlugin: CommandPlugin {
 
         guard buildResult.succeeded else {
             print("Failed to build quality-gate")
-            for line in buildResult.logText.split(separator: "\n").suffix(20) {
+            // `\.isNewline`, not a "\n" literal: "\r\n" is one Character, so splitting on the
+            // literal returns a CRLF log as a single element and `suffix(20)` then prints the
+            // whole build log. A sandboxed plugin cannot import `StringLines`, so this is the
+            // stdlib spelling of the same rule.
+            for line in buildResult.logText.split(whereSeparator: \.isNewline).suffix(20) {
                 print(line)
             }
             throw PluginError.buildFailed

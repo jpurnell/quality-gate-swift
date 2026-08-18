@@ -20,7 +20,7 @@ private func diagnose(
     let visitor = FloatingPointSafetyVisitor(
         filePath: filePath,
         converter: converter,
-        sourceLines: source.components(separatedBy: "\n"),
+        sourceLines: source.lines,
         checkDivisionGuards: checkDivisionGuards
     )
     visitor.walk(tree)

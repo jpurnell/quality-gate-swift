@@ -15,7 +15,7 @@ struct StratificationTests {
         fmt.dateFormat = "yyyy-MM-dd"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: string)!
+        return fmt.date(from: string) ?? Date(timeIntervalSince1970: 0)
     }
 
     private func makeSnapshot(

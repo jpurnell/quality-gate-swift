@@ -17,7 +17,7 @@ struct PulseStatisticalMaturityIntegrationTests {
         fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: string)!
+        return fmt.date(from: string) ?? Date(timeIntervalSince1970: 0)
     }
 
     private func makeDayDate(_ string: String) -> Date {
@@ -25,7 +25,7 @@ struct PulseStatisticalMaturityIntegrationTests {
         fmt.dateFormat = "yyyy-MM-dd"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: string)!
+        return fmt.date(from: string) ?? Date(timeIntervalSince1970: 0)
     }
 
     // MARK: - Metadata Factory
@@ -110,7 +110,7 @@ struct PulseStatisticalMaturityIntegrationTests {
 
         // --- Step 1: Write metadata for ProjectActive (10 runs over 10 days) ---
         for day in 26...31 {
-            let ts = makeDate("2026-05-\(String(format: "%02d", day))T10:00:00")
+            let ts = makeDate("2026-05-\(twoDigits(day))T10:00:00")
             let passed = day % 3 != 0 // days 27, 30 fail
             let failed: [String] = passed ? [] : ["safety"]
             let md = makeMetadata(
@@ -122,7 +122,7 @@ struct PulseStatisticalMaturityIntegrationTests {
             try await writer.write(metadata: md, calibrations: [], to: corpusActive)
         }
         for day in 1...4 {
-            let ts = makeDate("2026-06-\(String(format: "%02d", day))T10:00:00")
+            let ts = makeDate("2026-06-\(twoDigits(day))T10:00:00")
             let passed = day % 2 == 0 // days 1, 3 fail
             let failed: [String] = passed ? [] : ["concurrency"]
             let md = makeMetadata(
@@ -376,7 +376,7 @@ struct PulseStatisticalMaturityIntegrationTests {
 
         // PerfectProject: 3 all-pass runs
         for day in 1...3 {
-            let ts = makeDate("2026-06-\(String(format: "%02d", day))T10:00:00")
+            let ts = makeDate("2026-06-\(twoDigits(day))T10:00:00")
             let md = makeMetadata(
                 projectID: "PerfectProject",
                 timestamp: ts,
@@ -387,7 +387,7 @@ struct PulseStatisticalMaturityIntegrationTests {
 
         // MixedProject: 3 runs, all with a safety failure
         for day in 1...3 {
-            let ts = makeDate("2026-06-\(String(format: "%02d", day))T11:00:00")
+            let ts = makeDate("2026-06-\(twoDigits(day))T11:00:00")
             let md = makeMetadata(
                 projectID: "MixedProject",
                 timestamp: ts,
@@ -418,4 +418,14 @@ struct PulseStatisticalMaturityIntegrationTests {
 
         try? FileManager.default.removeItem(atPath: corpusRoot)
     }
+}
+
+/// A two-digit, zero-padded decimal — `5` becomes `"05"`.
+///
+/// Not `String(format: "%02d")`: that bridges to the C printf ABI, where an argument-type
+/// mistake is a runtime `SIGSEGV` rather than a compile error, and the gate forbids it. Not
+/// `IntegerFormatStyle` either — that is locale-aware, and a fixture date string must be the
+/// same bytes under every locale the suite might run in.
+private func twoDigits(_ value: Int) -> String {
+    value < 10 ? "0\(value)" : "\(value)"
 }

@@ -15,7 +15,7 @@ struct PulseRefinerTests {
         fmt.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: string)!
+        return fmt.date(from: string) ?? Date(timeIntervalSince1970: 0)
     }
 
     private func makeDayDate(_ string: String) -> Date {
@@ -23,7 +23,7 @@ struct PulseRefinerTests {
         fmt.dateFormat = "yyyy-MM-dd"
         fmt.timeZone = TimeZone(identifier: "UTC")
         fmt.locale = Locale(identifier: "en_US_POSIX")
-        return fmt.date(from: string)!
+        return fmt.date(from: string) ?? Date(timeIntervalSince1970: 0)
     }
 
     private func makeMetadata(
@@ -141,7 +141,7 @@ struct PulseRefinerTests {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let snapshots: [DailySnapshot] = (0..<30).map { i in
             DailySnapshot(
-                date: makeDayDate("2026-04-\(String(format: "%02d", (i % 28) + 1))"),
+                date: makeDayDate("2026-04-\(twoDigits((i % 28) + 1))"),
                 scope: "test",
                 gateRuns: 10, passedRuns: 8, failedRuns: 2,
                 overrides: 1, calibrations: 0,
@@ -160,7 +160,7 @@ struct PulseRefinerTests {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let snapshots: [DailySnapshot] = (0..<10).map { i in
             DailySnapshot(
-                date: makeDayDate("2026-04-\(String(format: "%02d", i + 1))"),
+                date: makeDayDate("2026-04-\(twoDigits(i + 1))"),
                 scope: "test",
                 gateRuns: 10, passedRuns: 9, failedRuns: 1,
                 overrides: 0, calibrations: 0,
@@ -175,12 +175,12 @@ struct PulseRefinerTests {
     // MARK: - detectAnomalies
 
     @Test("detectAnomalies: outlier in 30-day baseline flagged")
-    func detectAnomaliesOutlier() async {
+    func detectAnomaliesOutlier() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let baselineValues: [Double] = [0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11,
                                         0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11,
                                         0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11]
-        let baselineTrend = TrendAnalysis.compute(metric: "overrideRate", values: baselineValues)!
+        let baselineTrend = try #require(TrendAnalysis.compute(metric: "overrideRate", values: baselineValues))
 
         let outlierSnapshot = DailySnapshot(
             date: makeDayDate("2026-04-28"),
@@ -200,12 +200,12 @@ struct PulseRefinerTests {
     }
 
     @Test("detectAnomalies: positive anomaly (exceptional pass rate)")
-    func detectAnomaliesPositive() async {
+    func detectAnomaliesPositive() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let baselineValues: [Double] = [0.67, 0.72, 0.68, 0.74, 0.66, 0.71, 0.73, 0.69, 0.70, 0.65,
                                         0.72, 0.68, 0.74, 0.67, 0.71, 0.73, 0.69, 0.70, 0.66, 0.75,
                                         0.67, 0.72, 0.68, 0.74, 0.66, 0.71, 0.73, 0.69, 0.70, 0.65]
-        let baselineTrend = TrendAnalysis.compute(metric: "passRate", values: baselineValues)!
+        let baselineTrend = try #require(TrendAnalysis.compute(metric: "passRate", values: baselineValues))
 
         let goodSnapshot = DailySnapshot(
             date: makeDayDate("2026-04-28"),
@@ -224,11 +224,11 @@ struct PulseRefinerTests {
     }
 
     @Test("detectAnomalies: preliminary baseline carries validity")
-    func detectAnomaliesPreliminaryBaseline() async {
+    func detectAnomaliesPreliminaryBaseline() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let baselineValues: [Double] = [0.09, 0.10, 0.08, 0.11, 0.10, 0.09, 0.12, 0.08, 0.10, 0.11,
                                         0.09, 0.10, 0.08, 0.11, 0.10]
-        let baselineTrend = TrendAnalysis.compute(metric: "overrideRate", values: baselineValues)!
+        let baselineTrend = try #require(TrendAnalysis.compute(metric: "overrideRate", values: baselineValues))
         #expect(baselineTrend.validity == .preliminary)
 
         let outlierSnapshot = DailySnapshot(
@@ -483,4 +483,14 @@ struct PulseRefinerTests {
         #expect(pulse.statistics.corpusTrends.isEmpty)
         #expect(pulse.statistics.anomalies.isEmpty)
     }
+}
+
+/// A two-digit, zero-padded decimal — `5` becomes `"05"`.
+///
+/// Not `String(format: "%02d")`: that bridges to the C printf ABI, where an argument-type
+/// mistake is a runtime `SIGSEGV` rather than a compile error, and the gate forbids it. Not
+/// `IntegerFormatStyle` either — that is locale-aware, and a fixture date string must be the
+/// same bytes under every locale the suite might run in.
+private func twoDigits(_ value: Int) -> String {
+    value < 10 ? "0\(value)" : "\(value)"
 }

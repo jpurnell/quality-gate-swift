@@ -129,8 +129,10 @@ struct GPUSafetyAuditorScanTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let scan = GPUSafetyAuditor.scan(root: root.path)
-        let keys = scan.diagnostics.map { "\($0.filePath ?? "")#\(String(format: "%06d", $0.lineNumber ?? 0))" }
-        #expect(keys == keys.sorted())
+        // (path, line) rather than a zero-padded string: the padding only made a string
+        // sort imitate a numeric one, and six digits is an assumption about line counts.
+        let keys = scan.diagnostics.map { ($0.filePath ?? "", $0.lineNumber ?? 0) }
+        #expect(keys.elementsEqual(keys.sorted(by: <), by: ==))
     }
 
     @Test("Scanning the same tree twice yields identical output")

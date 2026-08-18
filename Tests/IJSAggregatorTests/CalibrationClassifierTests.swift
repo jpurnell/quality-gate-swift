@@ -9,7 +9,7 @@ struct CalibrationClassifierTests {
 
     private static let referenceDate = ISO8601DateFormatter().date(
         from: "2026-06-03T14:30:00Z"
-    )!
+    ) ?? Date(timeIntervalSince1970: 0)
 
     private func makeOverride(
         ruleId: String = "safety.force-unwrap",

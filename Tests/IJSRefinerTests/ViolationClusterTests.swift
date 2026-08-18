@@ -95,14 +95,14 @@ struct ViolationClusterTests {
 
     @Test("Decoding legacy JSON without consecutiveAppearances succeeds")
     func decodeLegacyJSON() throws {
-        let json = """
+        let json = Data("""
         {
             "ruleId": "test.rule",
             "occurrenceCount": 3,
             "affectedProjectCount": 1,
             "isRecurring": true
         }
-        """.data(using: .utf8)!
+        """.utf8)
         let cluster = try JSONDecoder().decode(ViolationCluster.self, from: json)
         #expect(cluster.consecutiveAppearances == nil)
         #expect(cluster.isRecurring == true)

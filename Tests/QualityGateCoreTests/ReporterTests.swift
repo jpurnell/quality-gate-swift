@@ -83,7 +83,7 @@ struct ReporterTests {
         try reporter.report(sampleResults, to: &output)
 
         // Verify it's valid JSON by parsing it
-        let data = output.data(using: .utf8)!
+        let data = Data(output.utf8)
         let parsed = try JSONSerialization.jsonObject(with: data)
 
         #expect(parsed is [String: Any] || parsed is [[String: Any]])

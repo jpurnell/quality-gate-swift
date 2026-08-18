@@ -82,7 +82,7 @@ private func makeTestCorpus(projects: [String], runsPerProject: Int = 0) throws 
         try fm.createDirectory(atPath: dateDir, withIntermediateDirectories: true)
 
         for i in 0..<runsPerProject {
-            let timestamp = String(format: "%02d0000", i + 10)
+            let timestamp = "\(twoDigits(i + 10))0000"
             let metadata = CheckResultMetadata(
                 projectID: project,
                 timestamp: Date(timeIntervalSince1970: Double(1747267200 + i * 3600)),
@@ -112,4 +112,14 @@ private func makeCheckResult(id: String, passed: Bool) -> CheckResult {
         diagnostics: [],
         duration: .milliseconds(100)
     )
+}
+
+/// A two-digit, zero-padded decimal — `5` becomes `"05"`.
+///
+/// Not `String(format: "%02d")`: that bridges to the C printf ABI, where an argument-type
+/// mistake is a runtime `SIGSEGV` rather than a compile error, and the gate forbids it. Not
+/// `IntegerFormatStyle` either — that is locale-aware, and a fixture date string must be the
+/// same bytes under every locale the suite might run in.
+private func twoDigits(_ value: Int) -> String {
+    value < 10 ? "0\(value)" : "\(value)"
 }

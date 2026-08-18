@@ -51,7 +51,7 @@ struct ProjectSharderTests {
         }
         let facts = ProjectFacts(projectID: "Foo", passing: true, work: work)
         let shard = sharder.shard(for: facts)
-        let shaLines = shard.text.split(separator: "\n").filter { $0.contains("@sha") }
+        let shaLines = shard.text.split(whereSeparator: \.isNewline).filter { $0.contains("@sha") }
         #expect(shaLines.count == 3)
         // Most recent three are sha5, sha4, sha3 (date desc); sha1/sha2 dropped.
         #expect(shard.text.contains("@sha5"))
