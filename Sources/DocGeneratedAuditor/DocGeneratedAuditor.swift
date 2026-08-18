@@ -103,10 +103,7 @@ public struct DocGeneratedAuditor: QualityChecker, Sendable {
             if FileManager.default.fileExists(atPath: url.path) { files.append(url.path) }
         }
 
-        var salt = ""
-        if let encoded = try? JSONEncoder().encode(configuration.docGenerated) { // silent: the config slice is plain Codable values; an unsalted fingerprint only costs a stale-cache risk the file list already covers
-            salt = CheckerFingerprint.digest(of: encoded)
-        }
+        let salt = CheckerFingerprint.canonicalSalt(configuration.docGenerated) ?? ""
         return CacheInputs(files: files.sorted(), salt: salt)
     }
 

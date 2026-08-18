@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Performance
+
+- **A warm gate run is 2.1 seconds.** Down from 15.9s measured the same day on the same
+  scope (`--check all --exclude test --exclude disk-clean`), via three independent fixes,
+  each measured separately (`project/plans/proposals/SharedFileDigestMap.md`):
+
+  1. **The file-digest map is shared across checkers** (−7.4s). ~41 cache-participating
+     checkers each hashed the same ~660 files to compute their fingerprints — roughly
+     27,000 SHA-256 reads per warm run whose results were identical across checkers. A
+     per-run `FileDigestCache` (path → digest, `Mutex`-backed, hashing outside the lock)
+     collapses that to one hash per file. Fingerprints are byte-identical with and without
+     it; the cache changes cost, never the key.
+
+  2. **`doc-generated` no longer misses on every run** (defect, not tuning). Its salt
+     encoded the config slice with a plain `JSONEncoder` — no `.sortedKeys` — and
+     `JSONEncoder` buffers keyed containers in a `Dictionary`, so key order follows
+     per-process seeded hashing and the same configuration encoded to different bytes in
+     every process. The fix is `CheckerFingerprint.canonicalSalt`, which the two
+     previously-correct copies (`SourceCacheInputs`, `DocCodeAuditor`) now share too.
+
+  3. **The telemetry sidecars stopped re-scanning the tree on cache-hit runs** (−5.8s).
+     `TelemetryEmission` ran `ComplexityAnalyzer.scanProject` (~1.5s) and
+     `LegibilityAnalyzer.orientationReport` (~4.3s) after *every* run, serially, even when
+     the corresponding checkers were cache hits — the cost was outside `check()`, so no
+     result cache could see it. Both artifacts are now cached in `ResultCache` under the
+     same fingerprint contract (`loadArtifact`/`storeArtifact`), keyed by the owning
+     checker's own declared input set; the orientation report is re-stamped with the
+     current run's timestamp on a hit because the analysis is a pure function of its
+     inputs and the stamp is not.
+
+  A fourth change — memoizing the per-checker source walks in `SourceCacheInputs` —
+  measured **zero improvement** and is kept only because it is small, tested, and makes
+  the walk's snapshot-per-run semantics explicit rather than incidental. Recorded here so
+  nobody re-proposes it as a speedup.
+
 ### Added
 
 - **`--profile code` — run the checkers that judge code, and nothing else.** Built to make

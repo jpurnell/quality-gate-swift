@@ -1,14 +1,23 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import Synchronization
 import QualityGateCore
 
 /// Builds the incremental-cache input set for a checker whose result depends on the whole
 /// Swift source tree — e.g. the cross-module index checkers, whose analysis spans every module.
 public enum SourceCacheInputs {
 
-    private static let logger = Logger(subsystem: "com.quality-gate", category: "SourceCacheInputs")
+    /// Per-process memo of completed walks, keyed by `(root, excludePatterns)`.
+    ///
+    /// ~41 cache-participating checkers declare the same whole-source input set, so an
+    /// unmemoized warm run re-walks the same tree once per checker. One process is one
+    /// gate run, so this is snapshot-per-run: every checker fingerprints the same tree
+    /// snapshot, and a file created mid-run is seen by the *next* run's walk. The same
+    /// safety argument as `FileDigestCache` — nothing the gate mutates mid-run
+    /// (`.build`, records) is inside the walked set.
+    private static let walkMemo = Mutex<[String: [String]]>([:])
+
+    /// Per-process memo of `.docc` catalogue enumerations, keyed by root path.
+    private static let doccMemo = Mutex<[String: [String]]>([:])
 
     /// All `.swift` files under `projectRoot` (honoring `excludePatterns`) plus the package
     /// manifests.
@@ -29,8 +38,17 @@ public enum SourceCacheInputs {
         // this fingerprint did not, so editing the SPM plugin left every cached result valid. Six
         // wait-before-read deadlocks were found in exactly those directories the day this was
         // written.
-        var files = SourceWalker.swiftFiles(
-            under: projectRoot, excludePatterns: configuration.excludePatterns)
+        let memoKey = projectRoot.path + "\u{0}" + configuration.excludePatterns.joined(separator: "\u{0}")
+        var files: [String]
+        if let memoized = walkMemo.withLock({ $0[memoKey] }) {
+            files = memoized
+        } else {
+            // Walk outside the lock: concurrent first calls redo the same walk of an
+            // unchanged tree, and either result is correct to store.
+            files = SourceWalker.swiftFiles(
+                under: projectRoot, excludePatterns: configuration.excludePatterns)
+            walkMemo.withLock { $0[memoKey] = files }
+        }
         for manifest in ["Package.swift", "Package.resolved"] {
             files.append(projectRoot.appendingPathComponent(manifest).path)
         }
@@ -65,6 +83,16 @@ public enum SourceCacheInputs {
     /// Catalogues hold markdown, tutorials and resources; all of them can change what DocC
     /// reports, so all of them are inputs.
     private static func docCatalogueFiles(under projectRoot: URL) -> [String] {
+        if let memoized = doccMemo.withLock({ $0[projectRoot.path] }) {
+            return memoized
+        }
+        let found = enumerateDocCatalogueFiles(under: projectRoot)
+        doccMemo.withLock { $0[projectRoot.path] = found }
+        return found
+    }
+
+    /// The uncached enumeration behind `docCatalogueFiles`.
+    private static func enumerateDocCatalogueFiles(under projectRoot: URL) -> [String] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: projectRoot,
@@ -93,13 +121,6 @@ public enum SourceCacheInputs {
 
     /// A stable digest of the entire configuration, for the cache salt.
     static func configurationSalt(_ configuration: Configuration) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        do {
-            return CheckerFingerprint.digest(of: try encoder.encode(configuration))
-        } catch {
-            logger.warning("Could not encode configuration for cache salt; using empty salt (forces a cache miss): \(error.localizedDescription, privacy: .public)")
-            return ""
-        }
+        CheckerFingerprint.canonicalSalt(configuration) ?? ""
     }
 }

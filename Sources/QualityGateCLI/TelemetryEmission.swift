@@ -34,6 +34,9 @@ enum TelemetryEmission {
         identityKind: IdentityKind = .resident,
         gateMode: GateMode = .standard,
         baseline: BaselineSnapshot? = nil,
+        cache: ResultCache? = nil,
+        gateHash: String = "",
+        digests: FileDigestCache? = nil,
         verbose: Bool
     ) async {
         guard let corpusPath = configuration.consistency.corpusPath else { return }
@@ -145,8 +148,8 @@ enum TelemetryEmission {
             try await writer.write(metadata: metadata, calibrations: calibrations, to: corpus)
 
             if configuration.complexity.emitToCorpus, checkerRan("complexity", in: runScope) {
-                let analyzer = ComplexityAnalyzer()
-                let records = analyzer.scanProject(configuration: configuration)
+                let records = cachedComplexityRecords(
+                    configuration: configuration, cache: cache, gateHash: gateHash, digests: digests)
                 let report = ComplexityTelemetryEmitter.buildReport(
                     from: records,
                     projectID: projectID,
@@ -157,10 +160,13 @@ enum TelemetryEmission {
             }
 
             if configuration.legibility.emitToCorpus, checkerRan("legibility", in: runScope) {
-                let orientationReport = await LegibilityAnalyzer().orientationReport(
+                let orientationReport = await cachedOrientationReport(
                     configuration: configuration,
                     timestamp: metadata.timestamp,
-                    projectID: projectID
+                    projectID: projectID,
+                    cache: cache,
+                    gateHash: gateHash,
+                    digests: digests
                 )
                 try await writer.writeOrientationReport(orientationReport, to: corpus)
             }
@@ -204,5 +210,78 @@ enum TelemetryEmission {
         case .subset(let checkers):
             return checkers.contains(checkerID)
         }
+    }
+
+    /// The complexity sidecar's records, from the artifact cache when the source tree is
+    /// unchanged, else from a fresh scan.
+    ///
+    /// The scan re-parses every file under `Sources/` with SwiftSyntax (~1.5s warm) even
+    /// when the `complexity` checker itself was a cache hit, because it runs here — after
+    /// the runner — not inside `check()`. Keyed by the checker's own declared input set,
+    /// so record reuse is exactly as safe as result reuse.
+    private static func cachedComplexityRecords(
+        configuration: Configuration,
+        cache: ResultCache?,
+        gateHash: String,
+        digests: FileDigestCache?
+    ) -> [FunctionComplexityRecord] {
+        let analyzer = ComplexityAnalyzer()
+        guard let cache, let inputs = analyzer.cacheInputs(configuration: configuration) else {
+            return analyzer.scanProject(configuration: configuration)
+        }
+        let fingerprint = CheckerFingerprint.compute(
+            checkerId: "telemetry-complexity", inputs: inputs, gateHash: gateHash, digests: digests)
+        if let cached = cache.loadArtifact(
+            [FunctionComplexityRecord].self, artifactId: "telemetry-complexity", fingerprint: fingerprint) {
+            return cached
+        }
+        let records = analyzer.scanProject(configuration: configuration)
+        cache.storeArtifact(records, artifactId: "telemetry-complexity", fingerprint: fingerprint)
+        return records
+    }
+
+    /// The orientation sidecar's report, re-stamped from the artifact cache when its
+    /// inputs are unchanged, else from a fresh analysis.
+    ///
+    /// The fresh path re-walks the module graph and index store (~4.3s warm). Inputs are
+    /// the `legibility` checker's own declared set plus the two documents orientation
+    /// reads that no source walk covers: the README lead and the Master Plan mission.
+    /// On a hit, the cached cards are re-issued under the current run's timestamp and
+    /// project id — the analysis is a pure function of the inputs; the stamp is not.
+    private static func cachedOrientationReport(
+        configuration: Configuration,
+        timestamp: Date,
+        projectID: String,
+        cache: ResultCache?,
+        gateHash: String,
+        digests: FileDigestCache?
+    ) async -> OrientationReport {
+        let analyzer = LegibilityAnalyzer()
+        guard let cache, var inputs = analyzer.cacheInputs(configuration: configuration) else {
+            return await analyzer.orientationReport(
+                configuration: configuration, timestamp: timestamp, projectID: projectID)
+        }
+        let root = FileManager.default.currentDirectoryPath
+        inputs.files.append((root as NSString).appendingPathComponent("README.md"))
+        let plan = (configuration.status.guidelinesPath as NSString)
+            .appendingPathComponent(configuration.status.masterPlanPath)
+        inputs.files.append((root as NSString).appendingPathComponent(plan))
+
+        let fingerprint = CheckerFingerprint.compute(
+            checkerId: "telemetry-legibility", inputs: inputs, gateHash: gateHash, digests: digests)
+        if let cached = cache.loadArtifact(
+            OrientationReport.self, artifactId: "telemetry-legibility", fingerprint: fingerprint) {
+            return OrientationReport(
+                projectID: projectID,
+                timestamp: timestamp,
+                cards: cached.cards,
+                packageDependsOn: cached.packageDependsOn,
+                packageSummary: cached.packageSummary
+            )
+        }
+        let report = await analyzer.orientationReport(
+            configuration: configuration, timestamp: timestamp, projectID: projectID)
+        cache.storeArtifact(report, artifactId: "telemetry-legibility", fingerprint: fingerprint)
+        return report
     }
 }

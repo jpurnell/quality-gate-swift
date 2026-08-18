@@ -467,6 +467,9 @@ struct QualityGateCLI: AsyncParsableCommand {
         // .build when resident, the overlay's cache dir when foreign.
         let resultCache = ResultCache(
             directory: runEnvironment.cacheRoot.appendingPathComponent("quality-gate-cache"))
+        // One digest map for the whole process — the runner's ~41 fingerprints and the
+        // telemetry sidecars hash each input file exactly once between them.
+        let digestCache = FileDigestCache()
 
         // Run checkers concurrently (bounded by core count), preserving checker order.
         // Overrides are applied via `transform` so pass/fail — and the continueOnFailure
@@ -485,6 +488,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             cache: resultCache,
             gateHash: gateHash,
             useCache: !noCache,
+            digests: digestCache,
             includeNonHermetic: includeNonHermetic,
             transform: { overrideProcessor.apply(to: $0) },
             onError: { checkerID, error in
@@ -658,6 +662,9 @@ struct QualityGateCLI: AsyncParsableCommand {
                 identityKind: runEnvironment.isForeign ? .foreign : .resident,
                 gateMode: advisoryAll ? .advisory : .standard,
                 baseline: baselineSnapshot,
+                cache: noCache ? nil : resultCache,
+                gateHash: gateHash,
+                digests: digestCache,
                 verbose: verbose
             )
         } else if verbose {

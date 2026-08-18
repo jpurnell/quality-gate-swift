@@ -253,14 +253,7 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
 
     /// A digest of the whole configuration, so any knob change invalidates the cache.
     static func configurationSalt(_ configuration: Configuration) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        do {
-            return CheckerFingerprint.digest(of: try encoder.encode(configuration))
-        } catch {
-            logger.warning("Could not encode configuration for the cache salt; forcing a miss: \(error.localizedDescription, privacy: .public)")
-            return ""
-        }
+        CheckerFingerprint.canonicalSalt(configuration) ?? ""
     }
 
     /// Paths of the built module's artefacts, whichever SwiftPM layout produced them.

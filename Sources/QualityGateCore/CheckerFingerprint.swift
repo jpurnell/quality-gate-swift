@@ -38,7 +38,17 @@ public enum CheckerFingerprint {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "CheckerFingerprint")
 
     /// Returns a hex digest for `(checkerId, inputs, gateHash)`.
-    public static func compute(checkerId: String, inputs: CacheInputs, gateHash: String) -> String {
+    ///
+    /// Pass a shared `digests` cache when computing fingerprints for many checkers in
+    /// one run: the index-backed checkers all declare the same whole-source input set,
+    /// so sharing collapses ~41 hashes of each file to one. `nil` hashes directly and
+    /// produces byte-identical fingerprints — the cache changes cost, never the key.
+    public static func compute(
+        checkerId: String,
+        inputs: CacheInputs,
+        gateHash: String,
+        digests: FileDigestCache? = nil
+    ) -> String {
         var hasher = SHA256()
         hasher.update(data: Data("qg-fingerprint-v1".utf8))
         hasher.update(data: Data(checkerId.utf8))
@@ -48,7 +58,7 @@ public enum CheckerFingerprint {
             hasher.update(data: Data("\u{0}path:".utf8))
             hasher.update(data: Data(path.utf8))
             hasher.update(data: Data("\u{0}content:".utf8))
-            hasher.update(data: Data(fileDigest(path).utf8))
+            hasher.update(data: Data((digests?.digest(for: path) ?? fileDigest(path)).utf8))
         }
         return hexString(hasher.finalize())
     }
@@ -57,6 +67,30 @@ public enum CheckerFingerprint {
     /// into a cache salt (so a config change invalidates the cached result).
     public static func digest(of data: Data) -> String {
         hexString(SHA256.hash(data: data))
+    }
+
+    /// A canonical digest of an `Encodable` value, for use as a cache salt.
+    ///
+    /// Encodes with `.sortedKeys` — this is the whole point. `JSONEncoder` buffers keyed
+    /// containers in a `Dictionary`, so without sorting, key order follows per-process
+    /// seeded hashing and the same value can encode to different bytes in every process.
+    /// A salt built that way changes on every gate run, which turns the checker into a
+    /// perpetual cache miss (the `doc-generated` bug, found 2026-08-18). Every
+    /// configuration-slice salt must go through here.
+    ///
+    /// - Parameter value: The value to digest.
+    /// - Returns: A stable hex digest of the value, or `nil` when encoding fails
+    ///   (callers fall back to an empty salt: unsalted costs a stale-config risk the
+    ///   declared file list still bounds, never a wrong file-content reuse).
+    public static func canonicalSalt<T: Encodable>(_ value: T) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        do {
+            return digest(of: try encoder.encode(value))
+        } catch {
+            logger.warning("Could not encode value for cache salt; caller falls back to unsalted: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// SHA-256 of a file's contents, or a sentinel when the file is missing/unreadable

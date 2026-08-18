@@ -53,6 +53,9 @@ public struct CheckerRunner: Sendable {
     ///   - cache: Optional result cache consulted when `useCache` is `true`; `nil` disables caching.
     ///   - gateHash: Identity hash of the gate build, mixed into each cache fingerprint so a gate rebuild invalidates stale entries.
     ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged checker inputs.
+    ///   - digests: Per-run file-digest memo shared across every fingerprint this run computes.
+    ///     Callers with post-run fingerprinting of their own (telemetry sidecars) pass theirs in
+    ///     so the whole process hashes each input file once.
     ///   - includeNonHermetic: When `true`, skip the hermeticity clamp so `.temporal`
     ///     and `.external` checkers can fail the gate (for jobs that *want* to block on
     ///     staleness or upstream drift). Off by default.
@@ -67,6 +70,7 @@ public struct CheckerRunner: Sendable {
         cache: ResultCache? = nil,
         gateHash: String = "",
         useCache: Bool = false,
+        digests: FileDigestCache = FileDigestCache(),
         includeNonHermetic: Bool = false,
         transform: @Sendable @escaping (CheckResult) -> CheckResult = { $0 },
         onError: @Sendable @escaping (String, any Error) -> Void = { _, _ in }
@@ -119,7 +123,7 @@ public struct CheckerRunner: Sendable {
         @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
             if useCache, let cache, let inputs = checker.cacheInputs(configuration: configuration) {
                 let fingerprint = CheckerFingerprint.compute(
-                    checkerId: checker.id, inputs: inputs, gateHash: gateHash
+                    checkerId: checker.id, inputs: inputs, gateHash: gateHash, digests: digests
                 )
                 if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
                     return clamped(transform(cached), checker)

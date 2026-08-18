@@ -45,6 +45,42 @@ public struct ResultCache: Sendable {
         try? writeEntry(result, checkerId: checkerId, fingerprint: fingerprint)
     }
 
+    /// Returns a cached derived artifact, or nil on a miss or unreadable/corrupt entry.
+    ///
+    /// Artifacts are expensive values *derived from* checker inputs but produced outside
+    /// `check()` — e.g. the telemetry sidecar reports, which used to re-scan the whole
+    /// tree on every run even when every checker hit the cache. The same safety contract
+    /// applies: key with a `CheckerFingerprint` over the complete input set, and an
+    /// identical fingerprint guarantees an identical artifact.
+    ///
+    /// - Parameters:
+    ///   - type: The artifact's concrete type.
+    ///   - artifactId: Namespaced id, e.g. `"telemetry-complexity"` — must never collide
+    ///     with a checker id, since entries share the cache directory.
+    ///   - fingerprint: A `CheckerFingerprint` over the artifact's complete input set.
+    /// - Returns: The decoded artifact, or `nil` as a miss.
+    public func loadArtifact<T: Decodable>(_ type: T.Type, artifactId: String, fingerprint: String) -> T? {
+        let url = entryURL(checkerId: artifactId, fingerprint: fingerprint)
+        // silent: an unreadable or absent cache entry is intentionally treated as a miss
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        // silent: a corrupt/malformed entry is intentionally a miss, never a crash
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
+    /// Stores a derived artifact under the key. Failures are ignored — a cache write
+    /// must never fail the gate.
+    public func storeArtifact<T: Encodable>(_ value: T, artifactId: String, fingerprint: String) {
+        // silent: cache writes are best-effort; a write failure must never fail the gate
+        try? writeArtifactEntry(value, artifactId: artifactId, fingerprint: fingerprint)
+    }
+
+    private func writeArtifactEntry<T: Encodable>(_ value: T, artifactId: String, fingerprint: String) throws {
+        try WriteGuard.validate(path: directory.path)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) // SAFETY: CLI tool creates its local cache directory
+        let data = try JSONEncoder().encode(value)
+        try data.write(to: entryURL(checkerId: artifactId, fingerprint: fingerprint))
+    }
+
     private func writeEntry(_ result: CheckResult, checkerId: String, fingerprint: String) throws {
         // WriteGuard backstop (Phase 1): in foreign mode the CLI points the
         // cache at the overlay; a directory still inside the analyzed repo is
