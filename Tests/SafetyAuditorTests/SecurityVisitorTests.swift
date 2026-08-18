@@ -56,20 +56,30 @@ struct SecurityVisitorTests {
 
     // MARK: - Command Injection (CWE-78)
 
-    @Test("Detects Process instantiation")
-    func detectsProcessInstantiation() async throws {
+    /// A bare `Process()` is no longer this rule's business.
+    ///
+    /// It was, and that was the defect: the mechanism was `callee == "Process"`, so the rule
+    /// flagged every construction and never inspected an argument, under a name and a CWE
+    /// describing injection. The construction signal moved to
+    /// `bounded-io.process-construction`, whose subject is where spawns live. This test now
+    /// pins the boundary rather than the old behaviour, so a future rewrite cannot quietly
+    /// reintroduce the conflation.
+    @Test("A bare Process() is not an injection finding")
+    func bareProcessIsNotInjection() async throws {
         let code = """
         let process = Process()
         """
 
         let result = try await auditCode(code)
-        #expect(result.diagnostics.contains { $0.ruleId == "security.command-injection" })
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.command-injection" })
     }
 
     @Test("Diagnostic includes CWE reference")
     func commandInjectionIncludesCWE() async throws {
         let code = """
         let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "grep \\(pattern) \\(file)"]
         """
 
         let result = try await auditCode(code)
@@ -568,17 +578,31 @@ struct SecurityVisitorTests {
         #expect(stale.isEmpty)
     }
 
+    /// Every rule goes stale eventually.
+    ///
+    /// The count was hardcoded to 10 and the date to 2027-06-01, which held only while every
+    /// rule shared a `lastReviewedDate` of 2026-04-14. Reviewing a single rule — as
+    /// `security.command-injection` was on 2026-08-18 — put that rule inside the 365-day
+    /// window and broke a test that was never about the number 10. It now derives both the
+    /// horizon and the expectation, so reviewing a rule cannot fail it.
     @Test("Rules become stale after threshold")
     func rulesGoStale() {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
-        // 400 days after 2026-04-14 = well past 365-day threshold
-        guard let futureDate = formatter.date(from: "2027-06-01") else {
-            Issue.record("Could not parse future date")
+        let reviewDates = SecurityRuleManifest.rules.compactMap {
+            formatter.date(from: $0.lastReviewedDate)
+        }
+        #expect(reviewDates.count == SecurityRuleManifest.rules.count,
+                "every rule must carry a parseable lastReviewedDate")
+        guard let latest = reviewDates.max() else {
+            Issue.record("No review dates to derive a horizon from")
             return
         }
-        let stale = SecurityRuleManifest.staleRules(asOf: futureDate)
-        #expect(stale.count == 10) // All rules should be stale
+        // Comfortably past the 365-day threshold for the most recently reviewed rule.
+        let horizon = latest.addingTimeInterval(400 * 24 * 60 * 60)
+
+        let stale = SecurityRuleManifest.staleRules(asOf: horizon)
+        #expect(stale.count == SecurityRuleManifest.rules.count)
     }
 
     @Test("Semgrep YAML export produces valid output")

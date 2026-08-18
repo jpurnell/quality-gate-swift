@@ -16,21 +16,39 @@ logging:
   projectType: cli
 
 security:
-  # CLI tool operates on configured paths (not user input) and spawns
-  # hardcoded system processes — path-traversal, command-injection, and
-  # insecure-transport are false positives in this context.
+  # CLI tool operates on configured paths (not user input), so path-traversal
+  # and insecure-transport remain false positives in this context.
   #
-  # What that reasoning missed, recorded 2026-08-16. security.command-injection
-  # is named and worded for injection ("validate and sanitize dynamic
-  # arguments") but its mechanism is `callee == "Process"` — it flags EVERY
-  # Process/NSTask construction and never inspects an argument. The injection
-  # judgement above is sound; disabling the rule on that basis also removed the
-  # only signal pointing at every direct Process() site in the tree. Nine were
-  # sitting there unbounded, and one of them cost 46 minutes to a hang.
-  # Re-enabling as-is is not the fix — the rule needs splitting into an
-  # injection rule that earns its name and a containment rule that keeps the
-  # construction signal. See project/plans/proposals/
-  # ProcessSafetyAuditorCatchesTheClass.md.
+  # security.command-injection is rewritten but NOT YET ENABLED here, and the
+  # order matters: a rule name in this file binds to whatever mechanism the
+  # *running* binary has. The pre-commit hook runs the deployed gate, so
+  # enabling the rule before deploying the rewrite wakes the OLD mechanism —
+  # which is what happened on the first attempt at this commit, and it blocked
+  # it by flagging a bare Process() in ArticleRunner.swift. Deploy first, then
+  # add `- security.command-injection` to enabledRules below.
+  #
+  # It used to match `callee == "Process"` — every construction, no argument
+  # ever inspected — under a name and a CWE describing a different hazard, and
+  # it was disabled on injection grounds that were sound for the name and
+  # wrong for the mechanism. Disabling it also removed the only signal
+  # pointing at every direct Process() site in the tree: nine were unbounded,
+  # and one cost 46 minutes to a hang.
+  #
+  # The split that comment asked for is now complete. Containment went to
+  # bounded-io.process-construction, whose subject is where spawns live. The
+  # rule here fires only when a shell is invoked with -c and the command
+  # string is assembled at runtime — a Process given an argv array invokes no
+  # interpreter, so interpolating into one is not injection and flagging it is
+  # the noise that gets a security rule switched off.
+  #
+  # Zero findings here: this package runs no shell, and its five -c
+  # occurrences are `git -c user.name=…` and `swift build -c release`, both
+  # pinned by tests so a future rewrite cannot quietly start flagging them.
+  #
+  # See project/plans/proposals/CommandInjectionEarnsItsName.md, and
+  # project/plans/completed/ProcessSafetyAuditorCatchesTheClass.md for the
+  # containment half — note completed/, not proposals/, where the old comment
+  # pointed after the file moved.
   enabledRules:
     - security.hardcoded-secret
     - security.weak-crypto

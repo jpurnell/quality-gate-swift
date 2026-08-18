@@ -17,11 +17,23 @@ also meant the manual command disagreed with the pre-commit hook, which runs the
 and has always included `doc-lint`. Two commands that claim to be the same check and are not
 is how a gate loses its authority.
 
-Be aware of what `doc-lint` currently *is*, though, because passing it means less than it
+~~Be aware of what `doc-lint` currently *is*, though, because passing it means less than it
 looks: `parseLibraryTarget` takes the first target of the first `.library` product, so it
 reaches **1 of 116 targets** (`QualityGateCore`). A sweep of the unexamined remainder found
 eleven broken symbol links it never had the chance to see. Widening that scope is open work,
-and until it lands a green `doc-lint` is a statement about 0.9% of the package.
+and until it lands a green `doc-lint` is a statement about 0.9% of the package.~~
+
+**Fixed 2026-08-12 in `1d500bc`; this paragraph was stale from that day and was still being
+carried forward on 2026-08-18.** `doc-lint` now calls `documentedTargets`, which enumerates
+every target owning a `.docc` catalogue — **34** here — and passes each with a repeated
+`--target`. `parseLibraryTarget` survives only as a last-resort fallback for a package where
+nothing owns a catalogue. The eleven broken symbol links that sweep found were fixed in the
+same commit.
+
+The correction is recorded rather than deleted because the failure is instructive: the claim
+outlived its fix by six days and appeared in two places that nothing compiles, so nothing
+contradicted it. A checker's scope belongs in its own coverage note, which `doc-lint` now
+prints on every run — that number cannot go stale, because it is computed.
 
 `doc-code` now runs by default rather than opt-in, so both the hook and this command include
 it. Exclude it with `--exclude doc-code` if a catalogue has not adopted the one-program

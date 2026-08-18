@@ -96,7 +96,10 @@ final class SecurityVisitor: SyntaxVisitor {
     // MARK: - Function Call Visitor
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        checkCommandInjection(node)
+        // No `checkCommandInjection` here any more. It matched `callee == "Process"`, which is
+        // a construction site rather than an injection, and that signal now belongs to
+        // `bounded-io.process-construction`. The rule moved to the assignment visitor, where
+        // the arguments it is named for are actually visible.
         checkWeakCrypto(node)
         checkEvalJS(node)
         checkSQLInjection(node)
@@ -165,6 +168,10 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkTLSAssignment(node)
+        // Order matters and follows source order: the executable is assigned before the
+        // arguments in every shape this rule recognises.
+        noteExecutableAssignment(node)
+        checkShellCommandAssembly(node)
         return .visitChildren
     }
 
@@ -172,38 +179,142 @@ final class SecurityVisitor: SyntaxVisitor {
 
     // MARK: Command Injection (CWE-78)
 
-    private func checkCommandInjection(_ node: FunctionCallExprSyntax) {
+    /// Shell interpreters, by executable base name.
+    ///
+    /// The list is the point of the rule: injection needs an interpreter. A `Process` given an
+    /// `arguments` array invokes none — each element arrives as one `argv` entry, so a filename
+    /// containing `; rm -rf /` is passed as a filename and nothing parses it.
+    private static let shellNames: Set<String> = [
+        "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish"
+    ]
+
+    /// Flags that make the *next* argument a program to parse rather than a file to read.
+    private static let commandFlags: Set<String> = ["-c", "-lc", "-ic", "--command"]
+
+    /// Variables whose executable has been set to a shell, by base identifier.
+    ///
+    /// Correlated by identifier rather than by proximity: two unrelated spawns in one function
+    /// would otherwise borrow each other's executable, and the false positive would land on
+    /// whichever happened to be written second.
+    private var shellVariables: Set<String> = []
+
+    /// Records `x.executableURL = URL(fileURLWithPath: "/bin/sh")` and `x.launchPath = "/bin/sh"`.
+    ///
+    /// Called for every assignment; only shell paths are retained.
+    func noteExecutableAssignment(_ node: SequenceExprSyntax) {
+        let elements = Array(node.elements)
+        guard elements.count >= 3,
+              elements[1].is(AssignmentExprSyntax.self),
+              let member = elements[0].as(MemberAccessExprSyntax.self),
+              let base = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text else { return }
+        let property = member.declName.baseName.text
+        guard property == "executableURL" || property == "launchPath" else { return }
+
+        guard let path = Self.firstStringLiteral(in: elements[2]) else { return }
+        let name = (path as NSString).lastPathComponent
+        // `env` defers the choice of interpreter to its first argument, so the decision moves to
+        // the argument array; treating it as a shell here is what makes `env sh -c` reachable.
+        if Self.shellNames.contains(name) || name == "env" {
+            shellVariables.insert(base)
+        }
+    }
+
+    /// The command-injection rule proper: a shell handed a command string it did not author.
+    ///
+    /// Fires only when a shell is named, a command flag is present, and the argument after that
+    /// flag is not a literal. Each condition alone is a false positive: shells legitimately run
+    /// literal scripts; `-c` is also `git -c user.name=…` and `swift build -c release`, neither
+    /// of which is a shell; and interpolation into an `argv` element is ordinary.
+    ///
+    /// Deliberately no taint tracking. Whether the interpolated value is attacker-controlled is
+    /// not decidable in one file, and a single-file visitor that pretends otherwise reports
+    /// confident nonsense — the conclusion the `liveness` work already reached. Interpolating
+    /// any value into a shell command is the finding; a safe one is acknowledged with
+    /// `// SECURITY:`, not silently permitted.
+    func checkShellCommandAssembly(_ node: SequenceExprSyntax) {
         guard isRuleEnabled("security.command-injection") else { return }
+        let elements = Array(node.elements)
+        guard elements.count >= 3,
+              elements[1].is(AssignmentExprSyntax.self),
+              let member = elements[0].as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "arguments",
+              let base = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text,
+              let array = elements[2].as(ArrayExprSyntax.self) else { return }
 
-        // Detect Process() or NSTask() instantiation
-        let callee: String
-        if let ref = node.calledExpression.as(DeclReferenceExprSyntax.self) {
-            callee = ref.baseName.text
-        } else if let member = node.calledExpression.as(MemberAccessExprSyntax.self) {
-            callee = member.declName.baseName.text
-        } else {
+        let items = Array(array.elements)
+        var isShell = shellVariables.contains(base)
+
+        // `env sh -c …`: the interpreter is the first argument, not the executable.
+        if let first = items.first,
+           let name = first.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue,
+           Self.shellNames.contains((name as NSString).lastPathComponent) {
+            isShell = true
+        }
+        guard isShell else { return }
+
+        for (index, item) in items.enumerated() {
+            guard let flag = item.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue,
+                  Self.commandFlags.contains(flag),
+                  index + 1 < items.count else { continue }
+
+            let command = items[index + 1].expression
+            // A literal script assembled nothing and is not this rule's business.
+            guard Self.isNonLiteral(command) else { continue }
+
+            let location = command.startLocation(
+                converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            if isExempted(line: location.line) {
+                overrides.append(DiagnosticOverride(
+                    ruleId: "security.command-injection",
+                    justification: sourceLines.indices.contains(location.line - 2)
+                        ? sourceLines[location.line - 2].trimmingCharacters(in: .whitespaces)
+                        : "acknowledged",
+                    filePath: fileName,
+                    lineNumber: location.line))
+                return
+            }
+
+            diagnostics.append(Diagnostic(
+                severity: .error,
+                message: "A shell is invoked with \(flag) and a command string assembled at "
+                    + "runtime. The shell parses that string, so any value interpolated into it "
+                    + "can end the command and start another. [CWE-78]",
+                filePath: fileName,
+                lineNumber: location.line,
+                columnNumber: location.column,
+                ruleId: "security.command-injection",
+                suggestedFix: "Pass the program and its arguments as separate array elements "
+                    + "without a shell — argv entries are not parsed — or acknowledge with "
+                    + "// SECURITY: <reason> if a shell is genuinely required."
+            ))
             return
         }
+    }
 
-        guard callee == "Process" || callee == "NSTask" else { return }
-
-        let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
-        )
-        if isExempted(line: location.line) {
-
-            return
+    /// Whether `expression` is anything other than a string literal with no interpolation.
+    private static func isNonLiteral(_ expression: ExprSyntax) -> Bool {
+        guard let literal = expression.as(StringLiteralExprSyntax.self) else {
+            // An identifier or a call: the command was assembled elsewhere, which is worse.
+            return true
         }
+        return literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
+    }
 
-        diagnostics.append(Diagnostic(
-            severity: .error,
-            message: "Process/NSTask instantiation detected — validate and sanitize dynamic arguments. [CWE-78]",
-            filePath: fileName,
-            lineNumber: location.line,
-            columnNumber: location.column,
-            ruleId: "security.command-injection",
-            suggestedFix: "Use a hardcoded executable path and validate all arguments"
-        ))
+    /// The first string literal inside `expression`, unwrapping one call layer.
+    ///
+    /// Unwraps so `URL(fileURLWithPath: "/bin/sh")` yields the path the same as a bare literal.
+    private static func firstStringLiteral(in expression: ExprSyntaxProtocol) -> String? {
+        if let literal = expression.as(StringLiteralExprSyntax.self) {
+            return literal.representedLiteralValue
+        }
+        if let call = expression.as(FunctionCallExprSyntax.self) {
+            for argument in call.arguments {
+                if let literal = argument.expression.as(StringLiteralExprSyntax.self) {
+                    return literal.representedLiteralValue
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: Weak Crypto (CWE-327)

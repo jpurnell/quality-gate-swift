@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`security.command-injection` now detects injection, and is re-enabled.** It was worded for
+  injection — "validate and sanitize dynamic arguments", CWE-78 — and its mechanism was
+  `callee == "Process"`: it flagged every construction and never inspected an argument. It had
+  been disabled in `.quality-gate.yml` on reasoning that was sound for the name and wrong for
+  the mechanism, and that also removed the only signal pointing at every direct spawn in the
+  tree — nine were unbounded, and one cost 46 minutes to a hang.
+
+  The split that comment asked for is now complete. Containment shipped earlier as
+  `bounded-io.process-construction`; this is the injection half. The rule fires only when a
+  **shell** is invoked with a `-c`-family flag **and** the command string is not a literal. All
+  three conditions are required because each alone is a false positive: shells legitimately run
+  literal scripts, `-c` is also `git -c user.name=…` and `swift build -c release` — both present
+  here and both pinned by tests — and interpolating into an `argv` element is ordinary, since a
+  `Process` given an arguments array invokes no interpreter at all. Flagging that last case is
+  the noise that gets a security rule switched off in the first place.
+
+  Deliberately no taint tracking: whether an interpolated value is attacker-controlled is not
+  decidable in one file, and a single-file visitor that pretends otherwise reports confident
+  nonsense. Interpolating any value into a shell command is the finding; a safe one is
+  acknowledged with `// SECURITY:`, not silently permitted. Zero findings in this repository,
+  which runs no shell. Design: `project/plans/proposals/CommandInjectionEarnsItsName.md`.
+
+  Three existing tests encoded the replaced behaviour and were rewritten rather than deleted:
+  two asserted that a bare `Process()` is an injection finding (now pinning that it is *not*,
+  so the conflation cannot return), and one hardcoded "10 stale rules" against a date that only
+  worked while every rule shared one review date — reviewing a single rule broke a test that was
+  never about the number 10. It now derives both the horizon and the expectation.
+
 ### Added
 
 - **`boundedIO.kernelPath` — a repository names its own bounded-subprocess kernel.** `bounded-io`

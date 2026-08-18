@@ -76,9 +76,9 @@ public enum SecurityRuleManifest {
             ruleId: "security.command-injection",
             cwe: "CWE-78",
             owaspCategory: "M4 Insufficient I/O Validation",
-            description: "Process/NSTask with dynamic launch path or arguments",
+            description: "Shell invoked with -c and a command string assembled at runtime",
             severity: "ERROR",
-            lastReviewedDate: "2026-04-14"
+            lastReviewedDate: "2026-08-18"
         ),
         SecurityRule(
             ruleId: "security.weak-crypto",
