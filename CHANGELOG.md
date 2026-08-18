@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`boundedIO.kernelPath` — a repository names its own bounded-subprocess kernel.** `bounded-io`
+  permitted the unbounded primitives in exactly one hardcoded path,
+  `Sources/QualityGateCore/ProcessRunner.swift`, which names *this* package's own type. A foreign
+  repository has no `QualityGateCore`, so every one of its spawn sites was outside the kernel by
+  construction, the emitted fix named a symbol it could not import, and — the part that made the
+  rule unusable — **writing the correct fix did not clear it**: a project that built a real
+  bounded kernel at its own path got that kernel flagged like any other file. The only reachable
+  green state was an `// Unbounded:` marker on the kernel's own `Process()`, which inverts what
+  that marker means.
+
+  Found by running `bounded-io` against CoverLetterWriter, where it reported 8 errors across 3
+  files. Six were real and are worth recording as the argument for keeping the rule strict once
+  it is configurable: a helper wrote its entire stdin payload before reading a byte of stdout
+  (1 MB through `/bin/cat` deadlocks permanently — reproduced, `SIGKILL`ed at 25s, 11ms after the
+  fix), and neither helper had any timeout, one of them shelling out to a CLI LLM.
+
+  The default preserves today's constant, so this repository's verdicts are byte-identical and a
+  test pins that. Declaring no kernel remains a finding rather than an exemption — a repository
+  with nine unbounded spawns and no kernel is the one that most needs telling. One path, not a
+  list: the trust argument rests on the kernel being small enough to read in one sitting.
+
 ### Fixed
 
 - **Ten more checkers audit the repository rather than a hardcoded `Sources/`.** `safety` was

@@ -727,6 +727,45 @@ extension FloatingPointSafetyAuditorConfig: Codable {
     }
 }
 
+/// Per-checker configuration for BoundedIOAuditor.
+public struct BoundedIOConfig: Sendable, Equatable {
+
+    /// The one file permitted to call unbounded subprocess primitives.
+    ///
+    /// Repo-relative and matched by path suffix, which keeps it independent of the checkout
+    /// root — the same reason absolute paths are kept out of the cache salt.
+    ///
+    /// `nil` means "this package's own kernel", the value the checker shipped with. It is
+    /// deliberately **one** path rather than a list: the trust argument for exempting a file
+    /// rests on the kernel being small enough to read in one sitting, and a list is how that
+    /// property is lost one entry at a time.
+    ///
+    /// A repository with no kernel sets nothing and is told about every unbounded spawn it
+    /// has, which is the intended answer — absence of a kernel is a finding, not an exemption.
+    public var kernelPath: String?
+
+    /// Creates a bounded-IO configuration with the given options.
+    public init(kernelPath: String? = nil) {
+        self.kernelPath = kernelPath
+    }
+
+    /// Default bounded-IO configuration.
+    public static let `default` = BoundedIOConfig()
+}
+
+extension BoundedIOConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case kernelPath
+    }
+
+    /// Creates a bounded-IO configuration by decoding from the given decoder.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = BoundedIOConfig.default
+        kernelPath = try container.decodeIfPresent(String.self, forKey: .kernelPath) ?? defaults.kernelPath
+    }
+}
+
 /// Per-checker configuration for StochasticDeterminismAuditor.
 public struct StochasticDeterminismConfig: Sendable, Equatable {
     /// Function names exempt from seed requirement.
@@ -1788,6 +1827,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for MCPReadinessAuditor.
     public var mcpReadiness: MCPReadinessConfig
 
+    /// Per-checker configuration for BoundedIOAuditor.
+    public var boundedIO: BoundedIOConfig
+
     /// Per-checker configuration for AppIntentsAuditor.
     public var appIntentsReadiness: AppIntentsReadinessConfig
 
@@ -1895,6 +1937,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         stress: StressTestConfig = .default,
         memoryLifecycle: MemoryLifecycleConfig = .default,
         mcpReadiness: MCPReadinessConfig = .default,
+        boundedIO: BoundedIOConfig = .default,
         appIntentsReadiness: AppIntentsReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
         xcodeBuild: XcodeBuildCheckerConfig = .default,
@@ -1947,6 +1990,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.stress = stress
         self.memoryLifecycle = memoryLifecycle
         self.mcpReadiness = mcpReadiness
+        self.boundedIO = boundedIO
         self.appIntentsReadiness = appIntentsReadiness
         self.build = build
         self.xcodeBuild = xcodeBuild
@@ -2058,6 +2102,7 @@ extension Configuration {
         case stress
         case memoryLifecycle
         case mcpReadiness
+        case boundedIO
         case appIntentsReadiness
         case build
         case xcodeBuild
@@ -2131,6 +2176,9 @@ extension Configuration {
         stress = try container.decodeIfPresent(StressTestConfig.self, forKey: .stress) ?? .default
         memoryLifecycle = try container.decodeIfPresent(MemoryLifecycleConfig.self, forKey: .memoryLifecycle) ?? .default
         mcpReadiness = try container.decodeIfPresent(MCPReadinessConfig.self, forKey: .mcpReadiness) ?? .default
+        // Coded, unlike `projectRoot`: this is something a `.quality-gate.yml` should set, and
+        // it belongs in the cache salt because changing it changes verdicts.
+        boundedIO = try container.decodeIfPresent(BoundedIOConfig.self, forKey: .boundedIO) ?? .default
         appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default

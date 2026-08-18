@@ -37,10 +37,13 @@ struct BoundedIOScan: Sendable {
     /// Sites carrying a reasoned `// Unbounded:` marker.
     let acknowledged: Int
 
+    /// The kernel this run measured against, named so a foreign repository's note is true.
+    let kernelName: String
+
     var coverageLine: String {
         "bounded-io examined \(sitesExamined) subprocess site\(sitesExamined == 1 ? "" : "s")"
             + " against \(UnboundedPrimitive.all.count) unbounded primitives"
-            + "; the kernel is ProcessRunner"
+            + "; the kernel is \(kernelName)"
             + (acknowledged > 0 ? " · \(acknowledged) acknowledged out of kernel" : "")
     }
 }
@@ -71,15 +74,18 @@ final class BoundedIOVisitor: SyntaxVisitor {
     private let converter: SourceLocationConverter
     private let sourceLines: [String]
     private let isKernel: Bool
+    /// The kernel's name, for messages that must not cite a symbol the reader cannot import.
+    private let kernelName: String
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var sitesExamined = 0
     private(set) var acknowledged = 0
 
-    init(fileName: String, converter: SourceLocationConverter, sourceLines: [String], isKernel: Bool) {
+    init(fileName: String, converter: SourceLocationConverter, sourceLines: [String], isKernel: Bool, kernelName: String) {
         self.fileName = fileName
         self.converter = converter
         self.sourceLines = sourceLines
         self.isKernel = isKernel
+        self.kernelName = kernelName
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -95,8 +101,8 @@ final class BoundedIOVisitor: SyntaxVisitor {
             record(node: Syntax(node),
                    ruleId: "bounded-io.process-construction",
                    message: "\(ref.baseName.text)() constructed outside the kernel — "
-                       + "spawn through ProcessRunner, which bounds the run and drains its pipes.",
-                   fix: "Use ProcessRunner.run(_:arguments:timeout:)")
+                       + "spawn through \(kernelName), which bounds the run and drains its pipes.",
+                   fix: "Use \(kernelName).run(_:arguments:timeout:)")
             return .visitChildren
         }
 
@@ -105,8 +111,8 @@ final class BoundedIOVisitor: SyntaxVisitor {
             record(node: Syntax(node),
                    ruleId: "bounded-io.outside-kernel",
                    message: "\(primitive.method)() outside the kernel — \(primitive.reason). "
-                       + "It cannot be bounded here; route the spawn through ProcessRunner.",
-                   fix: "Use ProcessRunner.run(_:arguments:timeout:)")
+                       + "It cannot be bounded here; route the spawn through \(kernelName).",
+                   fix: "Use \(kernelName).run(_:arguments:timeout:)")
         }
         return .visitChildren
     }
@@ -119,8 +125,8 @@ final class BoundedIOVisitor: SyntaxVisitor {
         record(node: Syntax(node),
                ruleId: "bounded-io.outside-kernel",
                message: "availableData outside the kernel — \(primitive.reason). "
-                   + "Route the spawn through ProcessRunner.",
-               fix: "Use ProcessRunner.run(_:arguments:timeout:)")
+                   + "Route the spawn through \(kernelName).",
+               fix: "Use \(kernelName).run(_:arguments:timeout:)")
         return .visitChildren
     }
 

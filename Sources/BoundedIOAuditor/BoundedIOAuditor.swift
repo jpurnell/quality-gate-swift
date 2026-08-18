@@ -8,9 +8,20 @@ import SwiftSyntax
 ///
 /// ## What this checker claims
 ///
-/// Only this: **an unbounded primitive was called outside `ProcessRunner`.** It never claims the
-/// code cannot hang, and never claims the kernel is correct — the kernel was wrong for three
-/// months, which is why this exists.
+/// Only this: **an unbounded primitive was called outside the repository's kernel.** It never
+/// claims the code cannot hang, and never claims the kernel is correct — the kernel was wrong for
+/// three months, which is why this exists.
+///
+/// ## One file, per repository
+///
+/// The kernel is one file, and *which* file is a property of the repository being audited, set
+/// with `boundedIO.kernelPath` and defaulting to this package's own
+/// `Sources/QualityGateCore/ProcessRunner.swift`. It used to be that constant and nothing else,
+/// which named a type only this package has: a foreign repository had every spawn site outside
+/// the kernel by construction, and the emitted fix cited a symbol it could not import, so
+/// **writing the correct fix did not clear the rule**. Declaring no kernel is still a finding
+/// rather than an exemption — a repository with nine unbounded spawns and no kernel is the one
+/// that most needs telling.
 ///
 /// The distinction from `liveness` is the API, not the severity. There, a bounded overload exists
 /// and the call site declined it, so the repair is local. Here no bounded form exists at all:
@@ -26,7 +37,7 @@ import SwiftSyntax
 ///
 /// ## Rules
 ///
-/// - **bounded-io.outside-kernel**: an unbounded primitive called outside `ProcessRunner`.
+/// - **bounded-io.outside-kernel**: an unbounded primitive called outside the declared kernel.
 /// - **bounded-io.process-construction**: a `Process()` or `NSTask()` built outside it. Absorbed
 ///   from `security.command-injection`, whose mechanism was exactly this check under a name that
 ///   described a different hazard — and which was disabled in config on injection grounds,
@@ -64,7 +75,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
-    /// The one file permitted to call unbounded primitives.
+    /// The kernel this package uses when a repository declares none.
     ///
     /// Matched by path suffix so it holds under any checkout root. Deliberately a single file:
     /// the trust argument rests on the kernel being small enough to read in one sitting, and a
@@ -73,7 +84,21 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// The admission test for anything joining it: **does this primitive lack a bounded form?**
     /// If a bounded form exists the answer is the overload, not the kernel — which is why the
     /// semaphore waits `liveness` reports were fixed in place rather than moved here.
-    static let kernelPath = "Sources/QualityGateCore/ProcessRunner.swift"
+    ///
+    /// This used to be *the* kernel path rather than the default one, and it names this
+    /// package's own type. A foreign repository has no `QualityGateCore`, so every spawn site
+    /// it owned was outside the kernel by construction and the emitted fix named a symbol it
+    /// could not import — **writing the correct fix did not clear the rule.** Override with
+    /// `boundedIO.kernelPath`. See `project/plans/proposals/BoundedIOKernelPath.md`.
+    static let defaultKernelPath = "Sources/QualityGateCore/ProcessRunner.swift"
+
+    /// The name a diagnostic should use for a kernel at `path` — its file's base name.
+    ///
+    /// A message that names a type the reader cannot import reads as a broken checker rather
+    /// than as a finding, which is the failure this exists to avoid.
+    static func kernelName(for path: String) -> String {
+        (path as NSString).lastPathComponent.replacingOccurrences(of: ".swift", with: "")
+    }
 
     /// Creates a new bounded IO auditor.
     public init() {}
@@ -106,7 +131,8 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
         for path in scan.files {
             // silent: an unreadable file is skipped, not counted clean; the walker reports it.
             guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
-            let result = Self.scan(source: source, fileName: path)
+            let result = Self.scan(
+                source: source, fileName: path, kernelPath: configuration.boundedIO.kernelPath)
             diagnostics.append(contentsOf: result.diagnostics)
             sites += result.sitesExamined
             acknowledged += result.acknowledged
@@ -117,7 +143,10 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
         let scope = scan.exclusionClause.map { " · \($0)" } ?? ""
         diagnostics.append(Diagnostic(
             severity: .note,
-            message: BoundedIOScan(diagnostics: [], sitesExamined: sites, acknowledged: acknowledged).coverageLine
+            message: BoundedIOScan(
+                diagnostics: [], sitesExamined: sites, acknowledged: acknowledged,
+                kernelName: Self.kernelName(
+                    for: configuration.boundedIO.kernelPath ?? Self.defaultKernelPath)).coverageLine
                 + " across \(scan.files.count) files" + scope,
             ruleId: "bounded-io.coverage"))
 
@@ -130,18 +159,28 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     }
 
     /// Scans one file's source. Exposed for tests, which drive this checker case by case.
-    static func scan(source: String, fileName: String) -> BoundedIOScan {
+    ///
+    /// - Parameters:
+    ///   - source: The Swift source to scan.
+    ///   - fileName: The path used for the kernel test and in emitted diagnostics.
+    ///   - kernelPath: The repository's declared kernel, or `nil` for ``defaultKernelPath``.
+    ///   Defaulted to `nil` so the existing case-by-case tests, which exercise the default
+    ///   kernel, keep reading as tests of *that* rather than restating it at every call.
+    static func scan(source: String, fileName: String, kernelPath: String? = nil) -> BoundedIOScan {
+        let resolvedKernel = kernelPath ?? defaultKernelPath
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let visitor = BoundedIOVisitor(
             fileName: fileName,
             converter: converter,
             sourceLines: source.lines,
-            isKernel: fileName.hasSuffix(kernelPath))
+            isKernel: fileName.hasSuffix(resolvedKernel),
+            kernelName: kernelName(for: resolvedKernel))
         visitor.walk(tree)
         return BoundedIOScan(
             diagnostics: visitor.diagnostics,
             sitesExamined: visitor.sitesExamined,
-            acknowledged: visitor.acknowledged)
+            acknowledged: visitor.acknowledged,
+            kernelName: kernelName(for: resolvedKernel))
     }
 }
