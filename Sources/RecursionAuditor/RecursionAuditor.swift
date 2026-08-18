@@ -49,22 +49,20 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     /// - Returns: A check result containing any recursion diagnostics found.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        // The walk was a hardcoded `Sources/` under the resolved root, so unguarded recursion
+        // in `Plugins/`, in `Tests/`, or at the package root was never examined — and a test
+        // that recurses without a base case hangs a suite exactly as thoroughly as it hangs a
+        // tool. `SourceWalker` also brings the exclusions the private enumerator ignored.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var sources: [(fileName: String, source: String)] = []
-        if fileManager.fileExists(atPath: sourcesPath), // SAFETY: CLI tool reads local project sources
-           let enumerator = fileManager.enumerator(atPath: sourcesPath) {
-            while let relativePath = enumerator.nextObject() as? String {
-                guard relativePath.hasSuffix(".swift") else { continue }
-                let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
-                do {
-                    let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                    sources.append((fullPath, source))
-                } catch {
-                    Self.logger.warning("Skipping unreadable source file: \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
+        for fullPath in scan.files {
+            do {
+                let source = try String(contentsOfFile: fullPath, encoding: .utf8)
+                sources.append((fullPath, source))
+            } catch {
+                Self.logger.warning("Skipping unreadable source file: \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 

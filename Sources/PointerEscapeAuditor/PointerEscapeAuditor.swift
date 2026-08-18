@@ -60,22 +60,34 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
     /// Scans all Swift files under the project `Sources/` directory for pointer escapes.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        // Hardcoded `Sources/` before this: a pointer escaping a `withUnsafe*` block in
+        // `Plugins/`, `Tests/`, or at the package root was never looked at, and a dangling
+        // pointer in a test is a crash in the suite. `SourceWalker` also applies the
+        // `excludePatterns` the private enumerator never consulted.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
         var allCompliance: [ComplianceRecord] = []
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = try await auditDirectory(at: sourcesPath)
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-            allCompliance.append(contentsOf: result.complianceRecords)
-        }
+        let result = auditFiles(scan.files)
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        allOverrides.append(contentsOf: result.overrides)
+        allCompliance.append(contentsOf: result.complianceRecords)
+
+        // Emitted pass or fail — a checker that examined nothing must not print what a checker
+        // that found nothing prints.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "pointer-escape examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "pointer-escape.coverage"))
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
+        // Notes excluded deliberately: the coverage note above is a diagnostic, and testing
+        // `allDiagnostics.isEmpty` would make every run fail the moment it was added.
+        let status: CheckResult.Status = allDiagnostics.contains { $0.severity != .note } ? .failed : .passed
         return CheckResult(checkerId: id, status: status, diagnostics: allDiagnostics, overrides: allOverrides, complianceRecords: allCompliance, duration: duration)
     }
 
@@ -97,15 +109,12 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
 
     // MARK: - Private
 
-    private func auditDirectory(at path: String) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], complianceRecords: [ComplianceRecord]) {
-        let fileManager = FileManager.default
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    private func auditFiles(_ paths: [String]) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], complianceRecords: [ComplianceRecord]) {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
         var complianceRecords: [ComplianceRecord] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], [], []) }
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+        for fullPath in paths {
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let result = auditSourceCode(source, fileName: fullPath)

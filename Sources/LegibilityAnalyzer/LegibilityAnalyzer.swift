@@ -408,6 +408,14 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
             }
             guard let libPath = IndexStoreSession.findLibIndexStore() else { return nil }
             let session = try await SharedIndexStore.session(storePath: located.url, libPath: libPath)
+            // Scoped to `Sources/` deliberately, and this is not the hardcoded-`Sources/`
+            // defect that was swept out of the code-kind checkers. Those bounded a walk to a
+            // directory and so never examined rules that apply everywhere. This measures the
+            // *public API surface* and whether the modules publishing it carry an orientation
+            // doc. A test target's `public` symbols are not API anybody imports, so widening
+            // this would report every test module as undocumented and make the metric mean
+            // less, not more. Stated here because an unexplained filter is indistinguishable
+            // from the defect, and the next reader will otherwise "fix" it.
             let sourceFiles = SourceWalker
                 .swiftFiles(under: kind.rootURL, excludePatterns: configuration.excludePatterns)
                 .filter { $0.contains("/Sources/") }

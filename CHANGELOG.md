@@ -4,6 +4,50 @@
 
 ### Fixed
 
+- **Ten more checkers audit the repository rather than a hardcoded `Sources/`.** `safety` was
+  not alone: `concurrency`, `recursion`, `pointer-escape`, `fp-safety`, `memory-lifecycle`,
+  `accessibility`, `hig-auditor`, `mcp-readiness`, `context` and `complexity` each appended the
+  literal `Sources` to the resolved root, by copy-paste. Every one now walks the root through
+  `SourceWalker` and states its coverage. Several carried a second defect behind the first:
+  `concurrency`, `recursion`, `pointer-escape`, `fp-safety` and `memory-lifecycle` never
+  consulted `excludePatterns` at all, so paths the configuration excluded were audited anyway.
+
+  Three findings the mechanical description would have missed:
+
+  - **Four checkers computed status as `allDiagnostics.isEmpty`**, so adding a coverage note
+    would have turned every run red. They now test for a non-note diagnostic — the same trap
+    that once silently downgraded six real `process-safety` findings when its coverage note
+    was added.
+  - **`mcp-readiness` was double-counting.** It walked `Sources/` *and* each
+    `mcpReadiness.additionalPaths` entry, and those resolve under the project root, so a file
+    covered by both was audited twice and counted twice in `mcpFileCount`. One root walk ends
+    it; `additionalPaths` is subsumed rather than ignored, and still loads.
+  - **`complexity` derived module names from the `Sources/`-relative path**, so the first path
+    component *was* the module. Widening moved the module one component along, and without the
+    corresponding fix every record in the corpus would have reported its module as `"Sources"`.
+
+  `memory-lifecycle`'s `Tests/` skip, `context`'s `isTestFile` skip and `fp-safety`'s
+  `skipTestFiles` flag all survive the widening, now stated as judgements rather than left to
+  look like the defect. `fp-safety`'s is the clearest: it skips test code because
+  `test-quality` covers it as `exact-double-equality` — same detector, different reach.
+
+  `legibility` was **not** widened. It already walked the root and filtered `/Sources/`, and
+  that filter measures the *public API surface* and whether the modules publishing it carry an
+  orientation doc. A test target's `public` symbols are not API anyone imports, so widening it
+  would report every test module as undocumented and make the metric mean less. The filter is
+  now documented as deliberate, because an unexplained filter is indistinguishable from the
+  bug and the next reader would have "fixed" it.
+
+### Changed
+
+- **`complexity` telemetry covers a larger file set from this commit on.** Its records now
+  include `Tests/`, `Plugins/` and the package manifest, where before they covered library
+  code alone, and module names resolve past the container directory so `Tests/FooTests/X.swift`
+  reports `FooTests` rather than `Tests`. Any trend line crossing this commit **steps rather
+  than drifts, and the step is a scope change, not a regression** — recorded here because a
+  metric that moves for a reason nobody wrote down is indistinguishable from one that moved
+  because the code got worse, and this project's own pulse would have read it that way.
+
 - **`safety` audits the whole repository, not a hardcoded `Sources/`.** The checker
   appended the literal `Sources` to the resolved project root, so a force unwrap in
   `Plugins/`, in `Tests/`, or at the package root passed a gate that forbids force

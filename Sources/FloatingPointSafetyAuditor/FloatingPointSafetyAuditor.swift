@@ -78,23 +78,36 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
     ///   found, `.passed` otherwise.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        // Hardcoded `Sources/` before this. The project's own rule names tests explicitly —
+        // "Tests: never use == for floating point" — and the checker that enforces it was
+        // never pointed at `Tests/`. `SourceWalker` also brings the `excludePatterns` the
+        // private enumerator ignored.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = auditDirectory(
-                at: sourcesPath,
-                config: configuration.fpSafety
-            )
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-        }
+        let result = auditFiles(
+            scan.files,
+            relativeTo: root.resolvingSymlinksInPath().path,
+            config: configuration.fpSafety
+        )
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        allOverrides.append(contentsOf: result.overrides)
+
+        // Emitted pass or fail — examined-nothing must not look like found-nothing.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "floating-point examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "fp-safety.coverage"))
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .warning
+        // Notes excluded: this checker reports at `.warning`, so an `isEmpty` test would both
+        // fail on its own coverage note and, if written as "any `.error`", pass a file holding
+        // the very unguarded division it exists to find.
+        let status: CheckResult.Status = allDiagnostics.contains { $0.severity != .note } ? .warning : .passed
         return CheckResult(
             checkerId: id,
             status: status,
@@ -137,24 +150,31 @@ public struct FloatingPointSafetyAuditor: QualityChecker, Sendable {
 
     // MARK: - Private
 
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    ///
+    /// - Parameter root: The package root, used to re-derive each file's repository-relative
+    ///   path. `allowedFiles` is matched against that rather than against the absolute path:
+    ///   an absolute path carries the checkout's own directory names, so matching it would let
+    ///   an entry like `Metrics` start excluding files because somebody's home directory
+    ///   happened to contain the word.
+    private func auditFiles(
+        _ paths: [String],
+        relativeTo root: String,
         config: FloatingPointSafetyAuditorConfig
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
 
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
+        for fullPath in paths {
+            let relativePath = fullPath.hasPrefix(root)
+                ? String(fullPath.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                : fullPath
 
             // Skip allowed files
             if config.allowedFiles.contains(where: { relativePath.contains($0) }) {
                 continue
             }
 
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let result = auditSourceCode(source, fileName: fullPath, config: config)

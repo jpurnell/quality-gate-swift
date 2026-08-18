@@ -93,9 +93,12 @@ public struct HIGAuditor: FixableChecker, Sendable {
     /// Audits all Swift sources under `Sources/` for HIG compliance issues.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        let currentDir = root.path
+        // Hardcoded `Sources/` before this — and the SAFETY comment said "relative Sources/
+        // under cwd", which had already stopped being true when the root was threaded through
+        // configuration. `SourceWalker` owns the exclusion decision now.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         let activePlatforms = platformOverride
             ?? PlatformDetector.detectFromPackageManifest(at: currentDir)
@@ -103,18 +106,26 @@ public struct HIGAuditor: FixableChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: relative "Sources/" under cwd — no user input
-            let result = try await auditDirectory(
-                at: sourcesPath,
-                activePlatforms: activePlatforms,
-                configuration: configuration
-            )
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-        }
+        let result = try await auditFiles(
+            scan.files,
+            activePlatforms: activePlatforms,
+            configuration: configuration
+        )
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        allOverrides.append(contentsOf: result.overrides)
+
+        // Emitted pass or fail — examined-nothing must not look like found-nothing.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "hig examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "hig-auditor.coverage"))
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
+        // Notes excluded: the coverage note above is a diagnostic, and an `isEmpty` test would
+        // fail every run the moment it was added.
+        let status: CheckResult.Status = allDiagnostics.contains { $0.severity != .note } ? .failed : .passed
 
         return CheckResult(
             checkerId: id,
@@ -244,28 +255,16 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
     // MARK: - Private
 
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    private func auditFiles(
+        _ paths: [String],
         activePlatforms: HIGPlatform,
         configuration: Configuration
     ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], [])
-        }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-
-            if shouldExclude(path: fullPath, patterns: configuration.excludePatterns) {
-                continue
-            }
-
+        for fullPath in paths {
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let result = auditSource(source, fileName: fullPath, activePlatforms: activePlatforms)
@@ -278,15 +277,6 @@ public struct HIGAuditor: FixableChecker, Sendable {
         }
 
         return (diagnostics, overrides)
-    }
-
-    private func shouldExclude(path: String, patterns: [String]) -> Bool {
-        for pattern in patterns {
-            if path.contains(pattern) {
-                return true
-            }
-        }
-        return false
     }
 
     private func applyFix(ruleId: String, source: inout String, diagnostic: Diagnostic) -> Bool {

@@ -91,19 +91,23 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// gracefully — a missing or stale index store never fails the quality gate.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
         // Pass 1: syntactic analysis (always runs).
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = try await auditDirectory(at: sourcesPath)
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-        }
+        //
+        // The walk was a hardcoded `Sources/` under the resolved root, so an unjustified
+        // `@unchecked Sendable` in `Plugins/`, in `Tests/`, or at the package root passed a
+        // rule the gate states unconditionally. `SourceWalker` is what makes pointing at the
+        // root safe — it refuses build output, Xcode containers and git-ignored trees — and it
+        // repairs a second defect the private enumerator had: `excludePatterns` was never
+        // consulted, so a path the configuration excluded was audited anyway.
+        let result = auditFiles(scan.files)
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        allOverrides.append(contentsOf: result.overrides)
 
         // Pass 2: index-backed cross-file analysis (optional, graceful degradation).
         if configuration.concurrency.useIndexStore {
@@ -121,6 +125,15 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
                 ))
             }
         }
+
+        // Emitted pass or fail: a checker that examined nothing must not print what a checker
+        // that found nothing prints. This one reported on a package while reading one directory.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "concurrency examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "concurrency.coverage"))
 
         let duration = ContinuousClock.now - startTime
         let actionable = allDiagnostics.filter { $0.severity != .note }
@@ -144,21 +157,22 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
 
     // MARK: - Private
 
-    private func auditDirectory(at path: String) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
+    /// Audits an already-scoped list of Swift files.
+    ///
+    /// Takes the list rather than a directory because deciding which files a run owns is
+    /// `SourceWalker`'s job; duplicating that decision here is what produced two different
+    /// answers to the same question.
+    private func auditFiles(_ paths: [String]) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+        for path in paths {
             do {
-                let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let result = auditSourceCode(source, fileName: fullPath)
+                let source = try String(contentsOfFile: path, encoding: .utf8)
+                let result = auditSourceCode(source, fileName: path)
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
-                Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                Self.logger.warning("Failed to read source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }

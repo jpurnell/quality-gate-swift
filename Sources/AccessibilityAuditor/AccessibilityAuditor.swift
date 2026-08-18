@@ -71,25 +71,34 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        // Hardcoded `Sources/` before this, so accessibility defects in `Plugins/` or at the
+        // package root were never examined. `SourceWalker` owns the exclusion decision now,
+        // which is why the local `shouldExclude` filter has gone: two answers to "which files
+        // are ours" is what the widening exists to remove.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            let result = try await auditDirectory(
-                at: sourcesPath,
-                configuration: configuration
-            )
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            allOverrides.append(contentsOf: result.overrides)
-        }
+        let result = try await auditFiles(scan.files, configuration: configuration)
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        allOverrides.append(contentsOf: result.overrides)
+
+        // Emitted pass or fail — examined-nothing must not look like found-nothing.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "accessibility examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "accessibility.coverage"))
 
         let duration = ContinuousClock.now - startTime
         let hasErrors = allDiagnostics.contains { $0.severity == .error }
-        let status: CheckResult.Status = hasErrors ? .failed : (allDiagnostics.isEmpty ? .passed : .warning)
+        // Notes excluded: an `isEmpty` test would report `.warning` on every run once the
+        // coverage note above exists.
+        let actionable = allDiagnostics.contains { $0.severity != .note }
+        let status: CheckResult.Status = hasErrors ? .failed : (actionable ? .warning : .passed)
 
         return CheckResult(
             checkerId: id,
@@ -131,26 +140,15 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    private func auditFiles(
+        _ paths: [String],
         configuration: Configuration
     ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], [])
-        }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-
-            if shouldExclude(path: fullPath, patterns: configuration.excludePatterns) {
-                continue
-            }
-
+        for fullPath in paths {
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let result = auditSourceCode(source, fileName: fullPath, configuration: configuration)
@@ -163,24 +161,6 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         }
 
         return (diagnostics, overrides)
-    }
-
-    private func shouldExclude(path: String, patterns: [String]) -> Bool {
-        for pattern in patterns {
-            if pathMatches(path: path, pattern: pattern) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func pathMatches(path: String, pattern: String) -> Bool {
-        if pattern.contains("**") {
-            let component = pattern.replacingOccurrences(of: "**/", with: "")
-                .replacingOccurrences(of: "/**", with: "")
-            return path.contains(component)
-        }
-        return path.contains(pattern.replacingOccurrences(of: "*", with: ""))
     }
 
     private func auditSourceCode(

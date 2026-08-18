@@ -132,25 +132,31 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         )
     }
 
-    /// Scans all Swift source files under Sources/ and returns per-function complexity records.
+    /// Scans every Swift file the repository owns and returns per-function complexity records.
+    ///
+    /// ## This changed what the corpus measures
+    ///
+    /// The walk was a hardcoded `Sources/`, so complexity was reported for library code and
+    /// for nothing else. It now covers whatever the repository owns — `Tests/`, `Plugins/`,
+    /// and the package manifest included.
+    ///
+    /// That is a **discontinuity in the telemetry**, not a change in the code being measured.
+    /// Records emitted after this commit cover a larger file set than records emitted before
+    /// it, so any trend line crossing this point steps rather than drifts, and the step is a
+    /// scope change. It is recorded here, in the CHANGELOG, and in the session summary,
+    /// because a metric that moves for a reason nobody wrote down is indistinguishable from a
+    /// regression — and this project's own pulse would have read it as one.
     public func scanProject(configuration: Configuration) -> [FunctionComplexityRecord] {
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        let rootPath = root.resolvingSymlinksInPath().path
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allRecords: [FunctionComplexityRecord] = []
         let callGraphEnabled = configuration.complexity.callGraphEnabled
         let maxDepth = configuration.complexity.callGraphMaxDepth
         let userCosts = Self.buildUserCostDictionary(from: configuration.complexity.knownCosts)
 
-        guard fileManager.fileExists(atPath: sourcesPath), // SAFETY: CLI tool reads local project sources
-              let enumerator = fileManager.enumerator(atPath: sourcesPath) else {
-            return []
-        }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
+        for fullPath in scan.files {
             let source: String
             do {
                 source = try String(contentsOfFile: fullPath, encoding: .utf8)
@@ -159,6 +165,9 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
                 continue
             }
 
+            let relativePath = fullPath.hasPrefix(rootPath)
+                ? String(fullPath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                : fullPath
             let moduleName = extractModuleName(from: relativePath)
 
             if callGraphEnabled {
@@ -232,10 +241,32 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
         return dict
     }
 
+    /// Directory names that hold modules rather than being one.
+    ///
+    /// The three source spellings SwiftPM permits, plus the two other trees a package owns.
+    /// Without this list a repository-relative path reports its *container* as the module and
+    /// every record in the corpus collapses to "Sources".
+    private static let containerDirectories: Set<String> = ["Sources", "Source", "src", "Tests", "Plugins"]
+
+    /// The module owning a repository-relative path.
+    ///
+    /// Takes the component *after* the container, so `Sources/Foo/Bar.swift` and
+    /// `Tests/FooTests/Bar.swift` each name their own module. Previously the path was already
+    /// relative to `Sources/`, so the first component was the module; widening the walk to the
+    /// repository root moved the module one component along.
+    ///
+    /// - Parameter relativePath: A path relative to the package root.
+    /// - Returns: The module name, or `"Unknown"` for a file that sits outside any module —
+    ///   the package manifest, or a loose script at the root.
     private func extractModuleName(from relativePath: String) -> String {
-        let components = relativePath.split(separator: "/")
-        guard let first = components.first else { return "Unknown" }
-        return String(first)
+        var components = relativePath.split(separator: "/")
+        if let first = components.first, Self.containerDirectories.contains(String(first)) {
+            components.removeFirst()
+        }
+        // Two components minimum: a module directory *and* a file inside it. One component is
+        // a file sitting directly in the container, which belongs to no module.
+        guard components.count >= 2, let module = components.first else { return "Unknown" }
+        return String(module)
     }
 
     private func patternMessage(_ pattern: ComplexityPattern, in functionName: String) -> String {

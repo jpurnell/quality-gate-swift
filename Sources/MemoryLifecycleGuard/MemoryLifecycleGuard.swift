@@ -62,9 +62,11 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     /// - Returns: The check result with status and diagnostics.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        // Hardcoded `Sources/` before this, so a retain cycle or an unbounded stream in
+        // `Plugins/`, `Tests/`, or at the package root was never examined. `SourceWalker`
+        // brings the configured exclusions the private enumerator ignored, too.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
         let config = configuration.memoryLifecycle
 
         var allDiagnostics: [Diagnostic] = []
@@ -72,13 +74,11 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         var allDelegateInfos: [LifecycleIndexPass.DelegatePropertyInfo] = []
         var allStreamInfos: [LifecycleIndexPass.StreamCreationInfo] = []
 
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project Sources directory
-            let result = auditDirectory(at: sourcesPath, config: config)
-            allDiagnostics = result.diagnostics
-            allTaskInfos = result.taskInfos
-            allDelegateInfos = result.delegateInfos
-            allStreamInfos = result.streamInfos
-        }
+        let result = auditFiles(scan.files, config: config)
+        allDiagnostics = result.diagnostics
+        allTaskInfos = result.taskInfos
+        allDelegateInfos = result.delegateInfos
+        allStreamInfos = result.streamInfos
 
         if config.useIndexStore && !allDiagnostics.isEmpty {
             do {
@@ -99,6 +99,18 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 ))
             }
         }
+
+        // Appended *after* pass 2, which replaces `allDiagnostics` wholesale — a note added
+        // before it would be silently discarded — and after the `!allDiagnostics.isEmpty`
+        // gate above, which decides whether pass 2 runs at all. A coverage note added earlier
+        // would make that condition true on every run and turn an optional pass into a
+        // mandatory one.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "memory-lifecycle examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "memory-lifecycle.coverage"))
 
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = allDiagnostics.contains(where: { $0.severity == .warning }) ? .warning : .passed
@@ -196,24 +208,24 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         let streamInfos: [LifecycleIndexPass.StreamCreationInfo]
     }
 
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    ///
+    /// The `Tests/` skip below is kept, and it is a different thing from the hardcoded
+    /// `Sources/` that used to bound this walk. That was an accident of where the enumerator
+    /// was pointed; this is a stated judgement — a retain cycle in a test process that exits
+    /// after the suite is not the defect this checker exists to find, and the pass-2 index
+    /// work it would trigger is not free. It survives the widening deliberately.
+    private func auditFiles(
+        _ paths: [String],
         config: MemoryLifecycleConfig
     ) -> AuditResult {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var taskInfos: [LifecycleIndexPass.TaskPropertyInfo] = []
         var delegateInfos: [LifecycleIndexPass.DelegatePropertyInfo] = []
         var streamInfos: [LifecycleIndexPass.StreamCreationInfo] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return AuditResult(diagnostics: [], taskInfos: [], delegateInfos: [], streamInfos: [])
-        }
 
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            guard !relativePath.contains("Tests/") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+        for fullPath in paths {
+            guard !fullPath.contains("Tests/") else { continue }
 
             let isExempt = config.exemptFiles.contains { exemptPattern in
                 fullPath.contains(exemptPattern)

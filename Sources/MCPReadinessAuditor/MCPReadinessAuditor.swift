@@ -77,36 +77,25 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
     /// - Returns: The check result with status and diagnostics.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
+        let root = configuration.resolvedProjectRoot
         let config = configuration.mcpReadiness
 
-        // Collect directories to scan
-        var scanPaths: [String] = []
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
-        // SECURITY: CLI tool reads local project Sources directory
-        if fileManager.fileExists(atPath: sourcesPath) {
-            scanPaths.append(sourcesPath)
-        }
-        for additional in config.additionalPaths {
-            let fullPath = (currentDir as NSString).appendingPathComponent(additional)
-            // SECURITY: CLI tool reads additional path from project configuration
-            if fileManager.fileExists(atPath: fullPath) {
-                scanPaths.append(fullPath)
-            }
-        }
+        // One walk of the whole root, where this used to walk `Sources/` plus each entry in
+        // `mcpReadiness.additionalPaths`.
+        //
+        // `additionalPaths` is subsumed rather than ignored: every entry was resolved against
+        // the project root, so each one names a subtree the root walk now covers anyway. The
+        // key stays accepted so existing configurations keep loading, and it is now a no-op.
+        // The old shape also double-counted — an `additionalPaths` entry inside `Sources/`
+        // was walked twice, and `mcpFileCount` counted the same file each time.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
         var mcpFileCount = 0
 
-        for scanPath in scanPaths {
-            let result = auditDirectory(
-                at: scanPath,
-                config: config
-            )
-            allDiagnostics.append(contentsOf: result.diagnostics)
-            mcpFileCount += result.mcpFileCount
-        }
+        let result = auditFiles(scan.files, config: config)
+        allDiagnostics.append(contentsOf: result.diagnostics)
+        mcpFileCount += result.mcpFileCount
 
         let duration = ContinuousClock.now - startTime
 
@@ -140,23 +129,15 @@ public struct MCPReadinessAuditor: QualityChecker, Sendable {
     // MARK: - Private
 
     /// Scans a directory tree for Swift files containing MCP tool definitions.
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    private func auditFiles(
+        _ paths: [String],
         config: MCPReadinessConfig
     ) -> (diagnostics: [Diagnostic], mcpFileCount: Int) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var mcpFileCount = 0
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], 0)
-        }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-
+        for fullPath in paths {
             // Skip excluded paths
             let isExcluded = config.excludePaths.contains { excludePattern in
                 fullPath.contains(excludePattern)

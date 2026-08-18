@@ -64,21 +64,25 @@ public struct ContextAuditor: QualityChecker, Sendable {
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let fileManager = FileManager.default
-        let currentDir = configuration.resolvedProjectRoot.path
-        let sourcesPath = (currentDir as NSString).appendingPathComponent("Sources")
+        let root = configuration.resolvedProjectRoot
+        // Hardcoded `Sources/` before this. The `isTestFile` skip inside the walk is a
+        // separate, deliberate judgement and survives; the directory bound was not.
+        let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
+        allDiagnostics = try await auditFiles(scan.files, configuration: configuration)
 
-        if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
-            allDiagnostics = try await auditDirectory(
-                at: sourcesPath,
-                configuration: configuration
-            )
-        }
+        // Emitted pass or fail — examined-nothing must not look like found-nothing.
+        let plural = scan.files.count == 1 ? "" : "s"
+        allDiagnostics.append(Diagnostic(
+            severity: .note,
+            message: "context examined \(scan.files.count) file\(plural)"
+                + (scan.exclusionClause.map { " · \($0)" } ?? ""),
+            ruleId: "context.coverage"))
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .warning
+        // Notes excluded: an `isEmpty` test would warn on every run once the note exists.
+        let status: CheckResult.Status = allDiagnostics.contains { $0.severity != .note } ? .warning : .passed
 
         return CheckResult(
             checkerId: id,
@@ -117,22 +121,18 @@ public struct ContextAuditor: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
-    private func auditDirectory(
-        at path: String,
+    /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
+    ///
+    /// The `isTestFile` skip is kept and is a different thing from the hardcoded `Sources/`
+    /// this used to be bounded by: that was where the enumerator happened to be pointed, this
+    /// is a stated judgement about what the rule means.
+    private func auditFiles(
+        _ paths: [String],
         configuration: Configuration
     ) async throws -> [Diagnostic] {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return []
-        }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
-
+        for fullPath in paths {
             if isTestFile(fullPath) { continue }
 
             do {
