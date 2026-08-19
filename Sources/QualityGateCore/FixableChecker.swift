@@ -16,6 +16,7 @@ import Foundation
 ///     let category = CheckerCategory.codeHygiene
 ///     let kind = CheckerKind.code
 ///     let effect = CheckerEffect.readOnly
+///     let executesProjectCode = false
 ///     let fixDescription = "Corrects formatting issues in source files."
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {

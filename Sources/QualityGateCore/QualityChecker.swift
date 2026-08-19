@@ -16,6 +16,7 @@ import Foundation
 ///     let category = CheckerCategory.codeHygiene
 ///     let kind = CheckerKind.code
 ///     let effect = CheckerEffect.readOnly
+///     let executesProjectCode = false
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
 ///         // Perform checks...
@@ -83,6 +84,28 @@ public protocol QualityChecker: Sendable {
     /// No default: a checker that writes and forgets to declare it is exactly the failure this
     /// prevents, and ``CheckerEffect/readOnly`` is what such a checker would inherit.
     var effect: CheckerEffect { get }
+
+    /// Whether running this checker executes the analysed project's own code.
+    ///
+    /// A third axis, and it comes apart from the other two exactly where it matters. ``kind``
+    /// answers *what it judges*; ``effect`` answers *what it leaves behind*; neither answers
+    /// *does it run their code*.
+    ///
+    /// `build`, `test` and `xcode-build` are correctly ``CheckerEffect/readOnly`` — that
+    /// property deliberately excludes compilation output, because counting `.build/` as a write
+    /// would make it vacuous. They are nonetheless the three checkers a survey must not run:
+    /// pointed at a package the operator is *evaluating*, `test` executes its suite. Alamofire's
+    /// makes real network calls and ran for ten minutes before being stopped; with these three
+    /// excluded, nine repositories and 2,120 files finished in 69 seconds.
+    ///
+    /// Running arbitrary code from a package under evaluation is a posture decision, and it
+    /// deserves a declaration rather than being inferred from two properties that do not
+    /// encode it.
+    ///
+    /// No default, for the reason ``effect`` has none: a checker that shells out and forgets to
+    /// say so would inherit `false` and be admitted to every survey of a stranger's repository.
+    /// The cost is one line per checker; the alternative is one silent executor.
+    var executesProjectCode: Bool { get }
 
     /// Run the quality check and return results.
     ///

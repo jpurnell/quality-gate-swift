@@ -55,6 +55,8 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Safe to run in the concurrent group — and that placement is what orders it correctly.
     ///
     /// `CheckerRunner` runs every non-parallel-safe checker to completion first, then the

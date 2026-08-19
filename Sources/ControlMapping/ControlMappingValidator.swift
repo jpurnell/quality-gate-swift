@@ -28,6 +28,8 @@ public struct ControlMappingValidator: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Days a catalog may go un-reviewed before staleness warns.
     let freshnessHorizonDays: Int
 

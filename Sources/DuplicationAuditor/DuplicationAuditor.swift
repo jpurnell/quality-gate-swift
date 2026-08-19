@@ -70,6 +70,8 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// The rule identifier stamped on every clone diagnostic.
     static let ruleId = "duplication.clone"
 

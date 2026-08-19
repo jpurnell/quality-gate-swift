@@ -75,6 +75,8 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// The kernel this package uses when a repository declares none.
     ///
     /// Matched by path suffix so it holds under any checkout root. Deliberately a single file:

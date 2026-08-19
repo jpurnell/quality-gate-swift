@@ -24,6 +24,7 @@ import QualityGateCore
 ///     let category = CheckerCategory.codeHygiene
 ///     let kind = CheckerKind.code
 ///     let effect = CheckerEffect.readOnly
+///     let executesProjectCode = false
 ///
 ///     func check(configuration: Configuration) async throws -> CheckResult {
 ///         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)

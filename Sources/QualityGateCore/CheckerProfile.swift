@@ -22,10 +22,16 @@ import Foundation
 /// attached, and neither was reachable from inside.
 public enum CheckerProfile: String, Sendable, Codable, CaseIterable, Equatable {
 
-    /// Checkers that judge the source on its own terms, and write nothing.
+    /// Checkers that judge the source on its own terms, write nothing, and run nothing.
     ///
     /// The safe profile to aim at a repository nobody here owns: every finding is one whose
-    /// author would recognise it as being about their code, and running it leaves no trace.
+    /// author would recognise it as being about their code, running it leaves no trace, and
+    /// **the surveyed package's own code is never executed** — no compiler is invoked and no
+    /// test suite is run.
+    ///
+    /// That last clause was added after the profile was observed running a stranger's test
+    /// suite for ten minutes. It had always been true of what the profile *reported* and never
+    /// of what it *ran*.
     case code
 
     /// Checkers that judge documentation, and write nothing.
@@ -46,7 +52,15 @@ public enum CheckerProfile: String, Sendable, Codable, CaseIterable, Equatable {
         case .all:
             return true
         case .code:
-            return checker.kind == .code && checker.effect == .readOnly
+            // Three axes, because two were not enough. `build`, `test` and `xcode-build` are
+            // code-kind and genuinely read-only — compilation output is deliberately not a
+            // write — and are still the three a survey must not run, because `test` executes
+            // the surveyed package's suite. Alamofire's makes real network calls and ran for
+            // ten minutes before being stopped; without them, nine repositories and 2,120 files
+            // finish in 69 seconds.
+            return checker.kind == .code
+                && checker.effect == .readOnly
+                && !checker.executesProjectCode
         case .docs:
             return checker.kind == .documentation && checker.effect == .readOnly
         }

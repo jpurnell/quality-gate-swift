@@ -60,6 +60,8 @@ public struct StatusAuditor: FixableChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Description of what fix mode does.
     public let fixDescription = """
     Patches Master Plan and Implementation Checklist to match actual code state:

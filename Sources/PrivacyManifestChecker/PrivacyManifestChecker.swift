@@ -33,6 +33,8 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// App-detection override and key-strictness.
     let config: PrivacyManifestConfig
     /// Package root to scan; nil means the current working directory.

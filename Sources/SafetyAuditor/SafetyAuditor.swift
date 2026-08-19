@@ -51,6 +51,8 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Creates a new SafetyAuditor instance.
     public init() {}
 
@@ -89,10 +91,16 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         var allOverrides: [DiagnosticOverride] = []
 
         // Resolved once per run: whether a trap is a defect depends on who calls the target it
-        // sits in. An empty map (not SwiftPM, or `describe` failed) resolves every file to
-        // `.executable`, which is the strict reading — a layout we cannot determine gets the
-        // rule that assumes an end user is watching.
-        let targetTypes = TargetTypeMap.describe(packageRoot: root.path)
+        // sits in. An empty map resolves every file to `.executable`, which is the strict
+        // reading — a layout we cannot determine gets the rule that assumes an end user is
+        // watching.
+        //
+        // Parsed, not described. `swift package describe` compiles and runs the manifest and
+        // resolves the whole dependency graph to do it: surveying nine third-party packages
+        // that way wrote 2.7 GB into repositories nobody here owns, to answer a question about
+        // four folder names. `parsingManifest` reads `Package.swift` as the Swift source it is,
+        // and falls back to SwiftPM's directory convention.
+        let targetTypes = TargetTypeMap.parsingManifest(packageRoot: root.path)
 
         let result = auditFiles(
             scan.files,

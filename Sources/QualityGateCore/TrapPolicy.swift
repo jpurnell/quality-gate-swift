@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
 
 /// The kind of SwiftPM target a file belongs to, which is a proxy for **who calls it**.
 ///
@@ -58,45 +55,48 @@ public struct TargetTypeMap: Sendable {
         self.targets = targets.sorted { $0.path.count > $1.path.count }
     }
 
-    /// Builds the map by asking SwiftPM to describe the package.
+    /// How many targets this map holds. Exposed so a caller can tell "no targets" from
+    /// "targets that matched nothing", which are different failures.
+    public var targetCount: Int { targets.count }
+
+    /// Builds the map from SwiftPM's directory convention alone, reading no manifest.
     ///
-    /// Returns an **empty** map when `describe` fails or the package is not SwiftPM. An empty
-    /// map resolves every file to ``TargetType/executable`` (§ ``targetType(forFile:)``), which
-    /// is the strict reading: a package whose layout cannot be determined gets the rule that
-    /// assumes an end user is watching.
+    /// The fallback when the manifest cannot be parsed, and the whole answer for a package that
+    /// has none. SwiftPM's layout rules make this reliable for a conventional package: a
+    /// directory under `Sources/` is a target, under `Tests/` a test target, under `Plugins/` a
+    /// plugin. A target with an explicit `path:` in its manifest is the case this cannot see,
+    /// which is why it is the fallback rather than the primary.
     ///
-    /// - Parameter packageRoot: Directory containing `Package.swift`.
-    /// - Returns: The map, empty when the package cannot be described.
-    public static func describe(packageRoot: String) -> TargetTypeMap {
-        struct Described: Decodable {
-            struct Target: Decodable {
-                let name: String
-                let type: String
-                let path: String
+    /// Deliberately no subprocess: it enumerates directories. Asking SwiftPM instead is what
+    /// downloaded 2.7 GB across nine surveyed packages to answer a question about four folder
+    /// names.
+    ///
+    /// - Parameter packageRoot: Directory containing the package.
+    /// - Returns: A map over whatever the convention reveals; empty when nothing matches.
+    public static func fromLayout(packageRoot: String) -> TargetTypeMap {
+        let manager = FileManager.default
+        var found: [Target] = []
+        // The three source spellings SwiftPM permits, plus the two other trees a package owns.
+        let containers: [(String, String)] = [
+            ("Sources", "library"), ("Source", "library"), ("src", "library"),
+            ("Tests", "test"), ("Plugins", "plugin"),
+        ]
+        for (container, type) in containers {
+            let base = (packageRoot as NSString).appendingPathComponent(container)
+            // silent: most packages have only some of these directories; absence is ordinary.
+            let entries = (try? manager.contentsOfDirectory(atPath: base)) ?? []
+            for entry in entries where !entry.hasPrefix(".") {
+                var isDirectory: ObjCBool = false
+                let full = (base as NSString).appendingPathComponent(entry)
+                guard manager.fileExists(atPath: full, isDirectory: &isDirectory),
+                      isDirectory.boolValue else { continue }
+                found.append(Target(name: entry, type: type,
+                                    path: "\(container)/\(entry)"))
             }
-            let targets: [Target]
         }
-        do {
-            // SAFETY: runs `swift package describe` against a local package path
-            let result = try ProcessRunner.run(
-                "/usr/bin/env",
-                arguments: ["swift", "package", "--package-path", packageRoot,
-                            "describe", "--type", "json"]
-            )
-            guard result.exitCode == 0, let data = result.stdout.data(using: .utf8) else {
-                return TargetTypeMap(targets: [])
-            }
-            let described = try JSONDecoder().decode(Described.self, from: data)
-            return TargetTypeMap(targets: described.targets.map {
-                Target(name: $0.name, type: $0.type, path: $0.path)
-            })
-        } catch {
-            logger.warning("Could not describe package at \(packageRoot, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return TargetTypeMap(targets: [])
-        }
+        return TargetTypeMap(targets: found)
     }
 
-    private static let logger = Logger(subsystem: "com.quality-gate", category: "TargetTypeMap")
 
     /// The target type owning `file`.
     ///

@@ -38,6 +38,8 @@ public struct KeychainSecretsChecker: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Detection thresholds and vocabulary.
     let config: KeychainSecretsConfig
     /// Package root to scan; nil means the current working directory.

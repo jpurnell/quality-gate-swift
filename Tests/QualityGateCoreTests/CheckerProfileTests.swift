@@ -19,6 +19,9 @@ struct CheckerProfileTests {
         let category = CheckerCategory.correctness
         let kind: CheckerKind
         let effect: CheckerEffect
+        /// Defaulted here only: this suite predates the axis and is about kind × effect.
+        /// `SurveyProfileExecutionTests` covers the third axis directly.
+        var executesProjectCode = false
         let hermeticity = Hermeticity.hermetic
         func check(configuration: Configuration) async throws -> CheckResult {
             CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)

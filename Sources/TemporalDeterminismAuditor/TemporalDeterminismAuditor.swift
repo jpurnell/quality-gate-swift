@@ -29,6 +29,8 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Creates a temporal determinism auditor.
     public init() {}
 

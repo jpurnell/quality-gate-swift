@@ -22,6 +22,7 @@ struct HermeticityTests {
         let category = CheckerCategory.specialty
         let kind = CheckerKind.code
         let effect = CheckerEffect.readOnly
+        let executesProjectCode = false
         let hermeticity: Hermeticity
         let result: CheckResult
 
@@ -36,6 +37,7 @@ struct HermeticityTests {
         let category = CheckerCategory.specialty
         let kind = CheckerKind.code
         let effect = CheckerEffect.readOnly
+        let executesProjectCode = false
         let hermeticity: Hermeticity
 
         func check(configuration: Configuration) async throws -> CheckResult {
@@ -84,6 +86,7 @@ struct HermeticityTests {
         let category = CheckerCategory.specialty
         let kind = CheckerKind.code
         let effect = CheckerEffect.readOnly
+        let executesProjectCode = false
         func check(configuration: Configuration) async throws -> CheckResult {
             CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
         }

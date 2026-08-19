@@ -38,6 +38,7 @@ struct CheckerTableGeneratorTests {
             public let category = CheckerCategory.\(category)
             let kind = CheckerKind.code
             let effect = CheckerEffect.readOnly
+            let executesProjectCode = false
 
             public func check(configuration: Configuration) async throws -> CheckResult {
                 CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)

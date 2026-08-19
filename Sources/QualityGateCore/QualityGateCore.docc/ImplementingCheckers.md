@@ -31,6 +31,7 @@ public struct MyChecker: QualityChecker, Sendable {
     public let category = CheckerCategory.codeHygiene
     public let kind = CheckerKind.code
     public let effect = CheckerEffect.readOnly
+    public let executesProjectCode = false
 
     public init() {}
 
@@ -86,6 +87,7 @@ public struct ConfigurationRespectingChecker: QualityChecker, Sendable {
     public let category = CheckerCategory.codeHygiene
     public let kind = CheckerKind.code
     public let effect = CheckerEffect.readOnly
+    public let executesProjectCode = false
 
     let allFiles: [SourceFile]
 
@@ -164,6 +166,7 @@ public struct ThreadSafeAuditor: QualityChecker, Sendable {
     public let category = CheckerCategory.safetySecurity
     public let kind = CheckerKind.code
     public let effect = CheckerEffect.readOnly
+    public let executesProjectCode = false
 
     public func check(configuration: Configuration) async throws -> CheckResult {
         CheckResult(checkerId: id, status: .passed, diagnostics: [], duration: .zero)
@@ -179,6 +182,7 @@ public final class UnsafeChecker: QualityChecker, @unchecked Sendable {
     public let category = CheckerCategory.safetySecurity
     public let kind = CheckerKind.code
     public let effect = CheckerEffect.readOnly
+    public let executesProjectCode = false
 
     var results: [String] = [] // Not thread-safe!
 

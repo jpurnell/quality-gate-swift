@@ -39,6 +39,8 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// The refs git is about to push, when this run is a `pre-push` boundary.
     ///
     /// `nil` on an ordinary run, which is what keeps the tag rules advisory there. Injected

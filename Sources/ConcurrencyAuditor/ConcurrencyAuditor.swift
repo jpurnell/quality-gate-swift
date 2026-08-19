@@ -46,6 +46,8 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Cross-module concurrency analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

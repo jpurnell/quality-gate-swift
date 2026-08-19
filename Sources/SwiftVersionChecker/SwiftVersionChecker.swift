@@ -58,6 +58,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Description of what fix mode does.
     public let fixDescription = "Updates swift-tools-version in Package.swift to the configured minimum after verifying the project builds at that version."
 

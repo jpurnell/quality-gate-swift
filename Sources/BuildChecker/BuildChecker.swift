@@ -50,6 +50,12 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Runs the analysed project's own code — a survey must not include this.
+    ///
+    /// Correctly `.readOnly`: that property deliberately excludes compilation
+    /// output. This is the separate question of whether a stranger's code is
+    /// executed, and here it is.
+    public let executesProjectCode = true
     /// Spawns `swift build`, which locks the SwiftPM `.build` directory — must run
     /// sequentially, outside the concurrent task group.
     public var isParallelSafe: Bool { false }

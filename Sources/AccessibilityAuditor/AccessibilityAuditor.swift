@@ -43,6 +43,8 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// The per-frontend detectors this auditor dispatches to.
     private let detectors: [any AccessibilityDetector]
 

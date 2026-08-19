@@ -18,6 +18,7 @@ struct QualityCheckerTests {
         let category = CheckerCategory.specialty
         let kind = CheckerKind.code
         let effect = CheckerEffect.readOnly
+        let executesProjectCode = false
         let shouldPass: Bool
         let mockDiagnostics: [Diagnostic]
 

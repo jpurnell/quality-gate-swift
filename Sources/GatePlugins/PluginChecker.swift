@@ -49,6 +49,19 @@ public struct PluginChecker: QualityChecker, Sendable {
     /// nothing should rely on it.
     public var effect: CheckerEffect { .readOnly }
 
+    /// Declared `true`, conservatively, because it cannot be verified.
+    ///
+    /// A plugin is an external executable configured by whoever set it up. It probably runs its
+    /// own binary rather than the analysed project's code — but the contract gives the gate no
+    /// way to know, and this property exists to answer "is it safe to point at a stranger's
+    /// package". An unverifiable spawn is not.
+    ///
+    /// The same reasoning that made `kind` `.convention` above: where the honest answer is
+    /// unknown, the conservative one is the honest classification. Nothing changes today, since
+    /// `kind` already keeps plugins out of survey profiles — but a declaration that said
+    /// `false` would be claiming something no one checked.
+    public var executesProjectCode: Bool { true }
+
     /// Creates the adapter for one plugin entry.
     public init(plugin: PluginConfig) {
         self.plugin = plugin

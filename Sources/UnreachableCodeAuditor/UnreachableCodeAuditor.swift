@@ -56,6 +56,8 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Cross-module dead-code analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {

@@ -31,6 +31,8 @@ public struct PointerEscapeAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Function names whose pointer-accepting parameters are documented as
     /// safe to outlive the with-block (e.g. specific vDSP entry points).
     private let allowedEscapeFunctions: Set<String>

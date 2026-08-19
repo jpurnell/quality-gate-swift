@@ -12,6 +12,7 @@ private struct FakeChecker: QualityChecker {
     let category = CheckerCategory.specialty
     let kind = CheckerKind.code
     let effect = CheckerEffect.readOnly
+    let executesProjectCode = false
     let status: CheckResult.Status
     let delay: Duration
     /// Optional tracker to record concurrent execution.

@@ -30,6 +30,8 @@ public struct MemoryBuilder: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.writesOutsideTree
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Relative path to the development-guidelines directory.
     private let guidelinesPath: String
 

@@ -66,6 +66,8 @@ public struct DocClaimsAuditor: QualityChecker, Sendable {
     /// What this checker leaves behind — see `CheckerEffect`.
     public let effect = CheckerEffect.readOnly
 
+    /// Analyses source without running it — safe to point at a stranger's package.
+    public let executesProjectCode = false
     /// Safe to run in the concurrent group; every article is instrumented and executed in
     /// its own temporary directory.
     public var isParallelSafe: Bool { true }

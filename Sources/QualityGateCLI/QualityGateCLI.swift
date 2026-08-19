@@ -118,7 +118,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Force foreign mode: the repo is analyzed read-only, every write redirects to the overlay (~/.quality-gate/overlays/<identity>/), and --fix is refused.")
     var foreign: Bool = false
 
-    @Option(name: .long, help: "Run a named selection: code (checkers that judge the source and write nothing), docs, or all. Implies --foreign: a profile run analyses read-only and redirects every write to the overlay.")
+    @Option(name: .long, help: "Run a named selection: code (static analysis only — no compiler is invoked and the surveyed package's code is never executed), docs, or all. Implies --foreign: a profile run analyses read-only and redirects every write to the overlay.")
     var profile: CheckerProfile?
 
     @Flag(name: .long, help: "Force resident mode even when the repo has no config and an overlay exists.")
