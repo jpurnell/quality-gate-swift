@@ -377,7 +377,8 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         fileName: String
     ) -> (diagnostics: [Diagnostic], total: Int, documented: Int) {
         let sourceFile = Parser.parse(source: source)
-        let visitor = DocCoverageVisitor(fileName: fileName, source: source)
+        let converter = SourceLocationConverter(fileName: fileName, tree: sourceFile)
+        let visitor = DocCoverageVisitor(fileName: fileName, source: source, converter: converter)
         visitor.walk(sourceFile)
         return (visitor.diagnostics, visitor.totalPublicAPIs, visitor.documentedAPIs)
     }
@@ -386,13 +387,16 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
 // MARK: - Syntax Visitor
 
 private final class DocCoverageVisitor: SyntaxVisitor {
+    /// Built once per file by the caller — see ConverterConstructionIsAClassDefect.md.
+    let converter: SourceLocationConverter
     let fileName: String
     let source: String
     var diagnostics: [Diagnostic] = []
     var totalPublicAPIs = 0
     var documentedAPIs = 0
 
-    init(fileName: String, source: String) {
+    init(fileName: String, source: String, converter: SourceLocationConverter) {
+        self.converter = converter
         self.fileName = fileName
         self.source = source
         super.init(viewMode: .sourceAccurate)
@@ -544,7 +548,7 @@ private final class DocCoverageVisitor: SyntaxVisitor {
     }
 
     private func addDiagnostic(for node: some SyntaxProtocol, apiType: String, name: String) {
-        let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+        let location = node.startLocation(converter: converter)
 
         diagnostics.append(Diagnostic(
             severity: .warning,

@@ -155,7 +155,8 @@ public struct ContextAuditor: QualityChecker, Sendable {
         }
 
         let sourceFile = Parser.parse(source: source)
-        let visitor = ContextVisitor(fileName: fileName, source: source)
+        let converter = SourceLocationConverter(fileName: fileName, tree: sourceFile)
+        let visitor = ContextVisitor(fileName: fileName, source: source, converter: converter)
         visitor.walk(sourceFile)
 
         return visitor.diagnostics

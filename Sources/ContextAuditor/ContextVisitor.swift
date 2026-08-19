@@ -4,6 +4,8 @@ import QualityGateTypes
 import SwiftSyntax
 
 final class ContextVisitor: SyntaxVisitor {
+    /// Built once per file by the caller — see ConverterConstructionIsAClassDefect.md.
+    let converter: SourceLocationConverter
     let fileName: String
     let source: String
     let sourceLines: [String]
@@ -31,7 +33,8 @@ final class ContextVisitor: SyntaxVisitor {
         "isOptedIn", "optOut", "ANALYTICS:"
     ]
 
-    init(fileName: String, source: String) {
+    init(fileName: String, source: String, converter: SourceLocationConverter) {
+        self.converter = converter
         self.fileName = fileName
         self.source = source
         self.sourceLines = source.lines
@@ -109,7 +112,7 @@ final class ContextVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
 
         diagnostics.append(Diagnostic(
@@ -151,7 +154,7 @@ final class ContextVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
 
         diagnostics.append(Diagnostic(
@@ -188,7 +191,7 @@ final class ContextVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
 
         diagnostics.append(Diagnostic(
@@ -210,7 +213,7 @@ final class ContextVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
 
         diagnostics.append(Diagnostic(

@@ -220,6 +220,9 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let sourceFile = Parser.parse(source: source)
+        // One converter for the file. Six rules used to build their own per visited node, each
+        // indexing every line start in the tree.
+        let converter = SourceLocationConverter(fileName: fileName, tree: sourceFile)
 
         // The other test-quality rules keep their own marker. `fp-safety:disable`
         // is scoped to the floating-point rule it names — it must not silence a
@@ -227,6 +230,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         let visitor = TestQualityVisitor(
             fileName: fileName,
             source: source,
+            converter: converter,
             exemptionPatterns: configuration.safetyExemptions + ["// TEST-QUALITY:"]
         )
         visitor.walk(sourceFile)
@@ -303,6 +307,9 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
 private final class TestQualityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
+    /// Built once per file by the caller. Constructing one per visited node indexes every line
+    /// start in the tree each time — O(file) per node, measured n^1.99 on triggering input.
+    let converter: SourceLocationConverter
     let exemptionPatterns: [String]
     let sourceLines: [String]
     var diagnostics: [Diagnostic] = []
@@ -316,7 +323,8 @@ private final class TestQualityVisitor: SyntaxVisitor {
     /// Whether the file imports the Testing framework.
     private var importsTestingFramework: Bool = false
 
-    init(fileName: String, source: String, exemptionPatterns: [String]) {
+    init(fileName: String, source: String, converter: SourceLocationConverter, exemptionPatterns: [String]) {
+        self.converter = converter
         self.fileName = fileName
         self.source = source
         self.exemptionPatterns = exemptionPatterns
@@ -353,7 +361,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
         if hasTestAttribute {
             currentTestFunctionName = node.name.text
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             currentTestFunctionLine = location.line
             currentTestHasAssertion = false
@@ -404,7 +412,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
     override func visit(_ node: TryExprSyntax) -> SyntaxVisitorContinueKind {
         if node.questionOrExclamationMark?.tokenKind == .exclamationMark {
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             let line = location.line
 
@@ -459,7 +467,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
             guard !hasUsingArg else { return .visitChildren }
 
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             let line = location.line
 
@@ -485,7 +493,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
         if node.baseName.text == "SystemRandomNumberGenerator" {
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             let line = location.line
 
@@ -605,7 +613,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
     private func emitWeakAssertionDiagnostic(at node: some SyntaxProtocol) {
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         let line = location.line
 
@@ -655,7 +663,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         let line = location.line
 

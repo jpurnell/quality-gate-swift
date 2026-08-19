@@ -7,16 +7,18 @@ import SwiftSyntax
 struct PatternDetector {
 
     /// Scans a function body for anti-patterns.
-    static func detect(body: CodeBlockSyntax, parameterTypes: [String: String] = [:]) -> [ComplexityPattern] {
-        let suppressed = findSuppressedLines(in: body)
-        let visitor = PatternVisitor(parameterTypes: parameterTypes, suppressedLines: suppressed)
+    static func detect(body: CodeBlockSyntax, parameterTypes: [String: String] = [:],
+                       converter: SourceLocationConverter) -> [ComplexityPattern] {
+        let suppressed = findSuppressedLines(in: body, converter: converter)
+        let visitor = PatternVisitor(parameterTypes: parameterTypes, suppressedLines: suppressed,
+                                     converter: converter)
         visitor.walk(body)
         return visitor.patterns
     }
 
-    private static func findSuppressedLines(in body: CodeBlockSyntax) -> Set<Int> {
+    private static func findSuppressedLines(in body: CodeBlockSyntax,
+                                            converter: SourceLocationConverter) -> Set<Int> {
         var lines: Set<Int> = []
-        let converter = SourceLocationConverter(fileName: "", tree: body.root)
         for token in body.tokens(viewMode: .sourceAccurate) {
             for piece in token.leadingTrivia {
                 if case .lineComment(let text) = piece, text.contains("complexity-ok:") {
@@ -48,6 +50,8 @@ struct PatternDetector {
 
 /// Walks a function body looking for known anti-patterns.
 private final class PatternVisitor: SyntaxVisitor {
+    /// Supplied by the caller; `sourceLine(of:)` rebuilt the whole-file index per node.
+    private let converter: SourceLocationConverter
     var patterns: [ComplexityPattern] = []
     private var loopDepth: Int = 0
     private var inLoopBody: Bool = false
@@ -56,7 +60,9 @@ private final class PatternVisitor: SyntaxVisitor {
     private var arrayVars: Set<String> = []
     private var suppressedLines: Set<Int> = []
 
-    init(parameterTypes: [String: String] = [:], suppressedLines: Set<Int> = []) {
+    init(parameterTypes: [String: String] = [:], suppressedLines: Set<Int> = [],
+         converter: SourceLocationConverter) {
+        self.converter = converter
         self.suppressedLines = suppressedLines
         super.init(viewMode: .sourceAccurate)
         for (name, typeText) in parameterTypes {
@@ -290,7 +296,6 @@ private final class PatternVisitor: SyntaxVisitor {
     }
 
     private func sourceLine(of node: some SyntaxProtocol) -> Int {
-        let converter = SourceLocationConverter(fileName: "", tree: node.root)
-        return converter.location(for: node.positionAfterSkippingLeadingTrivia).line
+        converter.location(for: node.positionAfterSkippingLeadingTrivia).line
     }
 }

@@ -14,10 +14,14 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
     private let filePath: String
     private let moduleName: String
     private let tree: SourceFileSyntax
+    /// Built once from `tree`. Constructing one per visited declaration indexes every line start
+    /// in the file each time — the defect measured at n^1.60 for this checker.
+    private let converter: SourceLocationConverter
     private let userCosts: [String: String]
 
     /// Creates a visitor for the given file context.
     public init(filePath: String, moduleName: String, tree: SourceFileSyntax, userCosts: [String: String] = [:]) {
+        self.converter = SourceLocationConverter(fileName: filePath, tree: tree)
         self.filePath = filePath
         self.moduleName = moduleName
         self.tree = tree
@@ -45,7 +49,7 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
     /// Scores a function declaration and records its complexity.
     override public func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         let name = node.name.text
-        let scorer = FunctionScorer()
+        let scorer = FunctionScorer(converter: converter)
         var bigO = BigOEstimator.Estimate(timeComplexity: "O(1)", basis: [], confidence: .high)
         var patterns: [ComplexityPattern] = []
 
@@ -53,10 +57,9 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
             scorer.walk(body)
             bigO = BigOEstimator.estimate(body: body, userCosts: userCosts)
             let paramTypes = PatternDetector.extractParameterTypes(from: node.signature.parameterClause.parameters)
-            patterns = PatternDetector.detect(body: body, parameterTypes: paramTypes)
+            patterns = PatternDetector.detect(body: body, parameterTypes: paramTypes, converter: converter)
         }
 
-        let converter = SourceLocationConverter(fileName: filePath, tree: tree)
         let startLoc = converter.location(for: node.positionAfterSkippingLeadingTrivia)
         let endLoc = converter.location(for: node.endPositionBeforeTrailingTrivia)
 
@@ -78,7 +81,7 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
 
     /// Scores an initializer declaration and records its complexity.
     override public func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        let scorer = FunctionScorer()
+        let scorer = FunctionScorer(converter: converter)
         var bigO = BigOEstimator.Estimate(timeComplexity: "O(1)", basis: [], confidence: .high)
         var patterns: [ComplexityPattern] = []
 
@@ -86,10 +89,9 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
             scorer.walk(body)
             bigO = BigOEstimator.estimate(body: body, userCosts: userCosts)
             let paramTypes = PatternDetector.extractParameterTypes(from: node.signature.parameterClause.parameters)
-            patterns = PatternDetector.detect(body: body, parameterTypes: paramTypes)
+            patterns = PatternDetector.detect(body: body, parameterTypes: paramTypes, converter: converter)
         }
 
-        let converter = SourceLocationConverter(fileName: filePath, tree: tree)
         let startLoc = converter.location(for: node.positionAfterSkippingLeadingTrivia)
         let endLoc = converter.location(for: node.endPositionBeforeTrailingTrivia)
 
@@ -112,11 +114,15 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
 
 /// Scores a single function body for cognitive complexity.
 private final class FunctionScorer: SyntaxVisitor {
+    /// Supplied by the caller, which already built one for the file. `computeLine` ran once per
+    /// scored increment and rebuilt the whole-file line index each time.
+    private let converter: SourceLocationConverter
     var score: Int = 0
     var increments: [CognitiveIncrement] = []
     private var nestingLevel: Int = 0
 
-    init() {
+    init(converter: SourceLocationConverter) {
+        self.converter = converter
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -342,7 +348,6 @@ private final class FunctionScorer: SyntaxVisitor {
     }
 
     private func computeLine(for position: AbsolutePosition, in node: some SyntaxProtocol) -> Int {
-        let converter = SourceLocationConverter(fileName: "", tree: node.root)
-        return converter.location(for: position).line
+        converter.location(for: position).line
     }
 }

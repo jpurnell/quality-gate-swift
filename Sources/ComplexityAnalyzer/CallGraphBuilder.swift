@@ -52,6 +52,8 @@ private final class CallFinder: SyntaxVisitor {
     let callerName: String
     let definedFunctions: Set<String>
     let tree: SyntaxProtocol
+    /// Built once; recordCallIfLocal fires per call expression.
+    private let converter: SourceLocationConverter
     var edges: [CallEdge] = []
     private var loopDepth: Int = 0
 
@@ -59,6 +61,7 @@ private final class CallFinder: SyntaxVisitor {
         self.callerName = callerName
         self.definedFunctions = definedFunctions
         self.tree = tree
+        self.converter = SourceLocationConverter(fileName: "", tree: tree)
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -117,7 +120,6 @@ private final class CallFinder: SyntaxVisitor {
         guard let calleeName = extractCalleeName(node) else { return }
         guard definedFunctions.contains(calleeName) else { return }
 
-        let converter = SourceLocationConverter(fileName: "", tree: tree)
         let line = converter.location(for: node.positionAfterSkippingLeadingTrivia).line
 
         edges.append(CallEdge(
