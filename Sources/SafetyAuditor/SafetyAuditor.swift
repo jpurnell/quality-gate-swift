@@ -216,11 +216,15 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         targetTypes: TargetTypeMap = TargetTypeMap(targets: [])
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
         let sourceFile = Parser.parse(source: source)
+        // One converter for the file, shared by both visitors. Each construction indexes every
+        // line start in the tree, so building one per visited node was O(file) per node.
+        let converter = SourceLocationConverter(fileName: fileName, tree: sourceFile)
 
         // Run code-safety checks
         let safetyVisitor = SafetyVisitor(
             fileName: fileName,
             source: source,
+            converter: converter,
             exemptionPatterns: configuration.safetyExemptions,
             trapPolicy: configuration.trapPolicy,
             targetType: targetTypes.targetType(forFile: fileName)
@@ -232,6 +236,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         let securityVisitor = SecurityVisitor(
             fileName: fileName,
             source: source,
+            converter: converter,
             exemptionPatterns: securityExemptions,
             configuration: configuration.security
         )
@@ -283,6 +288,9 @@ private final class SafetyVisitor: SyntaxVisitor {
     let source: String
     let exemptionPatterns: [String]
     let sourceLines: [String]
+    /// Built once per file. A converter indexes every line start in the tree, so constructing
+    /// one per visited node is O(file) per node — quadratic in node count.
+    let converter: SourceLocationConverter
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
 
@@ -297,12 +305,14 @@ private final class SafetyVisitor: SyntaxVisitor {
     init(
         fileName: String,
         source: String,
+        converter: SourceLocationConverter,
         exemptionPatterns: [String],
         trapPolicy: TrapPolicy = .default,
         targetType: TargetType = .executable
     ) {
         self.fileName = fileName
         self.source = source
+        self.converter = converter
         self.exemptionPatterns = exemptionPatterns
         self.sourceLines = source.lines
         self.trapPolicy = trapPolicy
@@ -313,7 +323,7 @@ private final class SafetyVisitor: SyntaxVisitor {
     // MARK: - Force Unwrap Detection
 
     override func visit(_ node: ForceUnwrapExprSyntax) -> SyntaxVisitorContinueKind {
-        let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+        let location = node.startLocation(converter: converter)
         let line = location.line
 
         if isExempted(line: line) {
@@ -340,7 +350,7 @@ private final class SafetyVisitor: SyntaxVisitor {
     override func visit(_ node: UnresolvedAsExprSyntax) -> SyntaxVisitorContinueKind {
         // Check if this is a force cast (as!)
         if node.questionOrExclamationMark?.tokenKind == .exclamationMark {
-            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let location = node.startLocation(converter: converter)
             let line = location.line
 
             if isExempted(line: line) {
@@ -366,7 +376,7 @@ private final class SafetyVisitor: SyntaxVisitor {
     override func visit(_ node: TryExprSyntax) -> SyntaxVisitorContinueKind {
         // Check if this is a force try (try!)
         if node.questionOrExclamationMark?.tokenKind == .exclamationMark {
-            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let location = node.startLocation(converter: converter)
             let line = location.line
 
             if isExempted(line: line) {
@@ -392,7 +402,7 @@ private final class SafetyVisitor: SyntaxVisitor {
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         // Splitting text into lines in a way that mishandles CRLF. See `newlineSplitKind`.
         if let kind = newlineSplitKind(node) {
-            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let location = node.startLocation(converter: converter)
             let line = location.line
 
             if !isExempted(line: line) {
@@ -410,7 +420,7 @@ private final class SafetyVisitor: SyntaxVisitor {
 
         // C-style format string detection (handles both DeclReference and MemberAccess callees)
         if isCStyleFormatStringCall(node) {
-            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let location = node.startLocation(converter: converter)
             let line = location.line
 
             if isExempted(line: line) {
@@ -436,7 +446,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
-        let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+        let location = node.startLocation(converter: converter)
         let line = location.line
 
         let ruleId: String
@@ -531,7 +541,7 @@ private final class SafetyVisitor: SyntaxVisitor {
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
         for modifier in node.modifiers {
             if modifier.name.tokenKind == .keyword(.unowned) {
-                let location = modifier.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+                let location = modifier.startLocation(converter: converter)
                 let line = location.line
 
                 if isExempted(line: line) {
@@ -560,7 +570,7 @@ private final class SafetyVisitor: SyntaxVisitor {
         if let boolLiteral = node.conditions.first?.condition.as(BooleanLiteralExprSyntax.self),
            boolLiteral.literal.tokenKind == .keyword(.true) {
 
-            let location = node.startLocation(converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+            let location = node.startLocation(converter: converter)
             let line = location.line
 
             if isExempted(line: line) {

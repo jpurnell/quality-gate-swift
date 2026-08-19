@@ -28,17 +28,21 @@ final class SecurityVisitor: SyntaxVisitor {
     let sourceLines: [String]
     let exemptionPatterns: [String]
     let configuration: SecurityAuditorConfig
+    /// Built once per file — see `SafetyVisitor.converter`.
+    let converter: SourceLocationConverter
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
 
     init(
         fileName: String,
         source: String,
+        converter: SourceLocationConverter,
         exemptionPatterns: [String],
         configuration: SecurityAuditorConfig
     ) {
         self.fileName = fileName
         self.source = source
+        self.converter = converter
         self.sourceLines = source.lines
         self.exemptionPatterns = exemptionPatterns
         self.configuration = configuration
@@ -72,7 +76,7 @@ final class SecurityVisitor: SyntaxVisitor {
             }
 
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             if isExempted(line: location.line) {
     
@@ -134,7 +138,7 @@ final class SecurityVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
@@ -262,7 +266,7 @@ final class SecurityVisitor: SyntaxVisitor {
             guard Self.isNonLiteral(command) else { continue }
 
             let location = command.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root))
+                converter: converter)
             if isExempted(line: location.line) {
                 overrides.append(DiagnosticOverride(
                     ruleId: "security.command-injection",
@@ -358,7 +362,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     private func emitWeakCryptoDiagnostic(_ node: FunctionCallExprSyntax, algorithm: String) {
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
@@ -398,7 +402,7 @@ final class SecurityVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
@@ -472,7 +476,7 @@ final class SecurityVisitor: SyntaxVisitor {
             }
 
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             if isExempted(line: location.line) {
     
@@ -515,7 +519,7 @@ final class SecurityVisitor: SyntaxVisitor {
         }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
@@ -565,7 +569,7 @@ final class SecurityVisitor: SyntaxVisitor {
             }
 
             let location = node.startLocation(
-                converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+                converter: converter
             )
             if isExempted(line: location.line) {
     
@@ -599,7 +603,7 @@ final class SecurityVisitor: SyntaxVisitor {
         guard insecureConstants.contains(name) else { return }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
@@ -627,7 +631,7 @@ final class SecurityVisitor: SyntaxVisitor {
         guard dangerousMembers.contains(name) else { return }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
@@ -667,7 +671,7 @@ final class SecurityVisitor: SyntaxVisitor {
         guard boolLiteral.literal.tokenKind == .keyword(.true) else { return }
 
         let location = node.startLocation(
-            converter: SourceLocationConverter(fileName: fileName, tree: node.root)
+            converter: converter
         )
         if isExempted(line: location.line) {
 
