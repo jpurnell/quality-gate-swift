@@ -13,7 +13,7 @@ The auditor was motivated by a real incident: a convenience initializer that for
 | Rule ID | Severity | What it catches |
 |---------|----------|-----------------|
 | `recursion.convenience-init-self` | error | A convenience initializer whose `self.init(...)` call uses the same argument labels as the enclosing init |
-| `recursion.computed-property-self` | error | A computed property whose getter references the same property name |
+| `recursion.computed-property-self` | error | A computed property whose getter resolves a reference back to the same property |
 | `recursion.subscript-self` | error | A subscript getter that calls `self[…]` |
 | `recursion.setter-self` | error | A property setter that assigns to its own property name |
 | `recursion.subscript-setter-self` | error | A subscript setter that assigns to `self[…]` |
@@ -34,6 +34,50 @@ A function is considered to "have a base case" if its body contains any `guard` 
 ### Overload safety
 
 Argument labels are part of function identity. `func f(_ x: Int)` calling `f(x: x)` is recognized as calling a *different* overload (`f(x:)`), not as self-recursion. This avoids a common false-positive landmine.
+
+### Syntax is not binding
+
+Walking the AST is not automatically semantic. SwiftSyntax knows that `return sql` is a
+`DeclReferenceExprSyntax` named `sql`; it cannot know whether that resolves to the enclosing
+property or to a local declared two lines earlier. A tree walk without a scope stack beats a
+regex — it will not match inside comments or string literals — but it is still name matching,
+and a survey of 22 third-party packages found it reporting recursion that was not recursion.
+
+Pass 1 therefore performs **lexical** resolution before reporting. Three constructs carry the
+property's name without referring to it:
+
+```swift
+struct Storage { var retryCount = 0 }
+
+struct Protected {
+    private let storage = Storage()
+    func read<T>(_ keyPath: KeyPath<Storage, T>) -> T { storage[keyPath: keyPath] }
+}
+
+struct Request {
+    private let mutableState = Protected()
+
+    /// `\.retryCount` is a key path into `Storage`, not a reference to this property.
+    var retryCount: Int { mutableState.read(\.retryCount) }
+
+    /// The local `status` shadows the property for the rest of the getter.
+    var status: Int {
+        let status = 1
+        return status
+    }
+
+    func label(style: Int = 0) -> String { "" }
+
+    /// `label()` resolves to the method above — a different declaration. Swift
+    /// permits the pair because the method's full name is `label(style:)`.
+    var label: String { label() }
+}
+```
+
+Resolution stops there. Type-based questions — a typealias, a protocol witness, a generic
+constraint — belong to the index-backed pass, which has the compiler's own answer and says so
+when no index is available. The boundary is deliberate: a foreign checkout has no index store,
+and that is exactly where these rules were proven wrong, so Pass 1 must stay useful without one.
 
 ### Out of scope
 

@@ -224,6 +224,7 @@ final class RecursionVisitor: SyntaxVisitor {
     }
 
     private func analyzeVariable(_ node: VariableDeclSyntax) {
+        let siblings = siblingFunctionNames(of: node)
         for binding in node.bindings {
             guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { continue }
             let name = pattern.identifier.text
@@ -234,7 +235,7 @@ final class RecursionVisitor: SyntaxVisitor {
             switch accessorBlock.accessors {
             case .getter(let codeBlock):
                 // Shorthand getter: `var x: Int { ... }`
-                if containsIdentifierReference(in: Syntax(codeBlock), name: name),
+                if containsIdentifierReference(in: Syntax(codeBlock), name: name, siblingFunctions: siblings),
                    !isSuppressed(atLine: bindingLocation.line) {
                     diagnostics.append(Diagnostic(
                         severity: .error,
@@ -251,7 +252,7 @@ final class RecursionVisitor: SyntaxVisitor {
                     let kind = accessor.accessorSpecifier.text
                     guard let body = accessor.body else { continue }
                     if kind == "get" {
-                        if containsIdentifierReference(in: Syntax(body), name: name),
+                        if containsIdentifierReference(in: Syntax(body), name: name, siblingFunctions: siblings),
                            !isSuppressed(atLine: bindingLocation.line) {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
@@ -520,91 +521,167 @@ func collectCalls(in body: Syntax, enclosingTypeContext: String) -> [CallSite] {
     return walker.calls
 }
 
-/// True if the syntax tree contains a self-referencing identifier with the
-/// given name. Ignores member accesses on other objects, implicit member
-/// expressions (`.name`), and identifiers that are shadowed by local bindings
-/// (e.g., `let name` in a switch case pattern).
-func containsIdentifierReference(in node: Syntax, name: String) -> Bool {
+/// True if the syntax tree contains a self-referencing identifier with the given name.
+///
+/// Three things that carry the name are *not* references to the enclosing declaration,
+/// and each was found misreported across the 22-package survey corpus:
+///
+/// - a key path component — `\.retryCount` resolves against the key path's root type;
+/// - a call to a same-named method — `asISO8601()` where the type declares one;
+/// - any identifier shadowed by a local binding, tracked by ``LexicalScope``.
+func containsIdentifierReference(
+    in node: Syntax,
+    name: String,
+    siblingFunctions: Set<String> = []
+) -> Bool {
     final class Walker: SyntaxVisitor {
         let target: String
+        let siblingFunctions: Set<String>
         var found = false
-        /// Names introduced by local bindings that shadow the target.
-        private var shadowDepth = 0
+        private var scope = LexicalScope()
 
-        init(target: String) {
+        init(target: String, siblingFunctions: Set<String>) {
             self.target = target
+            self.siblingFunctions = siblingFunctions
             super.init(viewMode: .sourceAccurate)
         }
 
-        // Track local bindings that shadow the property name.
-        override func visit(_ node: ValueBindingPatternSyntax) -> SyntaxVisitorContinueKind {
-            if containsBindingNamed(target, in: Syntax(node)) {
-                shadowDepth += 1
-            }
+        // MARK: Scopes
+
+        override func visit(_ node: CodeBlockSyntax) -> SyntaxVisitorContinueKind {
+            scope.push()
             return .visitChildren
         }
-        override func visitPost(_ node: ValueBindingPatternSyntax) {
-            if containsBindingNamed(target, in: Syntax(node)) {
-                shadowDepth -= 1
-            }
-        }
+        override func visitPost(_ node: CodeBlockSyntax) { scope.pop() }
 
-        // Track switch case bindings — the binding's scope is the entire case body.
+        override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+            scope.push()
+            return .visitChildren
+        }
+        override func visitPost(_ node: ClosureExprSyntax) { scope.pop() }
+
         override func visit(_ node: SwitchCaseSyntax) -> SyntaxVisitorContinueKind {
-            if caseLabelIntroducesBinding(node, named: target) {
-                shadowDepth += 1
-            }
+            scope.push()
             return .visitChildren
         }
-        override func visitPost(_ node: SwitchCaseSyntax) {
-            if caseLabelIntroducesBinding(node, named: target) {
-                shadowDepth -= 1
+        override func visitPost(_ node: SwitchCaseSyntax) { scope.pop() }
+
+        // MARK: Declarations
+        //
+        // Recorded in `visitPost` so the initializer is walked first: in `let x = x`
+        // the right-hand `x` binds to the outer declaration, which is how Swift reads
+        // it. Declaring on the way out is what makes the stack lexically ordered.
+
+        override func visitPost(_ node: VariableDeclSyntax) {
+            for binding in node.bindings {
+                declareNames(in: Syntax(binding.pattern))
             }
         }
 
-        private func caseLabelIntroducesBinding(_ node: SwitchCaseSyntax, named name: String) -> Bool {
-            guard case .case(let caseLabel) = node.label else { return false }
-            return containsBindingNamed(name, in: Syntax(caseLabel))
+        override func visitPost(_ node: OptionalBindingConditionSyntax) {
+            declareNames(in: Syntax(node.pattern))
         }
 
-        override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-            if node.baseName.text == target, shadowDepth == 0 {
-                found = true
-            }
-            return .skipChildren
+        override func visitPost(_ node: ValueBindingPatternSyntax) {
+            declareNames(in: Syntax(node.pattern))
         }
 
-        override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-            if let base = node.base, base.trimmedDescription == "self",
-               node.declName.baseName.text == target {
-                found = true
-                return .skipChildren
-            }
-            // Any member access (with or without base) uses the member name
-            // in a qualified context — not a bare self-reference. Skip children
-            // to avoid the declName being visited as a DeclReferenceExprSyntax.
-            return .skipChildren
+        override func visit(_ node: ClosureParameterSyntax) -> SyntaxVisitorContinueKind {
+            scope.declare((node.secondName ?? node.firstName).text)
+            return .visitChildren
         }
 
-        private func containsBindingNamed(_ name: String, in node: Syntax) -> Bool {
+        override func visit(_ node: ClosureShorthandParameterSyntax) -> SyntaxVisitorContinueKind {
+            scope.declare(node.name.text)
+            return .visitChildren
+        }
+
+        override func visit(_ node: FunctionParameterSyntax) -> SyntaxVisitorContinueKind {
+            scope.declare((node.secondName ?? node.firstName).text)
+            return .visitChildren
+        }
+
+        /// Collects the names a pattern binds.
+        ///
+        /// `case let .complete(completion)` parses as an expression pattern, so the
+        /// bindings are `DeclReferenceExpr` nodes rather than `IdentifierPattern`s.
+        /// The case name itself is the callee and binds nothing.
+        private func declareNames(in node: Syntax) {
             final class Finder: SyntaxVisitor {
-                let name: String
-                var found = false
-                init(name: String) {
-                    self.name = name
-                    super.init(viewMode: .sourceAccurate)
-                }
+                var names: [String] = []
                 override func visit(_ node: IdentifierPatternSyntax) -> SyntaxVisitorContinueKind {
-                    if node.identifier.text == name { found = true }
+                    names.append(node.identifier.text)
+                    return .skipChildren
+                }
+                override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
+                    if let base = node.base { walk(base) }
+                    return .skipChildren
+                }
+                override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+                    for argument in node.arguments { walk(Syntax(argument)) }
+                    return .skipChildren
+                }
+                override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+                    names.append(node.baseName.text)
                     return .skipChildren
                 }
             }
-            let finder = Finder(name: name)
+            let finder = Finder(viewMode: .sourceAccurate)
             finder.walk(node)
-            return finder.found
+            for boundName in finder.names { scope.declare(boundName) }
+        }
+
+        // MARK: References
+
+        /// A key path component names a member of the key path's root type, never the
+        /// enclosing declaration. Subscript arguments inside a key path are ordinary
+        /// expressions and are still visited.
+        override func visit(_ node: KeyPathPropertyComponentSyntax) -> SyntaxVisitorContinueKind {
+            .skipChildren
+        }
+
+        override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
+            // `self.name` names the property whatever locals are in scope, so the
+            // shadow stack deliberately does not apply on this branch.
+            if let base = node.base, base.trimmedDescription == "self",
+               node.declName.baseName.text == target {
+                // `self.name(...)` still resolves to a sibling method, for the same
+                // reason the unqualified call does.
+                if siblingFunctions.contains(target),
+                   let call = node.parent?.as(FunctionCallExprSyntax.self),
+                   call.calledExpression.id == node.id {
+                    return .skipChildren
+                }
+                found = true
+                return .skipChildren
+            }
+            return .visitChildren
+        }
+
+        override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+            guard node.baseName.text == target, !scope.shadows(target) else {
+                return .skipChildren
+            }
+            // `other.name` — qualified by something that is not `self`, so the
+            // member belongs to another value. The `self.name` case is decided by
+            // the member-access override above, which never reaches here.
+            if let member = node.parent?.as(MemberAccessExprSyntax.self),
+               member.declName.id == node.id {
+                return .skipChildren
+            }
+            // `name(...)` where the enclosing type declares `func name` resolves to
+            // that method. A property is only callable when its own type is a
+            // function type, and then no sibling method of the name exists.
+            if siblingFunctions.contains(target),
+               let call = node.parent?.as(FunctionCallExprSyntax.self),
+               call.calledExpression.id == node.id {
+                return .skipChildren
+            }
+            found = true
+            return .skipChildren
         }
     }
-    let walker = Walker(target: name)
+    let walker = Walker(target: name, siblingFunctions: siblingFunctions)
     walker.walk(node)
     return walker.found
 }

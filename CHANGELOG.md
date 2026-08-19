@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`recursion.computed-property-self` resolves references instead of matching names: 89 corpus
+  findings became 3, and all 3 are real.** Walking the AST is not automatically semantic.
+  SwiftSyntax knows `return sql` is a `DeclReferenceExprSyntax` named `sql`; it cannot know
+  whether that resolves to the enclosing property or to a local declared two lines earlier. The
+  rule was name matching with a tree walk in front of it.
+
+  Scope was measured before the fix was designed, and the first estimate was wrong: the proposal
+  said "20 findings, all false" from reading nine repositories by hand; classifying every site
+  across all 22 gave **89**, in four categories rather than two. Three distinct defects, only one
+  of which was the scope stack the proposal named:
+
+  - **Key path components** (35 sites) — the visitor fired on the `declName` inside a
+    `KeyPathPropertyComponentSyntax`, so `\.retryCount` in `var retryCount` matched itself. This
+    was the largest category and was absent from the design; §12's adversarial review had
+    predicted exactly such a third symptom.
+  - **Shadow tracking, incomplete and mis-scoped** (30 sites) — only `ValueBindingPatternSyntax`
+    and `SwitchCaseSyntax` were tracked, so a plain `let sql = …` was never seen at all; and for
+    `if let x` the binding sits in the *condition*, making the body a sibling node where the
+    depth counter read zero throughout. Replaced by `LexicalScope`, a push/pop stack over blocks,
+    closures, and case bodies, declaring names in `visitPost` so lexical *ordering* falls out of
+    the traversal — a local declared after a reference does not shadow it.
+  - **A same-named method** (12 sites) — `var asISO8601 { asISO8601() }` matched the callee.
+    Swift permits the property/method pair only when the method is parameterized so its full name
+    differs (`asISO8601(timeZone:)`), so the rule keys on the base name.
+
+  Every other recursion rule is byte-identical across the corpus, which is the evidence the
+  change stayed inside the two call sites it touched. The 3 survivors are genuine: three copies
+  of one idiom in swift-nio's test utilities whose `else` branch really does contain
+  `let isFulfilled = self.isFulfilled`. Design:
+  `project/plans/proposals/RecursionNeedsScopeTracking.md`.
+
+  **Also a false negative, fixed in passing.** The old walker skipped *every* child of a member
+  access to avoid matching the member name, and skipped the base with it — so
+  `var name: String { name.uppercased() }`, unconditional infinite recursion, was never reported.
+
+  Subscript overload matching (`subscript-self`, 31 corpus sites) is untouched and remains open.
+
 ### Changed
 
 - **`security.command-injection` now detects injection, and is re-enabled.** It was worded for
