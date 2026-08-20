@@ -40,6 +40,24 @@ it reliably. Two facts make that bridge work, and both were found by measuring i
   AST records the property as `name`. Before that prefix was stripped, every property with a
   plain `return` read as unbounded self-recursion.
 
+### When the index cannot see a file
+
+`self-reference-unresolved` marks a site the syntactic pass could not settle **and** the index
+pass could not see. Across a 22-package survey those fall into three kinds, and only one is a
+defect:
+
+- **Code not compiled in this configuration** — a `#if os(Windows)` file on macOS, or a target
+  behind a package trait that is off by default. No index will ever cover it here, and the note
+  is the correct outcome rather than a gap to close.
+- **Test targets.** The index is produced by `swift build`, which does not build tests, so a
+  recursion bug in a test suite is decided syntactically. Tests are exactly where unbounded
+  recursion hangs a run, so this one is worth revisiting.
+- **A failed index build.** A store can be *fresh* — it exists, it is newer than the sources —
+  and still hold nothing but Clang `.pcm` modules because the build errored before reaching the
+  package's own Swift code. Freshness is checked; usefulness was not. The pass now reports when
+  it saw no symbols at all, and supersession is scoped to files it actually indexed, so this
+  degrades to "the syntactic pass decides" instead of erasing findings nothing examined.
+
 ### Mutual cycle detection
 
 The auditor builds a project-wide call graph keyed by qualified name (`Type.method(label:)`) and runs Tarjan's strongly-connected-components algorithm to find cycles. A cycle is reported only if **none** of its participants have a guard-driven early exit. Both intra-file and cross-file cycles are detected; cross-module cycles are out of scope for v1.

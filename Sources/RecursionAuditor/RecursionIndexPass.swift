@@ -468,11 +468,25 @@ enum RecursionIndexPass {
         // to it, and every cycle containing one was reported as unbounded.
         let diagnostics0 = generateDiagnostics(from: graph)
         var diagnostics = diagnostics0
-        diagnostics.append(Diagnostic(
-            severity: .note,
-            message: "recursion index pass: marked \(matchedBaseCases) indexed definitions as bounded, from \(baseCaseSites.count) base cases the AST pass found. One site can match several definitions (generic specialisations, witnesses), so the first number may exceed the second.",
-            ruleId: "recursion.index_pass.base_case_coverage"
-        ))
+        if coveredFiles.isEmpty {
+            // A store can be *fresh* and still useless. bitchat's holds 140 units, all
+            // Clang `.pcm` modules and not one Swift source unit: its index build failed
+            // before reaching the package's own code, leaving an artifact new enough to
+            // pass the freshness check. Supersession is scoped to covered files precisely
+            // so this case degrades to "the syntactic pass decides" instead of erasing
+            // findings the index never examined.
+            diagnostics.append(Diagnostic(
+                severity: .note,
+                message: "recursion index pass: the index store yielded no symbols for any audited file, so this pass contributed nothing and the syntactic findings stand. A store that exists and is newer than the sources can still be the partial artifact of a failed index build.",
+                ruleId: "recursion.index_pass.no_coverage"
+            ))
+        } else {
+            diagnostics.append(Diagnostic(
+                severity: .note,
+                message: "recursion index pass: \(coveredFiles.count) files indexed; marked \(matchedBaseCases) definitions as bounded, from \(baseCaseSites.count) base cases the AST pass found. One site can match several definitions (generic specialisations, witnesses), so the second number is not an upper bound on the first.",
+                ruleId: "recursion.index_pass.base_case_coverage"
+            ))
+        }
         return Result(diagnostics: diagnostics, coveredFiles: coveredFiles)
     }
 

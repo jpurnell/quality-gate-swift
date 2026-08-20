@@ -4,6 +4,25 @@
 
 ### Fixed
 
+- **A fresh index store can still be useless, and the pass now says so.** bitchat matched 0 of
+  1900 base cases. Its store holds 140 units — every one a Clang `.pcm` module, not one Swift
+  source unit — because its index build failed before reaching the package's own code, leaving an
+  artifact new enough to pass the freshness check. **Freshness was checked; usefulness was not.**
+
+  Nothing was mis-reported, because supersession is already scoped to files the index actually
+  covered, so bitchat degraded to "the syntactic pass decides". What was missing was diagnosis:
+  the coverage note now distinguishes *no symbols at all* from partial coverage, and reports the
+  number of files indexed rather than leaving it to be inferred.
+
+  **The residual `self-reference-unresolved` notes are mostly not a gap.** Classifying all 34
+  across the survey gives three kinds, and only one is a defect: ~23 are code not compiled in
+  this configuration (a `#if os(Windows)` file on macOS; swift-collections targets behind the
+  `UnstableContainersPreview` package trait, which is off by default) — no index will ever cover
+  those and the note is correct; ~5 are in test targets, which `swift build` does not compile;
+  the rest are bitchat's. Documented in the checker's own DocC rather than left to be rediscovered.
+
+### Fixed
+
 - **The index pass now adjudicates direct self-recursion, and 258 of the 292 undecidable notes
   went away.** Tarjan reports direct recursion as a *one-node* component and the cycle loop
   required two or more participants, so nothing in the index pass ever looked at a self-call.
