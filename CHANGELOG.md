@@ -4,6 +4,39 @@
 
 ### Fixed
 
+- **The index pass now adjudicates direct self-recursion, and 258 of the 292 undecidable notes
+  went away.** Tarjan reports direct recursion as a *one-node* component and the cycle loop
+  required two or more participants, so nothing in the index pass ever looked at a self-call.
+  That was tolerable while the syntactic pass reported every self-call it could name; it stopped
+  being tolerable once that pass began deferring overloaded signatures to an index pass that was
+  not looking.
+
+  USR identity is the whole point: `encode(_ value: Int16)` calling `encode(value.databaseValue)`
+  reaches a *different* USR, so it produces no self-edge and no finding — the question syntax
+  could not answer. Across the corpus, `self-reference-unresolved` falls **292 → 34**,
+  `unconditional-self-call` **14 → 10** (and those ten are now confirmed by USR rather than
+  guessed), `mutual-cycle` errors **48 → 30**, corpus totals **65 errors / 14 warnings → 47 / 10**.
+
+  The remaining 34 notes are all in files the index could not see, and the pass reports its
+  coverage rather than leaving that to be inferred. Supersession is deliberately restricted to
+  covered files: bitchat's index covers nothing under its package root, and dropping the
+  syntactic findings there would trade every finding in the package for none.
+
+  **Three things had to be right, and each was found by the fix failing on the corpus first:**
+
+  - Direct recursion and a cycle need **different** base-case tests. A branch returning some
+    other call bounds the first but not the second, since that call may be the next participant.
+    Both are now carried separately; conflating them is what silently moved `mutual-cycle` 89 → 72
+    on an earlier attempt.
+  - **Computed properties and subscripts had no base-case analysis at all** — only functions
+    recorded a `DeclarationInfo`. The index graph admits their accessors, so GRDB's
+    `containsNonNullValue`, which ends in `return false`, read as unbounded. Both now record one.
+  - **IndexStoreDB names accessors `getter:name` / `setter:name`** while the AST records the
+    property as `name`. Before that prefix was stripped, the first corpus run reported 38
+    findings and *every one of them* was a property getter.
+
+### Fixed
+
 - **`mutual-cycle` stopped trusting a text scan: GRDB 18 → 6 errors, SQLite.swift 2 → 0,
   swift-async-algorithms 2 → 0, no package worse.** The index pass decided whether a cycle was
   bounded by reading the participants' body **text** and looking for the literal `"guard "`,

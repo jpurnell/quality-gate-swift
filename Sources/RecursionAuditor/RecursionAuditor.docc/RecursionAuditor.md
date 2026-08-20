@@ -19,8 +19,26 @@ The auditor was motivated by a real incident: a convenience initializer that for
 | `recursion.subscript-setter-self` | error | A subscript setter that assigns to `self[…]` |
 | `recursion.protocol-extension-default-self` | error | A function in a protocol extension whose default implementation calls itself |
 | `recursion.unconditional-self-call` | warning | A function that recurses with no base case |
-| `recursion.self-reference-unresolved` | note | A self-named call whose overload syntax cannot resolve |
+| `recursion.self-reference-unresolved` | note | A self-named call whose overload syntax cannot resolve, in a file the index pass could not see |
 | `recursion.mutual-cycle` | warning | A cycle in the project-wide call graph where no participant has a base case |
+
+### Two passes, and which one decides
+
+The syntactic pass reports what syntax can settle. Where it cannot — an overload chosen by
+parameter type — it records `self-reference-unresolved` rather than guessing. The index pass then
+supersedes both that note and `unconditional-self-call`, but **only for files it actually
+indexed**: an index that saw nothing must not erase findings it never examined, and at least one
+surveyed package has an index covering nothing under its package root.
+
+Base-case knowledge travels the other way, from syntax to index, because only the AST can read
+it reliably. Two facts make that bridge work, and both were found by measuring it failing:
+
+- The key is the definition's canonical path plus its **display name**, not its line. A
+  declaration's line drifts between the passes — one points at an attribute, the other at the
+  name — and keying on it matched barely half of a 22-package corpus.
+- IndexStoreDB names a computed property's accessors `getter:name` and `setter:name`, while the
+  AST records the property as `name`. Before that prefix was stripped, every property with a
+  plain `return` read as unbounded self-recursion.
 
 ### Mutual cycle detection
 

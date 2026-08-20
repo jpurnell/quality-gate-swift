@@ -315,6 +315,7 @@ struct RecursionIndexPassTests {
                 signature: Signature(typeContext: "T", displayName: name),
                 location: SourceLocation(file: "/Users/example/A.swift", line: 1, column: 1),
                 hasBaseCase: hasBaseCase,
+                hasSelfBaseCase: hasBaseCase,
                 outgoingCalls: [],
                 isCallable: isCallable
             )
@@ -348,6 +349,98 @@ struct RecursionIndexPassTests {
 
         let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
         #expect(!diagnostics.contains { $0.ruleId == "recursion.mutual-cycle" })
+    }
+
+
+    // MARK: - Direct self-recursion (single-node components)
+
+    @Test("An unbounded self-edge is reported")
+    func unboundedSelfEdgeIsReported() {
+        // Tarjan reports direct recursion as a one-node component, and the cycle loop
+        // requires two or more participants, so nothing looked at self-calls. That was
+        // tolerable while the AST pass reported every self-call it could name; it stops
+        // being tolerable once that pass defers overloaded signatures here.
+        let graph = USRCallGraph()
+        let usr = "s:1M6EncoderV6encodeyySiF"
+        graph.addEdge(from: usr, to: usr)
+        graph.setModuleName(usr, module: "M")
+        graph.setSymbolInfo(usr, info: SymbolInfo(displayName: "encode(_:)", filePath: "E.swift", line: 3, column: 5, moduleName: "M"))
+
+        let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
+        #expect(diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+    }
+
+    @Test("A self-edge with a self base case is not reported")
+    func selfEdgeWithSelfBaseCaseIsNotReported() {
+        // The loose test, not the strict one a cycle needs: any branch that does not
+        // re-enter *this* function bounds direct recursion, whatever it returns.
+        let graph = USRCallGraph()
+        let usr = "s:1M4FactV7computeySiSiF"
+        graph.addEdge(from: usr, to: usr)
+        graph.markHasSelfBaseCase(usr)
+        graph.setModuleName(usr, module: "M")
+        graph.setSymbolInfo(usr, info: SymbolInfo(displayName: "compute(_:)", filePath: "F.swift", line: 2, column: 5, moduleName: "M"))
+
+        let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
+        #expect(!diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+    }
+
+    @Test("A node with no self-edge is not reported as self-recursive")
+    func nonRecursiveNodeIsNotReported() {
+        let graph = USRCallGraph()
+        let usr = "s:1M5PlainV4stepyyF"
+        graph.addNode(usr)
+        graph.setModuleName(usr, module: "M")
+        graph.setSymbolInfo(usr, info: SymbolInfo(displayName: "step()", filePath: "P.swift", line: 1, column: 1, moduleName: "M"))
+
+        let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
+        #expect(!diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+    }
+
+    @Test("The strict cycle base case does not silence a direct self-call")
+    func strictBaseCaseDoesNotSilenceSelfCall() {
+        // The two tests are separate for a reason: `markHasBaseCase` answers the cycle
+        // question. Letting it answer the self-call question too would reintroduce the
+        // conflation that silently moved mutual-cycle 89 -> 72.
+        let graph = USRCallGraph()
+        let usr = "s:1M4LoopV6spinnyySiF"
+        graph.addEdge(from: usr, to: usr)
+        graph.markHasBaseCase(usr)
+        graph.setModuleName(usr, module: "M")
+        graph.setSymbolInfo(usr, info: SymbolInfo(displayName: "spin(_:)", filePath: "L.swift", line: 1, column: 1, moduleName: "M"))
+
+        let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
+        #expect(diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+    }
+
+
+    @Test("Self base-case sites include computed properties, which are not callables")
+    func selfBaseCaseSitesIncludeProperties() {
+        // The index graph admits a property's getter, so a property that plainly returns
+        // — GRDB's `containsNonNullValue` ends in `return false` — must be able to say so.
+        // The *strict* set stays callable-only, because cycle detection filters the same way.
+        let property = DeclarationInfo(
+            signature: Signature(typeContext: "Row", displayName: "containsNonNullValue"),
+            location: SourceLocation(file: "/Users/example/Row.swift", line: 1, column: 1),
+            hasBaseCase: false,
+            hasSelfBaseCase: true,
+            outgoingCalls: [],
+            isCallable: false
+        )
+        let site = DeclarationSite(path: "/Users/example/Row.swift", name: "containsNonNullValue")
+        #expect(RecursionIndexPass.selfBaseCaseSites(from: [property]).contains(site))
+        #expect(!RecursionIndexPass.baseCaseSites(from: [property]).contains(site))
+    }
+
+
+    @Test("Accessor symbol names normalise to the property name")
+    func accessorNamesNormalise() {
+        // IndexStoreDB names a computed property's accessors `getter:name` / `setter:name`,
+        // while the AST pass records the property as `name`. Without stripping the prefix
+        // the two never meet, and every property with a base case reads as unbounded.
+        #expect(RecursionIndexPass.normalizedSymbolName("getter:containsNonNullValue") == "containsNonNullValue")
+        #expect(RecursionIndexPass.normalizedSymbolName("setter:db") == "db")
+        #expect(RecursionIndexPass.normalizedSymbolName("encode(_:)") == "encode(_:)")
     }
 
 }

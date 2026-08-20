@@ -41,6 +41,7 @@ final class USRCallGraph: Sendable {
     private let _protocolWitnesses: Mutex<Set<String>> = Mutex([])
     private let _defaultImplementations: Mutex<Set<String>> = Mutex([])
     private let _hasBaseCase: Mutex<Set<String>> = Mutex([])
+    private let _hasSelfBaseCase: Mutex<Set<String>> = Mutex([])
 
     /// Creates an empty call graph.
     init() {}
@@ -79,6 +80,16 @@ final class USRCallGraph: Sendable {
     /// Marks a USR as having a guard-driven base case.
     func markHasBaseCase(_ usr: String) {
         _hasBaseCase.withLock { _ = $0.insert(usr) }
+    }
+
+    /// Marks a USR as having a branch that exits without re-entering itself.
+    func markHasSelfBaseCase(_ usr: String) {
+        _hasSelfBaseCase.withLock { _ = $0.insert(usr) }
+    }
+
+    /// Returns true if the given USR has a branch that does not re-enter it.
+    func hasSelfBaseCase(_ usr: String) -> Bool {
+        _hasSelfBaseCase.withLock { $0.contains(usr) }
     }
 
     /// Returns true if the given USR has a self-edge.
@@ -263,6 +274,29 @@ enum RecursionIndexPass {
             }
         }
 
+        // Direct self-recursion. Tarjan reports it as a one-node component, which the
+        // cycle loop above skips, so nothing here looked at it — and that gap is what the
+        // AST pass's `self-reference-unresolved` notes were waiting on. USR identity is
+        // the whole point: `encode(_ value: Int16)` calling `encode(value.databaseValue)`
+        // reaches a *different* USR, so it produces no self-edge and no finding, which is
+        // the question syntax could not answer.
+        //
+        // Warning, matching the AST pass's severity for the same rule.
+        for component in sccs where component.count == 1 {
+            guard let usr = component.first, graph.hasSelfEdge(usr) else { continue }
+            guard !graph.hasSelfBaseCase(usr) else { continue }
+            guard let info = graph.symbolInfo(for: usr) else { continue }
+            diagnostics.append(Diagnostic(
+                severity: .warning,
+                message: "function '\(info.displayName)' calls itself with no base case",
+                filePath: info.filePath,
+                lineNumber: info.line,
+                columnNumber: info.column,
+                ruleId: "recursion.unconditional-self-call",
+                suggestedFix: "Add a branch that returns or throws without calling '\(info.displayName)' again."
+            ))
+        }
+
         diagnostics.sort { lhs, rhs in
             if (lhs.filePath ?? "") != (rhs.filePath ?? "") { return (lhs.filePath ?? "") < (rhs.filePath ?? "") }
             return (lhs.lineNumber ?? 0) < (rhs.lineNumber ?? 0)
@@ -280,13 +314,45 @@ enum RecursionIndexPass {
         )]
     }
 
+    /// The property name behind an accessor symbol.
+    ///
+    /// IndexStoreDB names a computed property's accessors `getter:name` and `setter:name`,
+    /// while the AST pass records the property itself as `name`. Without stripping the
+    /// prefix the two never meet, and every property with a plain `return` reads as
+    /// unbounded self-recursion — which is what the first corpus run showed: all 38
+    /// findings were getters.
+    static func normalizedSymbolName(_ name: String) -> String {
+        for prefix in ["getter:", "setter:"] where name.hasPrefix(prefix) {
+            return String(name.dropFirst(prefix.count))
+        }
+        return name
+    }
+
     /// The declaration sites Pass 1 determined have a base case.
     ///
     /// Only callables: the index graph admits functions and methods, so a property's
     /// base case has nothing to attach to.
     static func baseCaseSites(from declarations: [DeclarationInfo]) -> Set<DeclarationSite> {
+        // Callables only, matching how cycle detection filters its own input.
+        sites(from: declarations) { $0.isCallable && $0.hasBaseCase }
+    }
+
+    /// The declaration sites Pass 1 determined have a branch that does not re-enter them.
+    ///
+    /// Not restricted to callables. The index graph admits a computed property's getter,
+    /// so a property that plainly returns — GRDB's `containsNonNullValue` ends in
+    /// `return false` — has to be able to say so, or every structural walk over a tree of
+    /// rows reads as unbounded self-recursion.
+    static func selfBaseCaseSites(from declarations: [DeclarationInfo]) -> Set<DeclarationSite> {
+        sites(from: declarations) { $0.hasSelfBaseCase }
+    }
+
+    private static func sites(
+        from declarations: [DeclarationInfo],
+        where predicate: (DeclarationInfo) -> Bool
+    ) -> Set<DeclarationSite> {
         var sites: Set<DeclarationSite> = []
-        for declaration in declarations where declaration.isCallable && declaration.hasBaseCase {
+        for declaration in declarations where predicate(declaration) {
             sites.insert(DeclarationSite(
                 path: URL(fileURLWithPath: declaration.location.file).resolvingSymlinksInPath().path,
                 name: declaration.signature.displayName
@@ -309,11 +375,23 @@ enum RecursionIndexPass {
     }
 
     /// Runs Pass 2 using an IndexStoreDB session to build a USR call graph.
+    /// What the index pass produced, and which files it could actually see.
+    ///
+    /// Coverage is not decoration: the AST pass's self-call findings are superseded by
+    /// this pass only for files it indexed. bitchat's index covers nothing under the
+    /// walked root, and dropping the AST findings there would discard every self-call
+    /// finding in the package in exchange for none.
+    struct Result {
+        let diagnostics: [Diagnostic]
+        let coveredFiles: Set<String>
+    }
+
     static func run(
         session: IndexStoreSession,
         swiftFiles: [String],
-        baseCaseSites: Set<DeclarationSite>
-    ) throws -> [Diagnostic] {
+        baseCaseSites: Set<DeclarationSite>,
+        selfBaseCaseSites: Set<DeclarationSite>
+    ) throws -> Result {
         let db = session.db
         let graph = USRCallGraph()
 
@@ -327,6 +405,7 @@ enum RecursionIndexPass {
 
         let canonicalSwiftFiles = Set(swiftFiles.map { canonicalize($0) })
         var matchedBaseCases = 0
+        var coveredFiles: Set<String> = []
 
         for file in swiftFiles {
             let canonical = canonicalize(file)
@@ -360,9 +439,14 @@ enum RecursionIndexPass {
                     graph.markAsProtocolWitness(usr)
                 }
 
-                if baseCaseSites.contains(DeclarationSite(path: defFile, name: symbol.name)) {
+                coveredFiles.insert(defFile)
+                let site = DeclarationSite(path: defFile, name: normalizedSymbolName(symbol.name))
+                if baseCaseSites.contains(site) {
                     matchedBaseCases += 1
                     graph.markHasBaseCase(usr)
+                }
+                if selfBaseCaseSites.contains(site) {
+                    graph.markHasSelfBaseCase(usr)
                 }
 
                 let refs = db.occurrences(ofUSR: usr, roles: [.reference, .call])
@@ -389,7 +473,7 @@ enum RecursionIndexPass {
             message: "recursion index pass: marked \(matchedBaseCases) indexed definitions as bounded, from \(baseCaseSites.count) base cases the AST pass found. One site can match several definitions (generic specialisations, witnesses), so the first number may exceed the second.",
             ruleId: "recursion.index_pass.base_case_coverage"
         ))
-        return diagnostics
+        return Result(diagnostics: diagnostics, coveredFiles: coveredFiles)
     }
 
     private static func isCallable(_ symbol: Symbol) -> Bool {

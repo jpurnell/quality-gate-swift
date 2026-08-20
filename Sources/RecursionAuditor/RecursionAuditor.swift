@@ -137,11 +137,29 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         // Pass 2: USR-based cycle detection via IndexStoreDB (when available).
         if configuration.recursion.useIndexStore {
             do {
-                let pass2Diagnostics = try await runIndexStorePass(
+                let pass2 = try await runIndexStorePass(
                     configuration: configuration,
-                    baseCaseSites: RecursionIndexPass.baseCaseSites(from: allDeclarations)
+                    baseCaseSites: RecursionIndexPass.baseCaseSites(from: allDeclarations),
+                    selfBaseCaseSites: RecursionIndexPass.selfBaseCaseSites(from: allDeclarations)
                 )
-                allDiagnostics.append(contentsOf: pass2Diagnostics)
+
+                // Where the index could see the file, its USR answer supersedes the
+                // syntactic guess: an overload the AST pass had to record as unresolved
+                // resolves to a different USR here, so it produces no self-edge and no
+                // finding. Restricted to covered files, because an index that saw nothing
+                // must not be allowed to erase findings it never examined.
+                let supersededByUSR: Set<String> = [
+                    "recursion.unconditional-self-call",
+                    "recursion.self-reference-unresolved",
+                ]
+                allDiagnostics.removeAll { diagnostic in
+                    guard let ruleId = diagnostic.ruleId, supersededByUSR.contains(ruleId),
+                          let path = diagnostic.filePath else { return false }
+                    return pass2.coveredFiles.contains(
+                        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+                    )
+                }
+                allDiagnostics.append(contentsOf: pass2.diagnostics)
 
                 for diag in nameBasedCycleDiagnostics {
                     allDiagnostics.append(RecursionIndexPass.demoteToNote(diag))
@@ -202,7 +220,9 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     }
 
     /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
-    private func runIndexStorePass(configuration: Configuration, baseCaseSites: Set<DeclarationSite>) async throws -> [Diagnostic] {
+    private func runIndexStorePass(configuration: Configuration, baseCaseSites: Set<DeclarationSite>,
+        selfBaseCaseSites: Set<DeclarationSite>
+    ) async throws -> RecursionIndexPass.Result {
         let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
 
@@ -220,7 +240,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         return try RecursionIndexPass.run(
             session: session,
             swiftFiles: swiftFiles,
-            baseCaseSites: baseCaseSites
+            baseCaseSites: baseCaseSites,
+            selfBaseCaseSites: selfBaseCaseSites
         )
     }
 
@@ -360,7 +381,16 @@ struct DeclarationInfo {
     let signature: Signature
     let location: SourceLocation
     /// True if the body contains a guard-driven early exit.
+    ///
+    /// The strict test, and the one a *cycle* needs: a branch returning some other call
+    /// is not a bound, because that call may be the next participant.
     let hasBaseCase: Bool
+    /// True if some branch exits without re-entering this declaration.
+    ///
+    /// The loose test, and the one *direct* self-recursion needs. Kept separate because
+    /// sharing one test between the two questions silently moved `mutual-cycle` from 89
+    /// to 72 when it was tried.
+    let hasSelfBaseCase: Bool
     /// Outgoing call sites collected from the body.
     let outgoingCalls: [CallSite]
     /// True if this declaration participates in cycle detection (functions/methods).

@@ -213,6 +213,7 @@ final class RecursionVisitor: SyntaxVisitor {
             signature: signature,
             location: location,
             hasBaseCase: baseCase,
+            hasSelfBaseCase: selfBaseCase,
             outgoingCalls: outgoing,
             isCallable: true
         ))
@@ -265,6 +266,26 @@ final class RecursionVisitor: SyntaxVisitor {
             guard let accessorBlock = binding.accessorBlock else { continue }
 
             let bindingLocation = startLocation(of: Syntax(binding))
+
+            // Recorded so the index pass can learn this getter's base case. Not callable:
+            // cycle detection filters on that flag, and a property has never been one of
+            // its participants.
+            let getterBody: Syntax? = switch accessorBlock.accessors {
+            case .getter(let codeBlock): Syntax(codeBlock)
+            case .accessors(let accessors):
+                accessors.first { $0.accessorSpecifier.text == "get" }?.body.map(Syntax.init)
+            }
+            let propertySignature = Signature(typeContext: currentTypeContext, displayName: name)
+            declarations.append(DeclarationInfo(
+                signature: propertySignature,
+                location: bindingLocation,
+                hasBaseCase: false,
+                hasSelfBaseCase: getterBody.map {
+                    hasSelfBaseCase(in: $0, ownSignature: propertySignature)
+                } ?? false,
+                outgoingCalls: [],
+                isCallable: false
+            ))
 
             switch accessorBlock.accessors {
             case .getter(let codeBlock):
@@ -335,6 +356,25 @@ final class RecursionVisitor: SyntaxVisitor {
         let displayName = makeFunctionDisplayName(name: "subscript", labels: labels)
         let signature = Signature(typeContext: currentTypeContext, displayName: displayName)
         bodiedSignatureCounts[signature, default: 0] += 1
+
+        // Recorded for the same reason as a computed property: the index graph admits a
+        // subscript's accessors, so a subscript that plainly returns has to be able to
+        // say so. Not callable — cycle detection filters on that flag.
+        let subscriptGetterBody: Syntax? = switch accessorBlock.accessors {
+        case .getter(let codeBlock): Syntax(codeBlock)
+        case .accessors(let accessors):
+            accessors.first { $0.accessorSpecifier.text == "get" }?.body.map(Syntax.init)
+        }
+        declarations.append(DeclarationInfo(
+            signature: signature,
+            location: location,
+            hasBaseCase: false,
+            hasSelfBaseCase: subscriptGetterBody.map {
+                hasSelfBaseCase(in: $0, ownSignature: signature)
+            } ?? false,
+            outgoingCalls: [],
+            isCallable: false
+        ))
 
         guard !isSuppressed(atLine: location.line) else { return }
 
