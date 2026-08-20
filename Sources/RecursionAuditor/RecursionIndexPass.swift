@@ -225,8 +225,6 @@ final class USRCallGraph: Sendable {
 /// witness table cycles that Pass 1 (syntactic) cannot see.
 enum RecursionIndexPass {
 
-    private static let logger = Logger(subsystem: "com.quality-gate", category: "RecursionIndexPass")
-
     /// Generates diagnostics from a pre-built USR call graph.
     static func generateDiagnostics(from graph: USRCallGraph) -> [Diagnostic] {
         let sccs = graph.findStronglyConnectedComponents()
@@ -282,6 +280,21 @@ enum RecursionIndexPass {
         )]
     }
 
+    /// The declaration sites Pass 1 determined have a base case.
+    ///
+    /// Only callables: the index graph admits functions and methods, so a property's
+    /// base case has nothing to attach to.
+    static func baseCaseSites(from declarations: [DeclarationInfo]) -> Set<DeclarationSite> {
+        var sites: Set<DeclarationSite> = []
+        for declaration in declarations where declaration.isCallable && declaration.hasBaseCase {
+            sites.insert(DeclarationSite(
+                path: URL(fileURLWithPath: declaration.location.file).resolvingSymlinksInPath().path,
+                name: declaration.signature.displayName
+            ))
+        }
+        return sites
+    }
+
     /// Demotes a name-based mutual cycle diagnostic to `.note` severity.
     static func demoteToNote(_ diagnostic: Diagnostic) -> Diagnostic {
         Diagnostic(
@@ -299,7 +312,7 @@ enum RecursionIndexPass {
     static func run(
         session: IndexStoreSession,
         swiftFiles: [String],
-        baseCaseUSRs: Set<String>
+        baseCaseSites: Set<DeclarationSite>
     ) throws -> [Diagnostic] {
         let db = session.db
         let graph = USRCallGraph()
@@ -313,6 +326,7 @@ enum RecursionIndexPass {
         }
 
         let canonicalSwiftFiles = Set(swiftFiles.map { canonicalize($0) })
+        var matchedBaseCases = 0
 
         for file in swiftFiles {
             let canonical = canonicalize(file)
@@ -346,7 +360,8 @@ enum RecursionIndexPass {
                     graph.markAsProtocolWitness(usr)
                 }
 
-                if baseCaseUSRs.contains(usr) {
+                if baseCaseSites.contains(DeclarationSite(path: defFile, name: symbol.name)) {
+                    matchedBaseCases += 1
                     graph.markHasBaseCase(usr)
                 }
 
@@ -362,65 +377,19 @@ enum RecursionIndexPass {
             }
         }
 
-        scanForBaseCases(graph: graph, swiftFiles: swiftFiles)
-
-        return generateDiagnostics(from: graph)
-    }
-
-    /// Reads source files and marks USRs as having a base case when their
-    /// function body contains a guard statement or bare return.
-    private static func scanForBaseCases(graph: USRCallGraph, swiftFiles: [String]) {
-        var fileContentsCache: [String: String] = [:]
-
-        func contents(of path: String) -> String? {
-            if let cached = fileContentsCache[path] { return cached }
-            let source: String
-            do {
-                source = try String(contentsOfFile: path, encoding: .utf8)
-            } catch {
-                logger.warning("Skipping unreadable source file: \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                return nil
-            }
-            fileContentsCache[path] = source
-            return source
-        }
-
-        let sccs = graph.findStronglyConnectedComponents()
-        for component in sccs where component.count >= 2 {
-            for usr in component {
-                guard let info = graph.symbolInfo(for: usr) else { continue }
-                guard let source = contents(of: info.filePath) else { continue }
-
-                let lines = source.lines
-                let startIndex = max(0, info.line - 1)
-                guard startIndex < lines.count else { continue }
-
-                var braceDepth = 0
-                var foundOpen = false
-                var bodyLines: [String] = []
-
-                for lineIndex in startIndex..<lines.count {
-                    let line = lines[lineIndex]
-                    for char in line {
-                        if char == "{" {
-                            braceDepth += 1
-                            foundOpen = true
-                        } else if char == "}" {
-                            braceDepth -= 1
-                        }
-                    }
-                    if foundOpen {
-                        bodyLines.append(line)
-                    }
-                    if foundOpen && braceDepth == 0 { break }
-                }
-
-                let body = bodyLines.joined(separator: "\n")
-                if body.contains("guard ") || body.contains("guard\t") {
-                    graph.markHasBaseCase(usr)
-                }
-            }
-        }
+        // The base-case knowledge now comes from the AST pass rather than from a text
+        // scan of the source. The scan this replaces looked for the literal "guard " in
+        // brace-counted body text, so it saw only one of the shapes that bound a cycle —
+        // a bare `return`, or a `return` of anything that is not a call, were invisible
+        // to it, and every cycle containing one was reported as unbounded.
+        let diagnostics0 = generateDiagnostics(from: graph)
+        var diagnostics = diagnostics0
+        diagnostics.append(Diagnostic(
+            severity: .note,
+            message: "recursion index pass: marked \(matchedBaseCases) indexed definitions as bounded, from \(baseCaseSites.count) base cases the AST pass found. One site can match several definitions (generic specialisations, witnesses), so the first number may exceed the second.",
+            ruleId: "recursion.index_pass.base_case_coverage"
+        ))
+        return diagnostics
     }
 
     private static func isCallable(_ symbol: Symbol) -> Bool {

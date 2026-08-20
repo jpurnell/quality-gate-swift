@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`mutual-cycle` stopped trusting a text scan: GRDB 18 → 6 errors, SQLite.swift 2 → 0,
+  swift-async-algorithms 2 → 0, no package worse.** The index pass decided whether a cycle was
+  bounded by reading the participants' body **text** and looking for the literal `"guard "`,
+  inside lines it delimited by counting braces with no awareness of strings or comments. Every
+  other shape that bounds a cycle — a bare `return`, or a `return` of anything that is not a
+  call — was invisible to it, so bounded cycles were reported as unbounded.
+
+  Pass 1 already answers this correctly from the AST. It now carries that answer across, keyed on
+  the definition's canonical path plus its display name: `makeFunctionDisplayName` produces
+  `_subtracting(_:_:)` and so does IndexStoreDB's `symbol.name`. Keying on the *line* was tried
+  first and matched barely half the corpus — a declaration's line drifts between the passes
+  (attributes, multi-line signatures) and a near-miss silently drops the base case. By name the
+  rate is 90–95%.
+
+  swift-async-algorithms is the shape that proves it: `AsyncBufferedByteIterator`'s
+  `reloadBufferAndNext()` ↔ `next()` really is a cycle, and really is bounded — by
+  `if finished { return nil }` and a `_fastPath` early return, neither of which is a `guard`.
+
+  **This surfaced a second, older defect and needed it fixed too.** Both base-case walkers
+  returned `.skipChildren` from `visit(ReturnStmtSyntax)`, so a `guard` inside a closure within a
+  *returned expression* was never reached — swift-collections' `_subtracting_slow` reaches its
+  guard through two nested `read { }` closures. The AST pass had been calling those functions
+  unbounded all along and the text scan happened to mask it; removing the mask made the
+  disagreement visible as five new errors. With the walkers descending, swift-collections is
+  unchanged at 6 rather than up at 11.
+
+  A computed coverage note reports how many indexed definitions were marked bounded, so the
+  bridge's reach cannot go stale. It reads 0 for bitchat, whose index covers nothing under the
+  walked root; Pass 2 contributes no cycle findings there either way.
+
 ### Performance
 
 - **`complexity`'s residual superlinearity was the converter defect one level up: n^1.81 → n^0.83,
@@ -73,6 +105,12 @@
   became notes.
 
   Corpus totals across both parts: **174 errors / 279 warnings → 65 errors / 14 warnings**.
+
+  **Correction (2026-08-20):** the paragraph below said Pass 2 "has no base-case data". Precisely:
+  `baseCaseUSRs` was passed empty and that path was dead, but `scanForBaseCases` supplied base
+  cases by scanning body *text* for the literal `"guard "`. Cycles had weak data, not none. The
+  claim held only for single-node components, which that scan skipped outright — which is why the
+  single-node experiment reported 207 sites. See the 2026-08-20 entry for the replacement.
 
   **Recorded, not fixed:** routing these rules through the index pass was tried and reverted.
   Pass 2 skipped single-node components (`where component.count >= 2`) so it never looked at

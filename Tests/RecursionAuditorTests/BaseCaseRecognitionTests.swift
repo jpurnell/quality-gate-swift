@@ -110,6 +110,32 @@ struct BaseCaseRecognitionTests {
         #expect(result.diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
     }
 
+    @Test("A guard inside a nested closure counts as a base case")
+    func guardInNestedClosureIsABaseCase() async throws {
+        // swift-collections — `_subtracting_slow` reaches its guard through two nested
+        // `read { }` closures. If the walker does not see it, every cycle containing
+        // that function reads as unbounded.
+        let code = """
+        struct Node {
+            func read<T>(_ body: (Int) -> T) -> T { body(0) }
+            func slow(_ other: Node) -> Int {
+                if other.flag {
+                    return read { l in
+                        other.read { r in
+                            guard l == r else { return 0 }
+                            return slow(other)
+                        }
+                    }
+                }
+                return slow(other)
+            }
+            var flag: Bool { true }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+    }
+
     private func audit(_ code: String) async throws -> CheckResult {
         let auditor = RecursionAuditor()
         let config = Configuration(recursion: RecursionAuditorConfig(useIndexStore: false))

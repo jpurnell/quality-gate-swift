@@ -137,7 +137,10 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         // Pass 2: USR-based cycle detection via IndexStoreDB (when available).
         if configuration.recursion.useIndexStore {
             do {
-                let pass2Diagnostics = try await runIndexStorePass(configuration: configuration)
+                let pass2Diagnostics = try await runIndexStorePass(
+                    configuration: configuration,
+                    baseCaseSites: RecursionIndexPass.baseCaseSites(from: allDeclarations)
+                )
                 allDiagnostics.append(contentsOf: pass2Diagnostics)
 
                 for diag in nameBasedCycleDiagnostics {
@@ -199,7 +202,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     }
 
     /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
-    private func runIndexStorePass(configuration: Configuration) async throws -> [Diagnostic] {
+    private func runIndexStorePass(configuration: Configuration, baseCaseSites: Set<DeclarationSite>) async throws -> [Diagnostic] {
         let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
 
@@ -217,7 +220,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         return try RecursionIndexPass.run(
             session: session,
             swiftFiles: swiftFiles,
-            baseCaseUSRs: []
+            baseCaseSites: baseCaseSites
         )
     }
 
@@ -382,6 +385,25 @@ struct CallSite {
 }
 
 /// Source location for a diagnostic.
+/// A declaration site — the only identifier both recursion passes can compute.
+///
+/// Pass 1 knows base cases by AST location and has no USRs; the index knows symbols by
+/// USR and has no syntax tree. The definition's canonical path plus its display name
+/// carries Pass 1's answer across the gap, and both sides spell that name the same way:
+/// `makeFunctionDisplayName` produces `_subtracting(_:_:)` and so does IndexStoreDB's
+/// `symbol.name`.
+///
+/// Keyed on the name rather than the line, which was tried first and matched barely half
+/// the corpus — a declaration's line drifts between the two passes (attributes, multi-line
+/// signatures) and a near-miss silently drops the base case, which reports a bounded cycle
+/// as unbounded. Two overloads in one file with the same display name both get marked;
+/// that errs toward suppression, which is the safer direction for a heuristic feeding an
+/// error-severity rule.
+struct DeclarationSite: Hashable, Sendable {
+    let path: String
+    let name: String
+}
+
 struct SourceLocation {
     let file: String
     let line: Int

@@ -183,7 +183,7 @@ final class RecursionVisitor: SyntaxVisitor {
                     lineNumber: location.line,
                     columnNumber: location.column,
                     ruleId: "recursion.self-reference-unresolved",
-                    suggestedFix: "Read the call and confirm which overload it selects. Resolving these automatically needs USR identity *and* per-symbol base-case data; the index pass has the first and not yet the second."
+                    suggestedFix: "Read the call and confirm which overload it selects. Resolving these automatically needs the index pass to admit self-edges, which it does not yet do — it reports cycles of two or more participants only."
                 )
                 if insideProtocolExtension {
                     pendingSelfCalls.append((signature, Diagnostic(
@@ -482,7 +482,12 @@ func hasGuardEarlyExit(in node: Syntax) -> Bool {
             if !expression.is(FunctionCallExprSyntax.self) {
                 found = true
             }
-            return .skipChildren
+            // Keep descending. A returned expression can carry closures, and a guard
+            // inside one bounds the function just as a top-level guard does —
+            // swift-collections' `_subtracting_slow` reaches its guard through two
+            // nested `read { }` closures. Stopping here made every such function read
+            // as unbounded.
+            return .visitChildren
         }
     }
     let walker = Walker(viewMode: .sourceAccurate)
@@ -519,7 +524,9 @@ func hasSelfBaseCase(in node: Syntax, ownSignature: Signature) -> Bool {
             if findRecursiveCalls(in: Syntax(expression), ownSignature: target).isEmpty {
                 found = true
             }
-            return .skipChildren
+            // Keep descending, for the same reason as `hasGuardEarlyExit`: a guard
+            // inside a closure within the returned expression still bounds this call.
+            return .visitChildren
         }
         /// Restricted to blocks holding exactly one item, so `{ recurse(); cleanup() }`
         /// — where the trailing expression is a statement, not the branch's value — is

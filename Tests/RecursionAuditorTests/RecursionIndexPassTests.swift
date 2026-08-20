@@ -305,4 +305,49 @@ struct RecursionIndexPassTests {
         let cycleDiags = diagnostics.filter { $0.ruleId == "recursion.mutual-cycle" }
         #expect(cycleDiags.isEmpty)
     }
+
+    // MARK: - Carrying Pass 1's base-case knowledge into Pass 2
+
+    @Test("Base-case sites come only from callable declarations that have one")
+    func baseCaseSitesFilterCorrectly() {
+        func declaration(_ name: String, hasBaseCase: Bool, isCallable: Bool) -> DeclarationInfo {
+            DeclarationInfo(
+                signature: Signature(typeContext: "T", displayName: name),
+                location: SourceLocation(file: "/Users/example/A.swift", line: 1, column: 1),
+                hasBaseCase: hasBaseCase,
+                outgoingCalls: [],
+                isCallable: isCallable
+            )
+        }
+        let sites = RecursionIndexPass.baseCaseSites(from: [
+            declaration("bounded()", hasBaseCase: true, isCallable: true),
+            declaration("unbounded()", hasBaseCase: false, isCallable: true),
+            declaration("property", hasBaseCase: true, isCallable: false),
+        ])
+        let path = "/Users/example/A.swift"
+        #expect(sites.contains(DeclarationSite(path: path, name: "bounded()")))
+        #expect(!sites.contains(DeclarationSite(path: path, name: "unbounded()")))
+        #expect(!sites.contains(DeclarationSite(path: path, name: "property")))
+        #expect(sites.count == 1)
+    }
+
+    @Test("A cycle whose participant has a base case is not reported")
+    func cycleWithBaseCaseIsNotReported() {
+        // The property `scanForBaseCases` established textually, now established from
+        // the AST pass instead — and for base cases a text scan for "guard " cannot
+        // see, such as a bare return.
+        let graph = USRCallGraph()
+        let a = "s:1M1ayyF", b = "s:1M1byyF"
+        graph.addEdge(from: a, to: b)
+        graph.addEdge(from: b, to: a)
+        graph.markHasBaseCase(a)
+        graph.setModuleName(a, module: "M")
+        graph.setModuleName(b, module: "M")
+        graph.setSymbolInfo(a, info: SymbolInfo(displayName: "a()", filePath: "A.swift", line: 1, column: 1, moduleName: "M"))
+        graph.setSymbolInfo(b, info: SymbolInfo(displayName: "b()", filePath: "A.swift", line: 5, column: 1, moduleName: "M"))
+
+        let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
+        #expect(!diagnostics.contains { $0.ruleId == "recursion.mutual-cycle" })
+    }
+
 }
