@@ -82,7 +82,7 @@ final class USRCallGraph: Sendable {
     }
 
     /// Returns true if the given USR has a self-edge.
-    func hasSelfEdge(_ usr: String) -> Bool { // LIVE: called by tests and RecursionIndexPass.run
+    func hasSelfEdge(_ usr: String) -> Bool { // LIVE: called by tests
         _edges.withLock { $0[usr]?.contains(usr) ?? false }
     }
 

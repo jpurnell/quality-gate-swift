@@ -105,6 +105,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
         var allDeclarations: [DeclarationInfo] = []
         var allDiagnostics: [Diagnostic] = []
+        var pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)] = []
+        var signatureCounts: [Signature: Int] = [:]
         for entry in sources {
             let analysis = analyzeFile(
                 source: entry.source,
@@ -113,6 +115,20 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             )
             allDeclarations.append(contentsOf: analysis.declarations)
             allDiagnostics.append(contentsOf: analysis.diagnostics)
+            pendingSelfCalls.append(contentsOf: analysis.pendingSelfCalls)
+            for (signature, count) in analysis.bodiedSignatureCounts {
+                signatureCounts[signature, default: 0] += count
+            }
+        }
+
+        // Whether a self-named call resolves to *this* declaration or to a sibling
+        // overload is a property of the whole project, not of one file: a Swift type
+        // spans files, and swift-collections declares `_ptr(at:)` for `Bucket` in one
+        // file and for `Int` in another. Deciding per file reported the first as
+        // recursion because it could not see the second.
+        for pending in pendingSelfCalls {
+            let isOverloaded = (signatureCounts[pending.signature] ?? 0) > 1
+            allDiagnostics.append(isOverloaded ? pending.unresolved : pending.confident)
         }
 
         // Pass 1: Project-wide mutual cycle detection (name-based, rule 8).
@@ -176,7 +192,9 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         visitor.walk(tree)
         return FileAnalysis(
             diagnostics: visitor.diagnostics,
-            declarations: visitor.declarations
+            declarations: visitor.declarations,
+            pendingSelfCalls: visitor.pendingSelfCalls,
+            bodiedSignatureCounts: visitor.bodiedSignatureCounts
         )
     }
 
@@ -374,4 +392,8 @@ struct SourceLocation {
 struct FileAnalysis {
     let diagnostics: [Diagnostic]
     let declarations: [DeclarationInfo]
+    /// Self-call findings awaiting the project-wide overload census.
+    let pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)]
+    /// How many implementations of each signature this file contributes.
+    let bodiedSignatureCounts: [Signature: Int]
 }

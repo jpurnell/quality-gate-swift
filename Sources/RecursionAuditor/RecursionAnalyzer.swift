@@ -27,6 +27,17 @@ final class RecursionVisitor: SyntaxVisitor {
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var declarations: [DeclarationInfo] = []
+    /// Self-call findings held until the whole file is walked. Whether a matching call
+    /// resolves to *this* declaration or to a sibling overload depends on declarations
+    /// that may not have been visited yet, so the decision cannot be made inline.
+    private(set) var pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)] = []
+    /// How many *implementations* each signature has, which is what decides overloading.
+    ///
+    /// Bodyless declarations are excluded deliberately: a protocol requirement and the
+    /// extension default that satisfies it share a signature but are one function, and
+    /// counting the pair as two overloads would silence the very rule that exists to
+    /// catch `extension P { func f() { f() } }`.
+    private(set) var bodiedSignatureCounts: [Signature: Int] = [:]
 
     /// Lexical type stack: each element is a type name (or extension target).
     private var typeStack: [String] = []
@@ -141,8 +152,12 @@ final class RecursionVisitor: SyntaxVisitor {
         let location = startLocation(of: Syntax(node))
 
         let body = node.body
+        if body != nil {
+            bodiedSignatureCounts[signature, default: 0] += 1
+        }
         let outgoing = body.map { collectCalls(in: Syntax($0), enclosingTypeContext: currentTypeContext) } ?? []
         let baseCase = body.map { hasGuardEarlyExit(in: Syntax($0)) } ?? false
+        let selfBaseCase = body.map { hasSelfBaseCase(in: Syntax($0), ownSignature: signature) } ?? false
 
         // Self-recursion check (covers unconditional-self-call and protocol-extension-default-self).
         if let body {
@@ -151,8 +166,17 @@ final class RecursionVisitor: SyntaxVisitor {
                 ownSignature: signature
             )
             if !selfRefs.isEmpty, !isSuppressed(atLine: location.line) {
+                let unresolved = Diagnostic(
+                    severity: .note,
+                    message: "'\(displayName)' is declared more than once with these argument labels, so a call matching them is resolved by parameter type — which a syntactic pass cannot do. Recorded as unresolved rather than reported as recursion; no pass currently adjudicates it.",
+                    filePath: location.file,
+                    lineNumber: location.line,
+                    columnNumber: location.column,
+                    ruleId: "recursion.self-reference-unresolved",
+                    suggestedFix: "Read the call and confirm which overload it selects. Resolving these automatically needs USR identity *and* per-symbol base-case data; the index pass has the first and not yet the second."
+                )
                 if insideProtocolExtension {
-                    diagnostics.append(Diagnostic(
+                    pendingSelfCalls.append((signature, Diagnostic(
                         severity: .error,
                         message: "protocol extension default '\(displayName)' calls itself, causing infinite recursion for any conformer that does not override",
                         filePath: location.file,
@@ -160,9 +184,9 @@ final class RecursionVisitor: SyntaxVisitor {
                         columnNumber: location.column,
                         ruleId: "recursion.protocol-extension-default-self",
                         suggestedFix: "Delegate to a different protocol requirement instead of calling '\(displayName)'."
-                    ))
-                } else if !baseCase {
-                    diagnostics.append(Diagnostic(
+                    ), unresolved))
+                } else if !selfBaseCase {
+                    pendingSelfCalls.append((signature, Diagnostic(
                         severity: .warning,
                         message: "function '\(displayName)' calls itself with no guard-driven base case",
                         filePath: location.file,
@@ -170,7 +194,7 @@ final class RecursionVisitor: SyntaxVisitor {
                         columnNumber: location.column,
                         ruleId: "recursion.unconditional-self-call",
                         suggestedFix: "Add a guard clause that returns or throws before recursing."
-                    ))
+                    ), unresolved))
                 }
             }
         }
@@ -399,6 +423,11 @@ func collectSelfInitCalls(in node: Syntax) -> [[String]] {
 /// This catches both classic guard-based base cases and the visitor / recursive-
 /// descent pattern where each branch ends in `return` after delegating to a
 /// helper, which is a legitimate non-infinite recursion shape.
+/// True if the body has a branch that exits without calling anything.
+///
+/// The strict reading, and the one mutual-cycle detection needs: a branch that returns
+/// some *other* call is not a base case for a cycle, because that call may be the next
+/// participant. `hasSelfBaseCase` asks the looser question the self-call rules need.
 func hasGuardEarlyExit(in node: Syntax) -> Bool {
     final class Walker: SyntaxVisitor {
         var found = false
@@ -407,12 +436,10 @@ func hasGuardEarlyExit(in node: Syntax) -> Bool {
             return .skipChildren
         }
         override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
-            // Bare `return` → base case.
             guard let expression = node.expression else {
                 found = true
                 return .skipChildren
             }
-            // `return <non-call>` → base case (literal, identifier, etc.).
             if !expression.is(FunctionCallExprSyntax.self) {
                 found = true
             }
@@ -420,6 +447,56 @@ func hasGuardEarlyExit(in node: Syntax) -> Bool {
         }
     }
     let walker = Walker(viewMode: .sourceAccurate)
+    walker.walk(node)
+    return walker.found
+}
+
+/// True if the body has a branch that exits without re-entering *this* function.
+///
+/// Direct self-recursion is bounded by any path that does not call itself again,
+/// whatever that path returns. Two shapes the statement-level heuristic missed:
+///
+/// - `return someOtherFunction(…)` — GRDB's `SQLExpression.between` terminates by
+///   returning `self.init(…)`, which is a call, so every branch looked recursive.
+/// - an implicit return — `if`/`switch` *expressions* make each branch a value with no
+///   `return` keyword, which is how Ignite's `flatten(_:)` reaches `[]`.
+func hasSelfBaseCase(in node: Syntax, ownSignature: Signature) -> Bool {
+    final class Walker: SyntaxVisitor {
+        let target: Signature
+        var found = false
+        init(target: Signature) {
+            self.target = target
+            super.init(viewMode: .sourceAccurate)
+        }
+        override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
+            found = true
+            return .skipChildren
+        }
+        override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+            guard let expression = node.expression else {
+                found = true
+                return .skipChildren
+            }
+            if findRecursiveCalls(in: Syntax(expression), ownSignature: target).isEmpty {
+                found = true
+            }
+            return .skipChildren
+        }
+        /// Restricted to blocks holding exactly one item, so `{ recurse(); cleanup() }`
+        /// — where the trailing expression is a statement, not the branch's value — is
+        /// not mistaken for a terminating branch.
+        override func visit(_ node: CodeBlockItemListSyntax) -> SyntaxVisitorContinueKind {
+            guard node.count == 1, let only = node.first,
+                  case .expr(let expression) = only.item else {
+                return .visitChildren
+            }
+            if findRecursiveCalls(in: Syntax(expression), ownSignature: target).isEmpty {
+                found = true
+            }
+            return .visitChildren
+        }
+    }
+    let walker = Walker(target: ownSignature)
     walker.walk(node)
     return walker.found
 }

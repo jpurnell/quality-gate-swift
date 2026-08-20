@@ -4,6 +4,45 @@
 
 ### Fixed
 
+- **A self-named call is not a self-call: `unconditional-self-call` 279 → 14, and
+  `protocol-extension-default-self` 78 → 10 across the 22-package corpus.** The rules matched
+  type context + base name + argument labels, which is stronger than bare-name matching and
+  still not enough, because Swift resolves overloads by *parameter type*. GRDB declares
+  fourteen `encode(_:)` overloads in one file; `encode(_ value: Int16)` calling
+  `encode(value.databaseValue)` targets a sibling, not itself.
+
+  Where a signature has more than one implementation, syntax cannot choose, and the site is now
+  recorded as **`recursion.self-reference-unresolved`** at note severity rather than asserted as
+  recursion. The census is project-wide — a Swift type spans files, and swift-collections
+  declares `_ptr(at:)` for `Bucket` in one file and for `Int` in another — and counts only
+  declarations with bodies, because a protocol requirement and the extension default satisfying
+  it share a signature but are one function.
+
+  A second family came from the base-case heuristic, which accepted only `return <non-call>`.
+  Two shapes it missed: a terminating branch that returns a *different* call (GRDB's
+  `SQLExpression.between` ends with `self.init(…)`), and an implicit return (Ignite's
+  `flatten(_:)` reaches `[]` as the value of an `if` expression, with no `return` keyword).
+
+  **Direct self-recursion and a mutual cycle need different base-case tests**, and conflating
+  them is a silent weakening: a branch returning some other call bounds the first but not the
+  second, since that call may be the next participant. An intermediate version shared one test
+  and moved `mutual-cycle` from 89 to 72 as a side effect. The questions are now asked
+  separately and `mutual-cycle` is unchanged at 89, which is the check that the split landed.
+
+  Corpus totals: **174 errors / 279 warnings → 106 errors / 14 warnings**, with 276 sites
+  recorded as unresolved. About 5 of the 14 survivors are still false — overloads whose labels
+  differ by an extra defaulted parameter, which the census cannot see and only type resolution
+  can settle. Design: `project/plans/proposals/SelfCallsNeedTypeAwareness.md`.
+
+  **Recorded, not fixed:** routing these rules through the index pass was tried and reverted.
+  Pass 2 skipped single-node components (`where component.count >= 2`) so it never looked at
+  self-calls at all, and `RecursionAuditor` passes it `baseCaseUSRs: []` — with no base-case
+  data it reported 207 corpus sites, bounded and unbounded alike. That same empty set means
+  `mutual-cycle` over-reports today. Wiring per-symbol base cases into Pass 2 is the
+  prerequisite for adjudicating the 276 notes.
+
+### Fixed
+
 - **`recursion.computed-property-self` resolves references instead of matching names: 89 corpus
   findings became 3, and all 3 are real.** Walking the AST is not automatically semantic.
   SwiftSyntax knows `return sql` is a `DeclReferenceExprSyntax` named `sql`; it cannot know
