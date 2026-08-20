@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Performance
+
+- **`complexity`'s residual superlinearity was the converter defect one level up: n^1.81 → n^0.83,
+  and 53.83s → 5.50s on the 259 KB fixture.** The earlier converter sweep closed with `complexity`
+  at n^1.37 and recorded the honest uncertainty — *"the converter was a term and not the term …
+  CallGraphAmplifier's graph work or BigOEstimator are the untested suspects."* Both suspects were
+  wrong.
+
+  A `sample` of a live run attributed 62% of `scanProject` to `CallGraphAmplifier.analyze`, and
+  3417 of its 4950 samples to `SourceLocationConverter.init` under `CallFinder.init`. The earlier
+  fix had moved that converter out of `recordCallIfLocal` (per call expression) and into
+  `CallFinder.init` — but `CallGraphBuilder.build` constructs a `CallFinder` **per function**, so
+  the cost went from O(calls × file) to O(functions × file). Still quadratic, one level up, and
+  invisible to a fix that had just declared the module done. It is the same shape that same commit
+  caught in `PatternDetector.findSuppressedLines` and did not look for here.
+
+  The converter is now built once per file in `build` and passed in. Measured on a function-dense
+  series, 244.68s → 10.59s at 272 KB (23×); on the original variadics fixture, 53.83s → 5.50s
+  (9.8×). Findings identical on Alamofire (22), SQLite.swift (6), Sitrep (4) and swift-url-routing
+  (1), with a regression test pinning that call-site line numbers stay file-absolute — a converter
+  built from the wrong tree would renumber every caller after the first.
+
+  An earlier attempt at this residual guessed `CallGraph.callees(of:)`'s linear scan, made it
+  **slower** (53.83s → 73.18s), and was reverted. The profiler settled in one run what two
+  hypotheses had not.
+
 ### Fixed
 
 - **A self-named call is not a self-call: `unconditional-self-call` 279 → 14, and

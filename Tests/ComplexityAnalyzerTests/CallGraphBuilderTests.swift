@@ -150,4 +150,32 @@ struct CallGraphBuilderTests {
     private func buildGraph(_ source: String) -> CallGraph {
         CallGraphBuilder.build(source: source, moduleName: "Test")
     }
+
+    @Test("Call-site line numbers are per-file, not per-function")
+    func callSiteLinesAreFileAbsolute() {
+        // Guard for hoisting the SourceLocationConverter out of CallFinder and into
+        // build(). One converter per function is O(functions x file); one per file is
+        // linear. Locations must be identical either way, and a converter built from
+        // the wrong tree would renumber the later callers.
+        let source = """
+        func alpha() {
+            target()
+        }
+        func beta() {
+            target()
+        }
+        func gamma() {
+            target()
+        }
+        func target() {}
+        """
+        let graph = CallGraphBuilder.build(source: source, moduleName: "Test")
+        let lines = graph.edges
+            .filter { $0.callee == "target" }
+            .sorted { $0.line < $1.line }
+            .map(\.line)
+        #expect(lines == [2, 5, 8])
+    }
+
+
 }

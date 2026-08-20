@@ -16,12 +16,19 @@ struct CallGraphBuilder {
         let definedNames = Set(collector.functions.map(\.name))
         var edges: [CallEdge] = []
 
+        // One converter for the file. Building it inside `CallFinder` made it one per
+        // *function*, which indexes every line of the file once per declaration —
+        // O(functions x file), the same class defect as the per-node construction it
+        // replaced, one level up. It is the 62% of `CallGraphAmplifier.analyze` a
+        // profile attributed to `SourceLocationConverter.init`.
+        let converter = SourceLocationConverter(fileName: "", tree: tree)
+
         for function in collector.functions {
             guard let body = function.body else { continue }
             let callFinder = CallFinder(
                 callerName: function.name,
                 definedFunctions: definedNames,
-                tree: tree
+                converter: converter
             )
             callFinder.walk(body)
             edges.append(contentsOf: callFinder.edges)
@@ -51,17 +58,16 @@ private final class FunctionCollector: SyntaxVisitor {
 private final class CallFinder: SyntaxVisitor {
     let callerName: String
     let definedFunctions: Set<String>
-    let tree: SyntaxProtocol
-    /// Built once; recordCallIfLocal fires per call expression.
+    /// Built once per file by `CallGraphBuilder.build` and shared across every
+    /// `CallFinder` it creates.
     private let converter: SourceLocationConverter
     var edges: [CallEdge] = []
     private var loopDepth: Int = 0
 
-    init(callerName: String, definedFunctions: Set<String>, tree: SyntaxProtocol) {
+    init(callerName: String, definedFunctions: Set<String>, converter: SourceLocationConverter) {
         self.callerName = callerName
         self.definedFunctions = definedFunctions
-        self.tree = tree
-        self.converter = SourceLocationConverter(fileName: "", tree: tree)
+        self.converter = converter
         super.init(viewMode: .sourceAccurate)
     }
 
