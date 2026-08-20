@@ -34,6 +34,20 @@
   differ by an extra defaulted parameter, which the census cannot see and only type resolution
   can settle. Design: `project/plans/proposals/SelfCallsNeedTypeAwareness.md`.
 
+- **The same defect in subscripts: `subscript-self` 31 → 0, `subscript-setter-self` 10 → 0.**
+  `containsSelfSubscriptCall` matched every `self[…]` with no label or arity comparison at all,
+  so SwiftyJSON — which declares five subscripts, with `subscript(sub:)` delegating to
+  `subscript(index:)` and `subscript(key:)` — reported on all of them. Subscripts now go
+  through the same project-wide census, with two corrections the shape required: subscripts do
+  **not** promote a parameter name to an argument label (`subscript(index: Int)` is called
+  `self[index]`, where `func f(index:)` is called `f(index:)`), and an extension of a nested
+  type now shares that type's context — `extension Row.ScopesView` yielded `ScopesView` while
+  `struct ScopesView` nested in `Row` yielded `Row.ScopesView`, so the two halves of GRDB's
+  type never met. Of the 41 findings, 25 were resolved outright by label comparison and 16
+  became notes.
+
+  Corpus totals across both parts: **174 errors / 279 warnings → 65 errors / 14 warnings**.
+
   **Recorded, not fixed:** routing these rules through the index pass was tried and reverted.
   Pass 2 skipped single-node components (`where component.count >= 2`) so it never looked at
   self-calls at all, and `RecursionAuditor` passes it `baseCaseUSRs: []` — with no base-case

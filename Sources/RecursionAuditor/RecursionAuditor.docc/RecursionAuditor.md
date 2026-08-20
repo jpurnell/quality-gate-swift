@@ -38,9 +38,19 @@ Argument labels are part of function identity. `func f(_ x: Int)` calling `f(x: 
 
 Labels are not *all* of a function's identity, though. Two declarations sharing a base name **and** labels differ only in parameter types, and choosing between them is type resolution, which no syntactic pass can perform — GRDB declares fourteen `encode(_:)` overloads in one file, and `encode(_ value: Int16)` calling `encode(value.databaseValue)` targets a sibling, not itself. Where the census finds more than one implementation of a signature, the site is recorded as `recursion.self-reference-unresolved` at note severity rather than asserted as recursion. The census is project-wide, because a Swift type spans files.
 
+Subscripts are resolved the same way, with one extra wrinkle: they do **not** promote a
+parameter name to an argument label the way functions do. `subscript(index: Int)` is called
+`self[index]` with no label at all; a label appears only when a second name is written, as in
+`subscript(index index: Int)`. Comparing labels at all — the rule previously matched every
+`self[…]` regardless — is what separates SwiftyJSON's five subscripts from one another.
+
 Two clarifications this rule pays for:
 
 - A protocol **requirement** and the extension default satisfying it share a signature but are one function. Only declarations with bodies count toward the census, or the pair would silence the very rule that catches `extension P { func f() { f() } }`.
+- An extension of a nested type shares that type's context: `extension Row.ScopesView`
+  resolves to `Row.ScopesView`, matching what `struct ScopesView` nested in `Row` builds from
+  its lexical stack. Yielding only `ScopesView` split the two halves of a type across separate
+  contexts, so declarations in one half could never see overloads in the other.
 - Direct self-recursion and a mutual cycle need *different* base-case tests. A branch returning some other call bounds the first and not the second, since that call may be the next participant in the cycle. The two questions are asked separately.
 
 ### Syntax is not binding

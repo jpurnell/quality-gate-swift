@@ -128,12 +128,22 @@ final class RecursionVisitor: SyntaxVisitor {
         inProtocolExtensionStack.removeLast()
     }
 
+    /// The dotted name an extension extends, matching the context a nested declaration
+    /// builds from its lexical stack.
+    ///
+    /// `extension Row.ScopesView` previously yielded "ScopesView" while `struct
+    /// ScopesView` nested in `Row` yielded "Row.ScopesView", so the two never shared a
+    /// type context and every signature declared across the pair looked unique. GRDB's
+    /// `ScopesView` declares one subscript in each half.
     private func extendedTypeName(_ type: TypeSyntax) -> String? {
         if let ident = type.as(IdentifierTypeSyntax.self) {
             return ident.name.text
         }
         if let member = type.as(MemberTypeSyntax.self) {
-            return member.name.text
+            guard let base = extendedTypeName(member.baseType) else {
+                return member.name.text
+            }
+            return "\(base).\(member.name.text)"
         }
         return nil
     }
@@ -318,48 +328,66 @@ final class RecursionVisitor: SyntaxVisitor {
         let location = startLocation(of: Syntax(node))
         guard let accessorBlock = node.accessorBlock else { return }
 
+        // Labels first: `self[key: k]` inside `subscript(sub:)` selects a different
+        // subscript, and matching every `self[…]` regardless of labels is what made
+        // SwiftyJSON — which declares five — report on all of them.
+        let labels = subscriptParameterLabels(node.parameterClause)
+        let displayName = makeFunctionDisplayName(name: "subscript", labels: labels)
+        let signature = Signature(typeContext: currentTypeContext, displayName: displayName)
+        bodiedSignatureCounts[signature, default: 0] += 1
+
         guard !isSuppressed(atLine: location.line) else { return }
+
+        let unresolved = Diagnostic(
+            severity: .note,
+            message: "'\(displayName)' is declared more than once with these argument labels, so a call matching them is resolved by parameter type — which a syntactic pass cannot do. Recorded as unresolved rather than reported as recursion; no pass currently adjudicates it.",
+            filePath: location.file,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: "recursion.self-reference-unresolved",
+            suggestedFix: "Read the call and confirm which subscript it selects. Resolving these automatically needs USR identity, which the index pass has and the syntactic pass does not."
+        )
+
+        func reportGetter() {
+            pendingSelfCalls.append((signature, Diagnostic(
+                severity: .error,
+                message: "subscript getter calls 'self[…]' recursively",
+                filePath: location.file,
+                lineNumber: location.line,
+                columnNumber: location.column,
+                ruleId: "recursion.subscript-self",
+                suggestedFix: "Delegate to a backing storage collection instead of 'self'."
+            ), unresolved))
+        }
+
+        func reportSetter() {
+            pendingSelfCalls.append((signature, Diagnostic(
+                severity: .error,
+                message: "subscript setter assigns to 'self[…]' recursively",
+                filePath: location.file,
+                lineNumber: location.line,
+                columnNumber: location.column,
+                ruleId: "recursion.subscript-setter-self",
+                suggestedFix: "Assign to a backing storage collection instead of 'self'."
+            ), unresolved))
+        }
 
         switch accessorBlock.accessors {
         case .getter(let codeBlock):
-            if containsSelfSubscriptCall(in: Syntax(codeBlock)) {
-                diagnostics.append(Diagnostic(
-                    severity: .error,
-                    message: "subscript getter calls 'self[…]' recursively",
-                    filePath: location.file,
-                    lineNumber: location.line,
-                    columnNumber: location.column,
-                    ruleId: "recursion.subscript-self",
-                    suggestedFix: "Delegate to a backing storage collection instead of 'self'."
-                ))
+            if containsSelfSubscriptCall(in: Syntax(codeBlock), labels: labels) {
+                reportGetter()
             }
         case .accessors(let accessors):
             for accessor in accessors {
                 let kind = accessor.accessorSpecifier.text
                 guard let body = accessor.body else { continue }
                 if kind == "get" {
-                    if containsSelfSubscriptCall(in: Syntax(body)) {
-                        diagnostics.append(Diagnostic(
-                            severity: .error,
-                            message: "subscript getter calls 'self[…]' recursively",
-                            filePath: location.file,
-                            lineNumber: location.line,
-                            columnNumber: location.column,
-                            ruleId: "recursion.subscript-self",
-                            suggestedFix: "Delegate to a backing storage collection instead of 'self'."
-                        ))
+                    if containsSelfSubscriptCall(in: Syntax(body), labels: labels) {
+                        reportGetter()
                     }
                 } else if kind == "set" {
-                    if containsSelfSubscriptAssignment(in: Syntax(body)) {
-                        diagnostics.append(Diagnostic(
-                            severity: .error,
-                            message: "subscript setter assigns to 'self[…]' recursively",
-                            filePath: location.file,
-                            lineNumber: location.line,
-                            columnNumber: location.column,
-                            ruleId: "recursion.subscript-setter-self",
-                            suggestedFix: "Assign to a backing storage collection instead of 'self'."
-                        ))
+                    if containsSelfSubscriptAssignment(in: Syntax(body), labels: labels) {
+                        reportSetter()
                     }
                 }
             }
@@ -381,6 +409,17 @@ final class RecursionVisitor: SyntaxVisitor {
 /// distinctly from labeled variants (`func f(x: Int)`).
 func parameterLabels(_ clause: FunctionParameterClauseSyntax) -> [String] {
     clause.parameters.map { $0.firstName.text }
+}
+
+/// Argument labels for a *subscript* parameter clause.
+///
+/// Subscripts do not promote a parameter's name to an argument label the way functions
+/// do: `subscript(index: Int)` is called `self[index]` with no label at all, and a label
+/// appears only when a second name is written — `subscript(index index: Int)` is called
+/// `self[index: i]`. Reusing `parameterLabels` here reads every subscript as labelled and
+/// so matches nothing.
+func subscriptParameterLabels(_ clause: FunctionParameterClauseSyntax) -> [String] {
+    clause.parameters.map { $0.secondName == nil ? "_" : $0.firstName.text }
 }
 
 /// Builds a display name like `f(_:x:)` from a base name and label list.
@@ -804,32 +843,44 @@ func containsAssignmentTo(name: String, in node: Syntax) -> Bool {
 }
 
 /// True if the syntax tree contains a subscript call on `self`, e.g. `self[i]`.
-func containsSelfSubscriptCall(in node: Syntax) -> Bool {
+func containsSelfSubscriptCall(in node: Syntax, labels: [String]) -> Bool {
     final class Walker: SyntaxVisitor {
+        let target: [String]
         var found = false
+        init(target: [String]) {
+            self.target = target
+            super.init(viewMode: .sourceAccurate)
+        }
         override func visit(_ node: SubscriptCallExprSyntax) -> SyntaxVisitorContinueKind {
-            if node.calledExpression.trimmedDescription == "self" {
+            if node.calledExpression.trimmedDescription == "self",
+               callArgumentLabels(node.arguments) == target {
                 found = true
             }
             return .visitChildren
         }
     }
-    let walker = Walker(viewMode: .sourceAccurate)
+    let walker = Walker(target: labels)
     walker.walk(node)
     return walker.found
 }
 
 /// True if the syntax tree contains an assignment whose LHS is `self[…]`.
-func containsSelfSubscriptAssignment(in node: Syntax) -> Bool {
+func containsSelfSubscriptAssignment(in node: Syntax, labels: [String]) -> Bool {
     final class Walker: SyntaxVisitor {
+        let target: [String]
         var found = false
+        init(target: [String]) {
+            self.target = target
+            super.init(viewMode: .sourceAccurate)
+        }
         override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
             let elements = Array(node.elements)
             for (index, element) in elements.enumerated() {
                 if element.as(AssignmentExprSyntax.self) != nil, index > 0 {
                     let lhs = elements[index - 1]
                     if let sub = lhs.as(SubscriptCallExprSyntax.self),
-                       sub.calledExpression.trimmedDescription == "self" {
+                       sub.calledExpression.trimmedDescription == "self",
+                       callArgumentLabels(sub.arguments) == target {
                         found = true
                     }
                 }
@@ -837,7 +888,7 @@ func containsSelfSubscriptAssignment(in node: Syntax) -> Bool {
             return .visitChildren
         }
     }
-    let walker = Walker(viewMode: .sourceAccurate)
+    let walker = Walker(target: labels)
     walker.walk(node)
     return walker.found
 }
