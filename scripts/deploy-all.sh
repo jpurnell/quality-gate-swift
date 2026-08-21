@@ -13,18 +13,19 @@ TOOLS_DIR="$(dirname "$QG_DIR")"
 
 MODE="${1:-all}"
 
-# repo dir : branch to push
+# Repos to push. The branch is not hardcoded: each repo pushes whatever branch it
+# is currently on, measured against that branch's own upstream. Pinning these to
+# "main" meant a feature branch reported "up to date with origin/main" and pushed
+# nothing, which reads as success and is not.
 REPOS=(
-    "$QG_DIR:main"
-    "$TOOLS_DIR/quality-gate-corpus-kit:main"
-    "$TOOLS_DIR/org-judgement-system:main"
-    "$TOOLS_DIR/org-judgement-system/development-guidelines:project-state/org-judgement-system"
+    "$QG_DIR"
+    "$TOOLS_DIR/quality-gate-corpus-kit"
+    "$TOOLS_DIR/org-judgement-system"
+    "$TOOLS_DIR/org-judgement-system/development-guidelines"
 )
 
 push_repos() {
-    for entry in "${REPOS[@]}"; do
-        dir="${entry%%:*}"
-        branch="${entry##*:}"
+    for dir in "${REPOS[@]}"; do
         name="$(basename "$dir")"
         if [ ! -d "$dir/.git" ] && [ ! -f "$dir/.git" ]; then
             echo "── $name: not a git checkout — skipped"
@@ -34,11 +35,21 @@ push_repos() {
             echo "── $name: UNCOMMITTED CHANGES — commit or stash before deploying"
             exit 1
         fi
-        ahead="$(git -C "$dir" rev-list --count "origin/$branch..$branch" 2>/dev/null || echo "?")"
+        branch="$(git -C "$dir" rev-parse --abbrev-ref HEAD)"
+        if [ "$branch" = "HEAD" ]; then
+            echo "── $name: detached HEAD — skipped"
+            continue
+        fi
+        if ! git -C "$dir" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+            echo "── $name: $branch has no upstream — skipped (push once with -u to set it)"
+            continue
+        fi
+        upstream="$(git -C "$dir" rev-parse --abbrev-ref '@{upstream}')"
+        ahead="$(git -C "$dir" rev-list --count '@{upstream}..HEAD')"
         if [ "$ahead" = "0" ]; then
-            echo "── $name: up to date with origin/$branch"
+            echo "── $name: $branch up to date with $upstream"
         else
-            echo "── $name: pushing $branch ($ahead commit(s) ahead)..."
+            echo "── $name: pushing $branch → $upstream ($ahead commit(s) ahead)..."
             git -C "$dir" push origin "$branch" --follow-tags
         fi
     done
