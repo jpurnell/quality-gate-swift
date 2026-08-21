@@ -62,8 +62,18 @@ install_binary() {
     echo "── post-install check:"
     /usr/local/custom/bin/quality-gate doctor || true
     echo ""
-    echo "Reminder: ratchet minimumGateVersion in .quality-gate.yml to today's"
-    echo "date so stale binaries fail loudly from here on."
+    # Only nag when the pin is actually behind. An unconditional reminder fires even
+    # on the deploy that just ratcheted it, which is how a prompt becomes wallpaper.
+    pin="$(sed -nE 's/^minimumGateVersion:[[:space:]]*"?([0-9]{4}-[0-9]{2}-[0-9]{2})"?.*/\1/p' \
+        "$QG_DIR/.quality-gate.yml" 2>/dev/null | head -1 || true)"
+    today="$(date -u +%Y-%m-%d)"
+    if [ -z "$pin" ]; then
+        echo "Note: no minimumGateVersion pin found in .quality-gate.yml — a stale"
+        echo "binary will not be refused. Consider adding one."
+    elif [[ "$pin" < "$today" ]]; then
+        echo "Reminder: minimumGateVersion is $pin. Ratchet it in .quality-gate.yml"
+        echo "to $today so binaries older than this deploy fail loudly."
+    fi
 }
 
 case "$MODE" in
