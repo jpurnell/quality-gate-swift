@@ -770,7 +770,8 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftOperators", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["ComplexityAnalyzer.docc"]
         ),
         .testTarget(
             name: "ComplexityAnalyzerTests",
