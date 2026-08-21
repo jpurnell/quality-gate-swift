@@ -1,16 +1,62 @@
 # quality-gate-swift
 
-Modular, AST-powered static analysis for Swift projects. Enforce correctness, safety, concurrency, documentation, and security — with structured output for CI and GitHub Code Scanning.
+**Your documentation is a build artifact. This compiles it, runs it, and checks whether it is telling the truth.**
 
-33 checkers. 1,732 tests. Zero regex — every rule and every manifest parser walks the SwiftSyntax AST for precise, low-false-positive detection.
+A code sample in a DocC article is just a string. It can call a function you deleted two releases ago and nothing anywhere goes red. quality-gate-swift closes that with a three-rung ladder, then brings 45 checkers for correctness, safety, concurrency, and security — with structured output for CI and GitHub Code Scanning.
+
+## The documentation ladder
+
+| Rung | Checker | Asks | Default |
+|---|---|---|---|
+| 1 | `doc-code` | Do the article's fences assemble into one program that typechecks? | on |
+| 2 | `doc-run` | Does that program run top to bottom without trapping — twice, identically? | opt-in |
+| 3 | `doc-claims` | Do the figures the article publishes match what its own program computed? | opt-in |
+
+This repository runs rungs 1 and 2 on every commit. Actual output, not a mock-up:
+
+```
+$ quality-gate --check doc-run
+✓ [doc-run] PASSED (41.80s)
+  ℹ️  note: 56 articles: 54 ran, 2 could not be built, 54 ran cleanly and
+     reproducibly, 0 produced different output on a second run.
+```
+
+The two that could not be built are reported as **not run**, not as passes. Every documentation checker prints its own coverage on every run, computed rather than hardcoded, because the gap between articles *found* and articles *checked* is the whole difference between a coverage number and a fiction. A scope claim written into prose goes stale; a scope claim the checker computes cannot.
+
+### Rung 3, honestly
+
+`doc-claims` is the rung with the least evidence *here*. On another package it caught a bond documented at `$1,043.30` that prices at `$1,043.76` — the stale figure was exactly the annual-coupon price, so the documentation had preserved a payment-frequency bug the code had already fixed. It passes rungs 1 and 2 cleanly.
+
+This repository has zero adoption of the claim convention (`// Result:` / `// Output:`), so `doc-claims` currently reports **0 claims across 0 articles** here. It is real code with a real find, measured elsewhere.
+
+**`doc-claims` will never support `--fix`.** Not deferred — prohibited. An autofixer that rewrites a documented number to match the program can never fail, and therefore never means anything. The pressure when this checker is red at 5pm is precisely to edit the comment until it goes green, and a tool that automates that pressure is worse than no tool.
+
+## Suppression that expires
+
+Every linter's real failure is the `// swiftlint:disable` that outlives the person who wrote it. `quality-gate adopt` records each existing finding as **dated debt** with a decay window:
+
+```bash
+quality-gate adopt --decay-days 180
+```
+
+Green gate on day one. New findings gate immediately. Every recorded debt comes due on a date, and `quality-gate re-verify` works the queue of what has expired — re-affirm consciously, or retire. Sonar's "new code" ergonomics without institutionalized suppression.
+
+## Checkers report their own precision
+
+```bash
+quality-gate calibrate --coverage
+```
+
+Per-checker sample counts and false-positive rates, with every override classified by root cause — `imprecise`, `structural`, `deferred`, `external`, or `expedient`. A checker whose findings are mostly waved away should have to say so.
 
 ## Highlights
 
-- **AST-first analysis** — SwiftSyntax-based visitors instead of regex, so rules understand scope, type context, and control flow
-- **Modular architecture** — each checker is an independent SPM module with its own test suite and DocC documentation
+- **AST-first analysis** — SwiftSyntax-based visitors instead of regex, so rules understand scope, type context, and control flow; index-store-backed checkers resolve symbols across files
+- **Modular architecture** — 45 built-in checkers, each an independent SPM module with its own test target and DocC catalogue. 3,326 tests across 59 test targets
 - **Structured output** — terminal, JSON, SARIF 2.1.0 for GitHub Code Scanning, and Xcode Build Phase format
-- **Auto-fix support** — checkers implementing `FixableChecker` can patch issues automatically with `--fix`
-- **Self-dogfooding** — quality-gate-swift runs its own checkers on every push via CI
+- **Auto-fix support** — checkers implementing `FixableChecker` can patch issues automatically with `--fix`, except where fixing would launder the defect (see `doc-claims` above)
+- **Read-only on strangers' code** — `--foreign` analyses a repo you don't own without writing to it; every write redirects to an overlay and `--fix` is refused
+- **Self-dogfooding** — quality-gate-swift runs its own checkers on every commit and every push
 
 ## Installation
 
@@ -164,7 +210,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 
 `disk-clean`, `xcode-build`, `doc-run`, `doc-claims` and `doc-comment-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
 
-`doc-code` was opt-in for a different reason than those two, and the reasoning is worth keeping because it was right at the time. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way — 76 of them here. It now runs by default, because that bar was met rather than lowered: this catalogue stands at 0 findings across 50 articles and 152 fences, with zero `<!-- docs:illustrative -->` markers. Exclude it with `--exclude doc-code` if your own catalogue has not adopted the convention yet. `--full` still does not carry it, because `--full` means "the slow ones too", not "adopt a documentation convention you have not adopted".
+`doc-code` was opt-in for a different reason than those two, and the reasoning is worth keeping because it was right at the time. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way — 76 of them here. It now runs by default, because that bar was met rather than lowered: this catalogue stands at 0 findings across 56 articles and 161 fences, with every fence examined and zero exempted (`0 not analyzed`, a figure the checker computes on each run). Exclude it with `--exclude doc-code` if your own catalogue has not adopted the convention yet. `--full` still does not carry it, because `--full` means "the slow ones too", not "adopt a documentation convention you have not adopted".
 
 `doc-comment-code` opts out for the same reason, with the number measured: on this repository it found 43 doc fences in 26 files — 20 Swift, 23 not — of which **16 failed on the day the rule was written**, ten of them one `## Usage` template copied into ten auditors. It carries its own id rather than sharing `doc-code`'s precisely so that landing it red cannot take a green `doc-code` down with it, and so the two can be repaired independently. Its preamble is `Foundation` plus the owning module and nothing widens it — not the dependency closure, not `docCode.extraImports` — because whatever a fence needs in order to compile is exactly what a reader copying it out of Quick Help has to type.
 
@@ -301,9 +347,9 @@ quality-gate-swift/
 │   ├── QualityGateCLI/                  # Umbrella CLI entry point
 │   ├── IndexStoreInfra/                  # Shared IndexStoreDB infrastructure
 │   ├── IJS*/                             # Institutional Judgment System modules
-│   ├── [29 checker modules]             # One module per checker (see table above)
-│   └── [27 DocC catalogs]              # Per-module documentation
-├── Tests/                               # 1,662 tests across 151 test files
+│   ├── [45 checker modules]             # One module per checker (see table above)
+│   └── [35 DocC catalogues]            # Per-module documentation
+├── Tests/                               # 3,326 tests across 59 test targets
 ├── Plugins/
 │   └── QualityGatePlugin/              # SPM command plugin
 └── .github/workflows/                   # CI, quality gate, security staleness

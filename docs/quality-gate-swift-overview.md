@@ -12,8 +12,8 @@ It is not a linter that nags about whitespace. It is a **gate**: code that viola
 
 Three numbers frame it:
 
-- **46 checkers**, each an independent Swift package module with its own tests and documentation.
-- **3,245 tests** covering the checkers themselves — the tool is held to the standard it enforces.
+- **45 built-in checkers**, each an independent Swift package module with its own tests and documentation. (A run against this repository prints 46: the extra one is `CustomRulesChecker`, present only because this repository declares custom rules.)
+- **3,326 tests** covering the checkers themselves — the tool is held to the standard it enforces.
 - **Zero regex.** Every rule walks the Swift **AST** (abstract syntax tree) via Apple's SwiftSyntax. It understands scope, type context, and control flow — so it catches real defects and produces very few false positives.
 
 ### The core idea
@@ -69,7 +69,7 @@ Checkers that conform to `FixableChecker` can repair issues automatically with `
 - **A gate, not a suggestion.** Because false positives are rare, the tool can enforce. Bad code doesn't merge. There is no backlog of ignored warnings.
 - **No override culture.** Exemptions exist (`// SAFETY:`, `// Justification:`), but every one is a single inline comment that states *why* — recorded, not silent. You can see every place the rules were consciously relaxed.
 - **It travels with the code.** Pre-commit hook, pre-push hook, CI via SARIF, Xcode build phase — the same canonical run path in every environment, so "passes on my machine" and "passes in CI" mean the same thing.
-- **It dogfoods itself.** quality-gate-swift runs its own 46 checkers on every push. The tool is subject to its own gate.
+- **It dogfoods itself.** quality-gate-swift runs its own checkers on every push. The tool is subject to its own gate.
 
 ---
 
@@ -278,5 +278,5 @@ Configuration lives in `.quality-gate.yml` (which checkers, exemption keywords, 
 
 ## 8. One-paragraph summary (for quick ingestion)
 
-quality-gate-swift is an AST-powered static-analysis gate for Swift that enforces correctness, safety, and concurrency rules on every commit and push. Its 46 checkers walk the SwiftSyntax tree rather than matching regex, so they catch structural defects — crashes, data races, unsafe pointers, unguarded division — with few enough false positives to *block* rather than merely warn. It integrates into a strict TDD workflow via git hooks, GitHub Actions (SARIF/Code Scanning), and an Xcode build phase, and dogfoods itself against its own 3,245-test suite. Its value is proven by Harbor, a shipping biofeedback product where a user-stop-mislabeled-as-completed async race survived TDD and three green gate cycles; that single failure became the specification for three new concurrency checkers, and the tool's hard-won precision (turning 1,064 vendored-SDK false positives into 0) is what makes its gate trustworthy enough to enforce. That precision is now maintained deliberately rather than discovered by accident: the gate is regularly run against a corpus of 22 widely-used open-source Swift packages (Alamofire, swift-nio, GRDB, swift-collections, The Composable Architecture and others), where every finding is treated as a hypothesis about the tool rather than news about the package — a survey that cut the recursion checker's output across that corpus from 174 errors and 279 warnings to 47 and 10, uncovered four classes of false positive rooted in name-matching rather than name-resolution, and exposed quadratic location-conversion work that had been invisible in profiles, halving whole-corpus sweep time from 39.5 to 18.9 minutes.
+quality-gate-swift is an AST-powered static-analysis gate for Swift that enforces correctness, safety, and concurrency rules on every commit and push. Its 45 built-in checkers walk the SwiftSyntax tree rather than matching regex, so they catch structural defects — crashes, data races, unsafe pointers, unguarded division — with few enough false positives to *block* rather than merely warn. It integrates into a strict TDD workflow via git hooks, GitHub Actions (SARIF/Code Scanning), and an Xcode build phase, and dogfoods itself against its own 3,326-test suite. Its value is proven by Harbor, a shipping biofeedback product where a user-stop-mislabeled-as-completed async race survived TDD and three green gate cycles; that single failure became the specification for three new concurrency checkers, and the tool's hard-won precision (turning 1,064 vendored-SDK false positives into 0) is what makes its gate trustworthy enough to enforce. That precision is now maintained deliberately rather than discovered by accident: the gate is regularly run against a corpus of 22 widely-used open-source Swift packages (Alamofire, swift-nio, GRDB, swift-collections, The Composable Architecture and others), where every finding is treated as a hypothesis about the tool rather than news about the package — a survey that cut the recursion checker's output across that corpus from 174 errors and 279 warnings to 47 and 10, uncovered four classes of false positive rooted in name-matching rather than name-resolution, and exposed quadratic location-conversion work that had been invisible in profiles, halving whole-corpus sweep time from 39.5 to 18.9 minutes.
 ```

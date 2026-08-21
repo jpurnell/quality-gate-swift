@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The README now leads with the documentation ladder rather than the word "linting".** The
+  opening described the package as "Modular, AST-powered static analysis" — a category, not a
+  capability, and the category is crowded. What is actually unusual here is that `doc-code`,
+  `doc-run`, and `doc-claims` treat an article as a program: assemble it, run it twice, and
+  compare the figures it publishes against what it computed. The opening now says that first,
+  quotes a real `doc-run` run, and states plainly that `doc-claims` reports **0 claims across 0
+  articles** on this repository because nothing here has adopted the `// Result:` convention —
+  the checker's find came from another package. A headline feature the repository does not
+  itself use is worth disclosing before a reader discovers it.
+
+### Fixed
+
+- **Six stale figures in the README, none of which anything compiled.** Every one had drifted
+  in the same direction — downward, because the package grew and the prose did not:
+
+  | Claim | Said | Actual |
+  |---|---|---|
+  | Checkers | 33 | 45 built-in |
+  | Tests (opening) | 1,732 | 3,326 |
+  | Tests (tree) | 1,662 across 151 files | 3,326 across 59 targets |
+  | Checker modules | 29 | 45 |
+  | DocC catalogues | 27 | 35 |
+  | `doc-code` scope | 50 articles, 152 fences | 56 articles, 161 fences |
+
+  The test figure is now the **executed** count from a full `swift test` run (3,257
+  swift-testing cases + 69 XCTest, 0 failures), not a count of `func test` / `@Test`
+  declarations. Those disagree — a declaration grep returns 3,505 — and the executed number is
+  the one a reader can reproduce with one command.
+
+  The checker count needed a definition, not just a recount. The gate prints **46**; the
+  registry holds **45** built-ins, and the 46th is `CustomRulesChecker`, present only because
+  *this* repository declares custom rules. The README documents the tool, so it claims 45 and
+  the difference is now stated rather than left to look like an inconsistency.
+
+  **This is the same failure `doc-lint`'s scope note already records**, and it is worth naming
+  twice: a number written into prose has nothing checking it, so it survives exactly as long as
+  nobody recounts. The durable repair is not a more careful edit — it is preferring figures the
+  checker computes and prints on every run. `doc-code`'s "56 articles · 161 fences · 0 not
+  analyzed" and `doc-run`'s "54 ran cleanly and reproducibly" cannot go stale, because nothing
+  stores them.
+
 ### Fixed
 
 - **A stale claim shipping inside the binary.** The hint on `self-reference-unresolved` still told
