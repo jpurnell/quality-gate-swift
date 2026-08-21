@@ -10,7 +10,7 @@ import QualityGateCore
 /// a `complexity.cross-module-amplification` warning.
 ///
 /// ## Pure analysis design
-/// The analysis logic is split into pure static functions (``amplify(records:edges:cognitiveThreshold:amplifiedThreshold:moduleThresholds:)``,
+/// The analysis logic is split into pure static functions (``amplify(records:edges:cognitiveThreshold:amplifiedThreshold:moduleThresholds:maxDepth:)``,
 /// ``computeAmplifiedComplexity(localComplexity:edges:complexityMap:maxDepth:visited:)``)
 /// so that unit tests can exercise them without a live IndexStoreDB session.
 ///

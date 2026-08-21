@@ -377,11 +377,61 @@ public enum StoreLocator {
     /// package's own Swift code. Callers that care report unit counts, not mere existence.
     public static func locateExisting(packageRoot: URL) -> URL? {
         if let swiftbuildStore = freshSwiftbuildStore(packageRoot: packageRoot) {
+            // Fresh, but possibly source-only. Enriching costs an incremental build of the
+            // test targets; not enriching costs every finding in every test file.
+            if storeMissesTestTargets(packageRoot: packageRoot, store: swiftbuildStore) {
+                logger.info("index store lacks test targets; building tests to enrich it")
+                enrichSwiftbuildStore(packageRoot: packageRoot)
+            }
             return swiftbuildStore
         }
         let managed = managedStore(packageRoot: packageRoot)
         // SAFETY: read-only existence check on a path inside the project directory
         return FileManager.default.fileExists(atPath: managed.path) ? managed : nil
+    }
+
+    /// True when the package declares tests that `store` does not cover.
+    ///
+    /// swiftbuild index-while-builds only what a *normal* `swift build` compiles, and that
+    /// excludes test targets. The resulting store is fresh, useful, and still unable to
+    /// answer a question about a test file — which is how eight of ten surviving self-call
+    /// findings in a 22-package survey ended up in test suites, decided syntactically.
+    ///
+    /// Test modules are named by convention (`FooTests`), so their unit records carry it.
+    /// A package with no `Tests` directory is never "missing" anything.
+    static func storeMissesTestTargets(packageRoot: URL, store: URL) -> Bool {
+        let fm = FileManager.default
+        // SAFETY: read-only existence check inside the project directory
+        guard fm.fileExists(atPath: packageRoot.appendingPathComponent("Tests").path) else {
+            return false
+        }
+        // An unreadable units directory is treated as "not covered", so the enrichment is
+        // retried rather than coverage being assumed that the store may not have.
+        // silent: unreadable means not-covered; the caller retries rather than assuming
+        guard let entries = try? fm.contentsOfDirectory(atPath: unitsDirectory(in: store).path) else {
+            return true
+        }
+        return !entries.contains { $0.contains("Tests") }
+    }
+
+    /// Ask swiftbuild to index the test targets into its own store, in place.
+    ///
+    /// Deliberately *not* the dedicated `--build-system native` index build: that is a
+    /// second full compile of the module graph, which is the cost fast path A exists to
+    /// avoid. This is the ordinary build the developer would run anyway, with tests added,
+    /// so an already-built package pays seconds rather than minutes.
+    ///
+    /// Best-effort. A package whose tests do not compile keeps the store it had; losing a
+    /// working source index because a test target is broken would be a bad trade.
+    private static func enrichSwiftbuildStore(packageRoot: URL) {
+        // Enrichment is opportunistic: any failure leaves the existing store in place,
+        // which is exactly the previous behaviour.
+        // silent: opportunistic enrichment; failure keeps the store that already worked
+        _ = try? ProcessRunner.run(
+            "/usr/bin/env",
+            arguments: ["swift", "build", "--build-tests", "--package-path", packageRoot.path],
+            mergeStderr: true
+        )
     }
 
     /// Ensure a fresh index store exists for `packageRoot`.
@@ -517,7 +567,15 @@ public enum StoreLocator {
         return newest
     }
 
-    private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
+    /// The `swift build` invocation that produces an index store.
+    ///
+    /// Extracted so the shape can be asserted without running a compiler.
+    static func buildArguments(
+        packageRoot: URL,
+        buildPath: URL,
+        store: URL,
+        includeTests: Bool
+    ) -> [String] {
         var arguments = ["swift", "build"]
         // Swift 6.4's SwiftPM defaults to the `swiftbuild` (XCBuild) build system, which
         // does NOT honor `-index-store-path` — it emits no queryable index store, silently
@@ -529,12 +587,45 @@ public enum StoreLocator {
            requiresNativeBuildSystem(major: version.major, minor: version.minor) {
             arguments += ["--build-system", "native"]
         }
+        // Test targets are not built by a plain `swift build`, so every symbol in a suite
+        // was invisible to the index and every finding there was decided syntactically.
+        // Across a 22-package survey that accounted for eight of the ten surviving
+        // self-call findings — one of them a confirmed false positive the index resolves
+        // correctly — and sixteen of the thirty-four unresolved notes. A test that recurses
+        // without a base case hangs a run exactly as thoroughly as a tool does.
+        if includeTests {
+            arguments.append("--build-tests")
+        }
         arguments += [
             "--package-path", packageRoot.path,
             "--build-path", buildPath.path,
             "-Xswiftc", "-index-store-path",
             "-Xswiftc", store.path,
         ]
+        return arguments
+    }
+
+    private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
+        // Index the tests when they compile; fall back to sources alone when they do not.
+        // A package whose test target is broken must not lose its *entire* index over it —
+        // that would trade partial coverage for none, which is strictly worse than the
+        // behaviour this replaces.
+        do {
+            try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: true)
+        } catch {
+            logger.info("index build with --build-tests failed; retrying without test targets")
+            try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: false)
+        }
+    }
+
+    private static func runIndexBuild(
+        packageRoot: URL,
+        buildPath: URL,
+        store: URL,
+        includeTests: Bool
+    ) throws {
+        let arguments = buildArguments(
+            packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: includeTests)
         let result = try ProcessRunner.run(
             "/usr/bin/env",
             arguments: arguments,
