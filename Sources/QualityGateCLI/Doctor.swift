@@ -3,6 +3,7 @@ import Foundation
 #if canImport(os)
 import os
 #endif
+import IndexStoreInfra
 import QualityGateCore
 
 /// One-stop staleness diagnostic (Phase 0.6): build identity, config
@@ -61,25 +62,46 @@ struct Doctor: AsyncParsableCommand {
 
         // Index freshness — reported, never rebuilt from here.
         print("Index store:")
-        let cwd = FileManager.default.currentDirectoryPath
-        let candidates = [
-            "\(cwd)/.build/debug/index/store",
-            "\(cwd)/.build/arm64-apple-macosx/debug/index/store",
-            "\(cwd)/.build/x86_64-apple-macosx/debug/index/store",
-        ]
-        if let store = candidates.first(where: { fm.fileExists(atPath: $0) }) { // SAFETY: read-only checks in project dir
+        // Asked, not guessed. This used to hold its own list of three paths that
+        // `StoreLocator` has never written to, so it reported "none found" on a checkout
+        // whose store held 2,572 units and was being queried by three checkers in the
+        // same run. `locateExisting` consults the real candidates and never builds.
+        let packageRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        if let store = StoreLocator.locateExisting(packageRoot: packageRoot) {
+            // Age is measured on `v5/units`, which is what `freshSwiftbuildStore` compares
+            // against the newest source — not on the store root. Those differ by weeks:
+            // `.build/out` here was last touched on 4 August while its units were written
+            // twelve seconds after the newest source. Reporting the root's mtime said
+            // "407 hours old" about a store that was current, which is the kind of false
+            // alarm that sends someone off to rebuild something that was already right.
+            let units = StoreLocator.unitsDirectory(in: store)
             let age: String
-            if let attrs = try? fm.attributesOfItem(atPath: store), // silent: missing mtime just means age is unknown
-               let mtime = attrs[.modificationDate] as? Date {
+            if let mtime = StoreLocator.mtime(of: units) {
                 let hours = ((Date().timeIntervalSince(mtime) / 3600) * 10).rounded() / 10
                 age = "\(hours) hour(s) old"
             } else {
                 age = "age unknown"
             }
-            print("  store:      \(store)")
+            print("  store:      \(store.path)")
             print("  freshness:  \(age)")
+
+            // Existence is not usefulness. A store whose build failed before reaching the
+            // package's own Swift code holds only Clang module units, passes every
+            // freshness check, and answers nothing — which is exactly what one surveyed
+            // package turned out to have. The count is the honest signal.
+            // silent: an unreadable units directory is reported as an unknown count, not an error
+            let unitCount = (try? fm.contentsOfDirectory(atPath: units.path))?.count
+            if let unitCount {
+                print("  units:      \(unitCount)")
+                if unitCount == 0 {
+                    print("              (empty — index-backed checkers will degrade to AST-only)")
+                }
+            } else {
+                print("  units:      unreadable at \(units.path)")
+            }
         } else {
-            print("  store:      none found under .build/ (index-backed checkers will degrade to AST-only)")
+            print("  store:      none found (index-backed checkers will degrade to AST-only)")
+            print("              looked for \(StoreLocator.managedStore(packageRoot: packageRoot).path)")
         }
     }
 }

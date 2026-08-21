@@ -1149,6 +1149,7 @@ let package = Package(
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
+                "IndexStoreInfra",
                 "BoundedIOAuditor",
                 "LivenessAuditor",
                 "QualityGateCore",

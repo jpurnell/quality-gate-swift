@@ -337,6 +337,53 @@ public enum StoreLocator {
             .appendingPathComponent("Library/Developer/Xcode/DerivedData")
     }
 
+    // MARK: - Where the store lives
+
+    /// The directory the gate builds its own index store into.
+    ///
+    /// The single definition of this path. Anything that needs to know where a store is —
+    /// the locator, the freshness probe, `doctor` — asks here rather than composing the
+    /// path itself. `Doctor` used to keep its own list of three, none of which this type
+    /// has ever written to, and so reported "none found" against a store holding 2,572
+    /// units that three checkers were querying in the same run.
+    public static func indexBuildDirectory(packageRoot: URL) -> URL {
+        packageRoot.appendingPathComponent(".build/index-build")
+    }
+
+    /// The unit records inside an index store.
+    ///
+    /// `v5/units` is the layout every consumer needs — freshness is judged on it, unit
+    /// counts are read from it — and it was being composed independently in three places.
+    /// One of them measured store *age* on the store root instead, which reported a
+    /// current store as 407 hours stale.
+    public static func unitsDirectory(in store: URL) -> URL {
+        store.appendingPathComponent("v5/units", isDirectory: true)
+    }
+
+    /// The index store the gate builds and owns for `packageRoot`.
+    public static func managedStore(packageRoot: URL) -> URL {
+        indexBuildDirectory(packageRoot: packageRoot).appendingPathComponent("index-store")
+    }
+
+    /// The store an index-backed checker would query right now, or `nil` if there is none.
+    ///
+    /// Consults the same candidates as ``ensureFresh(packageRoot:)``, in the same order —
+    /// swiftbuild's own store first, then the managed one — and **never compiles**. A
+    /// diagnostic must be able to ask where the store is without a full index build
+    /// happening as a side effect of the question.
+    ///
+    /// Note that an existing store is not necessarily a *useful* one: a store can hold
+    /// nothing but Clang module units because its build failed before reaching the
+    /// package's own Swift code. Callers that care report unit counts, not mere existence.
+    public static func locateExisting(packageRoot: URL) -> URL? {
+        if let swiftbuildStore = freshSwiftbuildStore(packageRoot: packageRoot) {
+            return swiftbuildStore
+        }
+        let managed = managedStore(packageRoot: packageRoot)
+        // SAFETY: read-only existence check on a path inside the project directory
+        return FileManager.default.fileExists(atPath: managed.path) ? managed : nil
+    }
+
     /// Ensure a fresh index store exists for `packageRoot`.
     ///
     /// Concurrent callers — e.g. two `quality-gate` runs in the same checkout — are
@@ -357,8 +404,8 @@ public enum StoreLocator {
             return swiftbuildStore
         }
 
-        let buildPath = packageRoot.appendingPathComponent(".build/index-build")
-        let store = buildPath.appendingPathComponent("index-store")
+        let buildPath = indexBuildDirectory(packageRoot: packageRoot)
+        let store = managedStore(packageRoot: packageRoot)
 
         // Fast path: already fresh, no lock needed.
         guard needsRebuild(packageRoot: packageRoot, store: store) else { return store }
@@ -414,7 +461,7 @@ public enum StoreLocator {
     /// store's records), so the caller falls back to the dedicated index build.
     static func freshSwiftbuildStore(packageRoot: URL) -> URL? {
         let store = packageRoot.appendingPathComponent(".build/out")
-        let units = store.appendingPathComponent("v5/units")
+        let units = unitsDirectory(in: store)
         let fm = FileManager.default
         // Must exist and be a non-empty index-while-building store.
         // silent: an absent .build/out (native toolchains, or before the first index-while-build) is the expected no-store case, signaled to the caller by returning nil to trigger the dedicated index-build fallback.

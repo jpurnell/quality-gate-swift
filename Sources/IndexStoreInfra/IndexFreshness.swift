@@ -100,7 +100,7 @@ extension IndexFreshness {
     /// Returns `nil` when the units directory is missing or holds no files — an index that
     /// cannot be dated is not an index that is current.
     static func newestUnit(inStoreAt storeURL: URL) -> (newest: Date, count: Int)? {
-        let units = storeURL.appendingPathComponent("v5/units", isDirectory: true)
+        let units = StoreLocator.unitsDirectory(in: storeURL)
         let fm = FileManager.default
         // silent: an absent or unreadable units directory is the expected no-store case, reported to the caller as `.noIndexUnits` rather than as an error.
         guard let entries = try? fm.contentsOfDirectory(
