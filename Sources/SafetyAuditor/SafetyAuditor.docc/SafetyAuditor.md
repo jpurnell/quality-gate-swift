@@ -19,6 +19,18 @@ SafetyAuditor uses SwiftSyntax to parse and analyze Swift source code, detecting
 | `unowned` | Crashes if accessed after deallocation | `unowned` |
 | `while true` | Potential infinite loop | `infinite-loop` |
 
+### What it scans
+
+The whole repository, minus the configured exclusions — not a hardcoded `Sources/`. That
+distinction cost real coverage: unguarded force-unwraps in `Tests/`, in `Plugins/`, and at the
+package root were never examined, and a test that crashes on a nil takes a suite down exactly as
+thoroughly as shipping code takes an app down. Nested packages are skipped: a vendored dependency
+with its own `Package.swift` belongs to whoever maintains it.
+
+Every run prints a `safety.coverage` note with the number of files actually examined. That number
+is computed rather than claimed, which is the point — a scope written into prose goes stale
+silently, and this one had.
+
 ### Exemptions
 
 Code that intentionally uses these patterns can be marked with `// SAFETY:` comments:

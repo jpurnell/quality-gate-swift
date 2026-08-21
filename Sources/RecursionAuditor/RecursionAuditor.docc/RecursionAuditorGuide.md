@@ -74,6 +74,40 @@ struct FixedSettings {
 
 Both bare `fontSize` and `self.fontSize` references inside the getter are detected.
 
+Three things carry the property's name without referring to it, and none of them are flagged.
+Each was found misreporting real code in a survey of 22 open-source packages:
+
+```swift
+struct Stat { var mode = 0 }
+struct Storage { var retryCount = 0 }
+struct Protected {
+    private let storage = Storage()
+    func read<T>(_ keyPath: KeyPath<Storage, T>) -> T { storage[keyPath: keyPath] }
+}
+
+struct NotFlagged {
+    private let mutableState = Protected()
+
+    // a local shadows the property for the rest of the getter
+    var status: Stat {
+        var status = Stat()
+        status.mode = 1
+        return status
+    }
+
+    // the key path addresses `Storage`, not this property
+    var retryCount: Int { mutableState.read(\.retryCount) }
+
+    // resolves to the method, which Swift permits alongside the property
+    // because the method's full name is `asISO8601(style:)`
+    func asISO8601(style: Int = 0) -> String { "" }
+    var asISO8601: String { asISO8601() }
+}
+```
+
+`self.name` is deliberately *not* subject to shadowing: it names the property whatever locals
+exist, so `let name = "x"; return self.name` is still infinite recursion and is still reported.
+
 ### `recursion.setter-self`
 
 A computed property setter that assigns to its own property name triggers infinite recursion. The setter calls itself instead of writing to backing storage.
@@ -197,27 +231,73 @@ func guardedFlatten(_ nested: [[Int]], index: Int = 0) -> [Int] {
 }
 ```
 
-The base case heuristic looks for `guard` statements, bare `return` statements, or `return <non-call>` expressions. If your base case is an `if` check rather than a `guard`, refactor it to `guard` -- this silences the warning and is generally clearer code.
+A base case is **any branch that exits without re-entering this function** — a `guard`, a bare
+`return`, a returned value, or a returned call to something else. `if` is as good as `guard`:
 
 ```swift
-// flagged (if-based base case not recognized)
+// accepted -- an `if` base case is a base case
 func factorial(_ n: Int) -> Int {
     if n <= 1 { return 1 }
     return n * factorial(n - 1)
 }
+```
 
-// accepted (same logic, guard-based)
-func guardedFactorial(_ n: Int) -> Int {
-    guard n > 1 else { return 1 }
-    return n * guardedFactorial(n - 1)
+> An earlier version of this guide claimed the example above *was* flagged and advised
+> refactoring `if` into `guard` to silence it. That was wrong, and wrong from the beginning —
+> the rule has always accepted a returned non-call. The advice is withdrawn: write whichever
+> reads better.
+
+Two shapes the heuristic genuinely used to miss, both found in the survey and both now accepted:
+
+```swift
+struct Expression {
+    let impl: Int
+
+    // accepted -- the terminating branch returns a *different* call.
+    // GRDB's SQLExpression.between ends this way, with `self.init(...)`.
+    static func between(lower: Int, upper: Int) -> Expression {
+        if lower < 0 { return between(lower: -lower, upper: upper) }
+        return Expression(impl: lower + upper)
+    }
+}
+
+// accepted -- an implicit return: the branch value of an `if` expression, with
+// no `return` keyword anywhere. Ignite's flatten(_:) terminates this way.
+func descend(_ depth: Int) -> [Int] {
+    if depth > 0 {
+        descend(depth - 1)
+    } else {
+        []
+    }
 }
 ```
 
 This rule also applies to instance methods, static methods, async functions, throwing functions, and generic functions. The recursion shape does not change with those modifiers.
 
+### `recursion.self-reference-unresolved`
+
+A note, not a finding: a self-named call the syntactic pass could not resolve, in a file the
+index pass could not see.
+
+Argument labels are part of a function's identity but not all of it. Swift chooses between
+same-labelled overloads by **parameter type**, which no syntactic pass can do — GRDB declares
+fourteen `encode(_:)` overloads in one file, and `encode(_ value: Int16)` calling
+`encode(value.databaseValue)` targets a sibling rather than itself. Where a signature has more
+than one implementation, the auditor records the site instead of asserting recursion.
+
+With an index store the question is settled automatically: overloads are distinct symbols there,
+so the call produces no self-edge and no finding. A site that reaches this note is therefore one
+the index could not see — code excluded by a platform condition or a package trait, a test target
+(the index comes from `swift build`, which does not build tests), or a failed index build. The
+pass reports which applies, and never lets an index that saw nothing erase findings it did not
+examine.
+
 ### `recursion.mutual-cycle`
 
-Two or more functions that call each other in a cycle with no guard-driven base case among any of the participants. The auditor builds a project-wide call graph and runs Tarjan's SCC algorithm to find these cycles, including across files.
+Two or more functions that call each other in a cycle with no base case among any of the
+participants. A cycle asks a *stricter* base-case question than direct recursion does: a branch
+returning some other call bounds a self-call, but not a cycle, because that call may be the next
+participant. The two tests are asked separately for that reason. The auditor builds a project-wide call graph and runs Tarjan's SCC algorithm to find these cycles, including across files.
 
 ```swift
 // flagged (both participants reported)
@@ -248,6 +328,15 @@ Cross-file cycles are detected via `auditProject`. Cross-module cycles (across S
 
 Argument labels are part of function identity. A function `f(_:)` calling `f(x:)` is calling a *different* overload, not itself. The auditor tracks labels precisely to avoid this common false-positive landmine.
 
+Labels are not *all* of the identity, though, and the auditor does not pretend otherwise: where
+two declarations share a base name **and** labels, only their parameter types separate them, and
+that is a question for the compiler. See `recursion.self-reference-unresolved` above.
+
+Subscripts are resolved the same way, with one wrinkle worth knowing: a subscript does **not**
+promote a parameter name to an argument label the way a function does. `subscript(index: Int)` is
+called `self[index]` with no label at all; a label appears only when a second name is written, as
+in `subscript(index index: Int)`.
+
 ```swift
 // NOT flagged -- different overloads
 enum OverloadSafety {
@@ -269,7 +358,9 @@ The auditor has no inline suppression comment (like `// RECURSION-SAFE:`). Inste
 - **computed-property-self, setter-self**: Introduce a private backing storage property (`_name`) and reference that instead.
 - **subscript-self, subscript-setter-self**: Delegate to a backing collection rather than `self[...]`.
 - **protocol-extension-default-self**: Call a different protocol requirement or concrete helper from the default implementation.
-- **unconditional-self-call**: Add a `guard` clause that returns or throws before the recursive call. If your base case uses `if`, refactor it to `guard` -- this is the intended escape hatch and produces clearer code.
-- **mutual-cycle**: Add a `guard`-driven base case to at least one participant in the cycle.
+- **unconditional-self-call**: Add a branch that returns or throws without calling the function again. `if` and `guard` both count; so does returning a call to something else.
+- **mutual-cycle**: Add a base case to at least one participant. Here the bar is higher than for a
+  self-call — the branch must not call *any* participant, since a returned call may be the next
+  one round the cycle.
 
-If the auditor flags a pattern you believe is correct (e.g., an intentional trampoline or event loop), the recommended approach is to add a `guard` with a termination condition. If you find a class of legitimate code that is consistently flagged, open an issue -- the heuristic may need refinement.
+If the auditor flags a pattern you believe is correct (e.g., an intentional trampoline or event loop), the recommended approach is to add an explicit termination condition. If you find a class of legitimate code that is consistently flagged, open an issue -- the heuristic may need refinement.

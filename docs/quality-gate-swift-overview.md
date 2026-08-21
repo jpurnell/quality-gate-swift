@@ -12,8 +12,8 @@ It is not a linter that nags about whitespace. It is a **gate**: code that viola
 
 Three numbers frame it:
 
-- **42 checkers**, each an independent Swift package module with its own tests and documentation.
-- **2,871 tests** covering the checkers themselves — the tool is held to the standard it enforces.
+- **46 checkers**, each an independent Swift package module with its own tests and documentation.
+- **3,245 tests** covering the checkers themselves — the tool is held to the standard it enforces.
 - **Zero regex.** Every rule walks the Swift **AST** (abstract syntax tree) via Apple's SwiftSyntax. It understands scope, type context, and control flow — so it catches real defects and produces very few false positives.
 
 ### The core idea
@@ -69,7 +69,7 @@ Checkers that conform to `FixableChecker` can repair issues automatically with `
 - **A gate, not a suggestion.** Because false positives are rare, the tool can enforce. Bad code doesn't merge. There is no backlog of ignored warnings.
 - **No override culture.** Exemptions exist (`// SAFETY:`, `// Justification:`), but every one is a single inline comment that states *why* — recorded, not silent. You can see every place the rules were consciously relaxed.
 - **It travels with the code.** Pre-commit hook, pre-push hook, CI via SARIF, Xcode build phase — the same canonical run path in every environment, so "passes on my machine" and "passes in CI" mean the same thing.
-- **It dogfoods itself.** quality-gate-swift runs its own 42 checkers on every push. The tool is subject to its own gate.
+- **It dogfoods itself.** quality-gate-swift runs its own 46 checkers on every push. The tool is subject to its own gate.
 
 ---
 
@@ -115,7 +115,112 @@ The fix tightened the checker (correct handling of vendored code, and skipping t
 
 ---
 
-## 5. How it integrates with product development
+## 5. Case study: 22 known-good packages
+
+Harbor is the case where a real bug got past the tool and the tool learned from it. This is the
+opposite experiment, and it turned out to be the more productive one.
+
+The gate was pointed at **22 widely-used open-source Swift packages** — Alamofire, swift-nio,
+GRDB, swift-collections, The Composable Architecture, SwiftyJSON, swift-algorithms, Ignite and
+others. None of them are our code. All of them are heavily used and heavily reviewed. That
+changes what a finding *means*: against known-good code, a finding is not news about the package.
+**It is a hypothesis about the tool.**
+
+The survey did not turn up a handful of false positives. It turned up whole classes of them, and
+two performance defects that had been invisible because they looked like constants.
+
+### 1. Name matching wearing the costume of analysis
+
+Walking the AST is not automatically semantic. SwiftSyntax knows that `return sql` is an
+identifier named `sql`; it cannot know whether that resolves to the enclosing property or to a
+local declared two lines earlier. Three real shapes, from three unrelated authors:
+
+```swift
+// GRDB — a local shadows the property
+var sql: String { if let raw { let sql = String(raw); return sql }; return "" }
+
+// Alamofire — the key path addresses another type entirely
+var retryCount: Int { mutableState.read(\.retryCount) }
+
+// GRDB — one of fourteen encode(_:) overloads in a single file
+mutating func encode(_ value: Int16) throws { encode(value.databaseValue) }   // → encode(DatabaseValue)
+```
+
+The checker reported all three as infinite recursion. Argument labels are part of a function's
+identity but not all of it — Swift chooses between same-labelled overloads by *parameter type*,
+which no syntactic pass can do. The rules now resolve what syntax can resolve, and where they
+cannot, they say so rather than guess.
+
+### 2. A base case the checker could not see
+
+"Bounded" was tested by looking for a `guard`. Everything else that ends a descent was invisible:
+
+- **GRDB's `SQLExpression.between`** terminates by returning `self.init(…)` — a call, so no base
+  case was recognised.
+- **Ignite's `flatten(_:)`** reaches `[]` as the value of an `if` *expression*, with no `return`
+  keyword for a statement-shaped heuristic to find.
+- **swift-collections' `_subtracting_slow`** reaches its guard through two nested closures inside
+  a returned expression, which the walker never descended into.
+
+### 3. Two passes disagreeing, and a text scan hiding it
+
+The index-backed pass decided whether a cycle was bounded by scanning body **text** for the
+literal `"guard "`, inside lines delimited by counting braces with no awareness of strings or
+comments. The AST pass already knew the answer properly. Where they disagreed, the text scan won
+— and silently. swift-async-algorithms' `AsyncBufferedByteIterator` is the clean example: its
+`reloadBufferAndNext()` ↔ `next()` really is a cycle, and really is bounded, by
+`if finished { return nil }` and a fast-path early return. Neither is a `guard`, so it was
+reported as unbounded.
+
+### 4. Quadratic work disguised as a constant
+
+Each finding needs a source location, and each location needs a `SourceLocationConverter`, which
+indexes every line in the file. Constructed once per file that is cheap; constructed inside a
+method the framework calls per syntax node — or per function — it is quadratic in file size, and
+it looks like ordinary work in every profile until you plot it against input size.
+
+| checker | growth before | growth after |
+| --- | --- | --- |
+| `safety` | n^2.01 | n^0.83 |
+| `test-quality` | n^1.99 | n^0.98 |
+| `doc-coverage` | n^1.56 | n^0.74 |
+| `complexity` | n^1.81 | n^0.83 |
+
+`complexity` on a 259 KB file went from **53.83s to 5.50s**. The full 22-package sweep went from
+**39.5 minutes to 18.9**.
+
+### The scoreboard
+
+Across the 22 packages, the recursion checker alone went from **174 errors and 279 warnings to 47
+and 10** — and the survivors were read individually to confirm they are real.
+
+### What the process taught, which matters more than the fixes
+
+Three separate times a fix looked obviously correct and the corpus disagreed:
+
+- Recording base cases for computed properties changed **nothing** — the corpus run came back
+  byte-identical — because the index names a property's accessors `getter:name` while the syntax
+  tree records `name`. The two never met. Reading the code would not have revealed that; running
+  it did.
+- Bridging the two passes on *line numbers* matched barely half the corpus, because a
+  declaration's line drifts between them: one points at an attribute, the other at the name.
+- An early attempt to have the index pass adjudicate self-calls reported **207 findings**, all
+  because it had no base-case data to filter them with.
+
+Every one of those was a place where two systems had to agree on an identifier and agreement was
+*assumed* rather than checked. The survey's real output is not the fix list. It is the practice:
+**measure the fix against a corpus you did not write, before believing it.**
+
+### Why this matters if you are considering the tool
+
+A gate is only as valuable as it is trusted, and it is only trusted if nearly every finding is
+real. Harbor proved that with a false-positive storm (1,064 → 0). The survey is the same lesson
+run deliberately rather than discovered by accident — and it is repeatable. The corpus is public
+packages; the method is one command per package and a diff.
+
+---
+
+## 6. How it integrates with product development
 
 quality-gate-swift is designed to sit inside a development workflow, not beside it.
 
@@ -144,7 +249,7 @@ Runs emit structured telemetry to a corpus. A macOS dashboard reads it and shows
 
 ---
 
-## 6. Getting started
+## 7. Getting started
 
 ```bash
 # Build from source
@@ -171,7 +276,7 @@ Configuration lives in `.quality-gate.yml` (which checkers, exemption keywords, 
 
 ---
 
-## 7. One-paragraph summary (for quick ingestion)
+## 8. One-paragraph summary (for quick ingestion)
 
-quality-gate-swift is an AST-powered static-analysis gate for Swift that enforces correctness, safety, and concurrency rules on every commit and push. Its 42 checkers walk the SwiftSyntax tree rather than matching regex, so they catch structural defects — crashes, data races, unsafe pointers, unguarded division — with few enough false positives to *block* rather than merely warn. It integrates into a strict TDD workflow via git hooks, GitHub Actions (SARIF/Code Scanning), and an Xcode build phase, and dogfoods itself against its own 1,677-test suite. Its value is proven by Harbor, a shipping biofeedback product where a user-stop-mislabeled-as-completed async race survived TDD and three green gate cycles; that single failure became the specification for three new concurrency checkers, and the tool's hard-won precision (turning 1,064 vendored-SDK false positives into 0) is what makes its gate trustworthy enough to enforce.
+quality-gate-swift is an AST-powered static-analysis gate for Swift that enforces correctness, safety, and concurrency rules on every commit and push. Its 46 checkers walk the SwiftSyntax tree rather than matching regex, so they catch structural defects — crashes, data races, unsafe pointers, unguarded division — with few enough false positives to *block* rather than merely warn. It integrates into a strict TDD workflow via git hooks, GitHub Actions (SARIF/Code Scanning), and an Xcode build phase, and dogfoods itself against its own 3,245-test suite. Its value is proven by Harbor, a shipping biofeedback product where a user-stop-mislabeled-as-completed async race survived TDD and three green gate cycles; that single failure became the specification for three new concurrency checkers, and the tool's hard-won precision (turning 1,064 vendored-SDK false positives into 0) is what makes its gate trustworthy enough to enforce. That precision is now maintained deliberately rather than discovered by accident: the gate is regularly run against a corpus of 22 widely-used open-source Swift packages (Alamofire, swift-nio, GRDB, swift-collections, The Composable Architecture and others), where every finding is treated as a hypothesis about the tool rather than news about the package — a survey that cut the recursion checker's output across that corpus from 174 errors and 279 warnings to 47 and 10, uncovered four classes of false positive rooted in name-matching rather than name-resolution, and exposed quadratic location-conversion work that had been invisible in profiles, halving whole-corpus sweep time from 39.5 to 18.9 minutes.
 ```

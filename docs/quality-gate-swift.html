@@ -384,13 +384,13 @@
 <span class="gate-line"><span class="mute">  add `guard !Task.isCancelled` after the loop, then retry</span></span>
 <span class="gate-line"> </span>
 <span class="gate-line"><span class="mute">$</span> git commit -m "session loop"<span class="cursor"></span></span>
-<span class="gate-line"><span class="pass">✓ 42 checkers · 0 errors · 0 warnings — committed</span></span>
+<span class="gate-line"><span class="pass">✓ 46 checkers · 0 errors · 0 warnings — committed</span></span>
       </div>
     </div>
 
     <div class="stats">
-      <div class="stat"><div class="n">42</div><div class="k">independent checkers</div></div>
-      <div class="stat"><div class="n">2,871</div><div class="k">tests holding the tool to its own standard</div></div>
+      <div class="stat"><div class="n">46</div><div class="k">independent checkers</div></div>
+      <div class="stat"><div class="n">3,245</div><div class="k">tests holding the tool to its own standard</div></div>
       <div class="stat"><div class="n">0</div><div class="k">regex — every rule walks the AST</div></div>
     </div>
   </header>
@@ -447,6 +447,42 @@
       <p class="tag">✓ The precision lesson</p>
       <p>Harbor also stress-tested the tool's false-positive discipline. An early unreachable-code run against Harbor emitted <strong>~1,064</strong> findings — almost all from a vendored SDK the team couldn't change. A gate that cries wolf 1,064 times is a gate people learn to ignore. Tightening the checker drove Harbor from <strong>1,064 findings to 0</strong>; the same discipline later collapsed a 14,000-row duplication storm down to 11 genuine findings.</p>
       <p>A quality gate is only as valuable as it is trusted, and it is only trusted if nearly every finding is real. Precision isn't a nicety — it's the product.</p>
+    </div>
+  </section>
+
+
+  <section>
+    <p class="sec-label">Case study — the third-party survey</p>
+    <h2>We pointed it at code we knew was good.</h2>
+    <p>Harbor is the case where a real bug got past the tool and the tool learned from it. This is the opposite experiment, and it turned out to be the more productive one.</p>
+    <p>The gate was run against <strong>22 widely-used open-source Swift packages</strong> — Alamofire, swift-nio, GRDB, swift-collections, The Composable Architecture, SwiftyJSON, Ignite and more. None of it our code. All of it heavily used and heavily reviewed. That changes what a finding <em>means</em>: against known-good code, a finding is not news about the package. <strong>It is a hypothesis about the tool.</strong></p>
+
+    <div class="incident">
+      <p class="tag">◆ What it found</p>
+      <p>Not a handful of false positives — whole classes of them. Walking the AST is not automatically semantic: SwiftSyntax knows <code>return sql</code> is an identifier named <code>sql</code>, but not whether that resolves to the property or to a local declared two lines earlier.</p>
+      <p><span class="pill fail">a local shadows the property</span><span class="pill fail">a key path into another type</span><span class="pill fail">one of 14 same-named overloads</span></p>
+      <p>Three real shapes from three unrelated authors, all reported as infinite recursion. Argument labels are part of a function's identity but not all of it — Swift chooses between same-labelled overloads by <em>parameter type</em>, which no syntactic pass can do.</p>
+    </div>
+
+    <h3>Four defect classes came out of it</h3>
+    <ol class="born">
+      <li><span class="name">name matching, not name resolution</span> — the rules now resolve what syntax can resolve, and where they cannot, they say so instead of guessing. <code>computed-property-self</code> went from 89 findings to 3, and the three that survive are real.</li>
+      <li><span class="name">a base case the checker couldn't see</span> — "bounded" was tested by looking for a <code>guard</code>. GRDB's <code>between</code> ends by returning <code>self.init(…)</code>; Ignite's <code>flatten(_:)</code> reaches <code>[]</code> as the value of an <code>if</code> <em>expression</em>, with no <code>return</code> at all; swift-collections reaches its guard through two nested closures. All read as unbounded.</li>
+      <li><span class="name">two passes disagreeing, silently</span> — the index-backed pass decided boundedness by scanning body <em>text</em> for the literal <code>"guard "</code>, brace-counted, with no awareness of strings or comments. Where it disagreed with the AST pass, the text scan won and said nothing.</li>
+      <li><span class="name">quadratic work disguised as a constant</span> — every finding needs a source location, and every location needs an index of the file's lines. Built once per file that is cheap; built per syntax node it is quadratic — and it looks like ordinary work in every profile until you plot it against input size.</li>
+    </ol>
+
+    <div class="stats">
+      <div class="stat"><div class="n">174&nbsp;→&nbsp;47</div><div class="k">errors across the 22 packages</div></div>
+      <div class="stat"><div class="n">279&nbsp;→&nbsp;10</div><div class="k">warnings across the 22 packages</div></div>
+      <div class="stat"><div class="n">39.5&nbsp;→&nbsp;18.9</div><div class="k">minutes to sweep the whole corpus</div></div>
+    </div>
+
+    <div class="incident resolved">
+      <p class="tag">✓ What the process taught, which matters more than the fixes</p>
+      <p>Three separate times a fix looked obviously correct and the corpus disagreed. Recording base cases for computed properties changed <strong>nothing</strong> — the run came back byte-identical — because the index names a property's accessors <code>getter:name</code> while the syntax tree records <code>name</code>. Bridging the two passes on line numbers matched barely half the corpus, because a declaration's line drifts between them. An early attempt to adjudicate self-calls reported <strong>207 findings</strong>, all because it had no base-case data to filter them with.</p>
+      <p>Every one was a place where two systems had to agree on an identifier and agreement was <em>assumed</em> rather than checked. Reading the code would not have revealed any of them. Running it did.</p>
+      <p>The survey's real output isn't the fix list — it's the practice: <strong>measure the fix against a corpus you didn't write, before believing it.</strong> Harbor proved precision matters by accident. This is the same lesson run deliberately, and repeatably: the corpus is public packages, the method is one command per package and a diff.</p>
     </div>
   </section>
 
