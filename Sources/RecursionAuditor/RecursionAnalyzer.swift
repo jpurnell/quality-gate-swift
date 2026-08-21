@@ -183,7 +183,7 @@ final class RecursionVisitor: SyntaxVisitor {
                     lineNumber: location.line,
                     columnNumber: location.column,
                     ruleId: "recursion.self-reference-unresolved",
-                    suggestedFix: "Read the call and confirm which overload it selects. Resolving these automatically needs the index pass to admit self-edges, which it does not yet do — it reports cycles of two or more participants only."
+                    suggestedFix: "Read the call and confirm which overload it selects. The index pass resolves this automatically where it can see the file — overloads are distinct symbols there — so a site reaching this note is one it could not see: code excluded by a platform condition or a package trait, a test target, or a failed index build. The pass reports which of those applies."
                 )
                 if insideProtocolExtension {
                     pendingSelfCalls.append((signature, Diagnostic(

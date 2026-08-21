@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **A stale claim shipping inside the binary.** The hint on `self-reference-unresolved` still told
+  readers that "the index pass ... does not yet [admit self-edges] — it reports cycles of two or
+  more participants only". It admits them as of the previous commit, which is the entire reason
+  those notes fell 292 → 34. Caught by reading the deployed binary's own output rather than the
+  source. A message string is exactly as capable of outliving its fix as a design document is, and
+  is read by more people; it now names what a surviving note actually means — a file the index
+  could not see, and which of the three reasons applies.
+
 - **A fresh index store can still be useless, and the pass now says so.** bitchat matched 0 of
   1900 base cases. Its store holds 140 units — every one a Clang `.pcm` module, not one Swift
   source unit — because its index build failed before reaching the package's own code, leaving an
