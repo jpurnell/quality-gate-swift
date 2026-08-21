@@ -61,6 +61,51 @@ public enum SourceCacheInputs {
         return CacheInputs(files: files, salt: configurationSalt(configuration))
     }
 
+    /// Every input `wholeSource` covers, **plus the index store the checker will read**.
+    ///
+    /// An index-backed checker produces different findings depending on whether an index
+    /// exists and what is in it, so the store is an input and belongs in the fingerprint.
+    /// It was not in it, and the failure is the one this file already warns about: a run
+    /// with no index caches its AST-only findings against a digest of the *sources*;
+    /// building the project afterwards changes no source, so the next run replays the
+    /// degraded result and the cross-module findings never appear. Not slow — wrong.
+    ///
+    /// The store is identified by where it is and when its unit records last changed,
+    /// which is the same pair `freshSwiftbuildStore` uses to judge staleness. Rebuilding
+    /// the index costs exactly one extra miss: the run that rebuilds it fingerprints the
+    /// old store, and the run after that sees the new one and settles.
+    ///
+    /// - Parameters:
+    ///   - projectRoot: The package root.
+    ///   - configuration: Project configuration, digested into the salt.
+    /// - Returns: Inputs covering everything `wholeSource` does, plus the index store.
+    public static func wholeSourceAndIndex(projectRoot: URL, configuration: Configuration) -> CacheInputs {
+        addingIndex(wholeSource(projectRoot: projectRoot, configuration: configuration),
+                    projectRoot: projectRoot)
+    }
+
+    /// Folds the index store into any existing input set.
+    ///
+    /// Composable rather than combinatorial: a checker that already needs DocC markdown
+    /// wraps `wholeSourceAndDocs` instead of needing a `wholeSourceDocsAndIndex`.
+    public static func addingIndex(_ inputs: CacheInputs, projectRoot: URL) -> CacheInputs {
+        var indexed = inputs
+        indexed.salt += "\u{0}index=" + indexToken(projectRoot: projectRoot)
+        return indexed
+    }
+
+    /// A short description of the index store an index-backed checker would read.
+    private static func indexToken(projectRoot: URL) -> String {
+        guard let store = StoreLocator.locateExisting(packageRoot: projectRoot) else {
+            return "none"
+        }
+        let units = StoreLocator.unitsDirectory(in: store)
+        guard let mtime = StoreLocator.mtime(of: units) else {
+            return store.path + "@unknown"
+        }
+        return store.path + "@" + String(Int(mtime.timeIntervalSince1970))
+    }
+
     /// Every input `wholeSource` covers, **plus the DocC catalogues**.
     ///
     /// `wholeSource` collects `.swift` files. A documentation checker also reads the `.md` files

@@ -39,7 +39,7 @@ public struct ComplexityAnalyzer: QualityChecker, Sendable {
     /// sources + the manifests. Over-inclusive by design (a re-run on any change, never a
     /// stale reuse).
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSource(
+        SourceCacheInputs.wholeSourceAndIndex(
             projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )

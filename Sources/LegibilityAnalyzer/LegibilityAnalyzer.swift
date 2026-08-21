@@ -56,9 +56,12 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     /// `wholeSourceAndDocs` rather than `wholeSource`: it is the wider set, and over-including
     /// an input costs a cache miss while under-including one serves a stale pass.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSourceAndDocs(
-            projectRoot: configuration.resolvedProjectRoot,
-            configuration: configuration
+        SourceCacheInputs.addingIndex(
+            SourceCacheInputs.wholeSourceAndDocs(
+                projectRoot: configuration.resolvedProjectRoot,
+                configuration: configuration
+            ),
+            projectRoot: configuration.resolvedProjectRoot
         )
     }
 

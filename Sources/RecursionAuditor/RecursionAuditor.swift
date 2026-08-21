@@ -37,7 +37,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     /// Cross-module recursion analysis depends on the whole source tree, so the result is
     /// cacheable keyed by all Swift sources + manifests + config.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSource(
+        SourceCacheInputs.wholeSourceAndIndex(
             projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
