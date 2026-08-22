@@ -140,7 +140,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                 let pass2 = try await runIndexStorePass(
                     configuration: configuration,
                     baseCaseSites: RecursionIndexPass.baseCaseSites(from: allDeclarations),
-                    selfBaseCaseSites: RecursionIndexPass.selfBaseCaseSites(from: allDeclarations)
+                    selfBaseCaseSites: RecursionIndexPass.selfBaseCaseSites(from: allDeclarations),
+                    analysedSites: RecursionIndexPass.analysedSites(from: allDeclarations)
                 )
 
                 // Where the index could see the file, its USR answer supersedes the
@@ -221,7 +222,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
     /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
     private func runIndexStorePass(configuration: Configuration, baseCaseSites: Set<DeclarationSite>,
-        selfBaseCaseSites: Set<DeclarationSite>
+        selfBaseCaseSites: Set<DeclarationSite>,
+        analysedSites: Set<DeclarationSite>
     ) async throws -> RecursionIndexPass.Result {
         let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
@@ -241,7 +243,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             session: session,
             swiftFiles: swiftFiles,
             baseCaseSites: baseCaseSites,
-            selfBaseCaseSites: selfBaseCaseSites
+            selfBaseCaseSites: selfBaseCaseSites,
+            analysedSites: analysedSites
         )
     }
 
@@ -391,6 +394,12 @@ struct DeclarationInfo {
     /// sharing one test between the two questions silently moved `mutual-cycle` from 89
     /// to 72 when it was tried.
     let hasSelfBaseCase: Bool
+    /// True if the AST pass actually read this declaration's body.
+    ///
+    /// False for a protocol requirement, a stored property, and anything else that has no
+    /// body to read — including the accessors a macro generates, which the tree shows only
+    /// as an attribute. The index sees the expansion; we do not, so we must not judge it.
+    let wasAnalysed: Bool
     /// Outgoing call sites collected from the body.
     let outgoingCalls: [CallSite]
     /// True if this declaration participates in cycle detection (functions/methods).

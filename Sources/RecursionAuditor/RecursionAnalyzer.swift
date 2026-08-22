@@ -214,6 +214,7 @@ final class RecursionVisitor: SyntaxVisitor {
             location: location,
             hasBaseCase: baseCase,
             hasSelfBaseCase: selfBaseCase,
+            wasAnalysed: body != nil,
             outgoingCalls: outgoing,
             isCallable: true
         ))
@@ -283,6 +284,7 @@ final class RecursionVisitor: SyntaxVisitor {
                 hasSelfBaseCase: getterBody.map {
                     hasSelfBaseCase(in: $0, ownSignature: propertySignature)
                 } ?? false,
+                wasAnalysed: getterBody != nil,
                 outgoingCalls: [],
                 isCallable: false
             ))
@@ -372,6 +374,7 @@ final class RecursionVisitor: SyntaxVisitor {
             hasSelfBaseCase: subscriptGetterBody.map {
                 hasSelfBaseCase(in: $0, ownSignature: signature)
             } ?? false,
+            wasAnalysed: subscriptGetterBody != nil,
             outgoingCalls: [],
             isCallable: false
         ))

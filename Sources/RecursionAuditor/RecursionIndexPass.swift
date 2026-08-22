@@ -42,6 +42,7 @@ final class USRCallGraph: Sendable {
     private let _defaultImplementations: Mutex<Set<String>> = Mutex([])
     private let _hasBaseCase: Mutex<Set<String>> = Mutex([])
     private let _hasSelfBaseCase: Mutex<Set<String>> = Mutex([])
+    private let _analysed: Mutex<Set<String>> = Mutex([])
 
     /// Creates an empty call graph.
     init() {}
@@ -90,6 +91,16 @@ final class USRCallGraph: Sendable {
     /// Returns true if the given USR has a branch that does not re-enter it.
     func hasSelfBaseCase(_ usr: String) -> Bool {
         _hasSelfBaseCase.withLock { $0.contains(usr) }
+    }
+
+    /// Marks a USR whose body the AST pass actually read.
+    func markAnalysed(_ usr: String) {
+        _analysed.withLock { _ = $0.insert(usr) }
+    }
+
+    /// Returns true if the AST pass read this symbol's body.
+    func wasAnalysed(_ usr: String) -> Bool {
+        _analysed.withLock { $0.contains(usr) }
     }
 
     /// Returns true if the given USR has a self-edge.
@@ -284,6 +295,10 @@ enum RecursionIndexPass {
         // Warning, matching the AST pass's severity for the same rule.
         for component in sccs where component.count == 1 {
             guard let usr = component.first, graph.hasSelfEdge(usr) else { continue }
+            // Only judge code the AST pass read. A symbol it never analysed is generated —
+            // a macro's accessor, a synthesised conformance — and we have no body to say
+            // whether the recursion is bounded.
+            guard graph.wasAnalysed(usr) else { continue }
             guard !graph.hasSelfBaseCase(usr) else { continue }
             guard let info = graph.symbolInfo(for: usr) else { continue }
             diagnostics.append(Diagnostic(
@@ -335,6 +350,15 @@ enum RecursionIndexPass {
     static func baseCaseSites(from declarations: [DeclarationInfo]) -> Set<DeclarationSite> {
         // Callables only, matching how cycle detection filters its own input.
         sites(from: declarations) { $0.isCallable && $0.hasBaseCase }
+    }
+
+    /// The declaration sites whose bodies the AST pass actually read.
+    ///
+    /// The signal Pass 2 needs before asserting anything about a symbol. A macro-generated
+    /// accessor is indexed at the original source line, so location alone cannot distinguish
+    /// it from code we analysed; only the AST pass knows whether it ever saw a body there.
+    static func analysedSites(from declarations: [DeclarationInfo]) -> Set<DeclarationSite> {
+        sites(from: declarations) { $0.wasAnalysed }
     }
 
     /// The declaration sites Pass 1 determined have a branch that does not re-enter them.
@@ -390,7 +414,8 @@ enum RecursionIndexPass {
         session: IndexStoreSession,
         swiftFiles: [String],
         baseCaseSites: Set<DeclarationSite>,
-        selfBaseCaseSites: Set<DeclarationSite>
+        selfBaseCaseSites: Set<DeclarationSite>,
+        analysedSites: Set<DeclarationSite>
     ) throws -> Result {
         let db = session.db
         let graph = USRCallGraph()
@@ -447,6 +472,9 @@ enum RecursionIndexPass {
                 }
                 if selfBaseCaseSites.contains(site) {
                     graph.markHasSelfBaseCase(usr)
+                }
+                if analysedSites.contains(site) {
+                    graph.markAnalysed(usr)
                 }
 
                 let refs = db.occurrences(ofUSR: usr, roles: [.reference, .call])
