@@ -181,4 +181,73 @@ struct StoreLocationTests {
             packageRoot: root, store: root.appendingPathComponent(".build/out")))
     }
 
+
+    @Test("Locating never builds, even when the store lacks test targets")
+    func locatingNeverBuildsEvenWhenIncomplete() throws {
+        // The earlier "never builds" test used a package with no store at all, so it never
+        // reached the branch that could compile. This one sets up the exact shape that
+        // triggers enrichment — a swiftbuild store present, tests declared, no test units —
+        // and asserts the read-only contract still holds. `doctor` calls this function; a
+        // diagnostic must not start a build as a side effect of being asked a question.
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("Tests"), withIntermediateDirectories: true)
+        let store = root.appendingPathComponent(".build/out")
+        let units = StoreLocator.unitsDirectory(in: store)
+        try FileManager.default.createDirectory(at: units, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: units.appendingPathComponent("Core-A.o").path, contents: Data())
+
+        #expect(StoreLocator.storeMissesTestTargets(packageRoot: root, store: store))
+        _ = StoreLocator.locateExisting(packageRoot: root)
+
+        // A build would have created these; locating must not.
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".build/index-build").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Package.resolved").path))
+    }
+
+
+    // MARK: - Staleness must not assume the sources live in `Sources/`
+
+    @Test("A store older than the sources is stale even when there is no Sources directory")
+    func stalenessIgnoresLayout() throws {
+        // SwiftyJSON and Alamofire keep their code in `Source/`. The check compared against a
+        // hardcoded `Sources/`, so `newestSwiftMtime` returned nil, the guard was skipped, and
+        // the store was treated as fresh forever. Harmless while almost nothing had a
+        // `.build/out`; not harmless once that is the primary path.
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let store = root.appendingPathComponent(".build/out")
+        let units = StoreLocator.unitsDirectory(in: store)
+        try FileManager.default.createDirectory(at: units, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: units.appendingPathComponent("Core-A.o").path, contents: Data())
+        // Store written in the past; a source edited now.
+        let past = Date(timeIntervalSinceNow: -3600)
+        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: units.path)
+        let swift = source.appendingPathComponent("JSON.swift")
+        try "let x = 1\n".write(to: swift, atomically: true, encoding: .utf8)
+
+        #expect(StoreLocator.freshSwiftbuildStore(packageRoot: root) == nil)
+    }
+
+    @Test("A store newer than the sources is fresh, whatever the layout")
+    func freshStoreAcceptedWithNonStandardLayout() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try "let x = 1\n".write(to: source.appendingPathComponent("JSON.swift"),
+                                atomically: true, encoding: .utf8)
+        let store = root.appendingPathComponent(".build/out")
+        let units = StoreLocator.unitsDirectory(in: store)
+        try FileManager.default.createDirectory(at: units, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: units.appendingPathComponent("Core-A.o").path, contents: Data())
+
+        #expect(StoreLocator.freshSwiftbuildStore(packageRoot: root)?.path == store.path)
+    }
+
 }

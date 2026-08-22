@@ -377,12 +377,8 @@ public enum StoreLocator {
     /// package's own Swift code. Callers that care report unit counts, not mere existence.
     public static func locateExisting(packageRoot: URL) -> URL? {
         if let swiftbuildStore = freshSwiftbuildStore(packageRoot: packageRoot) {
-            // Fresh, but possibly source-only. Enriching costs an incremental build of the
-            // test targets; not enriching costs every finding in every test file.
-            if storeMissesTestTargets(packageRoot: packageRoot, store: swiftbuildStore) {
-                logger.info("index store lacks test targets; building tests to enrich it")
-                enrichSwiftbuildStore(packageRoot: packageRoot)
-            }
+            // Read-only: an incomplete store is reported as it is. Completing it means
+            // compiling, which is `ensureFresh`'s job and not a diagnostic's.
             return swiftbuildStore
         }
         let managed = managedStore(packageRoot: packageRoot)
@@ -451,6 +447,14 @@ public enum StoreLocator {
         // index without `-index-store-path`, so `.build/out` is absent there and we fall
         // through to the dedicated, locked index build below.
         if let swiftbuildStore = freshSwiftbuildStore(packageRoot: packageRoot) {
+            // Fresh, but swiftbuild indexes only what an ordinary build compiles, which
+            // excludes tests. Completing it costs an incremental build of the test targets;
+            // leaving it costs every finding in every test file. Conditional, because running
+            // it against a store that already has them is wasted time.
+            if storeMissesTestTargets(packageRoot: packageRoot, store: swiftbuildStore) {
+                logger.info("index store lacks test targets; building tests to complete it")
+                enrichSwiftbuildStore(packageRoot: packageRoot)
+            }
             return swiftbuildStore
         }
 
@@ -520,8 +524,10 @@ public enum StoreLocator {
         }
         // Must be current: no source file newer than the store's unit records.
         guard let storeMtime = mtime(of: units) else { return nil }
-        let sources = packageRoot.appendingPathComponent("Sources")
-        if let newest = newestSwiftMtime(under: sources), newest > storeMtime {
+        // Package root, not an assumed `Sources/`. SwiftyJSON and Alamofire keep their code
+        // in `Source/`, which made `newestSwiftMtime` return nil, skipped this guard entirely,
+        // and left the store "fresh" forever.
+        if let newest = newestSwiftMtime(under: packageRoot), newest > storeMtime {
             return nil
         }
         return store
@@ -531,8 +537,9 @@ public enum StoreLocator {
         let fm = FileManager.default
         guard fm.fileExists(atPath: store.path) else { return true } // SAFETY: CLI tool checks local index store path
         guard let storeMtime = mtime(of: store) else { return true }
-        let sources = packageRoot.appendingPathComponent("Sources")
-        guard let newestSource = newestSwiftMtime(under: sources) else { return false }
+        // Same layout assumption as above, with a worse failure: the old `else { return false }`
+        // meant "never rebuild" for any package that keeps its code outside `Sources/`.
+        guard let newestSource = newestSwiftMtime(under: packageRoot) else { return false }
         return newestSource > storeMtime
     }
 
@@ -552,7 +559,15 @@ public enum StoreLocator {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(atPath: root.path) else { return nil } // SAFETY: CLI tool enumerates local source directory
         var newest: Date?
+        // Skipped for the same reason `SourceWalker` skips them: `.build` holds the store's
+        // own artifacts and every dependency's sources, so counting it would compare a store
+        // against files no checker reads — and against itself.
+        let skipped: Set<String> = [".build", ".git", ".swiftpm", ".bundle"]
         while let rel = enumerator.nextObject() as? String {
+            if let first = rel.split(separator: "/").first, skipped.contains(String(first)) {
+                enumerator.skipDescendants()
+                continue
+            }
             guard rel.hasSuffix(".swift") else { continue }
             let p = root.appendingPathComponent(rel).path
             do {
