@@ -141,6 +141,34 @@ struct SecurityVisitorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "security.insecure-transport" })
     }
 
+    @Test("Allows XML namespace URIs — identifiers, not endpoints",
+          arguments: ["http://schemas.openxmlformats.org/package/2006/content-types",
+                      "http://www.w3.org/2000/svg",
+                      "http://www.w3.org/1999/xhtml",
+                      "http://purl.org/dc/elements/1.1/",
+                      "http://schemas.microsoft.com/office/2006/documentManagement/types"])
+    func allowsXMLNamespaceURIs(namespace: String) async throws {
+        // A namespace URI names a vocabulary; W3C states it need not be dereferenceable,
+        // and OOXML/SVG/XHTML mandate the http:// form. Rewriting one to https changes
+        // the document's meaning, so flagging it asks for a change that would be wrong.
+        let code = """
+        #expect(xml.contains("\(namespace)"))
+        """
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.insecure-transport" })
+    }
+
+    @Test("Still flags a real endpoint on a namespace-hosting domain")
+    func flagsRealEndpointOnNamespaceHost() async throws {
+        // The host allowance must not become a blanket pass: an actual request to one of
+        // these domains over http is still insecure.
+        let code = """
+        let url = URL(string: "http://www.w3.org/api/fetch?id=1")
+        """
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.insecure-transport" })
+    }
+
     @Test("Allows http://localhost")
     func allowsLocalhostHTTP() async throws {
         let code = """

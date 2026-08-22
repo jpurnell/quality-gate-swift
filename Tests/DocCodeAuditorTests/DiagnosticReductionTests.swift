@@ -133,6 +133,23 @@ struct HeaderSearchPathTests {
         #expect(!paths.contains { $0.hasSuffix("Sources/DemoNoModulemap/include") })
     }
 
+    @Test("The project's OWN C target is found, not just a dependency's")
+    func projectOwnCTargetIsFound() throws {
+        // The descent read `.build/checkouts` and nothing else, so a package whose C target
+        // is its own — `SwiftZIP`'s `CZlib`, any `.systemLibrary` with a committed modulemap —
+        // had it silently omitted. Every fence in that package then stopped at
+        // `missing required module 'CZlib'`, a barrier no fence could clear by being correct.
+        // The checker reported a documentation failure whose cause was this derivation.
+        let root = try CheckoutFixture.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let paths = DocCodeAuditor.headerSearchPaths(projectRoot: root, configuration: Configuration())
+        #expect(paths.contains { $0.hasSuffix("Sources/DemoOwnCZlib") },
+                "a systemLibrary target keeps its modulemap at the target root")
+        #expect(paths.contains { $0.hasSuffix("Sources/DemoOwnCShims/include") },
+                "and the include/ layout is equally the package's own")
+    }
+
     @Test("Configured paths are additive, never a replacement")
     func headerSearchPathsAreAdditive() throws {
         // A knob that could *narrow* the search would be a suppression by another name.
@@ -292,6 +309,21 @@ enum CheckoutFixture {
         try manager.createDirectory(at: classic, withIntermediateDirectories: true)
         try "module DemoClassic { umbrella header \"/tmp/DemoClassic.h\" export * }\n"
             .write(to: classic.appendingPathComponent("module.modulemap"), atomically: true, encoding: .utf8)
+
+        // The project's OWN C target, not a dependency's. SwiftZIP declares
+        // `.systemLibrary(name: "CZlib", path: "Sources/CZlib")` and commits the modulemap
+        // beside it — nothing about that target ever appears under `.build/checkouts`.
+        let ownSystemLibrary = root.appendingPathComponent("Sources/DemoOwnCZlib")
+        try manager.createDirectory(at: ownSystemLibrary, withIntermediateDirectories: true)
+        try "module DemoOwnCZlib [system] { header \"include/shim.h\" link \"z\" export * }\n"
+            .write(to: ownSystemLibrary.appendingPathComponent("module.modulemap"),
+                   atomically: true, encoding: .utf8)
+
+        let ownIncludeStyle = root.appendingPathComponent("Sources/DemoOwnCShims/include")
+        try manager.createDirectory(at: ownIncludeStyle, withIntermediateDirectories: true)
+        try "module DemoOwnCShims { header \"shim.h\" export * }\n"
+            .write(to: ownIncludeStyle.appendingPathComponent("module.modulemap"),
+                   atomically: true, encoding: .utf8)
 
         return root
     }

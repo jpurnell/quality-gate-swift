@@ -183,8 +183,15 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         // every dependency's whole source tree, and walking it would cost thousands of
         // stats to answer a question the layout already answers in four levels.
         // silent: a package with no resolved dependencies has no .build/checkouts to read
-        let packages = (try? manager.contentsOfDirectory(
+        let resolved = (try? manager.contentsOfDirectory(
             at: checkouts, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+
+        // The project itself, on the same footing as any dependency. A `.systemLibrary` target
+        // is declared in the package that consumes it and commits its modulemap in-tree, so it
+        // never appears under `.build/checkouts` — reading only the checkouts made a package's
+        // own C target invisible, and every fence importing it stopped at
+        // `missing required module`. The descent is identical; only the starting set widens.
+        let packages = [projectRoot] + resolved
         for package in packages {
             // SwiftPM does not require the directory to be called `Sources`, and a dependency's
             // layout is not ours to choose. `mlx-swift` uses `Source`, singular; C-heavy

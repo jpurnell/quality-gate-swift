@@ -137,6 +137,20 @@ final class SecurityVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
+        // Allow XML namespace URIs, which are names rather than endpoints.
+        //
+        // A namespace URI identifies a vocabulary; W3C states it need not be
+        // dereferenceable, and OOXML, SVG and XHTML all mandate the `http://` form.
+        // Rewriting one to `https` changes the document's meaning, so flagging it asks
+        // for a change that would be wrong — the rule would be demanding a defect.
+        //
+        // The discriminator is CONTEXT, not the string: the same URI is a name inside a
+        // comparison and an endpoint inside `URL(string:)`. Only the former is exempt,
+        // so a genuine http request to one of these domains is still reported.
+        if Self.namespaceIdentifierHosts.contains(host), !isURLConstruction(node) {
+            return .visitChildren
+        }
+
         let location = node.startLocation(
             converter: converter
         )
@@ -156,6 +170,43 @@ final class SecurityVisitor: SyntaxVisitor {
         ))
 
         return .visitChildren
+    }
+
+    /// Domains that publish XML/RDF namespace vocabularies.
+    ///
+    /// URIs on these hosts are used as identifiers in documents and comparisons. They
+    /// are not exempt when actually used to build a `URL`.
+    static let namespaceIdentifierHosts: Set<String> = [
+        "schemas.openxmlformats.org",
+        "schemas.microsoft.com",
+        "www.w3.org",
+        "purl.org",
+        "xmlns.com",
+        "docs.oasis-open.org",
+        "ns.adobe.com",
+        "iptc.org"
+    ]
+
+    /// Whether this literal is an argument to a `URL` initialiser.
+    ///
+    /// Walks a bounded number of parents: a string used to construct a URL is an
+    /// endpoint whatever its host, while the same characters compared against document
+    /// text are a name.
+    private func isURLConstruction(_ node: StringLiteralExprSyntax) -> Bool {
+        var current: Syntax? = Syntax(node).parent
+        var depth = 0
+        while let candidate = current, depth < 4 {
+            if let call = candidate.as(FunctionCallExprSyntax.self) {
+                let callee = call.calledExpression.trimmedDescription
+                if callee == "URL" || callee.hasSuffix(".URL")
+                    || callee == "URLRequest" || callee.hasSuffix(".URLRequest") {
+                    return true
+                }
+            }
+            current = candidate.parent
+            depth += 1
+        }
+        return false
     }
 
     // MARK: - Member Access Visitor (keychain, TLS)
