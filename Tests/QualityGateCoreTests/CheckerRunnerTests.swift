@@ -353,4 +353,42 @@ struct CheckerRunnerCacheTests {
         let second = await run(checker, cache: cache, useCache: true) // cache hit
         #expect(second.first?.status == .failed)
     }
+
+    @Test("A replayed result says it was replayed")
+    func cacheHitIsLabelled() async throws {
+        // A cached result carries the notes of the run that produced it. Several checkers
+        // print run-scoped coverage — "19 files indexed", "56 articles · 161 fences" — and
+        // on a hit those describe a run that did not happen. The finding is still valid;
+        // the note is a statement about the current run and is not. Say which it is.
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let checker = FakeChecker(id: "cacheable", cacheInputFiles: [input.path])
+
+        let fresh = await run(checker, cache: cache, useCache: true)
+        let replayed = await run(checker, cache: cache, useCache: true)
+
+        #expect(!fresh[0].diagnostics.contains { $0.ruleId == "cache.replayed" })
+        #expect(replayed[0].diagnostics.contains { $0.ruleId == "cache.replayed" })
+    }
+
+    @Test("Replaying does not change the verdict or the findings")
+    func replayPreservesTheResult() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let checker = FakeChecker(id: "cacheable", cacheInputFiles: [input.path])
+
+        let fresh = await run(checker, cache: cache, useCache: true)
+        let replayed = await run(checker, cache: cache, useCache: true)
+
+        #expect(fresh[0].status == replayed[0].status)
+        // The marker is additive: every original diagnostic survives.
+        let original = fresh[0].diagnostics.count
+        let carried = replayed[0].diagnostics.filter { $0.ruleId != "cache.replayed" }.count
+        #expect(carried == original)
+    }
+
 }

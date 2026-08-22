@@ -120,13 +120,38 @@ public struct CheckerRunner: Sendable {
             return HermeticityClamp.apply(to: result, hermeticity: checker.hermeticity)
         }
 
+        /// Labels a result served from cache, so its notes are not read as describing
+        /// this run.
+        ///
+        /// A cached result carries the diagnostics of the run that produced it, and several
+        /// checkers print run-scoped coverage — "648 files indexed", "56 articles · 161
+        /// fences", "35 target(s) owning a DocC catalogue". Those are the figures this
+        /// project prefers precisely because a run computes them and nothing stores them;
+        /// replaying one silently turns it back into a stored number, describing a run that
+        /// did not happen. The findings remain valid — they were computed from the same
+        /// inputs — so the marker is additive and changes no verdict.
+        @Sendable func markReplayed(_ result: CheckResult) -> CheckResult {
+            var diagnostics = result.diagnostics
+            diagnostics.append(Diagnostic(
+                severity: .note,
+                message: "Replayed from cache: this checker did not run. Any coverage or timing figures above describe the run that produced this result, not this one. Re-run with --no-cache to recompute them.",
+                ruleId: "cache.replayed"
+            ))
+            return CheckResult(
+                checkerId: result.checkerId,
+                status: result.status,
+                diagnostics: diagnostics,
+                duration: result.duration
+            )
+        }
+
         @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
             if useCache, let cache, let inputs = checker.cacheInputs(configuration: configuration) {
                 let fingerprint = CheckerFingerprint.compute(
                     checkerId: checker.id, inputs: inputs, gateHash: gateHash, digests: digests
                 )
                 if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
-                    return clamped(transform(cached), checker)
+                    return clamped(transform(markReplayed(cached)), checker)
                 }
                 let fresh = await runAndSynthesize(checker)
                 cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
