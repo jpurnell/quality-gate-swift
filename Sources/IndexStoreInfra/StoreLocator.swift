@@ -458,6 +458,25 @@ public enum StoreLocator {
             return swiftbuildStore
         }
 
+        // On a toolchain whose ordinary build indexes, an absent store means no build has
+        // run — not that a dedicated one is needed. Run the ordinary build, with tests so a
+        // single pass covers both, and use what it produces. This is the second full compile
+        // the old design paid on every 6.4+ project.
+        if let version = detectSwiftVersion(),
+           toolchainIndexesDuringOrdinaryBuild(major: version.major, minor: version.minor) {
+            if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
+                throw Error.indexBuildSkipped
+            }
+            enrichSwiftbuildStore(packageRoot: packageRoot)
+            if let produced = freshSwiftbuildStore(packageRoot: packageRoot) {
+                return produced
+            }
+            // Falling through would run a dedicated build whose `-index-store-path` this
+            // toolchain ignores, producing nothing. Say so instead.
+            throw Error.buildFailed(
+                "the ordinary build produced no index store at \(swiftbuildStorePath(packageRoot: packageRoot).path)")
+        }
+
         let buildPath = indexBuildDirectory(packageRoot: packageRoot)
         let store = managedStore(packageRoot: packageRoot)
 
@@ -513,8 +532,13 @@ public enum StoreLocator {
     /// redundant second compile. Returns `nil` when the store is absent (native toolchains,
     /// which do not index without `-index-store-path`) or stale (a source is newer than the
     /// store's records), so the caller falls back to the dedicated index build.
+    /// Where swiftbuild index-while-builds during an ordinary build.
+    static func swiftbuildStorePath(packageRoot: URL) -> URL {
+        packageRoot.appendingPathComponent(".build/out")
+    }
+
     static func freshSwiftbuildStore(packageRoot: URL) -> URL? {
-        let store = packageRoot.appendingPathComponent(".build/out")
+        let store = swiftbuildStorePath(packageRoot: packageRoot)
         let units = unitsDirectory(in: store)
         let fm = FileManager.default
         // Must exist and be a non-empty index-while-building store.
@@ -591,17 +615,13 @@ public enum StoreLocator {
         store: URL,
         includeTests: Bool
     ) -> [String] {
+        // No `--build-system` flag. This dedicated build now runs only where the ordinary
+        // build produces no index store — below 6.4 — and `native` is already the default
+        // there. Forcing it on 6.4+ worked around swiftbuild ignoring `-index-store-path`,
+        // which is true and was never the whole story: swiftbuild index-while-builds to
+        // `.build/out`, and that store is queryable. The flag also warned about its own
+        // removal on every run.
         var arguments = ["swift", "build"]
-        // Swift 6.4's SwiftPM defaults to the `swiftbuild` (XCBuild) build system, which
-        // does NOT honor `-index-store-path` — it emits no queryable index store, silently
-        // breaking every cross-module index checker. Force the classic `native` system on
-        // 6.4+ to restore the index. On < 6.4, `native` is already the default and the
-        // `--build-system` flag may not exist, so it is omitted there. (native is
-        // deprecated; follow-up: adopt swiftbuild's index mechanism before it is removed.)
-        if let version = detectSwiftVersion(),
-           requiresNativeBuildSystem(major: version.major, minor: version.minor) {
-            arguments += ["--build-system", "native"]
-        }
         // Test targets are not built by a plain `swift build`, so every symbol in a suite
         // was invisible to the index and every finding there was decided syntactically.
         // Across a 22-package survey that accounted for eight of the ten surviving
@@ -671,7 +691,7 @@ public enum StoreLocator {
     /// Swift 6.4 changed the default build system to `swiftbuild`, which ignores
     /// `-index-store-path`. Toolchains at 6.4 or newer therefore need the classic
     /// `native` system; older toolchains default to `native` and may lack the flag.
-    static func requiresNativeBuildSystem(major: Int, minor: Int) -> Bool {
+    static func toolchainIndexesDuringOrdinaryBuild(major: Int, minor: Int) -> Bool {
         (major, minor) >= (6, 4)
     }
 

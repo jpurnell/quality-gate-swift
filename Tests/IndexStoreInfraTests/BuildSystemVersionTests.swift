@@ -37,27 +37,48 @@ struct BuildSystemVersionTests {
         #expect(StoreLocator.parseSwiftVersion(fromVersionOutput: "not a version string") == nil)
     }
 
-    // MARK: - requiresNativeBuildSystem (the 6.4 boundary)
+    // MARK: - toolchainIndexesDuringOrdinaryBuild (the same 6.4 boundary, read the other way)
+    //
+    // 6.4+ SwiftPM defaults to swiftbuild, which index-while-builds to `.build/out` during an
+    // ordinary build. Below 6.4 the ordinary build produces no store, so the dedicated
+    // `-index-store-path` build is still required there.
 
-    @Test("6.4 requires native build system")
-    func exactly64RequiresNative() {
-        #expect(StoreLocator.requiresNativeBuildSystem(major: 6, minor: 4) == true)
+    @Test("6.4 indexes during an ordinary build")
+    func exactly64IndexesOrdinarily() {
+        #expect(StoreLocator.toolchainIndexesDuringOrdinaryBuild(major: 6, minor: 4) == true)
     }
 
-    @Test("6.3 does not require native build system")
+    @Test("6.3 does not index during an ordinary build")
     func just63DoesNot() {
-        #expect(StoreLocator.requiresNativeBuildSystem(major: 6, minor: 3) == false)
+        #expect(StoreLocator.toolchainIndexesDuringOrdinaryBuild(major: 6, minor: 3) == false)
     }
 
-    @Test("Older majors do not require native")
+    @Test("Older toolchains need the dedicated index build")
     func olderMajor() {
-        #expect(StoreLocator.requiresNativeBuildSystem(major: 5, minor: 10) == false)
-        #expect(StoreLocator.requiresNativeBuildSystem(major: 6, minor: 0) == false)
+        #expect(StoreLocator.toolchainIndexesDuringOrdinaryBuild(major: 5, minor: 10) == false)
+        #expect(StoreLocator.toolchainIndexesDuringOrdinaryBuild(major: 6, minor: 0) == false)
     }
 
-    @Test("Newer versions require native")
+    @Test("Newer toolchains index during an ordinary build")
     func newerVersions() {
-        #expect(StoreLocator.requiresNativeBuildSystem(major: 6, minor: 5) == true)
-        #expect(StoreLocator.requiresNativeBuildSystem(major: 7, minor: 0) == true)
+        #expect(StoreLocator.toolchainIndexesDuringOrdinaryBuild(major: 6, minor: 5) == true)
+        #expect(StoreLocator.toolchainIndexesDuringOrdinaryBuild(major: 7, minor: 0) == true)
     }
+
+    @Test("The deprecated build-system flag is gone from every invocation")
+    func noBuildSystemFlag() {
+        // `--build-system native` warns on every index build today and is scheduled for
+        // removal. The dedicated build now runs only on toolchains where `native` is already
+        // the default, so the flag is never needed.
+        let arguments = StoreLocator.buildArguments(
+            packageRoot: URL(fileURLWithPath: "/tmp/pkg"),
+            buildPath: URL(fileURLWithPath: "/tmp/pkg/.build/index-build"),
+            store: URL(fileURLWithPath: "/tmp/pkg/.build/index-build/index-store"),
+            includeTests: true
+        )
+        #expect(!arguments.contains("--build-system"))
+        #expect(!arguments.contains("native"))
+        #expect(arguments.contains("-index-store-path"))
+    }
+
 }
