@@ -686,11 +686,16 @@ public enum StoreLocator {
         return (major, minor)
     }
 
-    /// Whether `--build-system native` is required to emit an index store.
+    /// Whether an ordinary `swift build` on this toolchain leaves a queryable index store.
     ///
     /// Swift 6.4 changed the default build system to `swiftbuild`, which ignores
-    /// `-index-store-path`. Toolchains at 6.4 or newer therefore need the classic
-    /// `native` system; older toolchains default to `native` and may lack the flag.
+    /// `-index-store-path` — and index-while-builds to `.build/out` regardless. So from 6.4
+    /// the ordinary build *is* the index build, and a dedicated compile is needed only when
+    /// no build has run. Older toolchains emit nothing without `-index-store-path`, and get
+    /// the dedicated build.
+    ///
+    /// The boundary is unchanged; only the question is. This comment previously described
+    /// the flag that used to be forced here, and outlived it by exactly one commit.
     static func toolchainIndexesDuringOrdinaryBuild(major: Int, minor: Int) -> Bool {
         (major, minor) >= (6, 4)
     }
