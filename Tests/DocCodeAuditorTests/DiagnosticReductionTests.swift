@@ -150,6 +150,19 @@ struct HeaderSearchPathTests {
                 "and the include/ layout is equally the package's own")
     }
 
+    @Test("A path-based dependency's C target is found")
+    func pathDependencyCTargetIsFound() throws {
+        // `.package(path: "../SwiftZIP")` is checked out nowhere: it is not under
+        // `.build/checkouts`, and it is not the project root. A reader that searched only
+        // those two saw no `CZlib` and stopped every doc fence at
+        // `missing required module` — the same failure as before, one directory further out.
+        let root = try CheckoutFixture.make()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let paths = DocCodeAuditor.headerSearchPaths(projectRoot: root, configuration: Configuration())
+        #expect(paths.contains { $0.hasSuffix("SiblingPackage/Sources/DemoSiblingC") })
+    }
+
     @Test("Configured paths are additive, never a replacement")
     func headerSearchPathsAreAdditive() throws {
         // A knob that could *narrow* the search would be a suppression by another name.
@@ -324,6 +337,26 @@ enum CheckoutFixture {
         try "module DemoOwnCShims { header \"shim.h\" export * }\n"
             .write(to: ownIncludeStyle.appendingPathComponent("module.modulemap"),
                    atomically: true, encoding: .utf8)
+
+        // A path-based dependency: `.package(path: "../SwiftZIP")`. SwiftPM does not check
+        // these out, so they appear nowhere under `.build/checkouts` — it records them in
+        // `workspace-state.json` as `fileSystem` entries instead.
+        let sibling = root.appendingPathComponent("SiblingPackage/Sources/DemoSiblingC")
+        try manager.createDirectory(at: sibling, withIntermediateDirectories: true)
+        try "module DemoSiblingC [system] { header \"shim.h\" export * }\n"
+            .write(to: sibling.appendingPathComponent("module.modulemap"),
+                   atomically: true, encoding: .utf8)
+
+        let build = root.appendingPathComponent(".build")
+        try manager.createDirectory(at: build, withIntermediateDirectories: true)
+        let state = """
+            {"object":{"dependencies":[
+              {"packageRef":{"kind":"fileSystem","location":"\(root.path)/SiblingPackage"}},
+              {"packageRef":{"kind":"remoteSourceControl","location":"https://example.com/x"}}
+            ]},"version":6}
+            """
+        try state.write(to: build.appendingPathComponent("workspace-state.json"),
+                        atomically: true, encoding: .utf8)
 
         return root
     }

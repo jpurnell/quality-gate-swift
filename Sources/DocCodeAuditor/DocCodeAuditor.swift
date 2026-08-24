@@ -191,7 +191,11 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         // never appears under `.build/checkouts` — reading only the checkouts made a package's
         // own C target invisible, and every fence importing it stopped at
         // `missing required module`. The descent is identical; only the starting set widens.
-        let packages = [projectRoot] + resolved
+        //
+        // Path-based dependencies widen it again: `.package(path: "../Sibling")` is never
+        // checked out, so it is neither the project root nor a checkout. SwiftPM records
+        // those in `.build/workspace-state.json`, which is where they are read from.
+        let packages = [projectRoot] + resolved + localDependencies(projectRoot: projectRoot)
         for package in packages {
             // SwiftPM does not require the directory to be called `Sources`, and a dependency's
             // layout is not ours to choose. `mlx-swift` uses `Source`, singular; C-heavy
@@ -216,6 +220,35 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         }
 
         return found.sorted() + configuration.docCode.headerSearchPaths
+    }
+
+    /// Directories of path-based dependencies, from SwiftPM's workspace state.
+    ///
+    /// A `.package(path:)` dependency is never copied into `.build/checkouts`, so a search
+    /// of the checkouts cannot see it. SwiftPM records it in `.build/workspace-state.json`
+    /// with `kind` `fileSystem` and an absolute location.
+    ///
+    /// - Parameter projectRoot: The package being audited.
+    /// - Returns: Absolute directories of local dependencies, or empty when there are none
+    ///   — which is the ordinary case, and not an error.
+    static func localDependencies(projectRoot: URL) -> [URL] {
+        let state = projectRoot.appendingPathComponent(".build/workspace-state.json")
+        // silent: a package that has never been built, or has no path dependencies, simply
+        // has no workspace state to read, and contributes no directories
+        guard let data = try? Data(contentsOf: state),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = root["object"] as? [String: Any],
+              let dependencies = object["dependencies"] as? [[String: Any]] else { return [] }
+
+        var found: [URL] = []
+        for dependency in dependencies {
+            guard let reference = dependency["packageRef"] as? [String: Any],
+                  let kind = reference["kind"] as? String,
+                  kind == "fileSystem" || kind == "local",
+                  let location = reference["location"] as? String else { continue }
+            found.append(URL(fileURLWithPath: location))
+        }
+        return found
     }
 
     /// Modulemaps SwiftPM generated for C targets that do not ship one.
