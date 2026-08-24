@@ -33,11 +33,19 @@ final class RecursionVisitor: SyntaxVisitor {
     private(set) var pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)] = []
     /// How many *implementations* each signature has, which is what decides overloading.
     ///
-    /// Bodyless declarations are excluded deliberately: a protocol requirement and the
-    /// extension default that satisfies it share a signature but are one function, and
-    /// counting the pair as two overloads would silence the very rule that exists to
-    /// catch `extension P { func f() { f() } }`.
-    private(set) var bodiedSignatureCounts: [Signature: Int] = [:]
+    /// The distinct *functions* declared under each signature, project-wide.
+    ///
+    /// Counting declarations was wrong in both directions. Counting only bodied ones —
+    /// the previous rule — correctly merged a protocol requirement with the extension
+    /// default that satisfies it, but did so by discarding requirements entirely, so two
+    /// *sibling* requirements differing only in parameter type counted as one function and
+    /// a call to either read as recursion. Counting all declarations instead would split
+    /// the requirement/default pair and silence the rule's whole reason for existing.
+    ///
+    /// Counting distinct type discriminators gets both right for one reason: a requirement
+    /// and its default describe the same function and normalize to the same discriminator,
+    /// while siblings do not.
+    private(set) var signatureDiscriminators: [Signature: Set<TypeDiscriminator>] = [:]
 
     /// Lexical type stack: each element is a type name (or extension target).
     private var typeStack: [String] = []
@@ -162,9 +170,7 @@ final class RecursionVisitor: SyntaxVisitor {
         let location = startLocation(of: Syntax(node))
 
         let body = node.body
-        if body != nil {
-            bodiedSignatureCounts[signature, default: 0] += 1
-        }
+        signatureDiscriminators[signature, default: []].insert(typeDiscriminator(of: node))
         let outgoing = body.map { collectCalls(in: Syntax($0), enclosingTypeContext: currentTypeContext) } ?? []
         let baseCase = body.map { hasGuardEarlyExit(in: Syntax($0)) } ?? false
         let selfBaseCase = body.map { hasSelfBaseCase(in: Syntax($0), ownSignature: signature) } ?? false
@@ -173,7 +179,10 @@ final class RecursionVisitor: SyntaxVisitor {
         if let body {
             let selfRefs = findRecursiveCalls(
                 in: Syntax(body),
-                ownSignature: signature
+                ownSignature: signature,
+                ownParameterTypes: node.signature.parameterClause.parameters.map {
+                    normalizeTypeSpelling($0.type.description)
+                }
             )
             if !selfRefs.isEmpty, !isSuppressed(atLine: location.line) {
                 let unresolved = Diagnostic(
@@ -231,14 +240,30 @@ final class RecursionVisitor: SyntaxVisitor {
         let labels = parameterLabels(node.signature.parameterClause)
         let displayName = makeFunctionDisplayName(name: "init", labels: labels)
         let location = startLocation(of: Syntax(node))
+        let signature = Signature(typeContext: currentTypeContext, displayName: displayName)
+        signatureDiscriminators[signature, default: []].insert(typeDiscriminator(of: node))
 
         let isConvenience = node.modifiers.contains { $0.name.tokenKind == .keyword(.convenience) }
 
         if isConvenience, let body = node.body, !isSuppressed(atLine: location.line) {
             // Find self.init(...) calls whose argument labels exactly match this init's labels.
             let selfInitCalls = collectSelfInitCalls(in: Syntax(body))
-            for call in selfInitCalls where call == labels {
-                diagnostics.append(Diagnostic(
+            for call in selfInitCalls where callMatchesDeclaration(
+                calleeName: "init",
+                parenthesizedLabels: call.labels,
+                trailingClosures: call.trailingClosures,
+                declaration: makeFunctionDisplayName(name: "init", labels: labels),
+                declarationParameterTypes: node.signature.parameterClause.parameters.map {
+                    normalizeTypeSpelling($0.type.description)
+                }
+            ) {
+                // Routed through the project-wide census rather than reported directly.
+                // Initializers overload on parameter type at least as often as methods do —
+                // GRDB's `Row.init(_:)` takes `[AnyHashable: Any]` and delegates to the
+                // `[String: DatabaseValueConvertible?]` one, SQLite.swift's `Connection`
+                // takes a `String` and delegates to the `Location` one — and this rule
+                // asserted recursion on every such pair because it never consulted it.
+                pendingSelfCalls.append((signature, Diagnostic(
                     severity: .error,
                     message: "convenience init forwards to itself with identical argument labels '\(displayName)'",
                     filePath: location.file,
@@ -246,7 +271,15 @@ final class RecursionVisitor: SyntaxVisitor {
                     columnNumber: location.column,
                     ruleId: "recursion.convenience-init-self",
                     suggestedFix: "Delegate to a different initializer with different argument labels."
-                ))
+                ), Diagnostic(
+                    severity: .note,
+                    message: "'\(displayName)' is declared more than once with these argument labels, so a call matching them is resolved by parameter type — which a syntactic pass cannot do. Recorded as unresolved rather than reported as recursion; no pass currently adjudicates it.",
+                    filePath: location.file,
+                    lineNumber: location.line,
+                    columnNumber: location.column,
+                    ruleId: "recursion.self-reference-unresolved",
+                    suggestedFix: "Read the call and confirm which initializer it selects."
+                )))
                 break
             }
         }
@@ -357,7 +390,7 @@ final class RecursionVisitor: SyntaxVisitor {
         let labels = subscriptParameterLabels(node.parameterClause)
         let displayName = makeFunctionDisplayName(name: "subscript", labels: labels)
         let signature = Signature(typeContext: currentTypeContext, displayName: displayName)
-        bodiedSignatureCounts[signature, default: 0] += 1
+        signatureDiscriminators[signature, default: []].insert(typeDiscriminator(of: node))
 
         // Recorded for the same reason as a computed property: the index graph admits a
         // subscript's accessors, so a subscript that plainly returns has to be able to
@@ -472,21 +505,116 @@ func makeFunctionDisplayName(name: String, labels: [String]) -> String {
 }
 
 /// Extracts argument labels from a labeled-expression list (a call site).
+///
+/// This sees only the *parenthesized* arguments. A trailing closure is a separate
+/// property of `FunctionCallExprSyntax`, so callers that compare against a declaration
+/// must add `trailingClosureCount` — see `callMatchesDeclaration`.
 func callArgumentLabels(_ args: LabeledExprListSyntax) -> [String] {
     args.map { $0.label?.text ?? "_" }
 }
 
+/// The written type identity of a function declaration.
+func typeDiscriminator(of node: FunctionDeclSyntax) -> TypeDiscriminator {
+    TypeDiscriminator(
+        parameterTypes: node.signature.parameterClause.parameters.map {
+            normalizeTypeSpelling($0.type.description)
+        },
+        isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil,
+        returnType: node.signature.returnClause.map { normalizeTypeSpelling($0.type.description) } ?? ""
+    )
+}
+
+/// The written type identity of an initializer declaration.
+func typeDiscriminator(of node: InitializerDeclSyntax) -> TypeDiscriminator {
+    TypeDiscriminator(
+        parameterTypes: node.signature.parameterClause.parameters.map {
+            normalizeTypeSpelling($0.type.description)
+        },
+        isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil,
+        returnType: ""
+    )
+}
+
+/// The written type identity of a subscript declaration.
+func typeDiscriminator(of node: SubscriptDeclSyntax) -> TypeDiscriminator {
+    TypeDiscriminator(
+        parameterTypes: node.parameterClause.parameters.map {
+            normalizeTypeSpelling($0.type.description)
+        },
+        isAsync: false,
+        returnType: normalizeTypeSpelling(node.returnClause.type.description)
+    )
+}
+
+/// How many arguments a call passes as trailing closures.
+func trailingClosureCount(_ call: FunctionCallExprSyntax) -> Int {
+    (call.trailingClosure == nil ? 0 : 1) + call.additionalTrailingClosures.count
+}
+
+/// Splits a display name like `f(_:action:)` back into its base name and labels.
+func parseDisplayName(_ display: String) -> (base: String, labels: [String]) {
+    guard let open = display.firstIndex(of: "("), display.hasSuffix(")") else {
+        return (display, [])
+    }
+    let base = String(display[display.startIndex..<open])
+    let inner = display[display.index(after: open)..<display.index(before: display.endIndex)]
+    guard !inner.isEmpty else { return (base, []) }
+    return (base, inner.split(separator: ":", omittingEmptySubsequences: false)
+        .dropLast().map(String.init))
+}
+
+/// Whether a call site could be a call to the declaration named by `declaration`.
+///
+/// With no trailing closure this is exact display-name equality, as before.
+///
+/// With one, the trailing argument's *label* is not knowable from the call site, because
+/// Swift lets an unlabelled trailing closure fill a labelled parameter. Two signals are
+/// then available and both are needed. **Arity**: a call passing three arguments cannot be
+/// a call to a two-parameter declaration. **The label at the trailing position**: if the
+/// declaration labels it, the call is at best ambiguous between this declaration and any
+/// sibling with an unlabelled parameter there — and in practice it is usually the sibling.
+/// GRDB's `filter(country: String)` calls `filter { $0.country == country }`, which is the
+/// closure-taking `filter(_:)`, not itself; arity alone reported it as recursion.
+///
+/// So a trailing-closure call is asserted to be a self-call only where the declaration
+/// leaves those positions unlabelled. Where it does not, nothing is asserted — which is
+/// the same answer this checker gives everywhere else it cannot resolve an overload.
+func callMatchesDeclaration(
+    calleeName: String,
+    parenthesizedLabels: [String],
+    trailingClosures: Int,
+    declaration: String,
+    declarationParameterTypes: [String] = []
+) -> Bool {
+    guard trailingClosures > 0 else {
+        return makeFunctionDisplayName(name: calleeName, labels: parenthesizedLabels) == declaration
+    }
+    let (base, labels) = parseDisplayName(declaration)
+    guard base == calleeName else { return false }
+    guard labels.count == parenthesizedLabels.count + trailingClosures else { return false }
+    guard Array(labels.prefix(parenthesizedLabels.count)) == parenthesizedLabels else { return false }
+    guard labels.suffix(trailingClosures).allSatisfy({ $0 == "_" }) else { return false }
+
+    // A trailing closure can only fill a parameter of function type. GRDB's
+    // `init(_ base: some DatabaseCancellable)` writes `self.init { base.cancel() }`, which
+    // reaches `init(cancel:)` — it cannot be reaching itself, because `some
+    // DatabaseCancellable` is not something a closure literal can be.
+    guard !declarationParameterTypes.isEmpty else { return true }
+    guard declarationParameterTypes.count == labels.count else { return true }
+    return declarationParameterTypes.suffix(trailingClosures).allSatisfy { $0.contains("->") }
+}
+
 /// Walks a syntax tree looking for `self.init(...)` calls and returns the
 /// argument label list of each one.
-func collectSelfInitCalls(in node: Syntax) -> [[String]] {
+func collectSelfInitCalls(in node: Syntax) -> [(labels: [String], trailingClosures: Int)] {
     final class Walker: SyntaxVisitor {
-        var calls: [[String]] = []
+        var calls: [(labels: [String], trailingClosures: Int)] = []
         override func visit(_ call: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
             if let member = call.calledExpression.as(MemberAccessExprSyntax.self),
                let base = member.base,
                base.trimmedDescription == "self",
                member.declName.baseName.text == "init" {
-                calls.append(callArgumentLabels(call.arguments))
+                calls.append((callArgumentLabels(call.arguments), trailingClosureCount(call)))
             }
             return .visitChildren
         }
@@ -609,12 +737,14 @@ func hasSelfBaseCase(in node: Syntax, ownSignature: Signature) -> Bool {
 
 /// Walks a function body and finds calls to the function with the given
 /// signature (matching display name; type context is inferred from lexical scope).
-func findRecursiveCalls(in body: Syntax, ownSignature: Signature) -> [FunctionCallExprSyntax] {
+func findRecursiveCalls(in body: Syntax, ownSignature: Signature, ownParameterTypes: [String] = []) -> [FunctionCallExprSyntax] {
     final class Walker: SyntaxVisitor {
         let target: Signature
+        let parameterTypes: [String]
         var hits: [FunctionCallExprSyntax] = []
-        init(target: Signature) {
+        init(target: Signature, parameterTypes: [String]) {
             self.target = target
+            self.parameterTypes = parameterTypes
             super.init(viewMode: .sourceAccurate)
         }
         override func visit(_ call: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
@@ -630,16 +760,20 @@ func findRecursiveCalls(in body: Syntax, ownSignature: Signature) -> [FunctionCa
                 calleeName = nil
             }
             if let name = calleeName {
-                let labels = callArgumentLabels(call.arguments)
-                let display = makeFunctionDisplayName(name: name, labels: labels)
-                if display == target.displayName {
+                if callMatchesDeclaration(
+                    calleeName: name,
+                    parenthesizedLabels: callArgumentLabels(call.arguments),
+                    trailingClosures: trailingClosureCount(call),
+                    declaration: target.displayName,
+                    declarationParameterTypes: parameterTypes
+                ) {
                     hits.append(call)
                 }
             }
             return .visitChildren
         }
     }
-    let walker = Walker(target: ownSignature)
+    let walker = Walker(target: ownSignature, parameterTypes: ownParameterTypes)
     walker.walk(body)
     return walker.hits
 }
@@ -685,7 +819,13 @@ func collectCalls(in body: Syntax, enclosingTypeContext: String) -> [CallSite] {
             }
 
             if let name = calleeName {
+                // A trailing closure contributes an argument the parenthesized list does
+                // not show. Spelling it `_` is right whenever the parameter is unlabelled,
+                // which is the common case (`map { }`, `withLock { }`), and where it is
+                // not, the candidate simply fails to match — which beats today's behaviour
+                // of matching a *shorter* declaration that the call cannot be to.
                 let labels = callArgumentLabels(call.arguments)
+                    + Array(repeating: "_", count: trailingClosureCount(call))
                 let display = makeFunctionDisplayName(name: name, labels: labels)
                 var candidates: [Signature] = [Signature(typeContext: "", displayName: display)]
                 if let receiverType {
