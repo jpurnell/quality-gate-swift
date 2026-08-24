@@ -101,7 +101,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
         // Pre-pass: collect protocol names across the entire project so the
         // protocol-extension-default rule has the context it needs.
-        let protocolNames = collectProtocolNames(in: sources)
+        let protocolGraph = collectProtocolGraph(in: sources)
+        let protocolNames = protocolGraph.names
 
         var allDeclarations: [DeclarationInfo] = []
         var allDiagnostics: [Diagnostic] = []
@@ -127,7 +128,17 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         // file and for `Int` in another. Deciding per file reported the first as
         // recursion because it could not see the second.
         for pending in pendingSelfCalls {
-            let isOverloaded = (signatureDiscriminators[pending.signature]?.count ?? 0) > 1
+            // Widen to overloads reachable by conformance: a default in `extension
+            // SchemaType` can be calling a member of `extension QueryType`.
+            var visible = signatureDiscriminators[pending.signature] ?? []
+            for ancestor in inheritedClosure(
+                of: pending.signature.typeContext, in: protocolGraph.inherits
+            ) {
+                let inherited = Signature(
+                    typeContext: ancestor, displayName: pending.signature.displayName)
+                visible.formUnion(signatureDiscriminators[inherited] ?? [])
+            }
+            let isOverloaded = visible.count > 1
             allDiagnostics.append(isOverloaded ? pending.unresolved : pending.confident)
         }
 
@@ -187,15 +198,21 @@ public struct RecursionAuditor: QualityChecker, Sendable {
 
     // MARK: - Private
 
-    private func collectProtocolNames(in sources: [(fileName: String, source: String)]) -> Set<String> {
+    private func collectProtocolGraph(
+        in sources: [(fileName: String, source: String)]
+    ) -> (names: Set<String>, inherits: [String: Set<String>]) {
         var names: Set<String> = []
+        var inherits: [String: Set<String>] = [:]
         for entry in sources {
             let tree = Parser.parse(source: entry.source)
             let collector = ProtocolNameCollector(viewMode: .sourceAccurate)
             collector.walk(tree)
             names.formUnion(collector.protocolNames)
+            for (child, parents) in collector.inheritedProtocols {
+                inherits[child, default: []].formUnion(parents)
+            }
         }
-        return names
+        return (names, inherits)
     }
 
     private func analyzeFile(

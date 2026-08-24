@@ -7,11 +7,35 @@ import SwiftSyntax
 /// Collects every protocol name declared in a Swift source file.
 final class ProtocolNameCollector: SyntaxVisitor {
     var protocolNames: Set<String> = []
+    /// Protocol name -> the protocols it refines.
+    ///
+    /// A default in `extension SchemaType` can call a member declared in
+    /// `extension QueryType` when `SchemaType: QueryType`, so the overload census has to
+    /// look up the conformance chain as well as at the exact type context.
+    var inheritedProtocols: [String: Set<String>] = [:]
 
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
         protocolNames.insert(node.name.text)
+        if let inherited = node.inheritanceClause?.inheritedTypes {
+            inheritedProtocols[node.name.text, default: []]
+                .formUnion(inherited.map { $0.type.trimmedDescription })
+        }
         return .visitChildren
     }
+}
+
+/// Every protocol reachable from `name` by refinement, `name` excluded.
+///
+/// Guarded against cycles: Swift rejects circular refinement, but this reads whatever is
+/// on disk, which may not compile.
+func inheritedClosure(of name: String, in edges: [String: Set<String>]) -> Set<String> {
+    var seen: Set<String> = []
+    var pending = Array(edges[name] ?? [])
+    while let next = pending.popLast() {
+        guard next != name, seen.insert(next).inserted else { continue }
+        pending.append(contentsOf: edges[next] ?? [])
+    }
+    return seen
 }
 
 // MARK: - Recursion visitor
@@ -852,6 +876,46 @@ func collectCalls(in body: Syntax, enclosingTypeContext: String) -> [CallSite] {
 /// - a key path component — `\.retryCount` resolves against the key path's root type;
 /// - a call to a same-named method — `asISO8601()` where the type declares one;
 /// - any identifier shadowed by a local binding, tracked by ``LexicalScope``.
+/// Functions that run a closure later, on a stack this one does not own.
+///
+/// Deliberately a short, named list rather than a general rule about closures. Measured
+/// across the 22-package corpus, 93% of closure-enclosed self-references are handed to
+/// something that runs them *immediately* — `map`, `withLock`, `withLockedValue`,
+/// `withCriticalRegion` — so containment alone says nothing about deferral. Naming the
+/// executors fails safe: an unlisted receiver keeps the reference visible, so the list
+/// being incomplete costs precision, never recall.
+private let deferringReceivers: Set<String> = [
+    "execute", "scheduleTask", "scheduleRepeatedTask", "scheduleRepeatedAsyncTask",
+    "async", "asyncAfter", "asyncDetached", "detached", "addTask", "addTaskUnlessCancelled",
+    "submit", "enqueue", "setTimeout", "whenComplete", "whenSuccess", "whenFailure",
+    "Task", "notify",
+]
+
+/// Whether this closure is handed to one of `deferringReceivers`.
+///
+/// Note `sync` is absent: `DispatchQueue.sync { }` runs the closure on this stack, so a
+/// self-reference inside it recurses exactly as a bare one would.
+func isDeferredClosure(_ closure: ClosureExprSyntax) -> Bool {
+    var current: Syntax? = closure.parent
+    while let node = current {
+        if let call = node.as(FunctionCallExprSyntax.self) {
+            if let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
+                return deferringReceivers.contains(member.declName.baseName.text)
+            }
+            if let ident = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+                return deferringReceivers.contains(ident.baseName.text)
+            }
+            return false
+        }
+        // A nested closure belongs to its own receiver, not to an outer one.
+        if node.is(ClosureExprSyntax.self) { return false }
+        current = node.parent
+    }
+    return false
+}
+
+/// Whether `name` is referenced in `node`, ignoring references that only occur inside a
+/// closure handed to an executor — those run on a different stack and are not recursion.
 func containsIdentifierReference(
     in node: Syntax,
     name: String,
@@ -879,6 +943,10 @@ func containsIdentifierReference(
 
         override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
             scope.push()
+            // swift-nio's `isFulfilled` reads itself inside `eventLoop.execute { … }` and
+            // says so in a comment: the closure runs later, on the event loop, where the
+            // other branch is taken. Three corpus errors were that shape.
+            if isDeferredClosure(node) { return .skipChildren }
             return .visitChildren
         }
         override func visitPost(_ node: ClosureExprSyntax) { scope.pop() }

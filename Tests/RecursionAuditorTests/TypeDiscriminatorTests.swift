@@ -113,6 +113,47 @@ struct TypeDiscriminatorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "recursion.convenience-init-self" })
     }
 
+    // MARK: - Overloads reachable by conformance
+
+    @Test("A sibling in an inherited protocol counts as an overload")
+    func inheritedProtocolSiblingDemotes() async throws {
+        // SQLite.swift's `select(_:_:)` is declared in `extension SchemaType`, and the
+        // overload it actually calls in `extension QueryType`, with `SchemaType: QueryType`.
+        // Keying the census on exact type context missed it: same base name, same labels,
+        // different types, different context.
+        let code = """
+        protocol QueryType { }
+        extension QueryType {
+            func select(_ distinct: Bool, _ columns: [Int]) -> Self { self }
+        }
+        protocol SchemaType: QueryType { }
+        extension SchemaType {
+            func select(_ column1: Int, _ more: Int) -> Self {
+                select(false, [column1, more])
+            }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.protocol-extension-default-self" })
+    }
+
+    @Test("An unrelated protocol's same-named member is not an overload")
+    func unrelatedProtocolDoesNotDemote() async throws {
+        // The widening must follow conformance, not merely share a name. These two
+        // protocols are unrelated, so the default really does call itself.
+        let code = """
+        protocol Unrelated {
+            func step(_ n: Int) -> Int
+        }
+        protocol Walker { }
+        extension Walker {
+            func step(_ n: Int) -> Int { step(n) }
+        }
+        """
+        let result = try await audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "recursion.protocol-extension-default-self" })
+    }
+
     // MARK: - Normalization
 
     @Test("Sugar spellings normalize to one discriminator")
