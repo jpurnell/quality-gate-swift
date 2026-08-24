@@ -132,6 +132,14 @@ final class SecurityVisitor: SyntaxVisitor {
         let afterScheme = text.dropFirst("http://".count) // SAFETY: Pattern-match string, not an actual HTTP request
         let host = String(afterScheme.prefix(while: { $0 != "/" && $0 != ":" && $0 != "?" }))
 
+        // A bare scheme names no host, so it cannot be an endpoint.
+        //
+        // `"http://"` exists for exactly one purpose — deciding whether some *other* string
+        // is a URL, as in `text.hasPrefix("http://")`. Flagging it asks for `https://`,
+        // which would break the very check that tells insecure URLs from secure ones: the
+        // rule demanding its own defeat.
+        guard !host.isEmpty else { return .visitChildren }
+
         // Allow configured safe hosts
         guard !configuration.allowedHTTPHosts.contains(host) else {
             return .visitChildren

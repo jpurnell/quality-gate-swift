@@ -141,6 +141,19 @@ struct SecurityVisitorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "security.insecure-transport" })
     }
 
+    @Test("A bare scheme literal names no host, so it is not an endpoint")
+    func allowsBareSchemeLiteral() async throws {
+        // `"http://"` has no host. It cannot be a request, and the only thing it is ever
+        // used for is deciding whether some *other* string is one. Flagging it asks for
+        // `https://`, which would break the very check that separates insecure URLs from
+        // secure ones — the rule demanding its own defeat.
+        let code = """
+        func isRemote(_ text: String) -> Bool { text.hasPrefix("http://") }
+        """
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.insecure-transport" })
+    }
+
     @Test("Allows XML namespace URIs — identifiers, not endpoints",
           arguments: ["http://schemas.openxmlformats.org/package/2006/content-types",
                       "http://www.w3.org/2000/svg",
