@@ -308,8 +308,15 @@ struct RecursionIndexPassTests {
 
     // MARK: - Carrying Pass 1's base-case knowledge into Pass 2
 
-    @Test("Base-case sites come only from callable declarations that have one")
+    @Test("Base-case sites come from any declaration that has one, callable or not")
     func baseCaseSitesFilterCorrectly() {
+        // This test used to assert the opposite for properties, mirroring a filter in
+        // `baseCaseSites`. Both were wrong. Pass 1 filters its *own* name-based cycle
+        // detection to callables, and that filter was copied here — but the index graph
+        // admits a computed property's accessor, so a cycle can run through one. TCA's
+        // `getter:availability` walk and GRDB's `getter:isConstantInRequest` are both
+        // that shape, both terminate on `return nil`, and both were reported as
+        // unbounded cycles because no participant could ever be marked bounded.
         func declaration(_ name: String, hasBaseCase: Bool, isCallable: Bool) -> DeclarationInfo {
             DeclarationInfo(
                 signature: Signature(typeContext: "T", displayName: name),
@@ -329,8 +336,8 @@ struct RecursionIndexPassTests {
         let path = "/Users/example/A.swift"
         #expect(sites.contains(DeclarationSite(path: path, name: "bounded()")))
         #expect(!sites.contains(DeclarationSite(path: path, name: "unbounded()")))
-        #expect(!sites.contains(DeclarationSite(path: path, name: "property")))
-        #expect(sites.count == 1)
+        #expect(sites.contains(DeclarationSite(path: path, name: "property")))
+        #expect(sites.count == 2)
     }
 
     @Test("A cycle whose participant has a base case is not reported")
@@ -502,5 +509,6 @@ struct RecursionIndexPassTests {
         #expect(sites.contains(DeclarationSite(path: path, name: "withBody()")))
         #expect(!sites.contains(DeclarationSite(path: path, name: "requirementOnly()")))
     }
+
 
 }

@@ -136,6 +136,76 @@ struct BaseCaseRecognitionTests {
         #expect(!result.diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
     }
 
+    // MARK: - Cycles must see implicit returns too
+
+    @Test("A cycle whose participant returns a literal implicitly is bounded")
+    func cycleWithImplicitReturnBaseCase() async throws {
+        // Ignite's MarkupElement: `is(_:)` ↔ `isType(_:)` descend through nested content and
+        // terminate on `true` / `false` — branch values of an `if` expression, with no
+        // `return` keyword anywhere. The strict cycle test only recognised `return <non-call>`,
+        // so it saw no base case and called a plainly-terminating walk unbounded.
+        let code = """
+        struct Tree {
+            var child: Tree? { nil }
+            func isType(_ depth: Int) -> Bool {
+                if depth == 0 {
+                    true
+                } else {
+                    check(depth - 1)
+                }
+            }
+            func check(_ depth: Int) -> Bool {
+                isType(depth)
+            }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.mutual-cycle" })
+    }
+
+    @Test("A cycle whose branches are all calls is still unbounded")
+    func cycleWithoutBaseCaseStillFlagged() async throws {
+        // The strictness that distinguishes a cycle from a self-call must survive: a branch
+        // returning some *other* call may be handing off to the next participant.
+        let code = """
+        struct Spin {
+            func alpha(_ n: Int) -> Int {
+                if n > 0 { beta(n - 1) } else { beta(n + 1) }
+            }
+            func beta(_ n: Int) -> Int {
+                alpha(n)
+            }
+        }
+        """
+        let result = try await audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "recursion.mutual-cycle" })
+    }
+
+    @Test("A cycle through computed properties can be bounded")
+    func cycleThroughPropertiesCanBeBounded() async throws {
+        // TCA's `availability` walk and GRDB's `isConstantInRequest` are cycles whose
+        // participants are computed properties, and both terminate on `return nil`. Property
+        // declarations reported `hasBaseCase: false` unconditionally — the strict answer was
+        // never computed for them — so no participant could ever be marked bounded and every
+        // such cycle read as unbounded.
+        let code = """
+        struct Wrapper {
+            var inner: Wrapper? { nil }
+            var availability: Wrapper? {
+                if let inner {
+                    return inner.attributes
+                }
+                return nil
+            }
+            var attributes: Wrapper? {
+                availability
+            }
+        }
+        """
+        let result = try await audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "recursion.mutual-cycle" })
+    }
+
     private func audit(_ code: String) async throws -> CheckResult {
         let auditor = RecursionAuditor()
         let config = Configuration(recursion: RecursionAuditorConfig(useIndexStore: false))

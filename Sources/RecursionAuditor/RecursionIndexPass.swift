@@ -348,8 +348,11 @@ enum RecursionIndexPass {
     /// Only callables: the index graph admits functions and methods, so a property's
     /// base case has nothing to attach to.
     static func baseCaseSites(from declarations: [DeclarationInfo]) -> Set<DeclarationSite> {
-        // Callables only, matching how cycle detection filters its own input.
-        sites(from: declarations) { $0.isCallable && $0.hasBaseCase }
+        // Not callables-only. Pass 1 filters its *own* name-based cycle detection to callables,
+        // but the index graph admits a computed property's accessor, so a cycle can run through
+        // one — TCA's `availability` walk and GRDB's `isConstantInRequest` both do. Excluding
+        // properties here meant no participant in such a cycle could ever be marked bounded.
+        sites(from: declarations) { $0.hasBaseCase }
     }
 
     /// The declaration sites whose bodies the AST pass actually read.

@@ -280,7 +280,7 @@ final class RecursionVisitor: SyntaxVisitor {
             declarations.append(DeclarationInfo(
                 signature: propertySignature,
                 location: bindingLocation,
-                hasBaseCase: false,
+                hasBaseCase: getterBody.map { hasGuardEarlyExit(in: $0) } ?? false,
                 hasSelfBaseCase: getterBody.map {
                     hasSelfBaseCase(in: $0, ownSignature: propertySignature)
                 } ?? false,
@@ -370,7 +370,7 @@ final class RecursionVisitor: SyntaxVisitor {
         declarations.append(DeclarationInfo(
             signature: signature,
             location: location,
-            hasBaseCase: false,
+            hasBaseCase: subscriptGetterBody.map { hasGuardEarlyExit(in: $0) } ?? false,
             hasSelfBaseCase: subscriptGetterBody.map {
                 hasSelfBaseCase(in: $0, ownSignature: signature)
             } ?? false,
@@ -517,6 +517,23 @@ func hasGuardEarlyExit(in node: Syntax) -> Bool {
             found = true
             return .skipChildren
         }
+        /// A single-expression block is that block's value — an implicit return.
+        ///
+        /// The *shape* is the same one `hasSelfBaseCase` recognises; the *rule* applied to it
+        /// is this walker's stricter one, because a branch handing off to another call may be
+        /// handing off to the next participant in the cycle. Ignite's `isType(_:)` terminates
+        /// on `true` and `false` as `if`-expression branch values, which this could not see.
+        override func visit(_ node: CodeBlockItemListSyntax) -> SyntaxVisitorContinueKind {
+            guard node.count == 1, let only = node.first,
+                  case .expr(let expression) = only.item else {
+                return .visitChildren
+            }
+            if !expression.is(FunctionCallExprSyntax.self) {
+                found = true
+            }
+            return .visitChildren
+        }
+
         override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
             guard let expression = node.expression else {
                 found = true
