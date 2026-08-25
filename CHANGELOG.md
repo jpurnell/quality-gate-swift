@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-08-25
+
+The gate stops paying for, and stops hiding, its own runs: index ingestion is paid once
+instead of per run, a truncated run is reported as truncated, and the recursion survey's
+22-package corpus reaches **zero errors** (from 174 errors / 279 warnings at its start).
+
 ### Fixed (checker correctness)
 
 - **`recursion`'s superseded set is derived, not maintained — Pass 1's verdicts are
@@ -992,7 +998,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/jpurnell/quality-gate-swift/compare/v2.0.2...v3.0.0
 [2.0.2]: https://github.com/jpurnell/quality-gate-swift/compare/v2026.07.12...v2.0.2
 [2026.07.12]: https://github.com/jpurnell/quality-gate-swift/compare/v2026.07.10...v2026.07.12
