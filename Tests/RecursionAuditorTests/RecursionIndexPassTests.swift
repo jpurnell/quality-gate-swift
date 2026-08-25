@@ -472,13 +472,15 @@ struct RecursionIndexPassTests {
             displayName: "getter:destination", filePath: "F.swift", line: 19, column: 5, moduleName: "App"))
 
         let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
-        #expect(!diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+        #expect(!diagnostics.contains { $0.severity != .note })
     }
 
     @Test("A self-edge on a symbol the AST pass did analyse is still reported")
     func analysedSymbolStillReported() {
         // The regression guard: a genuine self-recursive computed property has a getter the
-        // AST pass read, so the guard must not silence it.
+        // AST pass read, so the guard must not silence it. Since the classifier landed
+        // (`ProvisionalByConstruction.md` §3.3), a getter self-edge reports in Pass 1's
+        // vocabulary for the same defect.
         let graph = USRCallGraph()
         let usr = "s:3App3BoxV5valueSivg"
         graph.addEdge(from: usr, to: usr)
@@ -488,7 +490,7 @@ struct RecursionIndexPassTests {
             displayName: "getter:value", filePath: "B.swift", line: 3, column: 5, moduleName: "App"))
 
         let diagnostics = RecursionIndexPass.generateDiagnostics(from: graph)
-        #expect(diagnostics.contains { $0.ruleId == "recursion.unconditional-self-call" })
+        #expect(diagnostics.contains { $0.ruleId == "recursion.computed-property-self" })
     }
 
     @Test("Analysed sites come only from declarations with a body")

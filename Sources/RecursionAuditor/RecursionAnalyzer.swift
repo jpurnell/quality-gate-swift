@@ -1,6 +1,7 @@
 import Foundation
 import QualityGateCore
 import SwiftSyntax
+import SwiftParser
 
 // MARK: - Protocol name pre-pass
 
@@ -267,6 +268,24 @@ final class RecursionVisitor: SyntaxVisitor {
         let location = startLocation(of: Syntax(node))
         let signature = Signature(typeContext: currentTypeContext, displayName: displayName)
         signatureDiscriminators[signature, default: []].insert(typeDiscriminator(of: node))
+
+        // Initializers join the site-keyed handoff to Pass 2 like every other
+        // declaration. Without this, an init has no `analysedSites` entry, so the index
+        // pass's wasAnalysed guard skips its self-edges — and `convenience-init-self`
+        // stays a final syntactic verdict in indexed projects. IndexStoreDB names the
+        // symbol `init(y:)`, which is exactly this displayName, so the site join needs
+        // no normalisation. Not callable: Pass 1's own name-based cycle detection stays
+        // methods-only; the fixture-verified constructor path belongs to Pass 2.
+        declarations.append(DeclarationInfo(
+            signature: signature,
+            location: location,
+            hasBaseCase: node.body.map { hasGuardEarlyExit(in: Syntax($0)) } ?? false,
+            hasSelfBaseCase: node.body.map { hasSelfBaseCase(in: Syntax($0), ownSignature: signature) } ?? false,
+            wasAnalysed: node.body != nil,
+            outgoingCalls: [],
+            isCallable: false,
+            candidateBaseCases: node.body.map { candidateBaseCases(in: Syntax($0), converter: converter) } ?? []
+        ))
 
         let isConvenience = node.modifiers.contains { $0.name.tokenKind == .keyword(.convenience) }
 
@@ -708,6 +727,23 @@ func hasGuardEarlyExit(in node: Syntax) -> Bool {
     let walker = Walker(viewMode: .sourceAccurate)
     walker.walk(node)
     return walker.found
+}
+
+/// Test seam: runs the per-file analysis on one source string, with no project-wide
+/// protocol knowledge. Production goes through `RecursionAuditor.analyzeFile`, which
+/// supplies the protocol graph; tests of declaration collection do not need one.
+func analyzeSourceForTesting(_ source: String, fileName: String = "/test/Test.swift") -> FileAnalysis {
+    let tree = Parser.parse(source: source)
+    let converter = SourceLocationConverter(fileName: fileName, tree: tree)
+    let visitor = RecursionVisitor(
+        fileName: fileName, source: source, converter: converter, protocolNames: [])
+    visitor.walk(tree)
+    return FileAnalysis(
+        diagnostics: visitor.diagnostics,
+        declarations: visitor.declarations,
+        pendingSelfCalls: visitor.pendingSelfCalls,
+        signatureDiscriminators: visitor.signatureDiscriminators
+    )
 }
 
 /// The `return <call>` branches syntax cannot judge, each with its callee positions.

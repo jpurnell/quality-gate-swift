@@ -376,7 +376,9 @@ enum RecursionIndexPass {
         // reaches a *different* USR, so it produces no self-edge and no finding, which is
         // the question syntax could not answer.
         //
-        // Warning, matching the AST pass's severity for the same rule.
+        // The rule id and severity come from the classifier, so a getter's self-edge is
+        // reported in the vocabulary Pass 1 uses for the same defect, at the same
+        // severity — a project's configured overrides keep meaning what they meant.
         for component in sccs where component.count == 1 {
             guard let usr = component.first, graph.hasSelfEdge(usr) else { continue }
             // Only judge code the AST pass read. A symbol it never analysed is generated —
@@ -385,14 +387,15 @@ enum RecursionIndexPass {
             guard graph.wasAnalysed(usr) else { continue }
             guard !graph.hasSelfBaseCase(usr) else { continue }
             guard let info = graph.symbolInfo(for: usr) else { continue }
+            let rule = selfCallClassification(forSymbolName: info.displayName)
             diagnostics.append(Diagnostic(
-                severity: .warning,
-                message: "function '\(info.displayName)' calls itself with no base case",
+                severity: rule.severity,
+                message: rule.message,
                 filePath: info.filePath,
                 lineNumber: info.line,
                 columnNumber: info.column,
-                ruleId: "recursion.unconditional-self-call",
-                suggestedFix: "Add a branch that returns or throws without calling '\(info.displayName)' again."
+                ruleId: rule.ruleId,
+                suggestedFix: rule.fix
             ))
         }
 
@@ -412,6 +415,71 @@ enum RecursionIndexPass {
             ruleId: "recursion.index_pass.skipped"
         )]
     }
+
+    /// The rule vocabulary for a USR self-edge, chosen by the index's symbol naming.
+    ///
+    /// IndexStoreDB names accessors `getter:x` / `setter:x` (including
+    /// `getter:subscript(_:)`) and initializers `init(labels:)` — a naming convention,
+    /// not an API contract. If a toolchain ever changes the spelling, classification
+    /// degrades to the last row: the defect is still reported, under the generic rule
+    /// at warning severity, which is the acceptable failure shape
+    /// (`ProvisionalByConstruction.md` §12).
+    static func selfCallClassification(
+        forSymbolName name: String
+    ) -> (ruleId: String, severity: Diagnostic.Severity, message: String, fix: String) {
+        let normalized = normalizedSymbolName(name)
+        if name.hasPrefix("getter:subscript") {
+            return ("recursion.subscript-self", .error,
+                    "subscript getter calls 'self[…]' recursively",
+                    "Delegate to a backing storage collection instead of 'self'.")
+        }
+        if name.hasPrefix("setter:subscript") {
+            return ("recursion.subscript-setter-self", .error,
+                    "subscript setter assigns to 'self[…]' recursively",
+                    "Assign to a backing storage collection instead of 'self'.")
+        }
+        if name.hasPrefix("getter:") {
+            return ("recursion.computed-property-self", .error,
+                    "computed property '\(normalized)' references itself in its getter",
+                    "Use a private backing storage property instead of '\(normalized)'.")
+        }
+        if name.hasPrefix("setter:") {
+            return ("recursion.setter-self", .error,
+                    "computed property setter for '\(normalized)' assigns to itself",
+                    "Assign to a private backing storage property instead of '\(normalized)'.")
+        }
+        if name.hasPrefix("init(") {
+            return ("recursion.convenience-init-self", .error,
+                    "initializer '\(name)' delegates to itself, causing infinite recursion",
+                    "Delegate to a different initializer.")
+        }
+        return ("recursion.unconditional-self-call", .warning,
+                "function '\(name)' calls itself with no base case",
+                "Add a branch that returns or throws without calling '\(name)' again.")
+    }
+
+    /// The Pass 1 verdicts Pass 2 supersedes in files the index covered.
+    ///
+    /// **Derived from the classifier, never maintained by hand** — the previous
+    /// hand-kept list grew only after each false positive shipped in the wild
+    /// (`ProvisionalByConstruction.md` §2). One representative symbol name per
+    /// classifier row extracts that row's rule id, so a new row Pass 2 learns to
+    /// answer joins the superseded set by construction.
+    static let supersededByUSR: Set<String> = {
+        let representatives = [
+            "getter:subscript(_:)", "setter:subscript(_:)",
+            "getter:x", "setter:x", "init(x:)", "f()",
+        ]
+        var ids = Set(representatives.map { selfCallClassification(forSymbolName: $0).ruleId })
+        // The cycle rules Pass 2 re-adjudicates through Tarjan rather than the
+        // classifier, and the deferral marker Pass 1 emits only for Pass 2 to answer.
+        ids.formUnion([
+            "recursion.mutual-cycle",
+            "recursion.protocol-extension-default-self",
+            "recursion.self-reference-unresolved",
+        ])
+        return ids
+    }()
 
     /// The property name behind an accessor symbol.
     ///
@@ -650,6 +718,14 @@ enum RecursionIndexPass {
     private static func isCallable(_ symbol: Symbol) -> Bool {
         switch symbol.kind {
         case .function, .instanceMethod, .staticMethod, .classMethod:
+            return true
+        case .constructor:
+            // Admitted 2026-08-25: a self-recursive `init(y:) { self.init(y: y) }` carries
+            // a `calledBy` self-edge in the index (fixture-verified), but the graph never
+            // saw it — which left `convenience-init-self` as a final syntactic verdict in
+            // indexed projects, the exact latent defect `ProvisionalByConstruction.md`
+            // exists to remove. Enum cases and types stay out: a reference to them is not
+            // a call edge that can recurse.
             return true
         default:
             return false

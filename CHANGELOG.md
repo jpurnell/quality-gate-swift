@@ -4,6 +4,24 @@
 
 ### Fixed (checker correctness)
 
+- **`recursion`'s superseded set is derived, not maintained — Pass 1's verdicts are
+  provisional by construction wherever the index can answer.** The hand-kept
+  `supersededByUSR` list grew twice in one session, each time *after* a false positive
+  shipped in the wild, and five rules it never gained (`computed-property-self`,
+  `setter-self`, `subscript-self`, `subscript-setter-self`, `convenience-init-self`) still
+  carried final syntactic verdicts in indexed projects — the same latent defect, waiting
+  for a package to trigger it. Probes showed the index already answers all five: accessors
+  are indexed as callable `getter:x`/`setter:x` methods, and a self-recursive initializer
+  carries a `calledBy` self-edge the graph simply never admitted (`isCallable` now accepts
+  `constructor`; `analyzeInitializer` now records a `DeclarationInfo` so inits join the
+  site handoff). Pass 2 classifies a self-edge by the index's symbol naming and reports in
+  Pass 1's rule vocabulary at Pass 1's severities, and the superseded set is derived from
+  that classifier — the next rule Pass 2 learns to answer joins it by construction. This
+  also removes an incoherence: a genuine getter self-reference in a covered file
+  previously produced *two* findings for one defect (Pass 1's error and Pass 2's generic
+  warning). Corpus: zero movement, including SwiftyJSON's five overloaded subscripts.
+  Design and probe data: `project/plans/proposals/ProvisionalByConstruction.md`.
+
 - **`recursion` no longer inherits a syntactic answer to a type question — the last 4
   corpus errors clear.** GRDB's `collated(_:_:)` terminates by returning `self.init(impl:
   .collated(…))`, where `.collated` is an enum case; in its other branches the same

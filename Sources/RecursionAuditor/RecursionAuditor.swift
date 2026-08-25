@@ -161,32 +161,22 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                 // resolves to a different USR here, so it produces no self-edge and no
                 // finding. Restricted to covered files, because an index that saw nothing
                 // must not be allowed to erase findings it never examined.
-                let supersededByUSR: Set<String> = [
-                    "recursion.unconditional-self-call",
-                    "recursion.self-reference-unresolved",
-                    // Both of these were Pass 1 asserting something only a type checker can
-                    // settle, in a file the index had already read properly.
-                    //
-                    // `mutual-cycle` here is the *name-based* finding from
-                    // `detectMutualCyclesImpl`. GRDB's `SQLExpression` declares
-                    // `indirect case collated(SQLExpression, Database.CollationName)` and
-                    // `static func collated(_:_:) -> Self` — same name, same argument types,
-                    // same arity. Which one `.collated(expression, collationName)` means is
-                    // decided by contextual type, so the syntactic pass reads the
-                    // terminating branch as a recursive call and the cycle as unbounded.
-                    //
-                    // `protocol-extension-default-self` is the same problem across a module
-                    // boundary: GRDB's `EncodableRecord.encode(to: inout PersistenceContainer)`
-                    // calls `Encodable.encode(to: Encoder)`, which is in the standard library
-                    // and therefore absent from any census of the package.
-                    //
-                    // Removal runs before Pass 2's own findings are appended, so a cycle the
-                    // index genuinely sees is still reported — by the pass that can prove it.
-                    "recursion.mutual-cycle",
-                    "recursion.protocol-extension-default-self",
-                ]
+                //
+                // The superseded set lives in `RecursionIndexPass` and is derived from its
+                // self-edge classifier, so Pass 1's verdicts are provisional *by
+                // construction* wherever Pass 2 can answer. The hand-maintained list this
+                // replaces grew twice in one session, each time after a false positive
+                // shipped in the wild — GRDB's enum-case/static-func `collated` collision,
+                // then its cross-module `encode(to:)` — and the five accessor and
+                // initializer rules it never gained were the next ones waiting
+                // (`ProvisionalByConstruction.md` §2 keeps the full history).
+                //
+                // Removal runs before Pass 2's own findings are appended, so a defect the
+                // index genuinely sees is still reported — by the pass that can prove it,
+                // in the same rule vocabulary at the same severity.
                 allDiagnostics.removeAll { diagnostic in
-                    guard let ruleId = diagnostic.ruleId, supersededByUSR.contains(ruleId),
+                    guard let ruleId = diagnostic.ruleId,
+                          RecursionIndexPass.supersededByUSR.contains(ruleId),
                           let path = diagnostic.filePath else { return false }
                     return pass2.coveredFiles.contains(
                         URL(fileURLWithPath: path).resolvingSymlinksInPath().path
