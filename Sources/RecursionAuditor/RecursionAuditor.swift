@@ -163,6 +163,26 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                 let supersededByUSR: Set<String> = [
                     "recursion.unconditional-self-call",
                     "recursion.self-reference-unresolved",
+                    // Both of these were Pass 1 asserting something only a type checker can
+                    // settle, in a file the index had already read properly.
+                    //
+                    // `mutual-cycle` here is the *name-based* finding from
+                    // `detectMutualCyclesImpl`. GRDB's `SQLExpression` declares
+                    // `indirect case collated(SQLExpression, Database.CollationName)` and
+                    // `static func collated(_:_:) -> Self` — same name, same argument types,
+                    // same arity. Which one `.collated(expression, collationName)` means is
+                    // decided by contextual type, so the syntactic pass reads the
+                    // terminating branch as a recursive call and the cycle as unbounded.
+                    //
+                    // `protocol-extension-default-self` is the same problem across a module
+                    // boundary: GRDB's `EncodableRecord.encode(to: inout PersistenceContainer)`
+                    // calls `Encodable.encode(to: Encoder)`, which is in the standard library
+                    // and therefore absent from any census of the package.
+                    //
+                    // Removal runs before Pass 2's own findings are appended, so a cycle the
+                    // index genuinely sees is still reported — by the pass that can prove it.
+                    "recursion.mutual-cycle",
+                    "recursion.protocol-extension-default-self",
                 ]
                 allDiagnostics.removeAll { diagnostic in
                     guard let ruleId = diagnostic.ruleId, supersededByUSR.contains(ruleId),
