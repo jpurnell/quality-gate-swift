@@ -32,11 +32,17 @@ public enum ReporterFactory {
     ///   - format: The desired output format.
     ///   - rosterSize: Total registered checkers, so a terminal summary can state its
     ///     denominator. `nil` omits the line rather than guessing at it.
+    ///   - truncation: How the run stopped early, so a terminal summary can distinguish
+    ///     "not selected" from "never reached". `nil` for a complete run.
     /// - Returns: A reporter instance.
-    public static func create(for format: OutputFormat, rosterSize: Int? = nil) -> any Reporter {
+    public static func create(
+        for format: OutputFormat,
+        rosterSize: Int? = nil,
+        truncation: RunTruncation? = nil
+    ) -> any Reporter {
         switch format {
         case .terminal:
-            return TerminalReporter(rosterSize: rosterSize)
+            return TerminalReporter(rosterSize: rosterSize, truncation: truncation)
         case .json:
             return JSONReporter()
         case .sarif:

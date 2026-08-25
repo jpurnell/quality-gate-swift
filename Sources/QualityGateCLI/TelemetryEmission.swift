@@ -27,6 +27,9 @@ enum TelemetryEmission {
     /// the upstream identity but dashboards group them separately.
     /// `baseline` carries the applied ledger's counts (Phase 4c §3) so the
     /// dashboard can render debt as a burn-down; nil when no ledger ran.
+    /// `truncation` records an early stop (Change C): without it a truncated
+    /// run's record is indistinguishable from a clean scoped run, and the
+    /// corpus accumulates records that cannot answer "did this checker run?".
     static func emit(
         configuration: Configuration,
         results: [CheckResult],
@@ -34,6 +37,7 @@ enum TelemetryEmission {
         identityKind: IdentityKind = .resident,
         gateMode: GateMode = .standard,
         baseline: BaselineSnapshot? = nil,
+        truncation: RunTruncation? = nil,
         cache: ResultCache? = nil,
         gateHash: String = "",
         digests: FileDigestCache? = nil,
@@ -118,7 +122,10 @@ enum TelemetryEmission {
             ciIdentity: CIIdentityProbe.detect(environment: ProcessInfo.processInfo.environment),
             host: ProcessInfo.processInfo.hostName,
             gateMode: gateMode,
-            baseline: baseline
+            baseline: baseline,
+            truncation: truncation.map {
+                TruncationRecord(stoppedAt: $0.stoppedAt, unreached: $0.unreached)
+            }
         )
 
         let calibrations = CalibrationClassifier.classify(

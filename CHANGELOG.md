@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **A truncated run says so (Change C).** A default run stops at its first failing checker,
+  and every checker ordered after it was reported as *"not selected"* — language
+  indistinguishable from a deliberately narrowed run, which is how one package's false
+  positives stayed invisible for months (`ContainmentIsNotInvocation.md` §2.4). The runner
+  now returns a `RunOutcome` whose `RunTruncation` names the stopping checker and every
+  selected checker that never ran; the terminal summary prints them as **NOT REACHED — 0
+  findings from them means nothing** with a pointer at `--continue-on-failure`; and the
+  telemetry record carries `truncation` (corpus-kit 1.15.0, optional field, no schema bump)
+  so dashboards can finally distinguish "ran and found nothing" from "never ran". Exit codes
+  are unchanged. **Expect visible finding counts to rise** on any repository with an early
+  failure — behaviour did not change, the reporting stopped implying the tail was clean.
+
 ### Performance
 
 - **The IndexStoreDB database persists across runs; ingestion is no longer paid per run.**

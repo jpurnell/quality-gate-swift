@@ -14,12 +14,23 @@ public struct TerminalReporter: Reporter, Sendable {
     /// visible on every run, to anyone, without archaeology.
     public let rosterSize: Int?
 
+    /// How the run stopped early, when it did.
+    ///
+    /// "Not selected" and "not reached" are opposite statements: the first is a choice,
+    /// the second is an absence of evidence. A default run stops at its first failing
+    /// checker, and for as long as the summary collapsed the two, a truncated run's tail
+    /// read as clean — the mechanism that hid one package's false positives for months.
+    public let truncation: RunTruncation?
+
     /// Creates a new TerminalReporter instance.
     ///
-    /// - Parameter rosterSize: Total registered checkers, so the summary can state its
-    ///   denominator. `nil` omits the line rather than guessing.
-    public init(rosterSize: Int? = nil) {
+    /// - Parameters:
+    ///   - rosterSize: Total registered checkers, so the summary can state its
+    ///     denominator. `nil` omits the line rather than guessing.
+    ///   - truncation: How the run stopped early; `nil` for a complete run.
+    public init(rosterSize: Int? = nil, truncation: RunTruncation? = nil) {
         self.rosterSize = rosterSize
+        self.truncation = truncation
     }
 
     /// Outputs results in a human-readable terminal format.
@@ -65,6 +76,8 @@ public struct TerminalReporter: Reporter, Sendable {
         output.write("==========================================\n")
         if allPassed {
             output.write("✅ Quality Gate: PASSED\n")
+        } else if let truncation {
+            output.write("❌ Quality Gate: FAILED (run stopped at [\(truncation.stoppedAt)])\n")
         } else {
             output.write("❌ Quality Gate: FAILED\n")
         }
@@ -72,13 +85,24 @@ public struct TerminalReporter: Reporter, Sendable {
         if totalErrors > 0 || totalWarnings > 0 {
             output.write("   \(totalErrors) error(s), \(totalWarnings) warning(s)\n")
         }
-        // Every run states its denominator. The second clause appears only when the
-        // numbers differ, so a full run reads `42 of 42 checkers` and stops there.
+        // Every run states its denominator, and states it in three parts when they
+        // differ: ran, deliberately not selected, and never reached. The last two must
+        // not be collapsed — a checker that was not selected was a choice; a checker
+        // that was not reached contributed no evidence, and zero findings from it
+        // means nothing.
         if let rosterSize, rosterSize > 0 {
             let ran = results.count
+            let unreachedCount = truncation?.unreached.count ?? 0
             var line = "   \(ran) of \(rosterSize) checkers"
-            if ran < rosterSize { line += " · \(rosterSize - ran) not selected" }
+            let notSelected = rosterSize - ran - unreachedCount
+            if notSelected > 0 { line += " · \(notSelected) not selected" }
+            if unreachedCount > 0 {
+                line += " · \(unreachedCount) NOT REACHED — 0 findings from them means nothing"
+            }
             output.write(line + "\n")
+            if unreachedCount > 0 {
+                output.write("   → re-run with --continue-on-failure for the full picture\n")
+            }
         }
         output.write("==========================================\n\n")
     }

@@ -51,6 +51,42 @@ struct ReporterTests {
         #expect(output.contains("Force unwrap detected"))
     }
 
+    @Test("A truncated run prints NOT REACHED, names the stop, and points at --continue-on-failure")
+    func terminalReporterTruncatedRun() throws {
+        let reporter = TerminalReporter(
+            rosterSize: 45,
+            truncation: RunTruncation(
+                stoppedAt: "test-quality",
+                unreached: (0..<37).map { "checker-\($0)" }))
+        var output = ""
+        let results = [
+            CheckResult(checkerId: "build", status: .passed, diagnostics: [], duration: .zero),
+            CheckResult(checkerId: "test-quality", status: .failed, diagnostics: [], duration: .zero),
+        ]
+
+        try reporter.report(results, to: &output)
+
+        #expect(output.contains("FAILED (run stopped at [test-quality])"))
+        #expect(output.contains("37 NOT REACHED"))
+        #expect(output.contains("--continue-on-failure"))
+        // The unreached are absence of information, not a narrowed selection.
+        #expect(!output.contains("37 not selected"))
+    }
+
+    @Test("A complete narrowed run still reads as a selection, not a truncation")
+    func terminalReporterNarrowedRun() throws {
+        let reporter = TerminalReporter(rosterSize: 45)
+        var output = ""
+        let results = [
+            CheckResult(checkerId: "build", status: .passed, diagnostics: [], duration: .zero)
+        ]
+
+        try reporter.report(results, to: &output)
+
+        #expect(output.contains("1 of 45 checkers · 44 not selected"))
+        #expect(!output.contains("NOT REACHED"))
+    }
+
     @Test("TerminalReporter shows file location for diagnostics")
     func terminalReporterShowsLocation() throws {
         let reporter = TerminalReporter()

@@ -56,7 +56,8 @@ struct Adopt: AsyncParsableCommand {
 
         print("Scanning with \(checkersToRun.count) checker(s) to record existing debt…")
         let runner = CheckerRunner()
-        let results = await runner.run(
+        // `continueOnFailure: true`, so this outcome is never truncated.
+        let outcome = await runner.run(
             checkers: checkersToRun,
             configuration: configuration,
             strict: false,
@@ -70,7 +71,7 @@ struct Adopt: AsyncParsableCommand {
             }
         )
 
-        let findings = results.flatMap(\.diagnostics).filter { $0.severity != .note }
+        let findings = outcome.results.flatMap(\.diagnostics).filter { $0.severity != .note }
         let recordedAt = Date()
         let ledger = BaselineLedger.adopt(
             findings: findings, recordedAt: recordedAt, decayDays: decayDays)

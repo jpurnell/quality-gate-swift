@@ -45,6 +45,12 @@ public struct CheckerRunner: Sendable {
     /// a failing parallel checker cancels the remaining group. Results are always returned in
     /// checker order.
     ///
+    /// An early stop is reported, not implied: the returned ``RunOutcome`` carries a
+    /// ``RunTruncation`` naming the stopping checker and every selected checker that never
+    /// ran because of it. Truncation and selection are different facts — a checker missing
+    /// from a truncated run contributed no evidence, and reporting must not let its absence
+    /// read as a clean result.
+    ///
     /// - Parameters:
     ///   - checkers: The checkers to run.
     ///   - configuration: The gate configuration passed to each checker.
@@ -61,7 +67,8 @@ public struct CheckerRunner: Sendable {
     ///     staleness or upstream drift). Off by default.
     ///   - transform: Applied to each result before judging pass/fail (e.g. override application).
     ///   - onError: Invoked with the checker id and error when a checker throws (for logging).
-    /// - Returns: The results in checker order.
+    /// - Returns: The results in checker order, plus the truncation record when the run
+    ///   stopped early.
     public func run(
         checkers: [any QualityChecker],
         configuration: Configuration,
@@ -74,8 +81,8 @@ public struct CheckerRunner: Sendable {
         includeNonHermetic: Bool = false,
         transform: @Sendable @escaping (CheckResult) -> CheckResult = { $0 },
         onError: @Sendable @escaping (String, any Error) -> Void = { _, _ in }
-    ) async -> [CheckResult] {
-        if checkers.isEmpty { return [] }
+    ) async -> RunOutcome {
+        if checkers.isEmpty { return RunOutcome(results: [], truncation: nil) }
 
         // Runs the checker, converting a throw into a failed `checker-error` result —
         // except for `.external` checkers, where a throw means the out-of-tree state was
@@ -174,37 +181,56 @@ public struct CheckerRunner: Sendable {
         collected.reserveCapacity(checkers.count)
 
         // Phase 1: exclusive checkers, strictly sequential (never overlapping `.build`).
-        var stoppedEarly = false
+        var stoppedAt: String?
         for (index, checker) in sequentialCheckers {
             let result = await evaluate(checker)
             collected.append((index, result))
             if !continueOnFailure && isFailing(result) {
-                stoppedEarly = true
+                stoppedAt = checker.id
                 break
             }
         }
 
         // Phase 2: parallel-safe checkers, concurrent and bounded.
-        if !stoppedEarly && !parallelCheckers.isEmpty {
-            let parallelResults = await runConcurrently(
+        if stoppedAt == nil && !parallelCheckers.isEmpty {
+            let (parallelResults, parallelStop) = await runConcurrently(
                 parallelCheckers,
                 continueOnFailure: continueOnFailure,
                 evaluate: evaluate,
                 isFailing: isFailing
             )
             collected.append(contentsOf: parallelResults)
+            stoppedAt = parallelStop
         }
 
-        return collected.sorted { $0.0 < $1.0 }.map(\.1)
+        let results = collected.sorted { $0.0 < $1.0 }.map(\.1)
+
+        // Truncation is computed from what actually ran, not from the break that was
+        // taken: a checker started in the parallel group and then cancelled produced no
+        // result, and it belongs in `unreached` exactly as much as one never started.
+        var truncation: RunTruncation?
+        if let stoppedAt {
+            let reached = Set(collected.map(\.0))
+            let unreached = indexed
+                .filter { !reached.contains($0.offset) }
+                .map(\.element.id)
+            if !unreached.isEmpty {
+                truncation = RunTruncation(stoppedAt: stoppedAt, unreached: unreached)
+            }
+        }
+        return RunOutcome(results: results, truncation: truncation)
     }
 
     /// Runs the given indexed checkers concurrently, bounded by ``maxConcurrency``.
+    ///
+    /// Returns the collected results plus the id of the failing checker that stopped the
+    /// group, or `nil` when the group ran to completion.
     private func runConcurrently(
         _ work: [(offset: Int, element: any QualityChecker)],
         continueOnFailure: Bool,
         evaluate: @escaping @Sendable (any QualityChecker) async -> CheckResult,
         isFailing: @escaping (CheckResult) -> Bool
-    ) async -> [(Int, CheckResult)] {
+    ) async -> ([(Int, CheckResult)], stoppedAt: String?) {
         let limit = min(maxConcurrency, work.count)
         return await withTaskGroup(of: (Int, CheckResult).self) { group in
             var nextSlot = 0
@@ -216,11 +242,13 @@ public struct CheckerRunner: Sendable {
 
             var results: [(Int, CheckResult)] = []
             results.reserveCapacity(work.count)
+            var stoppedAt: String?
 
             while let (index, result) = await group.next() {
                 results.append((index, result))
 
                 if !continueOnFailure && isFailing(result) {
+                    stoppedAt = result.checkerId
                     group.cancelAll()
                     break
                 }
@@ -232,7 +260,7 @@ public struct CheckerRunner: Sendable {
                 }
             }
 
-            return results
+            return (results, stoppedAt)
         }
     }
 }

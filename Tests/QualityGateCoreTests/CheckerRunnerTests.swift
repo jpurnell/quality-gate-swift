@@ -96,8 +96,60 @@ struct CheckerRunnerTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: true
-        )
+        ).results
         #expect(results.map(\.checkerId) == ["A", "B", "C"])
+    }
+
+    @Test("A truncated run names the stop and lists every unreached checker")
+    func truncatedRunReportsUnreached() async {
+        // Sequential (non-parallel-safe) checkers give a deterministic stop point.
+        let checkers: [any QualityChecker] = [
+            FakeChecker(id: "A", isParallelSafe: false),
+            FakeChecker(id: "B", status: .failed, isParallelSafe: false),
+            FakeChecker(id: "C", isParallelSafe: false),
+            FakeChecker(id: "D"),
+        ]
+        let outcome = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers,
+            configuration: Configuration(),
+            strict: false,
+            continueOnFailure: false
+        )
+        #expect(outcome.results.map(\.checkerId) == ["A", "B"])
+        #expect(outcome.truncation?.stoppedAt == "B")
+        #expect(outcome.truncation?.unreached == ["C", "D"])
+    }
+
+    @Test("A complete run carries no truncation, even with failures under continueOnFailure")
+    func completeRunHasNoTruncation() async {
+        let checkers: [any QualityChecker] = [
+            FakeChecker(id: "A", status: .failed),
+            FakeChecker(id: "B"),
+        ]
+        let outcome = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers,
+            configuration: Configuration(),
+            strict: false,
+            continueOnFailure: true
+        )
+        #expect(outcome.results.count == 2)
+        #expect(outcome.truncation == nil)
+    }
+
+    @Test("Strict mode stops on a warning and records the truncation identically")
+    func strictWarningTruncates() async {
+        let checkers: [any QualityChecker] = [
+            FakeChecker(id: "A", status: .warning, isParallelSafe: false),
+            FakeChecker(id: "B", isParallelSafe: false),
+        ]
+        let outcome = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers,
+            configuration: Configuration(),
+            strict: true,
+            continueOnFailure: false
+        )
+        #expect(outcome.truncation?.stoppedAt == "A")
+        #expect(outcome.truncation?.unreached == ["B"])
     }
 
     @Test("Runs all checkers when continueOnFailure is true, even after a failure")
@@ -112,7 +164,7 @@ struct CheckerRunnerTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: true
-        )
+        ).results
         #expect(results.count == 3)
     }
 
@@ -130,7 +182,7 @@ struct CheckerRunnerTests {
             transform: { original in
                 CheckResult(checkerId: original.checkerId + "!", status: original.status, diagnostics: [], duration: .zero)
             }
-        )
+        ).results
         #expect(results.map(\.checkerId) == ["A!", "B!"])
     }
 
@@ -144,7 +196,7 @@ struct CheckerRunnerTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: true
-        )
+        ).results
         #expect(results.count == 1)
         #expect(results.first?.status == .failed)
         #expect(results.first?.diagnostics.first?.ruleId == "checker-error")
@@ -190,7 +242,7 @@ struct CheckerRunnerTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: true
-        )
+        ).results
         #expect(results.isEmpty)
     }
 
@@ -226,7 +278,7 @@ struct CheckerRunnerTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: true
-        )
+        ).results
         // Results come back in original checker order regardless of partition.
         #expect(results.map(\.checkerId) == ["build", "safety", "test", "recursion", "complexity"])
         let exclusivePeak = await exclusiveTracker.peak
@@ -248,7 +300,7 @@ struct CheckerRunnerTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: false
-        )
+        ).results
         // Only the failing exclusive checker ran; the parallel phase was skipped.
         #expect(results.map(\.checkerId) == ["build"])
         let parallelPeak = await parallelTracker.peak
@@ -275,7 +327,7 @@ struct CheckerRunnerCacheTests {
             checkers: [checker], configuration: Configuration(),
             strict: false, continueOnFailure: true,
             cache: cache, gateHash: "gate-hash", useCache: useCache
-        )
+        ).results
     }
 
     @Test("Unchanged input across two runs → checker runs once (second is a cache hit)")

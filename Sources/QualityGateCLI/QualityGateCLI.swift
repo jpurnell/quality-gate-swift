@@ -449,13 +449,6 @@ struct QualityGateCLI: AsyncParsableCommand {
         default:
             outputFormat = .terminal
         }
-        // The registry, not the selection: the summary's denominator is how many
-        // checkers exist, so a narrowed run is self-reporting rather than requiring
-        // someone to already suspect it.
-        let reporter = ReporterFactory.create(
-            for: outputFormat,
-            rosterSize: Self.checkerRegistry(configuration: configuration).count)
-
         if verbose {
             print("Running \(checkersToRun.count) checkers concurrently...")
         }
@@ -484,7 +477,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Unset → the default (active processor count).
         let benchConcurrency = ProcessInfo.processInfo.environment["QG_BENCH_CONCURRENCY"].flatMap(Int.init)
         let runner = benchConcurrency.map(CheckerRunner.init(maxConcurrency:)) ?? CheckerRunner()
-        var allResults = await runner.run(
+        let runOutcome = await runner.run(
             checkers: checkersToRun,
             configuration: configuration,
             strict: strict,
@@ -499,6 +492,16 @@ struct QualityGateCLI: AsyncParsableCommand {
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
             }
         )
+        var allResults = runOutcome.results
+
+        // The reporter is created *after* the run so the summary can carry the run's
+        // truncation. The registry, not the selection, is the denominator: a narrowed
+        // run is self-reporting rather than requiring someone to already suspect it —
+        // and a truncated run must never read as a narrowed one.
+        let reporter = ReporterFactory.create(
+            for: outputFormat,
+            rosterSize: Self.checkerRegistry(configuration: configuration).count,
+            truncation: runOutcome.truncation)
 
         // The post-run stage. `consistency` audits the results above rather than the newest
         // telemetry on disk, which is the previous run — appended before the reporter and
@@ -672,6 +675,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                 identityKind: runEnvironment.isForeign ? .foreign : .resident,
                 gateMode: advisoryAll ? .advisory : .standard,
                 baseline: baselineSnapshot,
+                truncation: runOutcome.truncation,
                 cache: noCache ? nil : resultCache,
                 gateHash: gateHash,
                 digests: digestCache,

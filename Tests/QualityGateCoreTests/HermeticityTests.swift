@@ -144,7 +144,7 @@ struct HermeticityTests {
             checkers: [checker],
             configuration: Configuration(),
             strict: false,
-            continueOnFailure: true)
+            continueOnFailure: true).results
 
         #expect(results.count == 1)
         #expect(results[0].status == .passed)
@@ -162,7 +162,7 @@ struct HermeticityTests {
             checkers: [checker],
             configuration: Configuration(),
             strict: false,
-            continueOnFailure: true)
+            continueOnFailure: true).results
 
         #expect(results[0].status == .failed)
         #expect(results[0].diagnostics.map(\.severity) == [.error])
@@ -180,7 +180,7 @@ struct HermeticityTests {
             configuration: Configuration(),
             strict: false,
             continueOnFailure: true,
-            includeNonHermetic: true)
+            includeNonHermetic: true).results
 
         #expect(results[0].status == .failed)
         #expect(results[0].diagnostics.map(\.severity) == [.error])
@@ -192,7 +192,7 @@ struct HermeticityTests {
             checkers: [ThrowingChecker(hermeticity: .external)],
             configuration: Configuration(),
             strict: false,
-            continueOnFailure: true)
+            continueOnFailure: true).results
 
         #expect(results[0].status == .skipped)
         // The reason must survive so the report can say *why* nothing ran.
@@ -207,7 +207,7 @@ struct HermeticityTests {
             checkers: [ThrowingChecker(hermeticity: .hermetic)],
             configuration: Configuration(),
             strict: false,
-            continueOnFailure: true)
+            continueOnFailure: true).results
 
         #expect(results[0].status == .failed)
     }
@@ -227,7 +227,7 @@ struct HermeticityTests {
             checkers: [temporal, downstream],
             configuration: Configuration(),
             strict: false,
-            continueOnFailure: false)
+            continueOnFailure: false).results
 
         // Both ran: the clamped temporal result must not look like a failure to
         // the early-exit check, or a stale document could suppress real checks.
