@@ -233,12 +233,46 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     ///   — which is the ordinary case, and not an error.
     static func localDependencies(projectRoot: URL) -> [URL] {
         let state = projectRoot.appendingPathComponent(".build/workspace-state.json")
-        // silent: a package that has never been built, or has no path dependencies, simply
-        // has no workspace state to read, and contributes no directories
-        guard let data = try? Data(contentsOf: state),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+
+        // Two failures were being discarded under one justification that covered only the
+        // first. A package that has never been built has no workspace state — ordinary, and
+        // handled below. But `JSONSerialization` can only fail on a file that *exists*, and a
+        // malformed workspace state silently narrows the set of targets this checker examines.
+        // Reporting fewer findings because a file could not be parsed, while still reporting
+        // success, is the failure mode a coverage note exists to prevent.
+        // Absence is the ordinary case — a package that has never been built, or that has no
+        // path dependencies — so it is answered before any error handling rather than by a
+        // catch that would have to stay silent to express it.
+        guard FileManager.default.fileExists(atPath: state.path) else { return [] }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: state)
+        } catch {
+            Self.logger.warning(
+                "Could not read \(state.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Local dependency targets will not be audited."
+            )
+            return []
+        }
+
+        let parsed: Any
+        do {
+            parsed = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            Self.logger.warning(
+                "Malformed \(state.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Local dependency targets will not be audited."
+            )
+            return []
+        }
+
+        guard let root = parsed as? [String: Any],
               let object = root["object"] as? [String: Any],
-              let dependencies = object["dependencies"] as? [[String: Any]] else { return [] }
+              let dependencies = object["dependencies"] as? [[String: Any]] else {
+            Self.logger.warning(
+                "\(state.lastPathComponent, privacy: .public) has no 'object.dependencies' array. Local dependency targets will not be audited."
+            )
+            return []
+        }
 
         var found: [URL] = []
         for dependency in dependencies {
