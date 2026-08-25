@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed (checker correctness)
+
+- **`recursion` no longer inherits a syntactic answer to a type question — the last 4
+  corpus errors clear.** GRDB's `collated(_:_:)` terminates by returning `self.init(impl:
+  .collated(…))`, where `.collated` is an enum case; in its other branches the same
+  spelling is the recursive static func. Which one a leading-dot member means is decided
+  by contextual type, so Pass 1's base-case test saw `return <a call>` in every branch and
+  Pass 2 believed it. Pass 1 now records the *positions* of every callee name in such
+  returns and defers; Pass 2 asks the index what each name at each position is (a direct
+  read of occurrence data, no line heuristics) and a cycle is bounded when some
+  participant's return resolves entirely outside it. Both failure directions are
+  conservative: an unrecorded or unresolvable name counts as staying in the cycle, so
+  missing index data can only add findings. Measured: GRDB.swift 4 errors → **0**;
+  swift-collections' single known warning unchanged.
+  Design: `project/plans/proposals/TheIndexKnowsWhichBranchReturns.md`.
+
 ### Added
 
 - **A truncated run says so (Change C).** A default run stops at its first failing checker,

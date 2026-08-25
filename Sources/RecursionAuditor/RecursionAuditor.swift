@@ -152,7 +152,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
                     configuration: configuration,
                     baseCaseSites: RecursionIndexPass.baseCaseSites(from: allDeclarations),
                     selfBaseCaseSites: RecursionIndexPass.selfBaseCaseSites(from: allDeclarations),
-                    analysedSites: RecursionIndexPass.analysedSites(from: allDeclarations)
+                    analysedSites: RecursionIndexPass.analysedSites(from: allDeclarations),
+                    candidateSites: RecursionIndexPass.candidateBaseCaseSites(from: allDeclarations)
                 )
 
                 // Where the index could see the file, its USR answer supersedes the
@@ -260,7 +261,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
     /// Runs the IndexStoreDB-backed Pass 2 for USR-based cycle detection.
     private func runIndexStorePass(configuration: Configuration, baseCaseSites: Set<DeclarationSite>,
         selfBaseCaseSites: Set<DeclarationSite>,
-        analysedSites: Set<DeclarationSite>
+        analysedSites: Set<DeclarationSite>,
+        candidateSites: [DeclarationSite: [CandidateBaseCase]]
     ) async throws -> RecursionIndexPass.Result {
         let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
@@ -281,7 +283,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             swiftFiles: swiftFiles,
             baseCaseSites: baseCaseSites,
             selfBaseCaseSites: selfBaseCaseSites,
-            analysedSites: analysedSites
+            analysedSites: analysedSites,
+            candidateSites: candidateSites
         )
     }
 
@@ -441,6 +444,13 @@ struct DeclarationInfo {
     let outgoingCalls: [CallSite]
     /// True if this declaration participates in cycle detection (functions/methods).
     let isCallable: Bool
+    /// The `return <call>` branches Pass 1 could not judge, with their callee positions.
+    ///
+    /// `hasBaseCase` walks past these today. Each becomes a base case in Pass 2 if the
+    /// index resolves every name in it to a symbol outside the cycle under scrutiny.
+    /// `var` with a default only so fixture construction stays terse; production code
+    /// sets it at initialization and never mutates it.
+    var candidateBaseCases: [CandidateBaseCase] = []
 }
 
 /// A signature uniquely identifying a callable within its enclosing type context.
@@ -558,6 +568,27 @@ struct CallSite {
 struct DeclarationSite: Hashable, Sendable {
     let path: String
     let name: String
+}
+
+/// The position of a callee name token: 1-based line, 1-based UTF-8 column.
+///
+/// Both passes spell a position the same way — SwiftSyntax's `SourceLocation` and
+/// IndexStoreDB's `utf8Column` are both 1-based UTF-8 — so a position recorded by
+/// Pass 1 can be looked up directly in the index's occurrences, with no join
+/// heuristic between them (`TheIndexKnowsWhichBranchReturns.md` §3.2).
+struct CalleePosition: Hashable, Sendable {
+    let line: Int
+    let column: Int
+}
+
+/// A `return` whose expression is a call — a base case if, and only if, none of the
+/// names in it resolve back into the cycle. Pass 1 cannot tell (which `.collated` a
+/// leading-dot member means is decided by contextual type), so it records the position
+/// of every callee name and defers the resolution to Pass 2, which reads the index's
+/// answer instead of guessing syntactically.
+struct CandidateBaseCase: Hashable, Sendable {
+    /// The position of each callee name inside this `return` expression, at any depth.
+    let calleePositions: [CalleePosition]
 }
 
 struct SourceLocation {

@@ -8,6 +8,46 @@ import Synchronization
 
 // MARK: - USR-based call graph
 
+/// A position in a specific file: canonical path, 1-based line, 1-based UTF-8 column.
+struct FilePosition: Hashable, Sendable {
+    let path: String
+    let line: Int
+    let column: Int
+}
+
+/// What the name written at an exact position resolves to.
+///
+/// The index records every occurrence with a file, line and column. This is a direct
+/// read of that, not an inference from it: `.collated` at 940:38 is
+/// `SQLExpressionImpl.collated`, an enum case, and `.collated` at 913:25 is
+/// `SQLExpression.collated(_:_:)`, the function. No containment test, no line
+/// arithmetic, no ambiguity to resolve (`TheIndexKnowsWhichBranchReturns.md` §3.2).
+struct SymbolResolution: Sendable {
+    private var byPosition: [FilePosition: String]
+
+    /// An empty resolution: every lookup misses, which counts as "stays in the cycle" —
+    /// exactly the pre-candidate behaviour.
+    init() {
+        self.byPosition = [:]
+    }
+
+    /// Creates a resolution from explicit position → USR entries (tests, mainly).
+    init(positions: [FilePosition: String]) {
+        self.byPosition = positions
+    }
+
+    /// Records that the name at `position` is the symbol `usr`.
+    mutating func record(_ position: FilePosition, usr: String) {
+        byPosition[position] = usr
+    }
+
+    /// The USR of the name written at this exact position, or nil if the index has no
+    /// occurrence there.
+    func usr(atFile path: String, line: Int, column: Int) -> String? {
+        byPosition[FilePosition(path: path, line: line, column: column)]
+    }
+}
+
 /// Metadata for a symbol in the USR call graph.
 struct SymbolInfo: Sendable {
     /// Display name of the symbol (e.g. "foo(_:)").
@@ -43,6 +83,7 @@ final class USRCallGraph: Sendable {
     private let _hasBaseCase: Mutex<Set<String>> = Mutex([])
     private let _hasSelfBaseCase: Mutex<Set<String>> = Mutex([])
     private let _analysed: Mutex<Set<String>> = Mutex([])
+    private let _candidateBaseCases: Mutex<[String: [CandidateBaseCase]]> = Mutex([:])
 
     /// Creates an empty call graph.
     init() {}
@@ -140,6 +181,36 @@ final class USRCallGraph: Sendable {
     func componentHasBaseCase(_ component: [String]) -> Bool {
         _hasBaseCase.withLock { baseCases in
             component.contains { baseCases.contains($0) }
+        }
+    }
+
+    /// Attaches Pass 1's deferred `return <call>` branches to a USR.
+    func setCandidateBaseCases(_ usr: String, _ candidates: [CandidateBaseCase]) {
+        guard !candidates.isEmpty else { return }
+        _candidateBaseCases.withLock { $0[usr, default: []].append(contentsOf: candidates) }
+    }
+
+    /// True if some participant has a `return <call>` whose every name resolves outside
+    /// the component — a branch that exits the cycle, making it bounded.
+    ///
+    /// The conservative direction is built in twice: a candidate with no recorded
+    /// positions never counts, and an unresolvable position counts as *inside* the
+    /// cycle. Missing index data can only make the checker report more, never less —
+    /// which also answers the stale-index question: a store whose occurrences drifted
+    /// from the source Pass 1 read produces lookup misses, not silent boundedness.
+    func componentHasCandidateExit(_ component: [String], resolution: SymbolResolution) -> Bool {
+        let members = Set(component)
+        return component.contains { usr in
+            guard let info = symbolInfo(for: usr) else { return false }
+            let candidates = _candidateBaseCases.withLock { $0[usr] ?? [] }
+            return candidates.contains { candidate in
+                !candidate.calleePositions.isEmpty && candidate.calleePositions.allSatisfy { position in
+                    guard let resolved = resolution.usr(
+                        atFile: info.filePath, line: position.line, column: position.column
+                    ) else { return false }
+                    return !members.contains(resolved)
+                }
+            }
         }
     }
 
@@ -248,12 +319,25 @@ final class USRCallGraph: Sendable {
 enum RecursionIndexPass {
 
     /// Generates diagnostics from a pre-built USR call graph.
-    static func generateDiagnostics(from graph: USRCallGraph) -> [Diagnostic] {
+    ///
+    /// `resolution` carries the index's answer to *what is this name* for every
+    /// occurrence in the covered files. The default is empty, under which every
+    /// candidate branch counts as staying in its cycle — exactly the behaviour
+    /// before candidates existed.
+    static func generateDiagnostics(
+        from graph: USRCallGraph,
+        resolution: SymbolResolution = SymbolResolution()
+    ) -> [Diagnostic] {
         let sccs = graph.findStronglyConnectedComponents()
         var diagnostics: [Diagnostic] = []
 
         for component in sccs where component.count >= 2 {
             if graph.componentHasBaseCase(component) { continue }
+            // Pass 1's syntactic answer said no branch exits; the index may know
+            // better. GRDB's `collated(_:_:)` terminates by returning `self.init(impl:
+            // .collated(…))` where `.collated` is an enum case — a distinction only
+            // contextual type decides, which is why syntax deferred it here.
+            if graph.componentHasCandidateExit(component, resolution: resolution) { continue }
 
             let ruleId: String
             // Error, for the same reason as the AST pass: an unbounded cycle is a crash on
@@ -374,6 +458,27 @@ enum RecursionIndexPass {
         sites(from: declarations) { $0.hasSelfBaseCase }
     }
 
+    /// The deferred `return <call>` branches per declaration site.
+    ///
+    /// Overloads sharing a display name merge their candidate lists, the same
+    /// erring-toward-suppression direction `baseCaseSites` documents: a candidate from
+    /// a sibling overload can only mark a cycle bounded when *some* return at that site
+    /// exits it, and the safer failure for a name-keyed join feeding an error-severity
+    /// rule is the quiet one.
+    static func candidateBaseCaseSites(
+        from declarations: [DeclarationInfo]
+    ) -> [DeclarationSite: [CandidateBaseCase]] {
+        var result: [DeclarationSite: [CandidateBaseCase]] = [:]
+        for declaration in declarations where !declaration.candidateBaseCases.isEmpty {
+            let site = DeclarationSite(
+                path: URL(fileURLWithPath: declaration.location.file).resolvingSymlinksInPath().path,
+                name: declaration.signature.displayName
+            )
+            result[site, default: []].append(contentsOf: declaration.candidateBaseCases)
+        }
+        return result
+    }
+
     private static func sites(
         from declarations: [DeclarationInfo],
         where predicate: (DeclarationInfo) -> Bool
@@ -418,7 +523,8 @@ enum RecursionIndexPass {
         swiftFiles: [String],
         baseCaseSites: Set<DeclarationSite>,
         selfBaseCaseSites: Set<DeclarationSite>,
-        analysedSites: Set<DeclarationSite>
+        analysedSites: Set<DeclarationSite>,
+        candidateSites: [DeclarationSite: [CandidateBaseCase]] = [:]
     ) throws -> Result {
         let db = session.db
         let graph = USRCallGraph()
@@ -434,10 +540,27 @@ enum RecursionIndexPass {
         let canonicalSwiftFiles = Set(swiftFiles.map { canonicalize($0) })
         var matchedBaseCases = 0
         var coveredFiles: Set<String> = []
+        var resolution = SymbolResolution()
 
         for file in swiftFiles {
             let canonical = canonicalize(file)
             let symbols = db.symbols(inFilePath: canonical)
+
+            // Every occurrence in this file, of every kind — not just the callables the
+            // graph admits. The names inside a candidate `return` are exactly the ones
+            // that resolve to non-callables: an enum case, an initializer. Restricting
+            // this to graph nodes would make those positions unresolvable, which reads
+            // as "stays in the cycle" and silently disables the whole mechanism.
+            if !symbols.isEmpty {
+                for occurrence in db.symbolOccurrences(inFilePath: canonical) {
+                    resolution.record(
+                        FilePosition(
+                            path: canonical,
+                            line: occurrence.location.line,
+                            column: occurrence.location.utf8Column),
+                        usr: occurrence.symbol.usr)
+                }
+            }
 
             for symbol in symbols {
                 guard isCallable(symbol) else { continue }
@@ -479,6 +602,9 @@ enum RecursionIndexPass {
                 if analysedSites.contains(site) {
                     graph.markAnalysed(usr)
                 }
+                if let candidates = candidateSites[site] {
+                    graph.setCandidateBaseCases(usr, candidates)
+                }
 
                 let refs = db.occurrences(ofUSR: usr, roles: [.reference, .call])
                 for ref in refs {
@@ -497,7 +623,7 @@ enum RecursionIndexPass {
         // brace-counted body text, so it saw only one of the shapes that bound a cycle —
         // a bare `return`, or a `return` of anything that is not a call, were invisible
         // to it, and every cycle containing one was reported as unbounded.
-        let diagnostics0 = generateDiagnostics(from: graph)
+        let diagnostics0 = generateDiagnostics(from: graph, resolution: resolution)
         var diagnostics = diagnostics0
         if coveredFiles.isEmpty {
             // A store can be *fresh* and still useless. bitchat's holds 140 units, all

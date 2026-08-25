@@ -249,7 +249,8 @@ final class RecursionVisitor: SyntaxVisitor {
             hasSelfBaseCase: selfBaseCase,
             wasAnalysed: body != nil,
             outgoingCalls: outgoing,
-            isCallable: true
+            isCallable: true,
+            candidateBaseCases: body.map { candidateBaseCases(in: Syntax($0), converter: converter) } ?? []
         ))
     }
 
@@ -343,7 +344,8 @@ final class RecursionVisitor: SyntaxVisitor {
                 } ?? false,
                 wasAnalysed: getterBody != nil,
                 outgoingCalls: [],
-                isCallable: false
+                isCallable: false,
+                candidateBaseCases: getterBody.map { candidateBaseCases(in: $0, converter: converter) } ?? []
             ))
 
             switch accessorBlock.accessors {
@@ -433,7 +435,8 @@ final class RecursionVisitor: SyntaxVisitor {
             } ?? false,
             wasAnalysed: subscriptGetterBody != nil,
             outgoingCalls: [],
-            isCallable: false
+            isCallable: false,
+            candidateBaseCases: subscriptGetterBody.map { candidateBaseCases(in: $0, converter: converter) } ?? []
         ))
 
         guard !isSuppressed(atLine: location.line) else { return }
@@ -705,6 +708,81 @@ func hasGuardEarlyExit(in node: Syntax) -> Bool {
     let walker = Walker(viewMode: .sourceAccurate)
     walker.walk(node)
     return walker.found
+}
+
+/// The `return <call>` branches syntax cannot judge, each with its callee positions.
+///
+/// These are exactly the returns `hasGuardEarlyExit` walks past: a `return` whose
+/// expression is a call, and a single-expression branch value that is a call (the
+/// implicit return an `if`/`switch` expression gives each branch). Pass 1 records the
+/// position of every callee name inside the expression — `return self.init(impl:
+/// .collated(e, n))` yields `init` and `collated` — and Pass 2 asks the index what each
+/// name at each position actually is. Which overload a leading-dot member means is
+/// decided by contextual type, so recording evidence here and resolving there is the
+/// whole design (`TheIndexKnowsWhichBranchReturns.md` §3.1).
+func candidateBaseCases(in node: Syntax, converter: SourceLocationConverter) -> [CandidateBaseCase] {
+    final class CalleeTokenCollector: SyntaxVisitor {
+        let converter: SourceLocationConverter
+        var positions: [CalleePosition] = []
+        init(converter: SourceLocationConverter) {
+            self.converter = converter
+            super.init(viewMode: .sourceAccurate)
+        }
+        override func visit(_ call: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+            let nameToken: TokenSyntax?
+            if let identifier = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+                nameToken = identifier.baseName
+            } else if let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
+                nameToken = member.declName.baseName
+            } else {
+                nameToken = nil
+            }
+            if let token = nameToken {
+                let location = converter.location(for: token.positionAfterSkippingLeadingTrivia)
+                positions.append(CalleePosition(line: location.line, column: location.column))
+            }
+            return .visitChildren
+        }
+    }
+
+    final class Walker: SyntaxVisitor {
+        let converter: SourceLocationConverter
+        var candidates: [CandidateBaseCase] = []
+        init(converter: SourceLocationConverter) {
+            self.converter = converter
+            super.init(viewMode: .sourceAccurate)
+        }
+        override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+            if let expression = node.expression, expression.is(FunctionCallExprSyntax.self) {
+                record(expression)
+            }
+            return .visitChildren
+        }
+        /// The single-expression block shape `hasGuardEarlyExit` recognises, restricted
+        /// the same way: only a block whose one item is an expression is a branch value.
+        override func visit(_ node: CodeBlockItemListSyntax) -> SyntaxVisitorContinueKind {
+            guard node.count == 1, let only = node.first,
+                  case .expr(let expression) = only.item,
+                  expression.is(FunctionCallExprSyntax.self) else {
+                return .visitChildren
+            }
+            record(expression)
+            return .visitChildren
+        }
+        private func record(_ expression: ExprSyntax) {
+            let collector = CalleeTokenCollector(converter: converter)
+            collector.walk(expression)
+            // A call whose callee shape we cannot name (a closure invocation, a
+            // key-path application) records no position, and a candidate with no
+            // positions must not exist: Pass 2 would have nothing to check and an
+            // empty check must not read as "every name exits".
+            guard !collector.positions.isEmpty else { return }
+            candidates.append(CandidateBaseCase(calleePositions: collector.positions))
+        }
+    }
+    let walker = Walker(converter: converter)
+    walker.walk(node)
+    return walker.candidates
 }
 
 /// True if the body has a branch that exits without re-entering *this* function.
