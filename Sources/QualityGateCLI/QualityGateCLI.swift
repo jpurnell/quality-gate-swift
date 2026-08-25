@@ -5,6 +5,7 @@ import Foundation
 import os
 #endif
 import QualityGateCore
+import IndexStoreInfra
 import SafetyAuditor
 import BuildChecker
 import TestRunner
@@ -529,6 +530,12 @@ struct QualityGateCLI: AsyncParsableCommand {
                 ))
             }
         }
+        // Every checker is done with the index. Release the shared sessions so each
+        // IndexStoreDB closes cleanly — its database is renamed back to `v13/saved` only
+        // in its destructor, and a process that exits holding a session strands the
+        // database under a pid-unique name the next run discards and re-ingests.
+        await SharedIndexStore.drain()
+
         // Decaying baseline (Phase 4c §3): recorded debts become notes with
         // their expiry visible; expired debts return as re-verify warnings;
         // new findings gate. Applied before trial mode so both transforms

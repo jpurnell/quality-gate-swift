@@ -32,10 +32,24 @@ public actor KeyedAsyncCache<Value: Sendable> {
         }
         let task = Task { try await make() }
         pending[key] = task
-        defer { pending[key] = nil }
+        // Guarded on identity, not bare `= nil`: a `removeAll()` that ran while this
+        // construction was in flight has already cleared the entry, and an unguarded
+        // write here would either delete a successor's pending task or resurrect a
+        // drained value — state the drain exists to release.
+        defer { if pending[key] == task { pending[key] = nil } }
         let value = try await task.value
-        values[key] = value
+        if pending[key] == task { values[key] = value }
         return value
+    }
+
+    /// Releases every cached value and forgets in-flight constructions.
+    ///
+    /// An in-flight construction still completes and its caller still receives the
+    /// value, but the cache does not retain it — so the value deallocates when that
+    /// caller lets go, exactly as if it had never been cached.
+    public func removeAll() {
+        values.removeAll()
+        pending.removeAll()
     }
 }
 
@@ -61,5 +75,18 @@ public enum SharedIndexStore {
         try await cache.value(for: storePath.path) {
             try IndexStoreSession(storePath: storePath, libPath: libPath)
         }
+    }
+
+    /// Releases every cached session so each `IndexStoreDB` closes cleanly.
+    ///
+    /// IndexStoreDB holds its database at a process-unique `v13/p<pid>-…` path while open
+    /// and renames it to `v13/saved` only in its **destructor**. A process that exits
+    /// without releasing its sessions strands the database under the pid name, and the
+    /// next run discards it and re-ingests every unit from scratch — silently forfeiting
+    /// the persistence `IndexStoreSession` provides. The CLI calls this once after all
+    /// checkers have finished; a session still referenced by an in-flight caller closes
+    /// when that caller lets go.
+    public static func drain() async {
+        await cache.removeAll()
     }
 }

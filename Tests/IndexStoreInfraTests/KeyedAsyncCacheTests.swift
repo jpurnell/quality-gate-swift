@@ -73,4 +73,51 @@ struct KeyedAsyncCacheTests {
         let constructions = await counter.count
         #expect(constructions == 2)  // failure did not poison the cache
     }
+
+    @Test("removeAll releases cached values and the next call reconstructs")
+    func removeAllReleasesAndReconstructs() async throws {
+        let cache = KeyedAsyncCache<Int>()
+        let counter = Counter()
+
+        let first = try await cache.value(for: "k") { await counter.increment(); return 1 }
+        await cache.removeAll()
+        let second = try await cache.value(for: "k") { await counter.increment(); return 2 }
+
+        #expect(first == 1)
+        #expect(second == 2)  // reconstructed, not served from the drained cache
+        let constructions = await counter.count
+        #expect(constructions == 2)
+    }
+
+    @Test("removeAll during an in-flight construction does not resurrect the entry")
+    func removeAllDoesNotResurrectInFlightConstruction() async throws {
+        let cache = KeyedAsyncCache<Int>()
+        let counter = Counter()
+        let gate = AsyncStream<Void>.makeStream()
+
+        // Start a construction that blocks until released.
+        let inFlight = Task {
+            try await cache.value(for: "k") {
+                await counter.increment()
+                var iterator = gate.stream.makeAsyncIterator()
+                _ = await iterator.next()
+                return 10
+            }
+        }
+        // Give the construction time to register as pending, then drain mid-flight.
+        try await Task.sleep(for: .milliseconds(50))
+        await cache.removeAll()
+        gate.continuation.yield()
+        gate.continuation.finish()
+
+        // The in-flight caller still gets its value…
+        let delivered = try await inFlight.value
+        #expect(delivered == 10)
+
+        // …but the drained cache must not have kept it: the next call reconstructs.
+        let after = try await cache.value(for: "k") { await counter.increment(); return 20 }
+        #expect(after == 20)
+        let constructions = await counter.count
+        #expect(constructions == 2)
+    }
 }

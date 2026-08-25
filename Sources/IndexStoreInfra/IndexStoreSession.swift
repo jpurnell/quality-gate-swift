@@ -10,45 +10,130 @@ extension IndexStoreDB: @retroactive @unchecked Sendable {}
 
 /// Wraps IndexStoreDB initialization into a reusable session.
 ///
-/// Handles the boilerplate of creating a temporary database directory,
-/// loading the `libIndexStore` dylib, opening the index store, and
-/// polling for changes. Checkers receive a ready-to-query `IndexStoreDB`
-/// instance via `db`.
+/// Loads the `libIndexStore` dylib, opens the index store against a **persistent**
+/// database directory derived from the store's own location, and polls for changes.
+/// Checkers receive a ready-to-query `IndexStoreDB` instance via `db`.
+///
+/// The database is IndexStoreDB's LMDB ingestion of the store's unit records. It
+/// persists across runs — deliberately — so `pollForUnitChangesAndWait()` processes
+/// only units whose files changed, instead of re-ingesting every unit into a throwaway
+/// temp directory on each run (measured at ~11s of a 15s `recursion` run on this
+/// package's 3,402 units; see `IngestionIsNotAnalysis.md`). It lives beside the store,
+/// so whatever wipes the store wipes the database built from it, and it is safe to
+/// delete at any time: the next session rebuilds it in full.
+///
+/// When the persistent directory cannot be used, the session demotes — wipe and retry
+/// once, then fall back to an ephemeral temp directory, which is the pre-persistence
+/// behaviour and the ladder's floor.
 public final class IndexStoreSession: Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "IndexStoreSession")
 
     /// The ready-to-query IndexStoreDB instance opened by this session.
     public let db: IndexStoreDB
-    private let tempDir: URL
+    /// Set only when the session demoted to a throwaway database; removed in `deinit`.
+    private let ephemeralDir: URL?
 
-    /// Opens an IndexStoreDB session.
+    /// The persistent database directory for `storePath`: a sibling named
+    /// `quality-gate-indexdb-<store name>`.
+    ///
+    /// The single definition of this path, in the `StoreLocator` tradition. Co-location
+    /// is the coherence property: a `.build` wipe (or Xcode deleting DerivedData)
+    /// necessarily destroys the database together with the store it was ingested from,
+    /// so the database can never outlive — or answer for — a store that is gone.
+    public static func databaseDirectory(for storePath: URL) -> URL {
+        storePath.deletingLastPathComponent()
+            .appendingPathComponent("quality-gate-indexdb-\(storePath.lastPathComponent)")
+    }
+
+    /// Opens an IndexStoreDB session with the persistent database for `storePath`.
     ///
     /// - Parameters:
     ///   - storePath: Path to the index store (e.g. `.build/index-build/index-store`).
     ///   - libPath: Path to `libIndexStore.dylib`.
     /// - Throws: If the library cannot be loaded or the store cannot be opened.
-    public init(storePath: URL, libPath: URL) throws {
+    public convenience init(storePath: URL, libPath: URL) throws {
+        try self.init(
+            storePath: storePath,
+            libPath: libPath,
+            databaseDirectory: Self.databaseDirectory(for: storePath)
+        )
+    }
+
+    /// Internal seam: opens against an explicit database directory.
+    init(storePath: URL, libPath: URL, databaseDirectory: URL) throws {
         let lib = try IndexStoreLibrary(dylibPath: libPath.path)
+
+        if let persistent = Self.openPersistent(
+            storePath: storePath, library: lib, databaseDirectory: databaseDirectory) {
+            self.db = persistent
+            self.ephemeralDir = nil
+            return
+        }
+
+        // The ladder's floor: a throwaway database, exactly the pre-persistence behaviour.
         let dbPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("quality-gate-indexdb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dbPath, withIntermediateDirectories: true) // SAFETY: CLI tool creates temp directory for index DB
-        self.tempDir = dbPath
+        self.ephemeralDir = dbPath
+        self.db = try Self.open(storePath: storePath, library: lib, databasePath: dbPath)
+    }
 
-        self.db = try IndexStoreDB(
+    /// Opens and polls an `IndexStoreDB` at `databasePath`.
+    private static func open(
+        storePath: URL, library: IndexStoreLibrary, databasePath: URL
+    ) throws -> IndexStoreDB {
+        let db = try IndexStoreDB(
             storePath: storePath.path,
-            databasePath: dbPath.path,
-            library: lib,
+            databasePath: databasePath.path,
+            library: library,
             waitUntilDoneInitializing: true,
             listenToUnitEvents: false
         )
         db.pollForUnitChangesAndWait()
+        return db
+    }
+
+    /// Rungs 1 and 2 of the ladder: open persistent; on failure wipe and retry once.
+    ///
+    /// The open-and-poll is serialized across processes with the same `flock(2)` pattern
+    /// `StoreLocator` uses for index builds, because the first ingestion is a heavy write
+    /// burst two concurrent gate runs should not interleave. The lock file is a *sibling*
+    /// of the database directory, not inside it — the wipe rung deletes the directory,
+    /// and a lock file deleted mid-hold silently stops excluding the next process.
+    /// Queries after init are read-only and unserialized.
+    private static func openPersistent(
+        storePath: URL, library: IndexStoreLibrary, databaseDirectory: URL
+    ) -> IndexStoreDB? {
+        let lockURL = databaseDirectory.deletingLastPathComponent()
+            .appendingPathComponent(databaseDirectory.lastPathComponent + ".lock")
+        do {
+            var opened: IndexStoreDB?
+            try StoreLocator.withExclusiveLock(at: lockURL) {
+                do {
+                    try FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true) // SAFETY: CLI tool creates the persistent index DB directory beside the store
+                    opened = try open(
+                        storePath: storePath, library: library, databasePath: databaseDirectory)
+                } catch {
+                    logger.warning("persistent index DB at \(databaseDirectory.path, privacy: .public) failed to open (\(error.localizedDescription, privacy: .public)); wiping and retrying once")
+                    try FileManager.default.removeItem(at: databaseDirectory) // SAFETY: CLI tool removes its own corrupt index DB directory
+                    try FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true) // SAFETY: CLI tool recreates the persistent index DB directory
+                    opened = try open(
+                        storePath: storePath, library: library, databasePath: databaseDirectory)
+                }
+            }
+            return opened
+        } catch {
+            logger.warning("persistent index DB unusable at \(databaseDirectory.path, privacy: .public); demoting to an ephemeral database: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     deinit {
+        guard let ephemeralDir else { return }
         do {
-            try FileManager.default.removeItem(at: tempDir)
+            try FileManager.default.removeItem(at: ephemeralDir)
         } catch {
-            Self.logger.warning("Failed to clean up temp directory \(self.tempDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Self.logger.warning("Failed to clean up temp directory \(ephemeralDir.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 

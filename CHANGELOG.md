@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Performance
+
+- **The IndexStoreDB database persists across runs; ingestion is no longer paid per run.**
+  `IndexStoreSession` built the LMDB database in a UUID-named temp directory and deleted it in
+  `deinit`, so every run re-ingested every unit record of the store (3,402 here) from scratch —
+  profiled at the entire working set of a 15s `--check recursion` run, while the first suspect
+  (`TypeDiscriminator`, added 2026-08-24) appeared in zero samples. The database now lives
+  beside the store (`.build/quality-gate-indexdb-<store>`), so whatever wipes the store wipes
+  the database, and an unusable directory demotes — wipe-and-retry once, then the old ephemeral
+  behaviour as the ladder's floor.
+
+  Persisting the directory alone was measured insufficient: IndexStoreDB saves its database
+  (renames `v13/p<pid>-…` back to `v13/saved`) only in its destructor, and the process-lifetime
+  `SharedIndexStore` cache meant no session was ever released. The CLI now drains the shared
+  cache after all checkers finish (`SharedIndexStore.drain()` /
+  `KeyedAsyncCache.removeAll()`, guarded against resurrecting in-flight constructions).
+
+  `unreachable`'s `IndexStorePass` carried a private copy of the same throwaway pattern — a
+  *second* full ingestion in the same gate run — and now routes through `SharedIndexStore`.
+
+  Measured (release, `--check recursion --no-cache`): 15.1s before; 20.9s cold (first
+  ingestion); **9.3s warm**, with the unit-processing thread down from 4,211 profile samples
+  to 40. Design and measurements: `project/plans/proposals/IngestionIsNotAnalysis.md`.
+
 ### Changed
 
 - **The README now leads with the documentation ladder rather than the word "linting".** The

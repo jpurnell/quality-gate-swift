@@ -191,7 +191,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 libIndexStoreDylib: dylib,
                 targetTypeByModule: targetTypeByModule
             )
-            diagnostics.append(contentsOf: try IndexStorePass.run(inputs: inputs))
+            diagnostics.append(contentsOf: try await IndexStorePass.run(inputs: inputs))
         } catch SkipMarker.skipped {
             Self.logger.info("Cross-module pass skipped: no index store available")
         } catch {

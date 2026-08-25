@@ -1,5 +1,6 @@
 import Foundation
 import IndexStoreDB
+import IndexStoreInfra
 #if canImport(os)
 import os
 #endif
@@ -39,7 +40,7 @@ struct IndexStorePass {
         }
     }
 
-    static func run(inputs: Inputs) throws -> [Diagnostic] {
+    static func run(inputs: Inputs) async throws -> [Diagnostic] {
         var pathCache: [String: String] = [:]
         func canonicalize(_ path: String) -> String {
             if let cached = pathCache[path] { return cached }
@@ -48,26 +49,14 @@ struct IndexStorePass {
             return resolved
         }
 
-        let lib = try IndexStoreLibrary(dylibPath: inputs.libIndexStoreDylib.path)
-        let dbPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quality-gate-indexdb-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dbPath, withIntermediateDirectories: true)
-        defer {
-            do {
-                try FileManager.default.removeItem(at: dbPath)
-            } catch {
-                logger.warning("Failed to clean up temp index DB at \(dbPath.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        let db = try IndexStoreDB(
-            storePath: inputs.indexStorePath.path,
-            databasePath: dbPath.path,
-            library: lib,
-            waitUntilDoneInitializing: true,
-            listenToUnitEvents: false
-        )
-        db.pollForUnitChangesAndWait()
+        // The shared session, not a private throwaway database: this pass used to build
+        // its own temp-directory IndexStoreDB, which re-ingested every unit record on
+        // every run — a second full ingestion in the same process alongside the one the
+        // six SharedIndexStore checkers already share, and the exact cost
+        // `IngestionIsNotAnalysis.md` measured and removed.
+        let session = try await SharedIndexStore.session(
+            storePath: inputs.indexStorePath, libPath: inputs.libIndexStoreDylib)
+        let db = session.db
 
         // -- Pre-pass: gather syntactic facts for every source file under
         // the project root (recursively, skipping build/dependency dirs).
