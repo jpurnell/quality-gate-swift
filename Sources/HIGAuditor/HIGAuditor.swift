@@ -219,11 +219,14 @@ public struct HIGAuditor: FixableChecker, Sendable {
         let hasViewConformance = source.contains(": View")
 
         if hasAppConformance {
+            // A file that names its own platform outranks the project-wide default,
+            // which is `.all` for any repo without a Package.swift at its root.
+            let appPlatforms = PlatformDetector.detectAppPlatform(source) ?? activePlatforms
             let appVisitor = AppStructureVisitor(
                 fileName: fileName,
                 converter: converter,
                 sourceLines: sourceLines,
-                activePlatforms: activePlatforms
+                activePlatforms: appPlatforms
             )
             appVisitor.walk(tree)
             diagnostics.append(contentsOf: appVisitor.diagnostics)

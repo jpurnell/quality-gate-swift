@@ -6,6 +6,83 @@ import QualityGateCore
 struct HIGAuditorTests {
     let auditor = HIGAuditor()
 
+    // MARK: - Tier 1: Platform inference for App structs
+    //
+    // The structural rules are declared macOS-only, but the auditor resolves
+    // platforms once per project from Package.swift. A repo without a manifest at
+    // its root (an Xcode project, or a monorepo of packages) falls back to `.all`,
+    // which contains macOS — so every App struct got audited against rules that do
+    // not apply to it. `Settings` is a macOS-only scene; demanding one of a watchOS
+    // app asks for code that will not compile.
+
+    @Test("A watchOS app file is not asked for a macOS Settings scene")
+    func settingsSceneNotFlaggedOnWatchOSSource() {
+        let source = """
+        import SwiftUI
+        import WatchConnectivity
+        @main struct WatchApp: App {
+            init() {
+                #if canImport(WatchConnectivity) && os(watchOS)
+                setUp()
+                #endif
+            }
+            var body: some Scene {
+                WindowGroup { Text("Hello") }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "WatchApp.swift", activePlatforms: .all)
+        let diag = result.diagnostics.filter { $0.ruleId == "hig.settings-scene" }
+        #expect(diag.isEmpty, "os(watchOS) marks this file as a watch app; Settings is macOS-only")
+    }
+
+    @Test("A visionOS app opening an ImmersiveSpace is not asked for Settings")
+    func settingsSceneNotFlaggedOnVisionOSSource() {
+        let source = """
+        import SwiftUI
+        @main struct VisionApp: App {
+            var body: some Scene {
+                WindowGroup { Text("Hello") }
+                ImmersiveSpace(id: "space") { Text("Immersive") }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "VisionApp.swift", activePlatforms: .all)
+        let diag = result.diagnostics.filter { $0.ruleId == "hig.settings-scene" }
+        #expect(diag.isEmpty, "ImmersiveSpace exists only on visionOS")
+    }
+
+    @Test("A watchOS app is not asked for a menu bar .commands modifier")
+    func menuCommandsNotFlaggedOnWatchOSSource() {
+        let source = """
+        import SwiftUI
+        import WatchKit
+        @main struct WatchApp: App {
+            var body: some Scene {
+                WindowGroup { Text("Hello") }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "WatchApp.swift", activePlatforms: .all)
+        let diag = result.diagnostics.filter { $0.ruleId == "hig.menu-commands" }
+        #expect(diag.isEmpty, "import WatchKit marks this a watch app; there is no menu bar")
+    }
+
+    @Test("An App struct with no platform marker still falls back to the project platforms")
+    func appWithoutMarkersStillUsesProjectPlatforms() {
+        let source = """
+        import SwiftUI
+        @main struct PlainApp: App {
+            var body: some Scene {
+                WindowGroup { Text("Hello") }
+            }
+        }
+        """
+        let result = auditor.auditSource(source, fileName: "PlainApp.swift", activePlatforms: .all)
+        let diag = result.diagnostics.filter { $0.ruleId == "hig.settings-scene" }
+        #expect(!diag.isEmpty, "Nothing in the file rules macOS out, so the rule must still fire")
+    }
+
     // MARK: - Tier 1: Settings Scene
 
     @Test("Flags missing Settings scene on macOS")

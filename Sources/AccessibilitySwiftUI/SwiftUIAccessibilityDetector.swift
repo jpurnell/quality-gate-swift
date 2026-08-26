@@ -273,11 +273,14 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             return
         }
         let componentLabels: Set<String> = ["red", "green", "blue", "white", "hue", "saturation", "brightness", "hex"]
-        let hasComponent = node.arguments.contains { arg in
-            guard let label = arg.label?.text else { return false }
-            return componentLabels.contains(label)
+        // A component carried by a property or parameter is chosen at runtime — a
+        // theme colour, a mode identity passed through attributes — and there is no
+        // literal for the suggested fix to replace. Only a literal is hardcoded.
+        let hasLiteralComponent = node.arguments.contains { arg in
+            guard let label = arg.label?.text, componentLabels.contains(label) else { return false }
+            return Self.isLiteralExpression(arg.expression)
         }
-        guard hasComponent else { return }
+        guard hasLiteralComponent else { return }
 
         let location = node.startLocation(converter: converter)
         if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.hardcodedColor) {
@@ -294,6 +297,55 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             ruleId: SwiftUIAccessibilityRule.hardcodedColor,
             suggestedFix: "Use an asset-catalog color (Color(\"Name\")) or a system/semantic color (Color(.systemBackground), .primary) so it adapts to appearance and accessibility settings."
         ))
+    }
+
+    /// Whether an expression is a literal the author wrote in place.
+    private static func isLiteralExpression(_ expr: ExprSyntax) -> Bool {
+        expr.is(StringLiteralExprSyntax.self)
+            || expr.is(IntegerLiteralExprSyntax.self)
+            || expr.is(FloatLiteralExprSyntax.self)
+    }
+
+    /// Modifiers that change something a colour-blind user can still perceive.
+    private static let nonColorCompanionModifiers: Set<String> = [
+        "opacity", "font", "fontWeight", "bold", "italic",
+        "symbolVariant", "scaleEffect", "blur", "saturation", "strikethrough"
+    ]
+
+    /// Whether some other modifier in the same chain also varies on a condition and
+    /// changes something other than colour, so colour is not the sole signal.
+    private static func hasNonColorCompanion(inChainOf node: FunctionCallExprSyntax) -> Bool {
+        // Modifiers below this one appear in its base; modifiers above it are its
+        // ancestors. Climb to the outermost call so the whole chain is in scope.
+        var root = Syntax(node)
+        while let parent = root.parent,
+              parent.is(MemberAccessExprSyntax.self) || parent.is(FunctionCallExprSyntax.self) {
+            root = parent
+        }
+        return containsStateVaryingCompanion(root)
+    }
+
+    private static func containsStateVaryingCompanion(_ node: Syntax) -> Bool {
+        if let call = node.as(FunctionCallExprSyntax.self) {
+            if let member = call.calledExpression.as(MemberAccessExprSyntax.self),
+               nonColorCompanionModifiers.contains(member.declName.baseName.text),
+               let first = call.arguments.first,
+               ternaryBranches(first.expression) != nil {
+                return true
+            }
+            // `Image(systemName: on ? "a" : "b")` swaps the glyph itself.
+            if let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+               ref.baseName.text == "Image",
+               let first = call.arguments.first,
+               first.label?.text == "systemName",
+               ternaryBranches(first.expression) != nil {
+                return true
+            }
+        }
+        for child in node.children(viewMode: .sourceAccurate) where containsStateVaryingCompanion(child) {
+            return true
+        }
+        return false
     }
 
     /// Detects a color-only state signal: a `.foregroundColor`/`.foregroundStyle`/`.tint`
@@ -314,6 +366,10 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         if source.contains("accessibilityDifferentiateWithoutColor") || source.contains("differentiateWithoutColor") {
             return
         }
+        // A sibling modifier that varies on a condition and changes something other
+        // than colour — an opacity, a weight, a symbol variant — is the companion
+        // this rule asks for, and one a colour-blind user can actually see.
+        if Self.hasNonColorCompanion(inChainOf: node) { return }
 
         let location = member.period.startLocation(converter: converter)
         if let override = overrideIfExempted(line: location.line, ruleId: SwiftUIAccessibilityRule.colorOnlyDifferentiation) {
@@ -526,6 +582,22 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
     /// Detects `.animation(...)` modifier without nearby reduceMotion check.
     private func checkAnimationModifier(_ node: MemberAccessExprSyntax) {
         guard node.declName.baseName.text == "animation" else { return }
+
+        // `TimelineView(.animation(minimumInterval:))` is a TimelineViewSchedule —
+        // a render clock that decides how often the view redraws, not a view
+        // animation. Gating one on Reduce Motion stops the view updating at all.
+        // A schedule is written as an implicit member expression and so has no
+        // base; the view modifier is always applied to something.
+        guard node.base != nil else { return }
+
+        // `.animation(.none, …)` and `.animation(nil, …)` are already the
+        // reduced-motion outcome, so there is nothing to guard.
+        if let call = node.parent?.as(FunctionCallExprSyntax.self),
+           let first = call.arguments.first,
+           first.label == nil {
+            let animation = first.expression.trimmedDescription
+            if animation == ".none" || animation == "nil" { return }
+        }
 
         let location = node.period.startLocation(
             converter: converter

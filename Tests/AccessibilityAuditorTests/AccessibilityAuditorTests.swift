@@ -212,6 +212,141 @@ struct AccessibilityAuditorTests {
         #expect(fixedFont.isEmpty)
     }
 
+    // MARK: - missing-reduce-motion: what is not a view animation
+    //
+    // The rule matched every member access named `animation`. Two of those are not
+    // the view modifier at all, and "fixing" them makes the code worse: a
+    // TimelineView schedule is a render clock, and `.animation(.none)` already
+    // opts out.
+
+    @Test("TimelineView(.animation:) is a render clock, not a view animation")
+    func timelineViewScheduleIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
+                    Color.clear
+                }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Clock.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
+        #expect(motion.isEmpty, "TimelineViewSchedule.animation drives a refresh rate; gating it on Reduce Motion would stop the view updating")
+    }
+
+    @Test(".animation(.none, ...) already opts out of animating")
+    func animationNoneIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi")
+                    .animation(.none, value: 0)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "AnimNone.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
+        #expect(motion.isEmpty, "`.none` is already the reduced-motion outcome")
+    }
+
+    @Test("A real .animation() modifier is still flagged")
+    func realAnimationModifierStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @State var value: Double = 0
+            var body: some View {
+                Color.black
+                    .opacity(value)
+                    .animation(.easeInOut(duration: 1.0), value: value)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "RealAnim.swift")
+        let motion = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-reduce-motion" }
+        #expect(motion.count >= 1, "A chained modifier has a base expression and must still be caught")
+    }
+
+    // MARK: - hardcoded-color: dynamic arguments are not hardcoded
+
+    @Test("Color(hex:) with a runtime argument is not a hardcoded colour")
+    func dynamicHexColorIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let modeColorHex: String
+            var body: some View {
+                Circle().fill(Color(hex: modeColorHex))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "DynHex.swift")
+        let hard = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hard.isEmpty, "The value comes from a property at runtime; there is no literal to replace")
+    }
+
+    @Test("A literal Color(hex:) is still flagged")
+    func literalHexColorStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Circle().fill(Color(hex: "#FF0000"))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "LitHex.swift")
+        let hard = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hard.count >= 1, "A literal hex string is exactly what this rule is for")
+    }
+
+    // MARK: - color-only: a non-colour companion in the same chain
+
+    @Test("A state-varying .opacity counts as a non-colour companion")
+    func opacityCompanionIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let isConnected: Bool
+            var body: some View {
+                Image(systemName: "eyeglasses")
+                    .foregroundStyle(isConnected ? Color.secondary : Color.orange)
+                    .opacity(isConnected ? 0.5 : 1)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Companion.swift")
+        let colorOnly = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
+        #expect(colorOnly.isEmpty, "Opacity varies with the same condition, so colour is not the sole signal")
+    }
+
+    @Test("Colour alone with no companion is still flagged")
+    func colorAloneStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let isOn: Bool
+            var body: some View {
+                Text("Status")
+                    .foregroundStyle(isOn ? Color.green : Color.red)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "ColorAlone.swift")
+        let colorOnly = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
+        #expect(colorOnly.count >= 1, "Nothing but the colour changes here")
+    }
+
     // MARK: - Scope-Aware reduceMotion Check
 
     @Test("Scope-aware check finds reduceMotion distant in same function body")
