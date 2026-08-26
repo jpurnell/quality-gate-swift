@@ -4,6 +4,25 @@
 
 ### Fixed (self-audit)
 
+- **A replayed result now leads with its provenance instead of trailing it.** The
+  `Replayed from cache` notice was appended, so it rendered *after* the diagnostics it
+  qualifies — the last line of a block whose opening lines read as fresh findings. It is
+  now the first diagnostic, and it names the run it is replaying:
+
+      ℹ️  note: Replayed from cache: this checker did not run (produced 2026-08-26 21:37:48 UTC).
+                Every finding below is from that run, as are any coverage or timing figures.
+
+  The timestamp comes from the cache entry's modification time, since `CheckResult`
+  records a duration but not a date, and is formatted in UTC under a POSIX locale so the
+  line compares cleanly across machines and logs.
+
+  This is the counterpart to the caching fix above rather than a cosmetic one. Both
+  substantive bugs found that day — a cached failure replaying forever, and the release
+  preflight reporting the CLI's own version as the surveyed project's — presented as a
+  confident, specific, wrong statement, and in both cases the tool held what it needed to
+  say something true. Placing that below three red errors put the one line that explains
+  them where it would be read last, or filtered out entirely by a grep for `error:`.
+
 - **A cached failure replayed forever, wedging commit retries.** `evaluate` stored every
   result regardless of status and replayed every result regardless of status. One
   contended run — a `swift test` starved by builds in three other repos — produced three

@@ -24,6 +24,8 @@ private struct FakeChecker: QualityChecker {
     let cacheInputFiles: [String]?
     /// Counts how many times `check()` actually executed (to detect cache hits).
     let callCounter: CallCounter?
+    /// Findings the checker reports, so diagnostic ordering can be observed.
+    let diagnostics: [Diagnostic]
 
     init(
         id: String,
@@ -33,7 +35,8 @@ private struct FakeChecker: QualityChecker {
         throwsError: Bool = false,
         isParallelSafe: Bool = true,
         cacheInputFiles: [String]? = nil,
-        callCounter: CallCounter? = nil
+        callCounter: CallCounter? = nil,
+        diagnostics: [Diagnostic] = []
     ) {
         self.id = id
         self.name = id
@@ -44,6 +47,7 @@ private struct FakeChecker: QualityChecker {
         self.isParallelSafe = isParallelSafe
         self.cacheInputFiles = cacheInputFiles
         self.callCounter = callCounter
+        self.diagnostics = diagnostics
     }
 
     struct Boom: Error {}
@@ -60,7 +64,7 @@ private struct FakeChecker: QualityChecker {
         }
         await tracker?.leave()
         if throwsError { throw Boom() }
-        return CheckResult(checkerId: id, status: status, diagnostics: [], duration: .zero)
+        return CheckResult(checkerId: id, status: status, diagnostics: diagnostics, duration: .zero)
     }
 }
 
@@ -436,6 +440,68 @@ struct CheckerRunnerCacheTests {
         #expect(
             cache.load(checkerId: "poisoned", fingerprint: fingerprint)?.status != .failed,
             "A failed entry must not survive a read, or it poisons every later run too"
+        )
+    }
+
+    // MARK: - A replayed result leads with its provenance
+    //
+    // The notice used to be appended, so it rendered *after* the diagnostics it
+    // qualifies — the last line of a block whose first lines look like fresh findings.
+    // Both substantive bugs found the day this was written presented as a confident,
+    // specific, wrong statement, and in both cases the tool held what it needed to say
+    // something true. A result that announces it is a replay before it states its
+    // findings is the difference between a line and an afternoon.
+
+    @Test("The replay notice is the first diagnostic, not the last")
+    func replayNoticeComesFirst() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let finding = Diagnostic(
+            severity: .warning, message: "a finding that looks fresh", ruleId: "fake.finding"
+        )
+        let checker = FakeChecker(
+            id: "warner", status: .warning, cacheInputFiles: [input.path], diagnostics: [finding]
+        )
+
+        _ = await run(checker, cache: cache, useCache: true)          // populates
+        let replayed = await run(checker, cache: cache, useCache: true)  // serves
+
+        let all = try #require(replayed.first?.diagnostics)
+        #expect(all.count == 2, "The finding and the notice")
+        #expect(all.first?.ruleId == "cache.replayed", "Provenance must precede the findings it qualifies")
+        #expect(all.last?.ruleId == "fake.finding", "and the finding must still be reported")
+    }
+
+    @Test("The replay notice names when the cached run happened")
+    func replayNoticeCarriesProvenance() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let checker = FakeChecker(id: "warner", status: .warning, cacheInputFiles: [input.path])
+
+        _ = await run(checker, cache: cache, useCache: true)
+        let replayed = await run(checker, cache: cache, useCache: true)
+
+        let notice = try #require(replayed.first?.diagnostics.first)
+        // "a run from some time ago" is not actionable; the exact stamp is. Assert the
+        // rendered string, not merely that something date-shaped is present — a notice
+        // carrying the wrong run's time would be worse than one carrying none.
+        let fingerprint = CheckerFingerprint.compute(
+            checkerId: "warner",
+            inputs: CacheInputs(files: [input.path]),
+            gateHash: "gate-hash"
+        )
+        let producedAt = try #require(
+            cache.entryDate(checkerId: "warner", fingerprint: fingerprint),
+            "A cache hit must not rewrite the entry, so its date is still readable"
+        )
+        let expected = "(produced \(CheckerRunner.replayTimestamp.string(from: producedAt)))"
+        #expect(
+            notice.message.contains(expected),
+            "The notice must date the run it is replaying, exactly: expected \(expected)"
         )
     }
 

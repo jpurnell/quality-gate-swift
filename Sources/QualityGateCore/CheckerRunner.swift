@@ -12,6 +12,21 @@ import os
 /// wall-time to roughly the slowest single checker without changing any check.
 public struct CheckerRunner: Sendable {
 
+    /// Formats the timestamp on a replayed result.
+    ///
+    /// Fixed to a POSIX locale and UTC so the line reads the same on every machine and
+    /// in every log — a replay notice is evidence, and evidence that renders differently
+    /// per host is harder to compare across two runs, which is exactly what a reader of
+    /// this line is doing.
+    static let replayTimestamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss 'UTC'"
+        return formatter
+    }()
+
+
     private static let logger = Logger(subsystem: "com.quality-gate", category: "CheckerRunner")
 
     /// Maximum number of checkers allowed to run at once.
@@ -137,13 +152,19 @@ public struct CheckerRunner: Sendable {
         /// replaying one silently turns it back into a stored number, describing a run that
         /// did not happen. The findings remain valid — they were computed from the same
         /// inputs — so the marker is additive and changes no verdict.
-        @Sendable func markReplayed(_ result: CheckResult) -> CheckResult {
+        @Sendable func markReplayed(_ result: CheckResult, producedAt: Date?) -> CheckResult {
+            // Prepended, not appended. The notice qualifies every diagnostic under it,
+            // so reporters — which emit in array order — must show it first. Appended,
+            // it was the last line of a block whose opening lines read as fresh
+            // findings, which is the worst possible place for the one line that says
+            // they are not.
+            let when = producedAt.map { " (produced \(Self.replayTimestamp.string(from: $0)))" } ?? ""
             var diagnostics = result.diagnostics
-            diagnostics.append(Diagnostic(
+            diagnostics.insert(Diagnostic(
                 severity: .note,
-                message: "Replayed from cache: this checker did not run. Any coverage or timing figures above describe the run that produced this result, not this one. Re-run with --no-cache to recompute them.",
+                message: "Replayed from cache: this checker did not run\(when). Every finding below is from that run, as are any coverage or timing figures. Re-run with --no-cache to recompute them.",
                 ruleId: "cache.replayed"
-            ))
+            ), at: 0)
             return CheckResult(
                 checkerId: result.checkerId,
                 status: result.status,
@@ -176,7 +197,8 @@ public struct CheckerRunner: Sendable {
                 // unstuck, and is least inclined to doubt a red result.
                 if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
                     if cached.status.isPassing {
-                        return clamped(transform(markReplayed(cached)), checker)
+                        let producedAt = cache.entryDate(checkerId: checker.id, fingerprint: fingerprint)
+                        return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker)
                     }
                     cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }

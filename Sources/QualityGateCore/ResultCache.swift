@@ -45,6 +45,19 @@ public struct ResultCache: Sendable {
         try? writeEntry(result, checkerId: checkerId, fingerprint: fingerprint)
     }
 
+    /// When the entry for the key was written, or nil if there is none.
+    ///
+    /// The run that produced a cached result is the fact a reader most needs and the
+    /// one the result itself does not carry: `CheckResult` records a duration, not a
+    /// date. Taken from the entry's modification time, which is when the run that
+    /// produced it finished.
+    public func entryDate(checkerId: String, fingerprint: String) -> Date? {
+        let url = entryURL(checkerId: checkerId, fingerprint: fingerprint)
+        // silent: a missing or unreadable attribute is simply "no date to report"
+        return try? FileManager.default
+            .attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+    }
+
     /// Removes the entry for the key, if one exists.
     ///
     /// Used to evict a result that must never be replayed. Best-effort, like every
