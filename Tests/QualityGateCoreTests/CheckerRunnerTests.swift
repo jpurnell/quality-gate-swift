@@ -346,6 +346,117 @@ struct CheckerRunnerCacheTests {
         #expect(count == 1)  // second run served from cache
     }
 
+    // MARK: - Failures are not cached
+    //
+    // A pass is a claim about the source, and this project already enforces the
+    // invariants that make it safe to replay one: TemporalDeterminismAuditor forbids
+    // wall-clock nondeterminism, StochasticDeterminismAuditor forbids unseeded
+    // randomness. None of that reasoning holds for a failure. A failure can come from
+    // contention, a killed subprocess, an OOM or a codesign hiccup — none of which are
+    // functions of the source. Caching one asserts source-determinism for an outcome
+    // that may not be source-determined.
+    //
+    // It also wedges the one workflow that re-presents an identical tree on purpose:
+    // retrying a blocked commit. Any real edit rotates the fingerprint and forces a
+    // genuine re-run, so a poisoned entry is invisible during ordinary development and
+    // bites precisely when someone is trying to get unstuck — and is least inclined to
+    // doubt a red result.
+
+    @Test("A failed result is not cached — the checker re-runs")
+    func failureIsNotCached() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(
+            id: "failing", status: .failed, cacheInputFiles: [input.path], callCounter: counter
+        )
+
+        _ = await run(checker, cache: cache, useCache: true)
+        _ = await run(checker, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 2, "An unchanged tree must not replay a failure — that is the commit-retry deadlock")
+    }
+
+    @Test("A failure replayed once does not persist after the cause clears")
+    func failureDoesNotOutliveItsCause() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+
+        // A transient failure — contention, a killed subprocess — then the same tree
+        // checked again by a checker that now succeeds. The second verdict must win.
+        let failing = FakeChecker(id: "flaky", status: .failed, cacheInputFiles: [input.path])
+        _ = await run(failing, cache: cache, useCache: true)
+
+        let passing = FakeChecker(id: "flaky", status: .passed, cacheInputFiles: [input.path])
+        let results = await run(passing, cache: cache, useCache: true)
+
+        #expect(results.first?.status == .passed, "The stale failure must not outlive the condition that caused it")
+    }
+
+    @Test("A failure already on disk does not replay, and is evicted")
+    func preExistingFailureDoesNotReplay() async throws {
+        // Distinct from "a new failure is not written": guarding the store is
+        // forward-only, and there were 166 such entries across 26 repos on this
+        // machine when the bug was found. Those must self-heal on next run rather
+        // than need manual deletion or a cache-version bump.
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cacheDir = dir.appendingPathComponent("cache")
+        let cache = ResultCache(directory: cacheDir)
+
+        // Poison the cache directly, as a pre-fix gate run would have left it.
+        let fingerprint = CheckerFingerprint.compute(
+            checkerId: "poisoned",
+            inputs: CacheInputs(files: [input.path]),
+            gateHash: "gate-hash"
+        )
+        cache.store(
+            CheckResult(checkerId: "poisoned", status: .failed, diagnostics: [], duration: .zero),
+            checkerId: "poisoned",
+            fingerprint: fingerprint
+        )
+
+        let counter = CallCounter()
+        let checker = FakeChecker(
+            id: "poisoned", status: .passed, cacheInputFiles: [input.path], callCounter: counter
+        )
+        let results = await run(checker, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 1, "The poisoned entry must be a miss, not a replay")
+        #expect(results.first?.status == .passed, "The real verdict must win over the stale one")
+        // The key is not empty afterwards — the passing run stored its own result
+        // under it. What matters is that nothing failed survives to be replayed.
+        #expect(
+            cache.load(checkerId: "poisoned", fingerprint: fingerprint)?.status != .failed,
+            "A failed entry must not survive a read, or it poisons every later run too"
+        )
+    }
+
+    @Test("A warning is still cached — the speed benefit is not sacrificed")
+    func warningIsStillCached() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(
+            id: "warner", status: .warning, cacheInputFiles: [input.path], callCounter: counter
+        )
+
+        _ = await run(checker, cache: cache, useCache: true)
+        _ = await run(checker, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 1, "Warnings are findings about the source and stay cacheable")
+    }
+
     @Test("A changed input file re-runs the checker")
     func changedInputRerunsChecker() async throws {
         let dir = try tempDir()

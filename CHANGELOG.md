@@ -4,6 +4,36 @@
 
 ### Fixed (self-audit)
 
+- **A cached failure replayed forever, wedging commit retries.** `evaluate` stored every
+  result regardless of status and replayed every result regardless of status. One
+  contended run — a `swift test` starved by builds in three other repos — produced three
+  real `DocCodeAuditor` failures, and the gate cached them. Every subsequent run replayed
+  that verdict without executing anything, and the repo's pre-commit and pre-push hooks
+  stayed blocked. `--no-cache` runs of the same checker passed in 167s throughout.
+
+  The trap is specific and worth naming: the fingerprint holds only while the tree is
+  unchanged, and **retrying a blocked commit is the one workflow that re-presents an
+  identical tree on purpose**. Any real edit rotates the fingerprint and forces a genuine
+  re-run, so a poisoned entry is invisible during ordinary development and bites exactly
+  when someone is trying to get unstuck — and is least inclined to doubt a red result.
+  Deterministic replay of one bad result is indistinguishable from a deterministic bug.
+
+  A failure is now never replayed and is evicted when read, and never stored. The
+  asymmetry is the point: a pass is a claim about the source, and this project already
+  enforces the invariants that make replaying one safe — `TemporalDeterminismAuditor`
+  forbids wall-clock nondeterminism, `StochasticDeterminismAuditor` forbids unseeded
+  randomness. None of that covers a failure, which can come from contention, a killed
+  subprocess, an OOM or a codesign hiccup. Passes and warnings stay cached, so the speed
+  benefit is untouched; the only cost is re-running a checker that just failed, paid
+  exactly when ground truth is wanted instead of a replay.
+
+  Evicting **on read** rather than only guarding the write is what fixes caches that are
+  already broken — there were 166 stored failures across 26 repos on the machine where
+  this was found (thanks to the IconquerMatch session for measuring that, and for the
+  commit-retry framing). A store-side guard alone is forward-only. Entries whose
+  fingerprint never recurs stay on disk but are inert; the ones that would have replayed
+  are now evicted on contact.
+
 - **Five rules fired on code they do not apply to.** Each was reported as a real finding
   against a shipping app, and each asked for a change that would make the code worse.
 

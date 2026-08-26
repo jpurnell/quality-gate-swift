@@ -45,6 +45,18 @@ public struct ResultCache: Sendable {
         try? writeEntry(result, checkerId: checkerId, fingerprint: fingerprint)
     }
 
+    /// Removes the entry for the key, if one exists.
+    ///
+    /// Used to evict a result that must never be replayed. Best-effort, like every
+    /// other cache operation: a failed removal must never fail the gate, and the
+    /// worst case is that the entry is re-evicted on the next read.
+    public func remove(checkerId: String, fingerprint: String) {
+        // silent: eviction is best-effort; a removal failure must never fail the gate
+        try? FileManager.default.removeItem(
+            at: entryURL(checkerId: checkerId, fingerprint: fingerprint)
+        )
+    }
+
     /// Returns a cached derived artifact, or nil on a miss or unreadable/corrupt entry.
     ///
     /// Artifacts are expensive values *derived from* checker inputs but produced outside

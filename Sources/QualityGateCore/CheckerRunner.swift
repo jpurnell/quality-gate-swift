@@ -157,11 +157,33 @@ public struct CheckerRunner: Sendable {
                 let fingerprint = CheckerFingerprint.compute(
                     checkerId: checker.id, inputs: inputs, gateHash: gateHash, digests: digests
                 )
+                // A failure is never replayed, and is evicted on sight.
+                //
+                // A pass is a claim about the source, and this project enforces the
+                // invariants that make replaying one safe: `TemporalDeterminismAuditor`
+                // forbids wall-clock nondeterminism, `StochasticDeterminismAuditor`
+                // forbids unseeded randomness. None of that reasoning covers a failure,
+                // which can come from contention, a killed subprocess, an OOM or a
+                // codesign hiccup — none of them functions of the source. Caching one
+                // asserts source-determinism for an outcome that may not have it.
+                //
+                // Evicting on read rather than only guarding the write matters: a
+                // store-side guard is forward-only and leaves every entry already on
+                // disk replayable forever. It also fixes the workflow this actually
+                // wedges — retrying a blocked commit is the one thing that re-presents
+                // an identical tree on purpose, so a poisoned entry stays invisible
+                // during ordinary editing and bites when someone is trying to get
+                // unstuck, and is least inclined to doubt a red result.
                 if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
-                    return clamped(transform(markReplayed(cached)), checker)
+                    if cached.status.isPassing {
+                        return clamped(transform(markReplayed(cached)), checker)
+                    }
+                    cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }
                 let fresh = await runAndSynthesize(checker)
-                cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
+                if fresh.status.isPassing {
+                    cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
+                }
                 return clamped(transform(fresh), checker)
             }
             return clamped(transform(await runAndSynthesize(checker)), checker)
