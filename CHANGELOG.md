@@ -4,6 +4,29 @@
 
 ### Fixed (self-audit)
 
+- **`quality-gate release` reported its own version as the surveyed project's.**
+  `Release.swift` passed `QualityGateCLI.configuration.version` as `declaredVersion`, so
+  every package the preflight was ever run against was told *"the CLI reports version
+  3.1.0"* — quality-gate's number, stated as a fact about someone else's release. Every
+  other input in that command is read from the surveyed tree; this one input was not.
+  Reproduced in two unrelated library packages, which were each told the same 3.1.0.
+
+  The finding was not merely noisy, it was unactionable: its remedy said *"set the declared
+  version to X"*, and a library that declares no CLI version has nothing to set. A rule
+  whose remedy cannot be performed teaches people to ignore the rule.
+
+  `ReleasePreflight.versionParity(declaredVersion:)` now takes `String?`, where `nil` means
+  the project declares no version and there is therefore no disagreement to report — the
+  tag check beside it still runs. `Release.swift` reads the version from the surveyed tree
+  via the new `ReleasePreflight.declaredVersion(inProjectAt:)`, which scans `Sources/` for
+  the `version: "X.Y.Z"` / `version = "X.Y.Z"` literal that both a `CommandConfiguration`
+  and a `static let` take. Running the gate on itself still resolves 3.1.0, now by reading
+  its own source rather than by being handed it.
+
+  `ReleaseReadinessAuditor.scanForVersionInSources` now delegates to that same function
+  instead of keeping a second copy of the heuristic — two copies of "what version does this
+  project declare?" drifting apart is precisely the failure this rule exists to catch.
+
 - **`DocLinter.docc` was excluded from its own target, so `doc-lint` had never once read
   the article it ships.** `exclude:` does not mean "don't build this" — it removes the path
   from the target's `sourceFiles`, and `sourceFiles` is exactly where swift-docc-plugin

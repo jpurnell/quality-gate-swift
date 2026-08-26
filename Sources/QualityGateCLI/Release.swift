@@ -53,8 +53,12 @@ struct Release: AsyncParsableCommand {
         // SAFETY: CLI tool reads its own project's master plan
         let plan = (try? String(contentsOfFile: planPath, encoding: .utf8)) ?? ""
 
+        // The surveyed project's declared version, never this tool's. `release` previously passed
+        // `QualityGateCLI.configuration.version` here, so every package it was run against was
+        // told "the CLI reports version 3.1.0" — quality-gate's number, about someone else's
+        // release. Running the gate on itself still resolves to its own 3.1.0, by scanning.
         var findings = ReleasePreflight.versionParity(
-            declaredVersion: QualityGateCLI.configuration.version,
+            declaredVersion: ReleasePreflight.declaredVersion(inProjectAt: root),
             changelogVersion: ReleaseReadinessAuditor.parseLatestChangelogVersion(content: changelog),
             candidateTag: tag)
         findings += ReleasePreflight.unreleasedIsEmpty(changelog: changelog)

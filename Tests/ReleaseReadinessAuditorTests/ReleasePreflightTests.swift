@@ -55,6 +55,82 @@ struct ReleasePreflightTests {
         #expect(try #require(findings.first).ruleId == "release.no-documented-version")
     }
 
+    @Test("A project that declares no version has nothing to disagree with")
+    func silentWhenProjectDeclaresNoVersion() {
+        // The bug this replaces: `release` passed quality-gate's OWN --version as the surveyed
+        // project's declared version, so every library it was ever run against was told "the CLI
+        // reports version 3.1.0" — a number from the auditing tool, about the audited package.
+        // A library declares no CLI version, so there is nothing to compare and nothing to say.
+        #expect(ReleasePreflight.versionParity(
+            declaredVersion: nil, changelogVersion: "0.1.2", candidateTag: "v0.1.2").isEmpty)
+    }
+
+    @Test("A tag mismatch is still caught when no version is declared")
+    func tagStillCheckedWithoutDeclaredVersion() throws {
+        // Silence about the declared version must not silence the tag check beside it.
+        let findings = ReleasePreflight.versionParity(
+            declaredVersion: nil, changelogVersion: "0.1.2", candidateTag: "v0.9.9")
+
+        #expect(try #require(findings.first).ruleId == "release.tag-mismatch")
+    }
+
+    // MARK: - Declared version detection
+
+    @Test("The declared version is read from the surveyed project, not from this tool")
+    func declaredVersionComesFromTheSurveyedProject() throws {
+        let root = try TemporaryProject(sources: [
+            "Thing/Thing.swift": """
+            public enum Thing {
+                public static let version = "0.1.2"
+            }
+            """
+        ])
+        defer { root.remove() }
+
+        #expect(ReleasePreflight.declaredVersion(inProjectAt: root.path) == "0.1.2")
+    }
+
+    @Test("An ArgumentParser command's version is a declared version")
+    func declaredVersionFromCommandConfiguration() throws {
+        let root = try TemporaryProject(sources: [
+            "CLI/CLI.swift": """
+            static let configuration = CommandConfiguration(
+                commandName: "thing",
+                version: "3.1.0",
+                subcommands: [])
+            """
+        ])
+        defer { root.remove() }
+
+        #expect(ReleasePreflight.declaredVersion(inProjectAt: root.path) == "3.1.0")
+    }
+
+    @Test("An unrelated schema version is not the project's version")
+    func schemaVersionIsNotTheProjectVersion() throws {
+        // SARIFReporter assigns `self.version = "2.1.0"` — the SARIF schema's version. Reading
+        // that as the project's would report a mismatch against a number the project never claimed.
+        let root = try TemporaryProject(sources: [
+            "Reporters/SARIFReporter.swift": """
+            init() {
+                self.version = "2.1.0"
+            }
+            """
+        ])
+        defer { root.remove() }
+
+        #expect(ReleasePreflight.declaredVersion(inProjectAt: root.path) == nil)
+    }
+
+    @Test("A project stating no version anywhere reads as absent, not as zero")
+    func noDeclaredVersionAnywhere() throws {
+        let root = try TemporaryProject(sources: [
+            "Thing/Thing.swift": "public enum Thing {}"
+        ])
+        defer { root.remove() }
+
+        #expect(ReleasePreflight.declaredVersion(inProjectAt: root.path) == nil)
+    }
+
     // MARK: - Unreleased
 
     @Test("Content left under [Unreleased] is the release documenting itself as unshipped")
@@ -167,5 +243,28 @@ struct ReleasePreflightTests {
         // unfixable, which is the failure mode the identity rule already had to be narrowed for.
         #expect(ReleasePreflight.planReconciled(planLastUpdated: nil, releaseDate: Date()).isEmpty)
         #expect(ReleasePreflight.planReconciled(planLastUpdated: Date(), releaseDate: nil).isEmpty)
+    }
+}
+
+
+/// A throwaway `Sources/` tree, so the scanner can be tested against a project that is not this one.
+private struct TemporaryProject {
+    let path: String
+
+    init(sources: [String: String]) throws {
+        let root = NSTemporaryDirectory() + "qg-preflight-" + UUID().uuidString
+        self.path = root
+        for (relative, contents) in sources {
+            let full = ((root as NSString).appendingPathComponent("Sources") as NSString)
+                .appendingPathComponent(relative)
+            try FileManager.default.createDirectory(
+                atPath: (full as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+            try contents.write(toFile: full, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(atPath: path)
     }
 }

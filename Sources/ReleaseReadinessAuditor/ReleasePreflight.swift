@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 
 /// The release-scoped observer: the obligations that come due when a version is cut, checked at
@@ -29,6 +32,8 @@ import QualityGateCore
 /// the questions no commit-time checker can legitimately answer.
 public enum ReleasePreflight {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ReleasePreflight")
+
     /// One release-readiness question and its answer.
     public struct Finding: Sendable, Equatable {
         /// The rule that produced it.
@@ -46,13 +51,21 @@ public enum ReleasePreflight {
     /// `2.0.2`, the newest tag said `v2.0.2`, and the maintainer said "about 2.6". Four answers
     /// to a question with one right answer.
     ///
+    /// `declaredVersion` must come from the **surveyed** project. Passing this tool's own
+    /// `--version` was the original defect: every library ever run through `release` was told
+    /// "the CLI reports version 3.1.0", a number belonging to the auditor rather than to the
+    /// package being audited. A finding that names a fact about the wrong project is worse than
+    /// no finding, because it is not obviously wrong to the person reading it.
+    ///
     /// - Parameters:
-    ///   - declaredVersion: The version the CLI reports for `--version`.
+    ///   - declaredVersion: The version the surveyed project's CLI reports for `--version`, or
+    ///     `nil` when it declares none. A library declares no CLI version, and a question with
+    ///     only one answer available has no disagreement to report.
     ///   - changelogVersion: The newest released version in the CHANGELOG, or `nil`.
     ///   - candidateTag: The tag about to be cut, when there is one.
     /// - Returns: One finding per disagreement.
     public static func versionParity(
-        declaredVersion: String,
+        declaredVersion: String?,
         changelogVersion: String?,
         candidateTag: String?
     ) -> [Finding] {
@@ -66,7 +79,7 @@ public enum ReleasePreflight {
         var findings: [Finding] = []
         let documented = normalise(changelogVersion)
 
-        if normalise(declaredVersion) != documented {
+        if let declaredVersion, normalise(declaredVersion) != documented {
             findings.append(Finding(
                 ruleId: "release.version-mismatch",
                 message: "The CLI reports version \(declaredVersion) but the CHANGELOG's newest release is \(changelogVersion) — consumers are told two different things about the same build.",
@@ -155,6 +168,49 @@ public enum ReleasePreflight {
     public static func lastUpdated(inPlan plan: String) -> Date? {
         for line in plan.lines where line.lowercased().contains("last updated") {
             if let date = isoDate(in: line) { return date }
+        }
+        return nil
+    }
+
+    /// The version the surveyed project declares in its own source.
+    ///
+    /// Scans `Sources/` for a `version: "X.Y.Z"` or `version = "X.Y.Z"` literal — the shape both
+    /// an `ArgumentParser` `CommandConfiguration(version:)` and a `static let version` constant
+    /// take. Comment lines are skipped, so a version appearing inside a doc-comment example is
+    /// not mistaken for a declaration.
+    ///
+    /// Lines containing `.version` are skipped too, and that exclusion is load-bearing: a
+    /// reporter assigning `self.version = "2.1.0"` is stating the SARIF *schema's* version, not
+    /// the project's, and reading it as the project's would invent a mismatch against a number
+    /// the project never claimed.
+    ///
+    /// - Parameter root: The surveyed project's root directory.
+    /// - Returns: The declared version, or `nil` when the project states none.
+    public static func declaredVersion(inProjectAt root: String) -> String? {
+        let sources = (root as NSString).appendingPathComponent("Sources")
+        guard let enumerator = FileManager.default.enumerator(atPath: sources) else { return nil }
+
+        let pattern = #/version\s*[:=]\s*"(\d+\.\d+(?:\.\d+)?)"/#
+
+        while let relative = enumerator.nextObject() as? String {
+            guard relative.hasSuffix(".swift") else { continue }
+            let full = (sources as NSString).appendingPathComponent(relative)
+            let contents: String
+            do {
+                contents = try String(contentsOfFile: full, encoding: .utf8)
+            } catch {
+                Self.logger.warning("Skipping unreadable source file during version scan \(full, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+
+            for line in contents.lines {
+                let trimmed = line.drop(while: \.isWhitespace)
+                if trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*") {
+                    continue
+                }
+                if line.contains(".version") { continue }
+                if let match = line.firstMatch(of: pattern) { return String(match.1) }
+            }
         }
         return nil
     }

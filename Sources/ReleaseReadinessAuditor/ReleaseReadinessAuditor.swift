@@ -543,40 +543,15 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
 
     /// Scans source files for a `version:` or `version =` pattern.
     ///
+    /// Delegates to ``ReleasePreflight/declaredVersion(inProjectAt:)`` so the checker and the
+    /// release preflight answer "what version does this project declare?" the same way. Two
+    /// copies of this heuristic would drift, and the pair disagreeing about a project's version
+    /// is the exact failure this rule exists to catch.
+    ///
     /// - Parameter projectRoot: The project root directory path.
     /// - Returns: A version string if found, or nil.
     private func scanForVersionInSources(projectRoot: String) -> String? {
-        let fileManager = FileManager.default
-        let sourcesPath = (projectRoot as NSString).appendingPathComponent("Sources")
-        guard let enumerator = fileManager.enumerator(atPath: sourcesPath) else {
-            return nil
-        }
-
-        let versionPattern = #/version\s*[:=]\s*"(\d+\.\d+(?:\.\d+)?)"/#
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-            let fullPath = (sourcesPath as NSString).appendingPathComponent(relativePath)
-            do {
-                let content = try String(contentsOfFile: fullPath, encoding: .utf8)
-                for line in content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
-                    let trimmed = line.drop(while: { $0.isWhitespace })
-                    if trimmed.hasPrefix("//") || trimmed.hasPrefix("/*") || trimmed.hasPrefix("*") {
-                        continue
-                    }
-                    let lineStr = String(line)
-                    if lineStr.contains(".version") { continue }
-                    if let match = lineStr.firstMatch(of: versionPattern) {
-                        return String(match.1)
-                    }
-                }
-            } catch {
-                Self.logger.warning("Skipping unreadable source file during version scan \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                continue
-            }
-        }
-
-        return nil
+        ReleasePreflight.declaredVersion(inProjectAt: projectRoot)
     }
 
     /// Recursively scans the Sources directory for Swift files with bare TODOs.
