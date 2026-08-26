@@ -40,4 +40,44 @@ struct FrontendResolverTests {
     func emptyImports() {
         #expect(FrontendResolver.resolve(importedModules: []).isEmpty)
     }
+
+    // MARK: - Declaring module
+
+    // A CLI toolkit never imports itself, so resolving on imports alone runs the CLI
+    // detector over every consumer of the toolkit and never over the toolkit that does
+    // the writing. The declaring module closes that gap.
+
+    @Test("A CLI toolkit's own sources resolve to .cli without importing itself")
+    func declaringModuleIsCLIToolkit() {
+        #expect(
+            FrontendResolver.resolve(
+                importedModules: ["Foundation"], declaringModule: "SwiftCLIKit"
+            ) == [.cli]
+        )
+    }
+
+    @Test("ArgumentParser's own sources resolve to .cli")
+    func declaringModuleIsArgumentParser() {
+        #expect(
+            FrontendResolver.resolve(importedModules: [], declaringModule: "ArgumentParser") == [.cli]
+        )
+    }
+
+    @Test("An ordinary declaring module resolves to no frontends")
+    func declaringModuleIsOrdinary() {
+        #expect(
+            FrontendResolver.resolve(
+                importedModules: ["Foundation"], declaringModule: "MyLibrary"
+            ).isEmpty
+        )
+    }
+
+    @Test("A SwiftUI importer inside a CLI toolkit resolves to both frontends")
+    func declaringModuleCombinesWithImports() {
+        #expect(
+            FrontendResolver.resolve(
+                importedModules: ["SwiftUI"], declaringModule: "SwiftCLIKit"
+            ) == [.swiftUI, .cli]
+        )
+    }
 }

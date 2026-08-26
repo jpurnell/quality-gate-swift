@@ -496,6 +496,10 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]
         ),
+        .testTarget(
+            name: "AccessibilityCLITests",
+            dependencies: ["AccessibilityCLI", "AccessibilityCore", "QualityGateCore"]
+        ),
         .target(
             name: "AccessibilityAuditor",
             dependencies: [
@@ -512,7 +516,7 @@ let package = Package(
         .testTarget(
             name: "AccessibilityAuditorTests",
             dependencies: [
-                "IndexStoreInfra","AccessibilityAuditor"]
+                "IndexStoreInfra","AccessibilityAuditor", "QualityGateCore"]
         ),
 
         .target(

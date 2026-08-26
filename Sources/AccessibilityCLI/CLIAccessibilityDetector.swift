@@ -44,11 +44,47 @@ public struct CLIAccessibilityDetector: AccessibilityDetector {
         return DetectionResult(diagnostics: visitor.diagnostics, overrides: visitor.overrides)
     }
 
+    /// Markers that mean the file consults the user's color/terminal preference.
+    static let preferenceMarkers = ["NO_COLOR", "isatty", "no-color", "noColor", "TERM"]
+
     /// True when the source references a color/terminal-preference guard (`NO_COLOR`,
     /// `isatty`, `TERM`, or a `--no-color` / `noColor` flag).
+    ///
+    /// Matched at identifier boundaries rather than as bare substrings. A plain
+    /// `contains` made `TERM` match the word `TERMINAL`, so a file that merely mentioned a
+    /// terminal in a doc comment silently switched off all three `a11y.cli.*` rules for its
+    /// entire length — the rule was defeated by prose about the thing it audits.
+    ///
+    /// The boundary is deliberately strict, which costs the compound spellings: a lone
+    /// `noColorFlag` no longer registers. A file that consults the preference almost always
+    /// names `NO_COLOR` or `isatty` somewhere too, and a marker that costs nothing to trip
+    /// cannot be told apart from a considered decision.
     static func honorsColorPreference(in source: String) -> Bool {
-        let markers = ["NO_COLOR", "isatty", "no-color", "noColor", "TERM"]
-        return markers.contains { source.contains($0) }
+        preferenceMarkers.contains { containsAtIdentifierBoundary(source, marker: $0) }
+    }
+
+    /// True when `marker` occurs in `source` without an identifier character on either side.
+    static func containsAtIdentifierBoundary(_ source: String, marker: String) -> Bool {
+        guard !marker.isEmpty else { return false }
+        var searchStart = source.startIndex
+        while let found = source.range(of: marker, range: searchStart..<source.endIndex) {
+            let beforeIsIdentifier = found.lowerBound > source.startIndex
+                && isIdentifierCharacter(source[source.index(before: found.lowerBound)])
+            let afterIsIdentifier = found.upperBound < source.endIndex
+                && isIdentifierCharacter(source[found.upperBound])
+            if !beforeIsIdentifier && !afterIsIdentifier { return true }
+            searchStart = found.lowerBound < source.endIndex
+                ? source.index(after: found.lowerBound)
+                : source.endIndex
+            if searchStart >= source.endIndex { break }
+        }
+        return false
+    }
+
+    /// Characters that continue a Swift identifier, so a marker abutting one is part of a
+    /// longer word rather than a reference to the marker itself.
+    private static func isIdentifierCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || character == "_"
     }
 }
 
@@ -76,6 +112,12 @@ final class CLIAccessibilityVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: StringLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        // All three rules are about what a program *writes* to a terminal. A constant that
+        // names an escape, or a function that returns one, writes nothing — the caller
+        // decides whether to write it and whether to gate that on the user's preference.
+        // Without this, every terminal library was a wall of findings for having a vocabulary.
+        guard Self.reachesOutput(node) else { return .visitChildren }
+
         let literals = Self.stringSegments(of: node)
         let combined = literals.joined()
 
@@ -135,6 +177,59 @@ final class CLIAccessibilityVisitor: SyntaxVisitor {
             ruleId: ruleId,
             suggestedFix: fix
         ))
+    }
+
+    // MARK: - Emission
+
+    /// Functions whose whole job is to put bytes somewhere a user reads them.
+    static let outputFunctions: Set<String> = [
+        "print", "debugPrint", "puts", "fputs", "fwrite", "NSLog",
+    ]
+
+    /// True when `node` sits inside the arguments of a call that writes to output.
+    ///
+    /// Walks the ancestors rather than the operand, so a literal reaches output however it
+    /// is dressed on the way — concatenated, interpolated, wrapped in `Data(_:)`. The check
+    /// is syntactic and stops there: a literal assigned to a variable that is printed three
+    /// statements later is not followed, because that is dataflow and this is a linter. The
+    /// missed case is the quieter failure of the two, and it was the *opposite* error —
+    /// treating every literal as output — that made these rules unusable.
+    static func reachesOutput(_ node: StringLiteralExprSyntax) -> Bool {
+        var child = Syntax(node)
+        while let parent = child.parent {
+            if let call = parent.as(FunctionCallExprSyntax.self),
+               child.id == Syntax(call.arguments).id,
+               writesOutput(call) {
+                return true
+            }
+            child = parent
+        }
+        return false
+    }
+
+    /// True when `call` names a function that writes.
+    ///
+    /// Matches the known output functions exactly, plus any callee whose name reads as a
+    /// write (`writeEscape`, `handle.write`, `emitLine`) — a terminal library's own writer
+    /// is the case that matters most and it never has a standard-library name.
+    static func writesOutput(_ call: FunctionCallExprSyntax) -> Bool {
+        let name = calleeBaseName(call)
+        guard !name.isEmpty else { return false }
+        if outputFunctions.contains(name) { return true }
+        let lowered = name.lowercased()
+        return lowered.contains("write") || lowered.contains("emit")
+    }
+
+    /// The bare name of whatever `call` calls: `print` for `print(…)`, `write` for
+    /// `handle.write(…)`. Empty when the callee is some other expression shape.
+    static func calleeBaseName(_ call: FunctionCallExprSyntax) -> String {
+        if let reference = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+            return reference.baseName.text
+        }
+        if let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
+            return member.declName.baseName.text
+        }
+        return ""
     }
 
     // MARK: - ANSI helpers

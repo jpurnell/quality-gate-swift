@@ -108,10 +108,21 @@ public struct TargetTypeMap: Sendable {
     /// - Parameter file: An absolute or package-relative path.
     /// - Returns: The owning target's type, or `.executable` when it cannot be determined.
     public func targetType(forFile file: String) -> TargetType {
-        for target in targets where file.contains(target.path) {
-            return TargetType(rawValue: target.type) ?? .executable
-        }
-        return .executable
+        guard let owner = target(forFile: file) else { return .executable }
+        return TargetType(rawValue: owner.type) ?? .executable
+    }
+
+    /// The target owning `file`, or `nil` when no target's path matches.
+    ///
+    /// The lookup behind ``targetType(forFile:)``, exposed because a caller sometimes needs
+    /// the target's *name* — the module a file belongs to — and not only its kind. Unlike
+    /// ``targetType(forFile:)`` this reports the miss rather than reading it strictly, so a
+    /// caller can tell "no target claims this file" from "a target claims it".
+    ///
+    /// - Parameter file: An absolute or package-relative path.
+    /// - Returns: The owning target, longest matching path first.
+    public func target(forFile file: String) -> Target? {
+        targets.first { file.contains($0.path) }
     }
 }
 

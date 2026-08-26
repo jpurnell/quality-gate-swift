@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Fixed (checker correctness)
+
+- **`accessibility`'s CLI rules audited the files that assert on escape sequences and never
+  the files that write them.** `FrontendResolver` selected the `.cli` frontend by *import*,
+  and a terminal toolkit never imports itself — its own sources are the module. So the
+  detector ran over every consumer of `SwiftCLIKit`/`ArgumentParser`, which in practice
+  means the toolkit's test target, and never over the toolkit. On SwiftCLIKit that was 9
+  warnings, all of them `#expect(x == "ESC[31m")` in tests, while
+  `AlternateScreen.writeEscape("ESC[?1049h")` — an unguarded `write(2)` to a raw file
+  descriptor, exactly what `a11y.cli.cursor-control-no-tty` exists to catch — was invisible.
+  Four things were wrong and all four are fixed:
+
+  - `FrontendResolver.resolve(importedModules:declaringModule:)` now considers the module a
+    file *belongs to* alongside the ones it imports, so a CLI toolkit audits itself. The new
+    parameter defaults to `nil`, leaving import-only resolution unchanged for every other
+    caller.
+  - `AccessibilityAuditor` skips test targets. A test asserting that a widget produces
+    `ESC[31m` is not a program writing `ESC[31m` to anyone's terminal. Resolved through the
+    existing `TargetTypeMap`, which gained `target(forFile:)` — the lookup behind
+    `targetType(forFile:)`, exposed because the module *name* was needed too, and because a
+    caller sometimes needs to tell a miss from a match rather than read it strictly.
+  - `honorsColorPreference` matched its markers as bare substrings, so `TERM` matched the
+    word `TERMINAL` and any file mentioning a terminal in a doc comment silently switched
+    off all three `a11y.cli.*` rules for its whole length — the rule was defeated by prose
+    about the thing it audits. Markers now match at identifier boundaries. This costs the
+    compound spellings (`noColorFlag` alone no longer registers), which is the intended
+    direction: a marker that costs nothing to trip cannot be told apart from a decision.
+  - All three rules now fire only on literals that **reach output**, walked up the ancestor
+    chain to a call that writes. A constant naming an escape, or a function returning one,
+    emits nothing — the caller decides whether to write it and whether to gate that on the
+    user's preference. Without this every terminal library was a wall of findings for having
+    a vocabulary. The walk is syntactic and stops there: a literal assigned to a variable and
+    printed three statements later is not followed, because that is dataflow and this is a
+    linter. The missed case is the quieter of the two failures, and it was the opposite
+    error — treating every literal as output — that made these rules unusable.
+
+  Net on SwiftCLIKit: 9 findings, 0 of them real → 1 finding, and it was a genuine bug.
+
+### Added
+
+- `AccessibilityCLITests`, covering the CLI detector's marker matching and its notion of
+  emission. The detector had no tests of its own; the SwiftUI detector's suite was the only
+  thing exercising the auditor.
+
 ## [3.1.0] — 2026-08-25
 
 The gate stops paying for, and stops hiding, its own runs: index ingestion is paid once

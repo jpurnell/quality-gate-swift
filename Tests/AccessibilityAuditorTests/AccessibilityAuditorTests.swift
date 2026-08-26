@@ -322,11 +322,14 @@ struct AccessibilityAuditorTests {
 
     @Test("Truecolor ANSI (38;2;r;g;b) without a guard triggers warning")
     func cliTruecolorUnguarded() async throws {
+        // Printed rather than returned: the rule is about output, and a function handing a
+        // string back to its caller emits nothing. What this test is pinning is that the
+        // truecolor SGR form is recognised as color, which the print form still exercises.
         let source = """
         import SwiftCLIKit
 
-        func highlight() -> String {
-            return "\\u{001B}[38;2;255;165;0m"
+        func highlight() {
+            print("\\u{001B}[38;2;255;165;0m")
         }
         """
         let result = try await auditor.auditSource(source, fileName: "Truecolor.swift")

@@ -146,6 +146,11 @@ struct ManifestTargetParsingTests {
 /// 4 executable, 1 plugin**. The parser replaces that subprocess, so it has to agree with it,
 /// and the agreement is the evidence that dropping the dependency resolution lost nothing.
 ///
+/// Revised 2026-08-25 to **126 targets — 61 library, 60 test, 4 executable, 1 plugin**: the
+/// `AccessibilityCLITests` target was added alongside the fix for the CLI accessibility
+/// detector, which had no tests of its own. The drift is a target addition, which is the
+/// benign half of what this count is watching for.
+///
 /// A separate suite because it reads the real repository rather than a fixture, and will need
 /// updating when targets are added — which is the point: if the count drifts, either a target
 /// was added or the parser stopped seeing a shape.
@@ -170,11 +175,11 @@ struct ManifestParsingAgreementTests {
         #expect(map.targetType(forFile: "\(repositoryRoot)/Plugins/QualityGatePlugin/QualityGatePlugin.swift") == .plugin)
     }
 
-    @Test("The target count matches describe's 125")
+    @Test("The target count matches describe's 126")
     func countMatchesDescribe() {
         let map = TargetTypeMap.parsingManifest(packageRoot: repositoryRoot)
-        #expect(map.targetCount == 125,
-                "describe reported 125 targets on 2026-08-18; parser found \(map.targetCount)")
+        #expect(map.targetCount == 126,
+                "describe reported 126 targets on 2026-08-25; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

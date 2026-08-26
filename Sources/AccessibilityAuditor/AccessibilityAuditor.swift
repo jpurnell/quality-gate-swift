@@ -83,7 +83,11 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
 
-        let result = try await auditFiles(scan.files, configuration: configuration)
+        let result = try await auditFiles(
+            scan.files,
+            configuration: configuration,
+            targetTypes: Self.targetTypes(for: configuration)
+        )
         allDiagnostics.append(contentsOf: result.diagnostics)
         allOverrides.append(contentsOf: result.overrides)
 
@@ -125,7 +129,12 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let result = auditSourceCode(source, fileName: fileName, configuration: configuration)
+        let result = auditSourceCode(
+            source,
+            fileName: fileName,
+            configuration: configuration,
+            targetTypes: Self.targetTypes(for: configuration)
+        )
 
         let duration = ContinuousClock.now - startTime
         let hasErrors = result.diagnostics.contains { $0.severity == .error }
@@ -142,10 +151,22 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
+    /// The package's targets, read from its layout.
+    ///
+    /// `fromLayout` rather than a manifest parse or `swift package describe`: this checker
+    /// declares `executesProjectCode == false`, so it may not spawn SwiftPM, and the answer it
+    /// needs — which directory is a test target — is exactly what the directory convention
+    /// states. A package that gives a target an explicit `path:` outside the convention is the
+    /// case this cannot see; such a file keeps its previous coverage rather than losing it.
+    private static func targetTypes(for configuration: Configuration) -> TargetTypeMap {
+        TargetTypeMap.fromLayout(packageRoot: configuration.resolvedProjectRoot.path)
+    }
+
     /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
     private func auditFiles(
         _ paths: [String],
-        configuration: Configuration
+        configuration: Configuration,
+        targetTypes: TargetTypeMap
     ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
@@ -153,7 +174,9 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
         for fullPath in paths {
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let result = auditSourceCode(source, fileName: fullPath, configuration: configuration)
+                let result = auditSourceCode(
+                    source, fileName: fullPath, configuration: configuration, targetTypes: targetTypes
+                )
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
             } catch {
@@ -168,9 +191,21 @@ public struct AccessibilityAuditor: QualityChecker, Sendable {
     private func auditSourceCode(
         _ source: String,
         fileName: String,
-        configuration: Configuration
+        configuration: Configuration,
+        targetTypes: TargetTypeMap
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let frontends = FrontendResolver.resolve(importedModules: Self.importedModules(in: source))
+        let owner = targetTypes.target(forFile: fileName)
+
+        // A test asserting that a widget produces `ESC[31m` is not a program writing `ESC[31m`
+        // to anyone's terminal. Auditing test targets reported the assertion literal as though
+        // it were output — and because a test target is what imports a CLI toolkit, those
+        // false positives were most of what the CLI rules ever found.
+        guard owner?.type != TargetType.test.rawValue else { return ([], []) }
+
+        let frontends = FrontendResolver.resolve(
+            importedModules: Self.importedModules(in: source),
+            declaringModule: owner?.name
+        )
         guard !frontends.isEmpty else { return ([], []) }
 
         let unit = SourceUnit(
