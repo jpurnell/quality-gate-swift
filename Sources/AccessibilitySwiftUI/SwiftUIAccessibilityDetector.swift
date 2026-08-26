@@ -130,6 +130,10 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         "printItem": ["p"],
         "undoRedo": ["z"],
         "pasteboard": ["x", "c", "v", "a"],
+        // Settings is the standard owner of Command-comma, exactly as newItem owns
+        // Command-N. An app placing its own Settings item here is adopting the
+        // system convention, not repurposing the key.
+        "appSettings": [","],
     ]
 
     /// The standard `CommandGroup` placement a call sits lexically inside, if any.

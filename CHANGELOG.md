@@ -4,6 +4,43 @@
 
 ### Fixed (self-audit)
 
+- **Five rules fired on code they do not apply to.** Each was reported as a real finding
+  against a shipping app, and each asked for a change that would make the code worse.
+
+  `hig.settings-scene` / `hig.menu-commands` resolved platform once per project from
+  `Package.swift`; a repo with no manifest at its root — an Xcode project, or a monorepo
+  of packages — fell back to `.all`, which contains macOS. A watchOS app was told to add
+  a `Settings` scene, which is macOS-only and would not compile there. `auditSource` now
+  prefers a platform the file states about itself (`PlatformDetector.detectAppPlatform`),
+  using only markers that cannot appear elsewhere — WatchKit, `ImmersiveSpace`, AppKit,
+  ActivityKit, `os(…)` conditionals. A file with no marker keeps the old behaviour.
+
+  `a11y.missing-reduce-motion` matched every member access named `animation`.
+  `TimelineView(.animation(minimumInterval:))` is a schedule — a render clock — and
+  gating one on Reduce Motion stops the view updating at all; it is an implicit member
+  expression, so it has no base where a modifier always does. `.animation(.none, …)` is
+  already the reduced-motion outcome.
+
+  `a11y.hardcoded-color-string` reported `Color(hex: someProperty)`. That value is chosen
+  at runtime and there is no literal for the suggested fix to replace; a component must
+  now be a literal.
+
+  `a11y.color-only-differentiation` reported a glyph that changed colour *and* opacity on
+  the same condition. A sibling modifier in the chain that varies and changes something
+  other than colour — opacity, weight, symbol variant, or the `Image(systemName:)` itself
+  — is the companion the rule asks for, and the one a colour-blind user can see.
+
+  `a11y.standard-shortcut-override` flagged Command-comma bound inside
+  `CommandGroup(replacing: .appSettings)`. The accommodation already existed for
+  `newItem`/`saveItem`/`printItem`/`undoRedo`/`pasteboard`; `appSettings` was simply
+  missing from the placement map, so adopting the system convention read as repurposing it.
+
+  13 new tests, each pairing the false positive with a regression guard proving the true
+  positive still fires. Found by driving a real app (harbor) to zero: of its 30 warnings,
+  11 were these false positives, and two portfolio-wide clusters — 439 colour-only and 147
+  hardcoded-colour occurrences across 74 projects — were this imprecision multiplied, not
+  debt. The institutional consistency score moved 0.00 → 1.00.
+
 - **`quality-gate release` reported its own version as the surveyed project's.**
   `Release.swift` passed `QualityGateCLI.configuration.version` as `declaredVersion`, so
   every package the preflight was ever run against was told *"the CLI reports version

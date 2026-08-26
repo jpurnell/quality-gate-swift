@@ -347,6 +347,52 @@ struct AccessibilityAuditorTests {
         #expect(colorOnly.count >= 1, "Nothing but the colour changes here")
     }
 
+    // MARK: - standard-shortcut-override: appSettings owns Command-comma
+
+    @Test("Command-comma inside CommandGroup(replacing: .appSettings) is the standard binding")
+    func commandCommaInAppSettingsIsNotAnOverride() async throws {
+        let source = """
+        import SwiftUI
+
+        @main struct MyApp: App {
+            var body: some Scene {
+                WindowGroup { Text("Hi") }
+                    .commands {
+                        CommandGroup(replacing: .appSettings) {
+                            Button("Settings…") { }
+                                .keyboardShortcut(",", modifiers: .command)
+                        }
+                    }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Settings.swift")
+        let shortcut = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(shortcut.isEmpty, "appSettings is the placement that owns Command-comma, as newItem owns Command-N")
+    }
+
+    @Test("Command-comma in a custom CommandMenu is still an override")
+    func commandCommaInCustomMenuStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        @main struct MyApp: App {
+            var body: some Scene {
+                WindowGroup { Text("Hi") }
+                    .commands {
+                        CommandMenu("Session") {
+                            Button("Something Else") { }
+                                .keyboardShortcut(",", modifiers: .command)
+                        }
+                    }
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "CustomMenu.swift")
+        let shortcut = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.standard-shortcut-override" }
+        #expect(shortcut.count >= 1, "A custom menu repurposing Command-comma is what this rule is for")
+    }
+
     // MARK: - Scope-Aware reduceMotion Check
 
     @Test("Scope-aware check finds reduceMotion distant in same function body")
