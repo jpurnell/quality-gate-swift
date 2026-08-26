@@ -37,21 +37,27 @@ Each diagnostic includes:
 - **Message** - Description of the issue
 - **File/Line/Column** - Location when available
 
-### Configuration
+### Target Selection
+
+By default every target owning a `.docc` catalogue is handed to DocC, one `--target`
+each. A package where no target owns one is an error, not a pass: a checker that
+examined nothing and a checker that found nothing wrong must not report the same thing.
 
 Configure via `.quality-gate.yml`:
 
 ```yaml
-docTarget: MyModule  # Optional: lint specific target only
+docTarget: MyModule  # Optional: lint this target alone
 ```
 
-### Exit Codes
+Setting `docTarget` narrows the run to one target and says nothing about the rest, so
+the run reports how many catalogues went unexamined.
 
-| Exit Code | Meaning |
-|-----------|---------|
-| 0 | Documentation builds with no errors |
-| 1 | Documentation has warnings (configurable) |
-| 2 | Documentation has errors |
+### Verdict
+
+``DocLinter/createResult(output:exitCode:duration:)`` fails the check when the documentation
+build exits non-zero, or when any parsed diagnostic has error severity. Warnings are
+reported and do not fail the check on their own — a package can carry DocC warnings and
+still pass `doc-lint`, though the gate's own `--strict` mode escalates them.
 
 ## Topics
 

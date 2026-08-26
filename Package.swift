@@ -333,7 +333,12 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["DocLinter.docc"]
+            // Declared, not excluded. swift-docc-plugin locates a catalogue through the
+            // target's `sourceFiles`, which `exclude:` removes it from — so excluding silences
+            // SwiftPM's unhandled-file warning by handing DocC nothing, and doc-lint goes green
+            // over an article it never opened. This is the checker that reports that failure
+            // mode in other packages; it should not be the one demonstrating it.
+            resources: [.copy("DocLinter.docc")]
         ),
         .testTarget(
             name: "DocLinterTests",

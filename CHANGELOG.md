@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed (self-audit)
+
+- **`DocLinter.docc` was excluded from its own target, so `doc-lint` had never once read
+  the article it ships.** `exclude:` does not mean "don't build this" — it removes the path
+  from the target's `sourceFiles`, and `sourceFiles` is exactly where swift-docc-plugin
+  looks for a catalogue (`SourceModuleTarget.doccCatalogPath`). DocC was still handed the
+  target and still linted its in-source `///` comments, so the check went green; the
+  landing page was simply never opened. The exclusion arrived in ad1fca5 as a side note to
+  an unrelated rule change — *"Also excludes .docc catalogs from all targets to eliminate
+  54 SPM warnings"* — which is the shape of the problem: the warning was real (SwiftPM's
+  native build system has no rule for `.docc` and calls it unhandled), and it was answered
+  by hiding the file rather than declaring it.
+
+  `DocLinter` now declares the catalogue as `resources: [.copy("DocLinter.docc")]`.
+  SwiftPM treats it as handled, so the unhandled-file warning is gone for real, and the
+  catalogue stays in `sourceFiles` where the plugin can find it. Verified by generating the
+  archive and confirming the landing page's prose is in `doclinter.json` — not by trusting
+  a green check, which is what produced this in the first place.
+
+  With the article live, two defects in it surfaced immediately:
+
+  - The **"Exit Codes" table** described behaviour the checker does not have — it claimed
+    exit 1 meant "documentation has warnings (configurable)" and exit 2 meant errors.
+    `createResult(output:exitCode:duration:)` fails on a non-zero build exit *or* any
+    error-severity diagnostic, and warnings never fail on their own. Replaced with a
+    **Verdict** section stating the actual rule, plus a **Target Selection** section
+    covering the every-catalogue-owning-target default and the `docTarget` narrowing, which
+    the article predated.
+  - A symbol link written against the module page (`` `createResult(...)` `` rather than
+    `` `DocLinter/createResult(...)` ``) resolved to nothing. DocC caught it on the first
+    build after the change — the first time this catalogue had ever been checked.
+
+  **34 other targets still carry the same exclusion** and are still unlinted articles. Same
+  one-line fix each; not swept here.
+
 ### Fixed (checker correctness)
 
 - **`accessibility`'s CLI rules audited the files that assert on escape sequences and never
