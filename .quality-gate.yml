@@ -79,7 +79,7 @@ ijs:
 
 # Phase 0.6: refuse to run a binary older than this under --strict.
 # Ratchet when the repo starts depending on new gate rules.
-minimumGateVersion: "2026-08-21"
+minimumGateVersion: "2026-08-26"
 
 # Facts the tree cannot supply. A repository URL read from `git remote` and a tag name read
 # from `git tag` are both refs, and a verdict that moves with a shallow clone is not hermetic.
