@@ -8,6 +8,9 @@ IndexStoreInfra provides the foundation that quality-gate checkers use to move b
 
 ## Topics
 
+### Guides
+- <doc:IndexStoreInfraGuide>
+
 ### Project Detection
 - ``ProjectKind``
 

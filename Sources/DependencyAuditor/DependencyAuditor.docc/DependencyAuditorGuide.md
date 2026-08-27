@@ -1,8 +1,5 @@
 # Getting Started with DependencyAuditor
 
-@Metadata {
-  @TechnologyRoot
-}
 
 ## Overview
 

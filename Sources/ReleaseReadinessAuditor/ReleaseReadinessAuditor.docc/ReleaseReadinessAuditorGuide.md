@@ -1,8 +1,5 @@
 # Getting Started with ReleaseReadinessAuditor
 
-@Metadata {
-  @TechnologyRoot
-}
 
 ## Overview
 

@@ -278,7 +278,7 @@ let package = Package(
                 .product(name: "VigilKit", package: "swift-vigil"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
-            exclude: ["QualityGateCore.docc"]
+            resources: [.copy("QualityGateCore.docc")]
         ),
         .testTarget(
             name: "QualityGateCoreTests",
@@ -294,7 +294,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["SafetyAuditor.docc"]
+            resources: [.copy("SafetyAuditor.docc")]
         ),
         .testTarget(
             name: "SafetyAuditorTests",
@@ -305,7 +305,7 @@ let package = Package(
         .target(
             name: "BuildChecker",
             dependencies: ["QualityGateCore", "IndexStoreInfra"],
-            exclude: ["BuildChecker.docc"]
+            resources: [.copy("BuildChecker.docc")]
         ),
         .testTarget(
             name: "BuildCheckerTests",
@@ -320,7 +320,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["TestRunner.docc"]
+            resources: [.copy("TestRunner.docc")]
         ),
         .testTarget(
             name: "TestRunnerTests",
@@ -355,7 +355,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["DocCodeAuditor.docc"]
+            resources: [.copy("DocCodeAuditor.docc")]
         ),
         .testTarget(
             name: "DocCodeAuditorTests",
@@ -369,7 +369,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["DocGeneratedAuditor.docc"]
+            resources: [.copy("DocGeneratedAuditor.docc")]
         ),
         .testTarget(
             name: "DocGeneratedAuditorTests",
@@ -384,7 +384,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["DocCoverageChecker.docc"]
+            resources: [.copy("DocCoverageChecker.docc")]
         ),
         .testTarget(
             name: "DocCoverageCheckerTests",
@@ -394,7 +394,7 @@ let package = Package(
         .target(
             name: "DiskCleaner",
             dependencies: ["QualityGateCore"],
-            exclude: ["DiskCleaner.docc"]
+            resources: [.copy("DiskCleaner.docc")]
         ),
         .testTarget(
             name: "DiskCleanerTests",
@@ -410,7 +410,7 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
             ],
-            exclude: ["UnreachableCodeAuditor.docc"]
+            resources: [.copy("UnreachableCodeAuditor.docc")]
         ),
         .testTarget(
             name: "UnreachableCodeAuditorTests",
@@ -426,7 +426,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["RecursionAuditor.docc"]
+            resources: [.copy("RecursionAuditor.docc")]
         ),
         .testTarget(
             name: "RecursionAuditorTests",
@@ -441,7 +441,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["ConcurrencyAuditor.docc"]
+            resources: [.copy("ConcurrencyAuditor.docc")]
         ),
         .testTarget(
             name: "ConcurrencyAuditorTests",
@@ -456,7 +456,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["PointerEscapeAuditor.docc"]
+            resources: [.copy("PointerEscapeAuditor.docc")]
         ),
         .testTarget(
             name: "PointerEscapeAuditorTests",
@@ -470,7 +470,7 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "Yams", package: "Yams"),
             ],
-            exclude: ["MemoryBuilder.docc"]
+            resources: [.copy("MemoryBuilder.docc")]
         ),
         .testTarget(
             name: "MemoryBuilderTests",
@@ -518,7 +518,8 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["ACCESSIBILITY_MATRIX.md", "AccessibilityAuditor.docc"]
+            exclude: ["ACCESSIBILITY_MATRIX.md"],
+            resources: [.copy("AccessibilityAuditor.docc")]
         ),
         .testTarget(
             name: "AccessibilityAuditorTests",
@@ -529,7 +530,7 @@ let package = Package(
         .target(
             name: "StatusAuditor",
             dependencies: ["QualityGateCore"],
-            exclude: ["StatusAuditor.docc"]
+            resources: [.copy("StatusAuditor.docc")]
         ),
         .testTarget(
             name: "StatusAuditorTests",
@@ -539,7 +540,7 @@ let package = Package(
         .target(
             name: "SwiftVersionChecker",
             dependencies: ["QualityGateCore"],
-            exclude: ["SwiftVersionChecker.docc"]
+            resources: [.copy("SwiftVersionChecker.docc")]
         ),
         .testTarget(
             name: "SwiftVersionCheckerTests",
@@ -554,7 +555,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["LoggingAuditor.docc"]
+            resources: [.copy("LoggingAuditor.docc")]
         ),
         .testTarget(
             name: "LoggingAuditorTests",
@@ -574,7 +575,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["TestQualityAuditor.docc"]
+            resources: [.copy("TestQualityAuditor.docc")]
         ),
         .testTarget(
             name: "TestQualityAuditorTests",
@@ -589,7 +590,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["ContextAuditor.docc"]
+            resources: [.copy("ContextAuditor.docc")]
         ),
         .testTarget(
             name: "ContextAuditorTests",
@@ -605,7 +606,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["DependencyAuditor.docc"]
+            resources: [.copy("DependencyAuditor.docc")]
         ),
         .testTarget(
             name: "DependencyAuditorTests",
@@ -627,7 +628,7 @@ let package = Package(
         .target(
             name: "ReleaseReadinessAuditor",
             dependencies: ["QualityGateCore"],
-            exclude: ["ReleaseReadinessAuditor.docc"]
+            resources: [.copy("ReleaseReadinessAuditor.docc")]
         ),
         .testTarget(
             name: "ReleaseReadinessAuditorTests",
@@ -642,7 +643,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["FloatingPointSafetyAuditor.docc"]
+            resources: [.copy("FloatingPointSafetyAuditor.docc")]
         ),
         .testTarget(
             name: "FloatingPointSafetyAuditorTests",
@@ -658,7 +659,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["MCPReadinessAuditor.docc"]
+            resources: [.copy("MCPReadinessAuditor.docc")]
         ),
         .testTarget(
             name: "MCPReadinessAuditorTests",
@@ -674,7 +675,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["StochasticDeterminismAuditor.docc"]
+            resources: [.copy("StochasticDeterminismAuditor.docc")]
         ),
         .testTarget(
             name: "StochasticDeterminismAuditorTests",
@@ -690,7 +691,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["TemporalDeterminismAuditor.docc"]
+            resources: [.copy("TemporalDeterminismAuditor.docc")]
         ),
         .testTarget(
             name: "TemporalDeterminismAuditorTests",
@@ -705,7 +706,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["GPUSafetyAuditor.docc"]
+            resources: [.copy("GPUSafetyAuditor.docc")]
         ),
         .testTarget(
             name: "GPUSafetyAuditorTests",
@@ -721,7 +722,7 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]
         ,
-            exclude: ["LivenessAuditor.docc"]
+            resources: [.copy("LivenessAuditor.docc")]
         ),
         .testTarget(
             name: "LivenessAuditorTests",
@@ -737,7 +738,7 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ]
         ,
-            exclude: ["BoundedIOAuditor.docc"]
+            resources: [.copy("BoundedIOAuditor.docc")]
         ),
         .testTarget(
             name: "BoundedIOAuditorTests",
@@ -752,7 +753,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["MemoryLifecycleGuard.docc"]
+            resources: [.copy("MemoryLifecycleGuard.docc")]
         ),
         .testTarget(
             name: "MemoryLifecycleGuardTests",
@@ -782,7 +783,7 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftOperators", package: "swift-syntax"),
             ],
-            exclude: ["ComplexityAnalyzer.docc"]
+            resources: [.copy("ComplexityAnalyzer.docc")]
         ),
         .testTarget(
             name: "ComplexityAnalyzerTests",
@@ -798,7 +799,7 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftOperators", package: "swift-syntax"),
             ],
-            exclude: ["LegibilityAnalyzer.docc"]
+            resources: [.copy("LegibilityAnalyzer.docc")]
         ),
         .testTarget(
             name: "LegibilityAnalyzerTests",
@@ -831,7 +832,7 @@ let package = Package(
                 "QualityGateCore",
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
             ],
-            exclude: ["IndexStoreInfra.docc"]
+            resources: [.copy("IndexStoreInfra.docc")]
         ),
         .testTarget(
             name: "IndexStoreInfraTests",
@@ -847,7 +848,7 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["AppIntentsAuditor.docc"]
+            resources: [.copy("AppIntentsAuditor.docc")]
         ),
         .testTarget(
             name: "AppIntentsAuditorTests",
@@ -1219,7 +1220,8 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
-            exclude: ["README.md", "QualityGateCLI.docc"]
+            exclude: ["README.md"],
+            resources: [.copy("QualityGateCLI.docc")]
         ),
         // Phase 1 acceptance: exercises the built `quality-gate` binary
         // against fixture upstream repos (foreign mode's read-only promise).

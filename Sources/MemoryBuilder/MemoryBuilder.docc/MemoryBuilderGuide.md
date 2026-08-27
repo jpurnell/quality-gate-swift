@@ -58,7 +58,7 @@ deduplication prevents the agent from seeing the same rule twice.
 ### ADRExtractor
 
 Reads `06_ARCHITECTURE_DECISIONS.md` from the development-guidelines core rules
-directory. It splits the file on `` ```yaml `` fenced blocks, parses each block
+directory. It splits the file on `yaml` fenced code blocks, parses each block
 with the Yams YAML library, and keeps only entries whose status is `accepted` or
 `amended`. Produces `project_decisions.md` with a counted summary and a pointer
 to the full log.

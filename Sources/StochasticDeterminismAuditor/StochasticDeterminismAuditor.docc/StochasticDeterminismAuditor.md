@@ -36,7 +36,7 @@ A call with no arguments at all is never flagged: it resolves to some other over
 
 ### Marking a test deliberately unseeded
 
-Some tests are *about* the unseeded path — "nil seed is non-reproducible by contract" is a real one — and adding a seed would invert the assertion. Use `// Justification: …`, the spelling ``ConcurrencyAuditor`` uses for `@unchecked Sendable`, on the line above or inline:
+Some tests are *about* the unseeded path — "nil seed is non-reproducible by contract" is a real one — and adding a seed would invert the assertion. Use `// Justification: …`, the spelling `ConcurrencyAuditor` uses for `@unchecked Sendable`, on the line above or inline:
 
 ```swift
 struct SplitMix64: RandomNumberGenerator {

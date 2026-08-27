@@ -1,8 +1,5 @@
 # Getting Started with MCPReadinessAuditor
 
-@Metadata {
-  @TechnologyRoot
-}
 
 ## Overview
 

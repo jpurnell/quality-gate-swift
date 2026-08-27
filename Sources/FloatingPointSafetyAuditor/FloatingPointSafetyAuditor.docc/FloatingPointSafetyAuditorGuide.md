@@ -1,8 +1,5 @@
 # Getting Started with FloatingPointSafetyAuditor
 
-@Metadata {
-  @TechnologyRoot
-}
 
 ## Overview
 

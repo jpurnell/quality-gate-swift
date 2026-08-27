@@ -1,8 +1,5 @@
 # Getting Started with MemoryLifecycleGuard
 
-@Metadata {
-  @TechnologyRoot
-}
 
 ## Overview
 

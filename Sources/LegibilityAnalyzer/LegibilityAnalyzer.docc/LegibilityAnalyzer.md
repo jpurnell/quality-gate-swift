@@ -6,13 +6,13 @@ Advisory analysis of whole-codebase legibility — can a human (or an agent) pic
 
 Every other checker in quality-gate-swift is a **local-defect detector**: it finds a force-unwrap, a dead function, an unjustified `@unchecked Sendable`. Nothing asked the *whole-codebase* question — is this project **navigable**? The LegibilityAnalyzer is the first checker aimed at that second goal.
 
-It is **advisory-only**, in the mold of the ``ComplexityAnalyzer``: every finding is a `.note`, the status is always `.passed`, and it **never gates a commit**. The motivation is empirical — the SonarSource minimal-pair study (arXiv:2605.20049) found that surface cleanliness barely moved task success but cut agent file-revisitation ~34%, and that suppression markers had negligible effect. Only *structure* mattered. So this analyzer reports on structure, and leaves judgment to the reader.
+It is **advisory-only**, in the mold of the `ComplexityAnalyzer`: every finding is a `.note`, the status is always `.passed`, and it **never gates a commit**. The motivation is empirical — the SonarSource minimal-pair study (arXiv:2605.20049) found that surface cleanliness barely moved task success but cut agent file-revisitation ~34%, and that suppression markers had negligible effect. Only *structure* mattered. So this analyzer reports on structure, and leaves judgment to the reader.
 
 Scope is deliberately bounded against the checkers that already own adjacent ground:
 
-- doc **presence** → ``DocCoverageChecker``
+- doc **presence** → `DocCoverageChecker`
 - code **deadness** → `UnreachableCodeAuditor`
-- local **complexity** → ``ComplexityAnalyzer``
+- local **complexity** → `ComplexityAnalyzer`
 
 The LegibilityAnalyzer owns only the **navigability of live code at module scale**.
 

@@ -38,7 +38,7 @@ After all files are written, ``MemoryFileValidator`` performs two checks:
   `generated-by: memory-builder` must contain valid YAML frontmatter and a
   non-empty body.
 
-Validation diagnostics are appended to the same ``CheckResult`` returned by the
+Validation diagnostics are appended to the same `CheckResult` returned by the
 extraction phase, so a single quality-gate run surfaces both generation and
 integrity issues.
 

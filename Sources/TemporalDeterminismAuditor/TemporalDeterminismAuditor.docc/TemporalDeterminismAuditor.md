@@ -5,7 +5,7 @@ Bans hidden nondeterminism sourced from wall-clock time.
 ## Overview
 
 The Temporal Determinism Auditor is the temporal analog of the
-``StochasticDeterminismAuditor``: where that auditor bans nondeterminism from
+`StochasticDeterminismAuditor`: where that auditor bans nondeterminism from
 *randomness*, this one bans nondeterminism from reading the *wall clock* in
 places where results must be reproducible.
 

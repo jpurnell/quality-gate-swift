@@ -19,8 +19,11 @@ appIntentsReadiness:
 - ``AppIntentVisitor``
 - ``AppIntentsAuditor``
 
-### Extracted Types
-- ``ExtractedIntent``
-- ``ExtractedParameter``
-- ``ExtractedEntity``
-- ``ExtractedEnum``
+### Guides
+- <doc:AppIntentsAuditorGuide>
+
+<!-- ExtractedIntent, ExtractedParameter, ExtractedEntity and ExtractedEnum were
+     curated here but are internal to this module, so DocC documents none of
+     them and every link resolved to nothing. They are implementation detail of
+     the visitor, not public surface; if they should be documented, the fix is
+     to make them public deliberately, not to link them from here. -->

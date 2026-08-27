@@ -43,6 +43,14 @@ DiskCleaner does not manage:
 
 ### Essentials
 
-- ``DiskCleaner/check(configuration:)``
-- ``DiskCleaner/id``
-- ``DiskCleaner/name``
+- ``DiskCleaner/init()``
+- ``DiskCleaner/clean(dryRun:runGitGC:)``
+- ``CleanupSummary``
+
+<!-- This section used to curate check(configuration:), id and name — the
+     QualityChecker requirements. DiskCleaner deliberately does not conform:
+     checkers observe and report, and this mutates the tree, deleting the same
+     .build/ directory that nine index-backed auditors read. It wore the
+     protocol once and produced a fabricated 61-error run by wiping the tree its
+     peers depended on. The links resolved to nothing, so the contradiction
+     between the catalogue and that decision was never visible. -->

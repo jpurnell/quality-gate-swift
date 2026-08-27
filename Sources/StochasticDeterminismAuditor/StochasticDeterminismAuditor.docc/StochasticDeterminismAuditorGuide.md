@@ -1,8 +1,5 @@
 # Getting Started with StochasticDeterminismAuditor
 
-@Metadata {
-  @TechnologyRoot
-}
 
 ## Overview
 
