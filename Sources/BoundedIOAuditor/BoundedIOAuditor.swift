@@ -87,11 +87,22 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// If a bounded form exists the answer is the overload, not the kernel — which is why the
     /// semaphore waits `liveness` reports were fixed in place rather than moved here.
     ///
-    /// This used to be *the* kernel path rather than the default one, and it names this
-    /// package's own type. A foreign repository has no `QualityGateCore`, so every spawn site
-    /// it owned was outside the kernel by construction and the emitted fix named a symbol it
-    /// could not import — **writing the correct fix did not clear the rule.** Override with
-    /// `boundedIO.kernelPath`. See `project/plans/proposals/BoundedIOKernelPath.md`.
+    /// This used to be *the* kernel path rather than the default one. A foreign repository has
+    /// no `QualityGateCore`, so every spawn site it owned was outside the kernel by
+    /// construction and the emitted fix named a symbol it could not import — **writing the
+    /// correct fix did not clear the rule.** Override with `boundedIO.kernelPath`. See
+    /// `project/plans/proposals/BoundedIOKernelPath.md`.
+    ///
+    /// The path is now vestigial and matches no file in any repository, including this one:
+    /// `ProcessRunner` moved to `swift-process-kernel` so that packages *this one depends on*
+    /// could use it, and this package now imports it like everyone else. A repository whose
+    /// spawns all route through that dependency has no in-tree kernel and correctly needs
+    /// none — the unbounded primitives are absent rather than contained.
+    ///
+    /// Which raises a question this constant no longer answers: with a shared runner
+    /// available, is a per-repository kernel still the right shape, or is the rule now simply
+    /// "call the package"? Left as-is rather than guessed at, because changing the default
+    /// changes the verdict for every repository the gate audits.
     static let defaultKernelPath = "Sources/QualityGateCore/ProcessRunner.swift"
 
     /// The name a diagnostic should use for a kernel at `path` — its file's base name.

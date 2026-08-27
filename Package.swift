@@ -258,6 +258,7 @@ let package = Package(
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.4.0"),
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.7.0"),
+        .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
         .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.15.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
         .package(url: "https://github.com/jpurnell/BusinessMath-UI", from: "0.5.0"),
@@ -273,6 +274,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
+                .product(name: "ProcessKernel", package: "swift-process-kernel"),
                 .product(name: "VigilKit", package: "swift-vigil"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],

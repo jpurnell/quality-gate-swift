@@ -1,5 +1,5 @@
 {
-  "originHash" : "17706607cf6dc75565c1d465c6b2dd75e1e2974aeebb5d0e7716735a7cc1e484",
+  "originHash" : "bb58f1ed471a59a8e85e1d6d1a5f23a1787b11bb23cb42c2c70e2609e524e621",
   "pins" : [
     {
       "identity" : "businessmath",
@@ -188,6 +188,15 @@
       "state" : {
         "revision" : "0c0290ff6b24942dadb83a929ffaaa1481df04a2",
         "version" : "1.1.1"
+      }
+    },
+    {
+      "identity" : "swift-process-kernel",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/swift-process-kernel.git",
+      "state" : {
+        "revision" : "5124b9ad6d995274ff11833247f7892b239aee00",
+        "version" : "1.0.0"
       }
     },
     {

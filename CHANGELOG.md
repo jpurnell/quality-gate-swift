@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`ProcessRunner` moved to [`swift-process-kernel`](https://github.com/jpurnell/swift-process-kernel)
+  and is re-exported from `QualityGateCore`.** Nothing about it was
+  quality-gate-specific: it answers a Foundation problem, in that `Process` offers
+  three ways to wait forever and production code finds all of them.
+
+  It moved because it could not be shared. Anything wanting the runner had to depend
+  on the whole gate, and this package depends on `swift-vigil` — so vigil adopting it
+  would have closed a dependency cycle. `bounded-io` was therefore unsatisfiable in
+  that repository: the rule's own suggested fix named a symbol vigil could not import,
+  and writing the correct fix did not clear the rule. That is the same failure the
+  `kernelPath` work already fixed once for foreign repositories, appearing again from
+  the other direction — a repository the gate *depends on* rather than one it audits.
+
+  No call site changed. The 23 sites across 18 targets still say `ProcessRunner.run(…)`
+  and reach it through `QualityGateCore` as before, via `@_exported import` — the
+  pattern this package already uses in five places. Naming the dependency in each
+  target would have been 18 `Package.swift` edits to relocate a symbol none of them
+  chose the home of.
+
+  `ProcessRunnerDeadlineTests` and `ProcessRunnerStdinTests` moved with it, so the
+  corpus of hang variants lives beside the code it constrains and there is no second
+  copy to drift. Verbatim apart from the timeout notice appended to stderr, which said
+  `quality-gate:` and is now `process-kernel:`.
+
+  **`BoundedIOAuditor.defaultKernelPath` is now vestigial** and matches no file in any
+  repository, this one included. A repository whose spawns all route through the shared
+  runner has no in-tree kernel and correctly needs none — its unbounded primitives are
+  *absent* rather than *contained*, which is the stronger property. Whether a
+  per-repository kernel is still the right shape, or the rule is now simply "call the
+  package", is left open rather than guessed at: changing that default changes the
+  verdict for every repository the gate audits. The constant's documentation now says
+  so instead of claiming, untruthfully, that it names this package's own type.
+
 ### Fixed (self-audit)
 
 - **`security.ssrf` reported a URL built entirely from a same-file constant.**
