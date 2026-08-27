@@ -23,6 +23,28 @@ flaky. The bug was in production, not the test — so this auditor scans both
 | `temporal-simulated-wall-clock` | A wall-clock read (`ContinuousClock.now`, `Date()`, `DispatchTime.now()`, …) stamped as a timestamp value inside a simulation/synthetic/mock/fake/stub type | warning |
 | `temporal-wall-clock-assertion` | A test assertion comparing *measured elapsed wall-clock time* against a numeric threshold | warning |
 
+### What counts as a timestamp
+
+The rule fires on an argument label naming a timestamp. Labels match exactly
+(`at`, `when`, `time`, `date`, `timestamp`, `instant`, `moment`, `asOf`,
+`effective`, …) or on a trailing camelCase component (`executedAt`,
+`valuationDate`, `startTime`).
+
+Matching used to be `contains("time")` plus `hasSuffix("at")`, which fired on
+`timeout:`, `timeGrid:`, `format:` and `heartbeat:` while missing `asOf:` — a
+common spelling for a business-time stamp. A label the checker does not match is
+not evidence that a call site is deterministic; add project-specific spellings
+via `timestampLabels`.
+
+### What the message says
+
+The diagnostic describes the harm actually present. A stamp inside a loop or a
+per-element closure produces a *series*, and the report names sample spacing
+tracking scheduler jitter. A single stamp has no spacing to distort, so the
+report names non-reproducibility instead: identical inputs yielding a different
+result every run. Reporting a mechanism that is not present invites the reader
+to dismiss a true finding.
+
 ## Exemptions
 
 - Per-line `// temporal:exempt` annotation (both rules)
@@ -39,6 +61,11 @@ temporal-determinism:
   exemptTypes: []
   exemptFunctions: []
   exemptFiles: []
+  # Extra type-name substrings marking a simulated source, added to the
+  # built-in markers. For fabricated sources that are not named "mock"/"fake".
+  simulationTypes: []
+  # Extra argument labels that count as stamping a timestamp.
+  timestampLabels: []
   flagSimulatedWallClock: true
   flagWallClockAssertion: true
 ```
