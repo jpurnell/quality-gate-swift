@@ -4,6 +4,25 @@
 
 ### Fixed (self-audit)
 
+- **`security.ssrf` reported a URL built entirely from a same-file constant.**
+  `URL(string: "https://\(Self.allowedHost)/lcdb")`, where `allowedHost` is a
+  `static let` holding a string literal, has no dynamic input in it — and the suggested
+  remedy, *validate against an allowlist of expected hosts*, cannot be applied to a value
+  that is already a literal. The finding was unactionable as well as untrue.
+
+  A literal whose every interpolation resolves to a `let` declared in the same file with a
+  plain string-literal initialiser is now treated like the non-interpolated literal the
+  rule already accepted.
+
+  **The exemption is deliberately narrower than the a11y and HIG ones fixed alongside it.**
+  Those turned on facts visible in the expression itself — an implicit member access with
+  no base, a literal `.none` argument, a sibling modifier in the same chain. This one needs
+  to know what an *identifier means*, and a security rule that guesses in the permissive
+  direction is worse than one that occasionally over-reports. So it fails closed: a `var`,
+  a function parameter, a computed property, a name declared in another file, a constant
+  built from its own interpolation, or a URL where only some segments are constant all stay
+  flagged. Seven tests, five of them guarding exactly those cases.
+
 - **A replayed result now leads with its provenance instead of trailing it.** The
   `Replayed from cache` notice was appended, so it rendered *after* the diagnostics it
   qualifies — the last line of a block whose opening lines read as fresh findings. It is

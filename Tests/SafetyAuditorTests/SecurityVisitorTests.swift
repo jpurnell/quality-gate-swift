@@ -439,6 +439,123 @@ struct SecurityVisitorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
+    // A URL built by interpolating a constant declared in the same file has no
+    // dynamic input in it. The suggested fix — validate against an allowlist —
+    // cannot be applied to a value that is already a literal, so the finding is
+    // unactionable as well as untrue.
+    //
+    // This exemption is deliberately the narrowest that is provable from syntax:
+    // the interpolated name must resolve to a `let` in this file whose initialiser
+    // is a plain string literal. It fails closed. A `var`, a computed property, a
+    // function parameter, or a name declared anywhere else stays flagged, because
+    // none of those can be shown constant without resolving across files — and a
+    // security rule that guesses in the permissive direction is worse than one
+    // that occasionally over-reports.
+
+    @Test("Allows a URL interpolating a same-file string constant")
+    func allowsSSRFLocalConstant() async throws {
+        let code = #"""
+        enum Endpoints {
+            static let allowedHost = "api.example.com"
+            static func make() -> URL? {
+                URL(string: "https://\(allowedHost)/data")
+            }
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
+    }
+
+    @Test("Allows a URL interpolating a constant reached through Self")
+    func allowsSSRFSelfQualifiedConstant() async throws {
+        let code = #"""
+        struct Client {
+            static let allowedHost = "api.example.com"
+            func endpoint() -> URL? {
+                URL(string: "https://\(Self.allowedHost)/data")
+            }
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
+    }
+
+    @Test("Still flags a URL interpolating a var, which can be reassigned")
+    func flagsSSRFVarInterpolation() async throws {
+        let code = #"""
+        struct Client {
+            static var host = "api.example.com"
+            func endpoint() -> URL? {
+                URL(string: "https://\(Self.host)/data")
+            }
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "A var is not constant; today's literal is tomorrow's assignment")
+    }
+
+    @Test("Still flags a URL interpolating a function parameter")
+    func flagsSSRFParameterInterpolation() async throws {
+        let code = #"""
+        func endpoint(host: String) -> URL? {
+            URL(string: "https://\(host)/data")
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "A parameter is the ordinary shape of the bug this rule exists for")
+    }
+
+    @Test("Still flags a URL interpolating a name declared in another file")
+    func flagsSSRFUnknownName() async throws {
+        let code = #"""
+        func endpoint() -> URL? {
+            URL(string: "https://\(Config.host)/data")
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "Constness cannot be shown from this file alone, so it fails closed")
+    }
+
+    @Test("Still flags when only some interpolations are constant")
+    func flagsSSRFMixedInterpolation() async throws {
+        let code = #"""
+        struct Client {
+            static let allowedHost = "api.example.com"
+            func endpoint(path: String) -> URL? {
+                URL(string: "https://\(Self.allowedHost)/\(path)")
+            }
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "One dynamic segment is enough to make the URL dynamic")
+    }
+
+    @Test("Still flags a constant whose own initialiser is interpolated")
+    func flagsSSRFConstantBuiltFromInterpolation() async throws {
+        let code = #"""
+        struct Client {
+            static let allowedHost = "\(scheme)://api.example.com"
+            func endpoint() -> URL? {
+                URL(string: "https://\(Self.allowedHost)/data")
+            }
+        }
+        """#
+
+        let result = try await auditCode(code)
+        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "The constant is only as constant as what it was built from")
+    }
+
     @Test("Detects URL with variable argument")
     func detectsSSRFVariable() async throws {
         let code = """

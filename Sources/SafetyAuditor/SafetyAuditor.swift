@@ -238,7 +238,8 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             source: source,
             converter: converter,
             exemptionPatterns: securityExemptions,
-            configuration: configuration.security
+            configuration: configuration.security,
+            sourceFile: sourceFile
         )
         securityVisitor.walk(sourceFile)
 

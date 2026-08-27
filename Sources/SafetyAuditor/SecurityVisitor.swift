@@ -30,6 +30,12 @@ final class SecurityVisitor: SyntaxVisitor {
     let configuration: SecurityAuditorConfig
     /// Built once per file — see `SafetyVisitor.converter`.
     let converter: SourceLocationConverter
+    /// Names bound by a `let` in this file whose initialiser is a plain string literal.
+    ///
+    /// Collected up front rather than during the walk: a constant may be declared below
+    /// the call that interpolates it, and a set built as we go would depend on source
+    /// order for its answer.
+    let localStringConstants: Set<String>
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
 
@@ -38,8 +44,10 @@ final class SecurityVisitor: SyntaxVisitor {
         source: String,
         converter: SourceLocationConverter,
         exemptionPatterns: [String],
-        configuration: SecurityAuditorConfig
+        configuration: SecurityAuditorConfig,
+        sourceFile: SourceFileSyntax? = nil
     ) {
+        self.localStringConstants = sourceFile.map(Self.stringLiteralConstants(in:)) ?? []
         self.fileName = fileName
         self.source = source
         self.converter = converter
@@ -555,6 +563,69 @@ final class SecurityVisitor: SyntaxVisitor {
         }
     }
 
+    // MARK: Local string constants
+
+    /// Names bound by a `let` whose initialiser is a string literal with no interpolation.
+    ///
+    /// `var` is excluded deliberately: it may be reassigned, and a rule that treats
+    /// today's literal as a permanent one would stop firing the day someone assigns to it.
+    /// A constant built from its own interpolation is excluded for the same reason — it is
+    /// only as constant as whatever it was built from, which this does not chase.
+    static func stringLiteralConstants(in file: SourceFileSyntax) -> Set<String> {
+        var names: Set<String> = []
+        collectStringLiteralConstants(Syntax(file), into: &names)
+        return names
+    }
+
+    private static func collectStringLiteralConstants(_ node: Syntax, into names: inout Set<String>) {
+        if let decl = node.as(VariableDeclSyntax.self), decl.bindingSpecifier.tokenKind == .keyword(.let) {
+            for binding in decl.bindings {
+                guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self),
+                      let value = binding.initializer?.value.as(StringLiteralExprSyntax.self),
+                      !value.segments.contains(where: { $0.is(ExpressionSegmentSyntax.self) }) else {
+                    continue
+                }
+                names.insert(pattern.identifier.text)
+            }
+        }
+        for child in node.children(viewMode: .sourceAccurate) {
+            collectStringLiteralConstants(child, into: &names)
+        }
+    }
+
+    /// Whether every interpolation in `literal` resolves to a constant declared in this file.
+    ///
+    /// Accepts a bare name (`allowedHost`) and a one-step qualification (`Self.allowedHost`,
+    /// `Config.allowedHost`) where the trailing name is a known local constant. Anything
+    /// else — a call, a subscript, a deeper path — is not resolved and so is not trusted.
+    private func interpolationsAreAllLocalConstants(_ literal: StringLiteralExprSyntax) -> Bool {
+        var sawInterpolation = false
+        for segment in literal.segments {
+            guard let expression = segment.as(ExpressionSegmentSyntax.self) else { continue }
+            sawInterpolation = true
+            guard let only = expression.expressions.first,
+                  expression.expressions.count == 1,
+                  let name = constantName(of: only.expression),
+                  localStringConstants.contains(name) else {
+                return false
+            }
+        }
+        return sawInterpolation
+    }
+
+    /// The identifier an expression names, if it is a bare reference or a one-step member access.
+    private func constantName(of expression: ExprSyntax) -> String? {
+        if let ref = expression.as(DeclReferenceExprSyntax.self) {
+            return ref.baseName.text
+        }
+        if let member = expression.as(MemberAccessExprSyntax.self),
+           let base = member.base,
+           base.is(DeclReferenceExprSyntax.self) {
+            return member.declName.baseName.text
+        }
+        return nil
+    }
+
     // MARK: SSRF (CWE-918)
 
     private func checkSSRF(_ node: FunctionCallExprSyntax) {
@@ -574,6 +645,14 @@ final class SecurityVisitor: SyntaxVisitor {
         // If the argument is a plain string literal without interpolation, it's safe
         if let literal = firstArg.expression.as(StringLiteralExprSyntax.self),
            !containsInterpolation(literal) {
+            return
+        }
+
+        // So is one whose every interpolation resolves to a string constant declared in
+        // this file: there is no dynamic input in it, and the suggested fix — validate
+        // against an allowlist — cannot be applied to a value that is already a literal.
+        if let literal = firstArg.expression.as(StringLiteralExprSyntax.self),
+           interpolationsAreAllLocalConstants(literal) {
             return
         }
 
