@@ -312,6 +312,11 @@ let package = Package(
             dependencies: ["BuildChecker", "IndexStoreInfra"]
         ),
 
+        .testTarget(
+            name: "XcodeBuildCheckerTests",
+            dependencies: ["XcodeBuildChecker", "QualityGateCore"]
+        ),
+
         .target(
             name: "TestRunner",
             dependencies: [

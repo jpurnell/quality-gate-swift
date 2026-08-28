@@ -58,6 +58,61 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     /// Creates a new XcodeBuildChecker instance.
     public init() {}
 
+    /// Whether a destination's build should be treated as failed.
+    ///
+    /// The exit code decides this on its own. Parsing decides *what to report*, never
+    /// *whether it failed*: this previously required a nonzero exit **and** a parsed
+    /// `.error`, so a compiler diagnostic in a format the parser did not recognise —
+    /// Xcode 27's, as it turned out — turned a failing build into `✓ PASSED`. An exit
+    /// code we cannot explain is precisely the case that must not pass quietly.
+    static func buildFailed(exitCode: Int32, diagnostics: [Diagnostic]) -> Bool {
+        exitCode != 0
+    }
+
+    /// A diagnostic for a build that failed without any recognisable compiler output.
+    ///
+    /// Carries the tail of what xcodebuild actually printed, because the reason the
+    /// parser missed it is the reason a human needs to read it.
+    static func unexplainedFailureDiagnostic(
+        exitCode: Int32,
+        destination: String,
+        output: String
+    ) -> Diagnostic {
+        let tail = output
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .suffix(20)
+            .joined(separator: "\n")
+        return Diagnostic(
+            severity: .error,
+            message: """
+                xcodebuild exited \(exitCode) for \(destination), and none of its output \
+                matched a diagnostic this checker knows how to parse. The build failed; \
+                the last lines of its output follow.
+
+                \(tail)
+                """,
+            ruleId: "xcode-build-unexplained-failure",
+            suggestedFix: "Run the same xcodebuild invocation directly to see the full output."
+        )
+    }
+
+    /// The scheme to build, given everything `xcodebuild -list` reported.
+    ///
+    /// `schemes.first` was wrong whenever the project has Swift package dependencies.
+    /// Xcode lists a scheme for every resolved package alongside the project's own, and
+    /// a dependency often sorts first: `WineTaster 4` reports
+    /// `["BusinessMath", "BusinessMath-Package", "WineTaster 4"]`. The checker built
+    /// `BusinessMath` — a dependency that compiles cleanly — reported `✓ PASSED`, and
+    /// never compiled a line of the app under test. A build checker that quietly builds
+    /// something else is worse than none, because the green tick is what stops you looking.
+    ///
+    /// The container's own name is the scheme belonging to it. Anything else is a guess,
+    /// so the first entry stays the fallback for projects that name schemes differently.
+    static func preferredScheme(schemes: [String], containerName: String?) -> String? {
+        if let containerName, schemes.contains(containerName) { return containerName }
+        return schemes.first
+    }
+
     /// Run xcodebuild for each configured destination and collect diagnostics.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
@@ -122,10 +177,17 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
 
             allDiagnostics.append(contentsOf: tagged)
 
-            if result.exitCode != 0 {
-                let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
-                if hasCompilationErrors {
-                    anyBuildFailed = true
+            if Self.buildFailed(exitCode: result.exitCode, diagnostics: diagnostics) {
+                anyBuildFailed = true
+                // A failure the parser could not explain still has to be visible. Without
+                // this the run reports a failing build with no diagnostics attached, which
+                // reads exactly like a clean one.
+                if !diagnostics.contains(where: { $0.severity == .error }) {
+                    allDiagnostics.append(Self.unexplainedFailureDiagnostic(
+                        exitCode: result.exitCode,
+                        destination: destination,
+                        output: combinedOutput
+                    ))
                 }
             }
         }
@@ -208,13 +270,16 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             ?? (json["workspace"] as? [String: Any])
 
         guard let schemes = schemesContainer?["schemes"] as? [String],
-              let firstScheme = schemes.first else {
+              let scheme = Self.preferredScheme(
+                schemes: schemes,
+                containerName: schemesContainer?["name"] as? String
+              ) else {
             throw QualityGateError.configurationError(
                 "No schemes found in Xcode project"
             )
         }
 
-        return firstScheme
+        return scheme
     }
 
     private func destinationLabel(_ destination: String) -> String {

@@ -4,6 +4,24 @@
 
 ### Fixed
 
+- **`xcode-build` built a dependency instead of the app under test.** `discoverScheme`
+  returned `schemes.first`. With Swift package dependencies, `xcodebuild -list` reports
+  a scheme per resolved package beside the project's own, and a dependency often sorts
+  first: `WineTaster 4` lists `["BusinessMath", "BusinessMath-Package", "WineTaster 4"]`.
+  The checker built `BusinessMath`, which compiles cleanly, exited 0, and reported
+  `✓ PASSED` for an app whose sources it never touched. Verified by appending a type
+  error to a file in the app target: `xcodebuild` exits 65 with 15 errors while the
+  checker passed in 4.3s. It now prefers the scheme named after the project or
+  workspace, falls back to the first, and the same broken build fails in 10.9s with the
+  compiler's own message.
+- **A failing `xcodebuild` could pass if its output was unparseable.** `anyBuildFailed`
+  required a nonzero exit *and* a parsed `.error` diagnostic, so a compiler message in
+  a format `parseBuildOutput` does not recognise would have been reported as a pass.
+  The exit code now decides the verdict on its own; parsing decides only what to show.
+  A failure with nothing parseable now reports the exit code, the destination, and the
+  tail of xcodebuild's output rather than nothing at all.
+
+
 - **`doc-lint.catalogue-excluded` read manifest comments as declarations.** The
   detector scanned `Package.swift` textually without skipping comments, so a
   comment *mentioning* `exclude:` was reported as an exclusion.

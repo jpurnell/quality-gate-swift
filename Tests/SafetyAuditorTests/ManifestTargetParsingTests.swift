@@ -175,11 +175,11 @@ struct ManifestParsingAgreementTests {
         #expect(map.targetType(forFile: "\(repositoryRoot)/Plugins/QualityGatePlugin/QualityGatePlugin.swift") == .plugin)
     }
 
-    @Test("The target count matches describe's 126")
+    @Test("The target count matches describe's 127")
     func countMatchesDescribe() {
         let map = TargetTypeMap.parsingManifest(packageRoot: repositoryRoot)
-        #expect(map.targetCount == 126,
-                "describe reported 126 targets on 2026-08-25; parser found \(map.targetCount)")
+        #expect(map.targetCount == 127,
+                "describe reported 127 targets on 2026-08-28; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.
