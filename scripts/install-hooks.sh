@@ -1,16 +1,33 @@
 #!/bin/bash
 # Installs a git pre-push hook that verifies a clean build and passing tests.
-# Usage: ./scripts/install-hooks.sh
+# Usage: ./scripts/install-hooks.sh [--force]
+#
+# Re-running updates hooks this script previously wrote. --force replaces hooks it
+# did not write.
 
 set -euo pipefail
 
 HOOK_DIR="$(git rev-parse --show-toplevel)/.git/hooks"
 HOOK_FILE="$HOOK_DIR/pre-push"
 
+# Refusing outright to touch an existing hook made this script write-once: every
+# repository that had ever run it was pinned to whatever the hook said that day, and a
+# correction here reached none of them. That is how the pre-push hook stayed on the
+# default checker set across the fleet. A hook this script wrote carries the marker
+# below and is safe to replace; anything else is someone's own work and still needs
+# --force.
+MARKER="installed by scripts/install-hooks.sh"
+FORCE="${1:-}"
 if [ -f "$HOOK_FILE" ]; then
-    echo "pre-push hook already exists at $HOOK_FILE"
-    echo "Remove it first if you want to reinstall."
-    exit 1
+    if grep -q "$MARKER" "$HOOK_FILE" 2>/dev/null; then
+        echo "Updating pre-push hook at $HOOK_FILE (previously installed by this script)"
+    elif [ "$FORCE" = "--force" ]; then
+        echo "Replacing pre-push hook at $HOOK_FILE (--force)"
+    else
+        echo "pre-push hook at $HOOK_FILE was not written by this script."
+        echo "Inspect it, then re-run with --force to replace it."
+        exit 1
+    fi
 fi
 
 cat > "$HOOK_FILE" << 'HOOK'
@@ -75,8 +92,22 @@ if [[ ! -x "$QG_BIN" ]]; then
     exit 0
 fi
 
-echo "Pre-push: running quality gate..."
-if "$QG_BIN" < /dev/null 2>&1; then
+# `--check all`, not the default set.
+#
+# The default set omits the checkers that are opt-in on convention — `doc-run`,
+# `doc-claims`, `doc-generated` — and `xcode-build`, which opts out on cost. A push
+# is the last moment the omission is cheap to correct, and the omission is not
+# theoretical: four iConquer repositories carried doc-run failures for two months
+# (a crash, three hangs, one non-deterministic article) while every local gate run
+# reported 0 errors, 0 warnings. Nothing was broken about the checker. It was simply
+# never selected, and CI — which does pass `checks: "all"` — was disabled on two of
+# the four and absent on a third.
+#
+# The cost is small where it is small: `xcode-build` is 1ms on a SwiftPM package with
+# no project to build, and `doc-run` is ~0.65s per article on a healthy catalogue.
+# Where it is expensive, it is expensive because there is something real to check.
+echo "Pre-push: running quality gate (all checkers)..."
+if "$QG_BIN" --check all < /dev/null 2>&1; then
     echo "Pre-push passed (quality gate)."
 else
     echo ""
@@ -97,8 +128,8 @@ echo "Installed pre-push hook at $HOOK_FILE"
 # the claim and the repository agree.
 # ---------------------------------------------------------------------------
 COMMIT_HOOK="$HOOK_DIR/pre-commit"
-if [[ -f "$COMMIT_HOOK" ]]; then
-    echo "pre-commit hook already exists at $COMMIT_HOOK"
+if [[ -f "$COMMIT_HOOK" ]] && ! grep -q "$MARKER" "$COMMIT_HOOK" 2>/dev/null && [ "$FORCE" != "--force" ]; then
+    echo "pre-commit hook at $COMMIT_HOOK was not written by this script; left alone."
 else
     cat > "$COMMIT_HOOK" << 'COMMITHOOK'
 #!/bin/bash
@@ -128,5 +159,5 @@ COMMITHOOK
     chmod +x "$COMMIT_HOOK"
     echo "Installed pre-commit hook at $COMMIT_HOOK"
 fi
-echo "The hook verifies a clean build and passing tests before push."
+echo "pre-commit runs the default checker set; pre-push runs every checker."
 echo "To remove: rm $HOOK_FILE"

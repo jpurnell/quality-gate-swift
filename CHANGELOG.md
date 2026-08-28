@@ -4,6 +4,33 @@
 
 ### Changed
 
+- **The pre-push hook runs `--check all` rather than the default set**, and
+  `scripts/install-hooks.sh` can now update a hook it previously wrote.
+
+  The default set omits the three checkers that are opt-in on convention —
+  `doc-run`, `doc-claims`, `doc-generated` — and `xcode-build`, which opts out on
+  cost. A push is the last cheap moment to correct that omission, and the omission
+  was not theoretical: four iConquer repositories carried `doc-run` failures for
+  two months — one crash, three hangs, one non-deterministic article — while every
+  local gate run reported 0 errors and 0 warnings. Nothing was wrong with the
+  checker. It was never selected, and the CI that does pass `checks: "all"` was
+  disabled on two of the four and absent on a third.
+
+  The installer previously refused to touch an existing hook and exited 1. That
+  made it write-once: every repository that had ever run it was pinned to whatever
+  the hook said that day, and a correction here reached none of them — which is
+  precisely how the pre-push hook stayed on the default set across the fleet. It
+  now recognises its own marker and updates in place; a hook it did not write is
+  still refused unless `--force` is passed.
+
+  `pre-commit` deliberately stays on the default set. Commits are frequent and the
+  fast set is the right trade there; the push is where completeness is worth
+  paying for. Cost where it is cheap: `xcode-build` is 1ms on a SwiftPM package
+  with no project to build, and `doc-run` is ~0.65s per article — 36s for this
+  package's 56 articles, each compiled and executed twice.
+
+### Changed
+
 - **`doc-comment-code` is in the default checker set.** It shipped opt-in because
   16 of this repository's 20 `///` fences failed the day it was written, and a
   gate that is red on arrival gets skipped. Promotion was gated on the fleet, not
