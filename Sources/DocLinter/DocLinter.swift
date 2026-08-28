@@ -301,6 +301,14 @@ public struct DocLinter: QualityChecker, Sendable {
     static func cataloguesWithheldFromDocC(packageContent: String, documented: [String]) -> [String] {
         guard !packageContent.isEmpty, !documented.isEmpty else { return [] }
 
+        // Comments are not declarations, and a manifest that discusses `exclude:` is more
+        // likely to be warning against it than doing it. SwiftMCPServer's Package.swift carries
+        // "DO NOT add `exclude: [\"SwiftMCPServer.docc\"]` here" above a paragraph explaining
+        // that excluding a catalogue silently empties the documentation — and the first version
+        // of this check read that comment as the exclusion it warns against, reporting a repo
+        // that had diagnosed the problem properly as the one committing it.
+        let packageContent = Self.strippingComments(packageContent)
+
         // Every `exclude:` list in the manifest, flattened to the literals inside it. A target
         // may legitimately exclude other things (a matrix document, a fixture directory) while
         // declaring its catalogue properly, so the catalogue name has to be matched, not the
@@ -321,6 +329,43 @@ public struct DocLinter: QualityChecker, Sendable {
         }
 
         return documented.filter { excluded.contains("\($0).docc") }.sorted()
+    }
+
+    /// The manifest with `//` line comments and `/* */` block comments removed.
+    ///
+    /// Naive by design: it does not track string literals, so a `//` inside a quoted path
+    /// would truncate that line. A manifest path containing `//` is not a thing, and the
+    /// alternative — parsing Swift to lint a documentation declaration — is far more machinery
+    /// than this check is worth.
+    static func strippingComments(_ source: String) -> String {
+        var out = ""
+        var inBlock = false
+        // `whereSeparator: \.isNewline`, not split(separator: "\n"): "\r\n" is a single
+        // Character in Swift, so a literal "\n" never matches it and a file written on
+        // Windows comes back as one element holding the whole document. The gate caught this
+        // in review — the same defect this repository already fixed in swift-vigil.
+        for line in source.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            var text = Substring(line)
+            if inBlock {
+                guard let end = text.range(of: "*/") else { continue }
+                text = text[end.upperBound...]
+                inBlock = false
+            }
+            while let open = text.range(of: "/*") {
+                if let close = text.range(of: "*/", range: open.upperBound..<text.endIndex) {
+                    text = text[text.startIndex..<open.lowerBound] + text[close.upperBound...]
+                } else {
+                    text = text[text.startIndex..<open.lowerBound]
+                    inBlock = true
+                    break
+                }
+            }
+            if let line = text.range(of: "//") {
+                text = text[text.startIndex..<line.lowerBound]
+            }
+            out += text + "\n"
+        }
+        return out
     }
 
     /// One warning per catalogue DocC was never given.

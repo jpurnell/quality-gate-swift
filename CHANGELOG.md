@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`doc-lint.catalogue-excluded` read manifest comments as declarations.** The
+  detector scanned `Package.swift` textually without skipping comments, so a
+  comment *mentioning* `exclude:` was reported as an exclusion.
+
+  Found the day it shipped, against `SwiftMCPServer` — whose manifest carries
+  "DO NOT add `exclude: [\"SwiftMCPServer.docc\"]` here" above a paragraph
+  explaining that excluding a catalogue silently empties the documentation. The
+  rule read that warning as the act it warns against, so the one repository that
+  had diagnosed the problem most carefully was the one reported as committing it.
+  Exactly backwards.
+
+  Comments are now stripped before the scan. The stripper is naive by design — it
+  does not track string literals, so a `//` inside a quoted path would truncate
+  that line. A manifest path containing `//` is not a thing, and parsing Swift to
+  lint a documentation declaration is more machinery than this check is worth.
+
+  Three tests: a line comment, a block comment, and a real exclusion sitting next
+  to a comment that mentions a different one.
+
+  The stripper's first version split on a `"\n"` literal, which is the CRLF defect
+  this package's own `safety` checker exists to catch — and it caught it, blocking
+  the commit. `"\r\n"` is a single `Character` in Swift, so a literal `"\n"` never
+  matches it and a file written on Windows returns as one element holding the whole
+  document. It splits on `\.isNewline` now.
+
 ### Reverted
 
 - **`doc-comment-code` is opt-in again.** It was promoted into the default set

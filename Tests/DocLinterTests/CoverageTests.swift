@@ -181,3 +181,59 @@ struct ExcludedCatalogueTests {
         #expect(!diagnostic.message.lowercased().contains("exclud"))
     }
 }
+
+/// A manifest comment is not a manifest declaration.
+///
+/// Found in the wild the day the rule shipped: `SwiftMCPServer`'s Package.swift carries a
+/// comment reading "DO NOT add `exclude: [\"SwiftMCPServer.docc\"]` here", with a paragraph
+/// explaining that excluding a catalogue silently empties the documentation. The detector read
+/// the comment as the thing it warns against and reported the target as withheld — a finding
+/// that was exactly backwards, against a repository that had already diagnosed the problem
+/// more thoroughly than the checker does.
+@Suite("Doc Lint: manifest comments are not declarations")
+struct ManifestCommentTests {
+
+    @Test("A line comment mentioning exclude: is not an exclusion")
+    func lineCommentIsNotAnExclusion() {
+        let manifest = """
+        let package = Package(
+            targets: [
+                .target(
+                    name: "Alpha"
+                    // DO NOT add `exclude: ["Alpha.docc"]` here — it silently empties the docs.
+                ),
+            ]
+        )
+        """
+        #expect(DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha"]).isEmpty)
+    }
+
+    @Test("A block comment mentioning exclude: is not an exclusion")
+    func blockCommentIsNotAnExclusion() {
+        let manifest = """
+        let package = Package(
+            targets: [
+                /* exclude: ["Alpha.docc"] was tried here and made doc-lint vacuous */
+                .target(name: "Alpha"),
+            ]
+        )
+        """
+        #expect(DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha"]).isEmpty)
+    }
+
+    @Test("A real exclusion is still detected when a comment also mentions one")
+    func realExclusionSurvivesNearbyComment() {
+        let manifest = """
+        let package = Package(
+            targets: [
+                // exclude: ["Beta.docc"] would be wrong for Beta
+                .target(name: "Alpha", exclude: ["Alpha.docc"]),
+            ]
+        )
+        """
+        #expect(DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha", "Beta"]) == ["Alpha"])
+    }
+}
