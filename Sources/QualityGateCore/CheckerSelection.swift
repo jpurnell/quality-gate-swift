@@ -83,26 +83,39 @@ public enum CheckerSelection {
             // exactly the shape `doc-code` has just finished walking, so the precedent for
             // promoting them later is now on the record rather than hypothetical.
             //
-            // `doc-comment-code` is now default-on, on the same terms `doc-code` met. The
-            // history is worth keeping: 16 of this repository's 20 `///` fences failed the
-            // day the rule was written — 10 of them one `## Usage` template copied into ten
-            // auditors — and all 16 were repaired with no exemptions. It carries its own id
-            // rather than sharing `doc-code`'s precisely so that landing it red could not
-            // take a green `doc-code` down with it; that separation let the two be promoted
-            // independently, which is exactly what happened.
+            // `doc-comment-code` is opt-in. It was promoted into the default set on
+            // 2026-08-27 and reverted the same night, and the reason is worth more than the
+            // one-line diff: the promotion was justified by a survey that did not cover the
+            // fleet it claimed to.
             //
-            // Promotion was gated on a fleet survey rather than on this package alone, and
-            // the survey is the part worth recording. Of 39 gate-configured repositories,
-            // 5 were red — 60 errors between them — and every one was repaired before the
-            // flip, again with zero `<!-- docs:illustrative -->` markers. Two findings from
-            // that sweep outlived it:
+            // What the promoting commit recorded was "39 gate-configured repositories
+            // surveyed, 5 red, 60 errors, all repaired first". The number 39 was real; the
+            // word "all" was not. The survey globbed `Swift/*/.quality-gate.yml` — one
+            // directory, one level deep — while `find` over the same tree returns 86. The
+            // 47 it missed were every repository living in a subdirectory: `Tools/`,
+            // `harbor/`, `Playgrounds/Math/`, `Embedded/`, `Princeton/`.
             //
-            // First, the survey itself was wrong on the first pass. Run as
-            // `--check doc-comment-code` it does not run `build`, and this checker compiles
-            // against a built module rather than building one, so every cold-`.build`
-            // repository reported SKIPPED and read as clean. Three "clean" repositories were
-            // red once `build` ran first. That is why `module-unavailable` is now a warning
-            // rather than a note.
+            // That blind spot was not random with respect to the answer. A full sweep after
+            // the flip found 12 red repositories carrying 162 errors, and every single one
+            // of them was in a subdirectory — five in `Tools/`, which is where this package
+            // itself lives. The sampled 39 were green precisely because they were the
+            // top-level packages that had already had attention paid to them.
+            //
+            // So the bar `doc-code` met is unchanged and still right — adopt the convention
+            // by repairing the documentation, never by relaxing the rule. This rule has not
+            // met it yet. Re-promoting takes a survey enumerated with `find`, not a glob,
+            // and the 12 reds repaired first. Three of them (`BusinessMathPro`,
+            // `swift-potrace`, `sicp-swift-companion`) are already done and stay done.
+            //
+            // Two findings from that sweep outlived the revert and are the reason it was
+            // not a total loss:
+            //
+            // First, a survey run as `--check doc-comment-code` does not run `build`, and
+            // this checker compiles against a built module rather than building one — so
+            // every cold-`.build` repository reports SKIPPED and reads as clean. Three
+            // "clean" repositories were red once `build` ran first. That is why
+            // `module-unavailable` is now a warning rather than a note, and why any future
+            // survey must invoke `--check build --check doc-comment-code`.
             //
             // Second, one repository cannot be evaluated at all. `Ignite` depends on
             // swift-markdown, whose C target `cmark_gfm_extensions` the fence compile cannot
@@ -110,20 +123,12 @@ public enum CheckerSelection {
             // 16 of its 17 findings are that barrier restated. Its docs are not implicated.
             // It carries `excludedCheckers: [doc-comment-code]` until the fence compile
             // learns to feed a package's C-target module maps to the compiler — which is the
-            // real fix, and is not this change. The exclusion records "the checker cannot
-            // evaluate this package", which is true; it does not record "this package's
-            // documentation is fine", which is unknown.
+            // real fix, and is not this change. That entry stays load-bearing even while the
+            // rule is opt-in, because `--check all` still selects it and the pre-push hook
+            // runs `--check all`.
             //
-            // `--full` still deliberately does not carry a documentation convention; it means
-            // "the slow ones too". That distinction outlives this promotion.
-            // `doc-generated` opts out on convention alone, and it is the cleanest case for
-            // the distinction the paragraph above draws: the checker is *fast*, so cost is
-            // not the reason. A repository with no `<!-- generated: -->` delimiters anywhere
-            // gets nothing from it and should not pay for discovering that. Adopting the
-            // convention means wrapping a table in delimiters, which is a decision about the
-            // document, not a setting.
             var optOut: Set<String> = [
-                "xcode-build", "doc-run", "doc-claims", "doc-generated",
+                "xcode-build", "doc-run", "doc-claims", "doc-comment-code", "doc-generated",
             ]
             if full { optOut.remove("xcode-build") }
             // `--exclude` is honoured here too, which it was not before. While `doc-code` was

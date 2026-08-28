@@ -33,16 +33,20 @@ import QualityGateCore
 /// - **Only `swift`-tagged fences are compiled.** Untagged and foreign-tagged fences are
 ///   never guessed at, and are counted in the coverage line so the silence is legible.
 ///
-/// ## Default-on, and error severity
+/// ## Opt-in, and error severity once opted into
 ///
 /// Sixteen of this repository's twenty doc-comment fences failed when the rule was first
-/// measured, and a gate that is red on arrival gets skipped — so it shipped opt-in and was
-/// promoted into the default set only after the fleet was repaired: 39 repositories
-/// surveyed, 5 red, 60 errors, all fixed with zero `<!-- docs:illustrative -->` markers.
-/// `--full` is unrelated and never enabled it; `--full` means "the slow ones too".
+/// measured, and a gate that is red on arrival gets skipped. Enable it with
+/// `--check doc-comment-code` or `enabledCheckers`; `--full` is unrelated and never enabled
+/// it, because `--full` means "the slow ones too", not "adopt a documentation convention".
 ///
-/// The findings are errors and no knob downgrades them, because a knob that turns a red
-/// gate green is a suppression by another name. The one escape hatch is
+/// It was briefly default-on — promoted and reverted on 2026-08-27, when a sweep of all 86
+/// gate-configured repositories found 12 red carrying 162 errors that the promoting survey
+/// had never enumerated. See ``CheckerSelection`` for what the survey missed and what
+/// re-promoting requires.
+///
+/// Once enabled the findings are errors and no knob downgrades them, because a knob that
+/// turns a red gate green is a suppression by another name. The one escape hatch is
 /// `Configuration.excludedCheckers`, which removes the checker rather than softening it —
 /// for a package this checker cannot evaluate at all. `Ignite` is the case: its fence
 /// compile stops at a missing `cmark_gfm_extensions` module before any fence is read, so

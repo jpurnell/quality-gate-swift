@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Reverted
+
+- **`doc-comment-code` is opt-in again.** It was promoted into the default set
+  earlier the same night and is reverted here, because the survey that justified
+  the promotion did not cover the fleet it claimed to.
+
+  The promoting commit recorded "39 gate-configured repositories surveyed, 5 red,
+  60 errors, all repaired first". The 39 was real; the "all" was not. That survey
+  globbed `Swift/*/.quality-gate.yml` — one directory, one level deep — while
+  `find` over the same tree returns **86**. The 47 it missed were every repository
+  living in a subdirectory: `Tools/`, `harbor/`, `Playgrounds/Math/`, `Embedded/`,
+  `Princeton/`.
+
+  The blind spot was not random with respect to the answer. A full sweep after the
+  flip found **12 red repositories carrying 162 errors**, and every one was in a
+  subdirectory — five in `Tools/`, which is where this package itself lives. The
+  sampled 39 were green precisely because they were the top-level packages that
+  had already had attention paid to them.
+
+  | Repository | Errors |
+  | :--- | ---: |
+  | `Playgrounds/Math/BusinessMathMarketData` | 61 |
+  | `Tools/SwiftCLIKit` | 49 |
+  | `Ignite` | 17 (declined via `excludedCheckers`) |
+  | `Tools/SwiftMCPServer` | 10 |
+  | `harbor/BioFeedbackKit` | 8 |
+  | `Tools/swiftOAuth` | 8 |
+  | `Tools/SwiftDeterminism` | 7 |
+  | `harbor/HarborKit` | 6 |
+  | `Tools/SwiftMCPClient` | 5 |
+  | `harbor/EdgeSDK-Swift`, `harbor/BioFeedbackKit-HealthKit` | 3 each |
+  | `harbor/HarborWatchKit`, `harbor/BioFeedbackKit-Polar` | 1 each |
+
+  The bar `doc-code` met is unchanged and still right: adopt the convention by
+  repairing the documentation, never by relaxing the rule. This rule has not met
+  it yet. Re-promoting takes a survey enumerated with `find` rather than a glob,
+  invoked as `--check build --check doc-comment-code`, and the 12 reds repaired
+  first. `BusinessMathPro`, `swift-potrace` and `sicp-swift-companion` were
+  repaired during the attempt and stay repaired.
+
+  **Kept from the attempt**, because both stand on their own: `excludedCheckers`
+  and the `module-unavailable` warning. The latter is what made the full sweep
+  trustworthy — a survey run without `build` reports SKIPPED on a cold `.build`
+  and reads as clean, which is how three repositories looked green on the first
+  pass and were red on the second.
+
 ### Changed
 
 - **The pre-push hook runs `--check all` rather than the default set**, and

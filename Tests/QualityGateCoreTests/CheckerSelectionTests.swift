@@ -128,27 +128,31 @@ struct CheckerSelectionTests {
         }
     }
 
-    @Test("doc-comment-code is default-on, and is still not doc-code")
-    func docCommentCodeIsDefaultOn() {
+    @Test("doc-comment-code is opt-in, and is not doc-code")
+    func docCommentCodeIsOptIn() {
         // Two ids, on purpose. `doc-code` was made green at real cost, and sixteen of this
         // repository's twenty `///` fences failed the day `doc-comment-code` was measured.
         // A shared id would have turned the green one red on the day it landed, and a gate
-        // that is red on arrival gets skipped. That separation is what let the two be
-        // promoted independently — which is what happened: `doc-comment-code` is now in the
-        // default set, after a 39-repository survey found 5 red, 60 errors, all repaired.
+        // that is red on arrival gets skipped.
+        //
+        // That separation earned its keep on 2026-08-27: `doc-comment-code` was promoted
+        // into the default set and reverted the same night, when a sweep of all 86
+        // gate-configured repositories found 12 red that the promoting survey had never
+        // enumerated. `doc-code` stayed green throughout, because the ids are distinct.
+        // This test is the guard on the revert.
         let registry = allIDs + ["doc-code", "doc-comment-code"]
 
         let byDefault = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
         )
-        #expect(byDefault.contains("doc-comment-code"))
+        #expect(!byDefault.contains("doc-comment-code"))
 
         // `--full` means "the slow ones too" and never carried this. It must not be what
         // turns the checker on, or the flag quietly becomes a documentation-convention flag.
         let full = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
         )
-        #expect(full.contains("doc-comment-code"))
+        #expect(!full.contains("doc-comment-code"))
 
         // Enabling one must never enable the other.
         #expect(CheckerSelection.resolve(
