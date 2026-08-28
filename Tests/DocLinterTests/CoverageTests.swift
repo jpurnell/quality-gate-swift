@@ -79,3 +79,105 @@ struct CoverageTests {
         #expect(diagnostic.message.contains("31"))
     }
 }
+
+/// A catalogue excluded from its target's `sourceFiles` is never handed to DocC.
+///
+/// `exclude:` quiets SwiftPM's unhandled-file warning, and swift-docc-plugin locates a catalogue
+/// *through* `sourceFiles` — so the target is passed to DocC, DocC finds no articles for it, and
+/// doc-lint reports a pass over documentation it never opened. Found 2026-08-27 in this package:
+/// 34 of 35 catalogues were declared that way, and the coverage note said 35 the whole time.
+/// Verified by injecting the same broken symbol link into two catalogues, one declared each way,
+/// and running the gate once: only the declared one was reported.
+@Suite("Doc Lint: excluded catalogues")
+struct ExcludedCatalogueTests {
+
+    private static func manifest(excluding: [String] = [], declaring: [String] = []) -> String {
+        var targets: [String] = []
+        for name in excluding {
+            targets.append("""
+                    .target(
+                        name: "\(name)",
+                        exclude: ["\(name).docc"]
+                    ),
+            """)
+        }
+        for name in declaring {
+            targets.append("""
+                    .target(
+                        name: "\(name)",
+                        resources: [.copy("\(name).docc")]
+                    ),
+            """)
+        }
+        return "let package = Package(\n    targets: [\n" + targets.joined(separator: "\n") + "\n    ]\n)"
+    }
+
+    @Test("A catalogue excluded from its target is detected")
+    func excludedCatalogueIsDetected() {
+        let manifest = Self.manifest(excluding: ["Alpha"])
+        let withheld = DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha"])
+        #expect(withheld == ["Alpha"])
+    }
+
+    @Test("A catalogue declared as a resource is not detected")
+    func declaredCatalogueIsNotDetected() {
+        let manifest = Self.manifest(declaring: ["Alpha"])
+        let withheld = DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha"])
+        #expect(withheld.isEmpty)
+    }
+
+    @Test("Only the excluded targets are named when a package mixes both")
+    func mixedManifestNamesOnlyTheExcluded() {
+        let manifest = Self.manifest(excluding: ["Alpha", "Gamma"], declaring: ["Beta"])
+        let withheld = DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha", "Beta", "Gamma"])
+        #expect(withheld == ["Alpha", "Gamma"])
+    }
+
+    @Test("A target excluding something other than its catalogue is not detected")
+    func unrelatedExclusionIsNotDetected() {
+        let manifest = """
+        let package = Package(
+            targets: [
+                .target(
+                    name: "Alpha",
+                    exclude: ["NOTES.md"],
+                    resources: [.copy("Alpha.docc")]
+                ),
+            ]
+        )
+        """
+        let withheld = DocLinter.cataloguesWithheldFromDocC(
+            packageContent: manifest, documented: ["Alpha"])
+        #expect(withheld.isEmpty)
+    }
+
+    @Test("Each withheld catalogue is a warning naming the fix")
+    func withheldCataloguesAreReported() {
+        let diagnostics = DocLinter.withheldCatalogueDiagnostics(["Alpha", "Gamma"])
+        #expect(diagnostics.count == 2)
+        #expect(diagnostics.allSatisfy { $0.severity == .warning })
+        #expect(diagnostics.allSatisfy { $0.ruleId == "doc-lint.catalogue-excluded" })
+        #expect(diagnostics.contains { $0.message.contains("Alpha") })
+        #expect(diagnostics.contains { ($0.suggestedFix ?? "").contains("resources:") })
+    }
+
+    @Test("The coverage note separates what was passed from what was withheld")
+    func coverageNoteReportsWithheld() {
+        let diagnostic = DocLinter.coverageDiagnostic(
+            explicit: nil, documented: ["Alpha", "Beta"], withheld: ["Alpha"])
+        #expect(diagnostic.severity == .note)
+        #expect(diagnostic.message.contains("2"))
+        #expect(diagnostic.message.contains("1"))
+    }
+
+    @Test("With nothing withheld the note makes no claim about exclusions")
+    func cleanCoverageNoteIsUnchanged() {
+        let diagnostic = DocLinter.coverageDiagnostic(
+            explicit: nil, documented: ["Alpha", "Beta"], withheld: [])
+        #expect(!diagnostic.message.lowercased().contains("withheld"))
+        #expect(!diagnostic.message.lowercased().contains("exclud"))
+    }
+}

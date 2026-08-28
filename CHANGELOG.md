@@ -2,7 +2,41 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`doc-lint.catalogue-excluded`** — a target that owns `X.docc` but excludes it
+  from its `sourceFiles` is now a warning. `exclude:` and `resources:` both silence
+  SwiftPM's unhandled-file warning for a catalogue, and only `resources:` leaves it
+  where swift-docc-plugin can find it. The target is still passed to DocC and still
+  produces symbol documentation; its *articles* are simply absent, so their curation
+  and links go unread and the run passes.
+
+  Found the hard way in this package: 34 of 35 catalogues were declared with
+  `exclude:`, and establishing that took injecting the same broken symbol link into
+  two catalogues — one declared each way — and observing that only one was reported.
+  The checker now says it outright. Reading those catalogues for the first time
+  surfaced 27 warnings, including a catalogue advertising a protocol conformance the
+  code deliberately rejects for safety.
+
+  Parsed textually rather than by evaluating the manifest: `Package.swift` is a
+  program, and running someone's build description to lint their documentation is a
+  larger permission than this check needs. A catalogue named by a variable rather
+  than a literal is therefore not seen — which under-reports and never invents a
+  finding.
+
 ### Changed
+
+- **doc-lint's coverage note no longer counts targets it did not read.** It said
+  "examined N target(s) owning a DocC catalogue", where N was targets that *own* a
+  catalogue rather than targets whose catalogue DocC received. The two are equal in
+  a correctly declared package, which is why the difference went unnoticed until
+  they were 1 and 35. The note now separates them when they differ, naming the
+  targets, and when they agree it says so explicitly rather than leaving it implied.
+
+  The `docTarget` branch of the same function already drew this distinction — it was
+  written after a pinned `docTarget` hid 115 of 116 modules. The narrow case had been
+  fixed and the broad one left, because nothing indicated `exclude:` withheld
+  catalogues too.
 
 - **`ProcessRunner` moved to [`swift-process-kernel`](https://github.com/jpurnell/swift-process-kernel)
   and is re-exported from `QualityGateCore`.** Nothing about it was

@@ -180,7 +180,15 @@ public struct DocLinter: QualityChecker, Sendable {
         )
         var diagnostics = enrichedDiagnostics
         diagnostics += Self.ambiguousLinkDiagnostics(projectRoot: projectRoot)
-        let coverage = Self.coverageDiagnostic(explicit: explicit, documented: documented)
+
+        // Reported before the coverage note, because it explains it: a withheld catalogue is
+        // why the number of targets DocC was handed and the number it could read differ.
+        let withheld = Self.cataloguesWithheldFromDocC(
+            packageContent: packageContent, documented: documented)
+        diagnostics += Self.withheldCatalogueDiagnostics(withheld)
+
+        let coverage = Self.coverageDiagnostic(
+            explicit: explicit, documented: documented, withheld: withheld)
         diagnostics.append(coverage)
 
         return CheckResult(
@@ -267,6 +275,74 @@ public struct DocLinter: QualityChecker, Sendable {
         return targets.sorted()
     }
 
+
+    /// Targets that own a catalogue but exclude it from their `sourceFiles`.
+    ///
+    /// `exclude:` and `resources:` both silence SwiftPM's unhandled-file warning for a `.docc`
+    /// directory, and only one of them leaves the catalogue where swift-docc-plugin can find it.
+    /// A target declared with `exclude:` is still passed to DocC and still produces
+    /// documentation — for its *symbols*. Its articles are simply absent, so every curation and
+    /// every symbol link inside them goes unread, and the run passes.
+    ///
+    /// That is not a hypothetical. In this package, 34 of 35 catalogues were declared with
+    /// `exclude:`, and reading them for the first time surfaced 27 warnings — among them a
+    /// catalogue advertising a protocol conformance the code deliberately rejects for safety.
+    /// The coverage note said 35 throughout.
+    ///
+    /// Parsed textually rather than by evaluating the manifest: `Package.swift` is a program,
+    /// and running someone's build description to lint their documentation is a much larger
+    /// permission than this check needs. The cost is that a catalogue named by a variable rather
+    /// than a literal is not seen — which under-reports, and never invents a finding.
+    ///
+    /// - Parameters:
+    ///   - packageContent: The raw text of `Package.swift`.
+    ///   - documented: Target names found to own a catalogue on disk.
+    /// - Returns: The subset whose catalogue is named in an `exclude:` list, sorted.
+    static func cataloguesWithheldFromDocC(packageContent: String, documented: [String]) -> [String] {
+        guard !packageContent.isEmpty, !documented.isEmpty else { return [] }
+
+        // Every `exclude:` list in the manifest, flattened to the literals inside it. A target
+        // may legitimately exclude other things (a matrix document, a fixture directory) while
+        // declaring its catalogue properly, so the catalogue name has to be matched, not the
+        // mere presence of `exclude:`.
+        var excluded: Set<String> = []
+        var searchRange = packageContent.startIndex..<packageContent.endIndex
+        while let excludeKeyword = packageContent.range(of: "exclude:", range: searchRange) {
+            guard let open = packageContent.range(
+                    of: "[", range: excludeKeyword.upperBound..<packageContent.endIndex),
+                  let close = packageContent.range(
+                    of: "]", range: open.upperBound..<packageContent.endIndex) else { break }
+            let list = packageContent[open.upperBound..<close.lowerBound]
+            for piece in list.split(separator: ",") {
+                let literal = piece.trimmingCharacters(in: CharacterSet(charactersIn: " \n\t\""))
+                if literal.hasSuffix(".docc") { excluded.insert(literal) }
+            }
+            searchRange = close.upperBound..<packageContent.endIndex
+        }
+
+        return documented.filter { excluded.contains("\($0).docc") }.sorted()
+    }
+
+    /// One warning per catalogue DocC was never given.
+    ///
+    /// A warning rather than a note: the checker cannot see the articles, so every other verdict
+    /// it reports about that target is silent about most of what the target documents.
+    ///
+    /// - Parameter withheld: Target names whose catalogue is excluded from `sourceFiles`.
+    /// - Returns: A diagnostic for each, in the order given.
+    static func withheldCatalogueDiagnostics(_ withheld: [String]) -> [Diagnostic] {
+        withheld.map { target in
+            Diagnostic(
+                severity: .warning,
+                message: "Target `\(target)` owns `\(target).docc` but excludes it from its "
+                    + "sourceFiles, which is how swift-docc-plugin locates a catalogue. DocC "
+                    + "receives no articles for this target, so their curation and symbol links "
+                    + "are never checked and a pass says nothing about them.",
+                ruleId: "doc-lint.catalogue-excluded",
+                suggestedFix: "Declare it instead: resources: [.copy(\"\(target).docc\")]")
+        }
+    }
+
     /// What the run examined, stated whether it passed or failed.
     ///
     /// A checker that examined nothing and a checker that found nothing wrong must not print the
@@ -278,7 +354,11 @@ public struct DocLinter: QualityChecker, Sendable {
     ///   - explicit: The configured `docTarget`, when one narrowed the run.
     ///   - documented: The targets found to own a catalogue.
     /// - Returns: A note describing coverage, or an error when nothing was examined.
-    static func coverageDiagnostic(explicit: String?, documented: [String]) -> Diagnostic {
+    static func coverageDiagnostic(
+        explicit: String?,
+        documented: [String],
+        withheld: [String] = []
+    ) -> Diagnostic {
         if let explicit {
             return Diagnostic(
                 severity: .note,
@@ -296,9 +376,24 @@ public struct DocLinter: QualityChecker, Sendable {
                 suggestedFix: "Add a catalogue, set `docTarget` explicitly, or exclude `doc-lint` "
                     + "if this package is not documented with DocC.")
         }
+        // "examined" used to be the whole sentence, and it counted targets that *own* a
+        // catalogue rather than targets whose catalogue DocC was actually handed. The two
+        // numbers were equal often enough for the difference to go unnoticed until they were
+        // 1 and 35. The branch above already drew this distinction for `docTarget`; this one
+        // did not draw it for `exclude:`.
+        guard withheld.isEmpty else {
+            return Diagnostic(
+                severity: .note,
+                message: "doc-lint passed \(documented.count) target(s) owning a DocC catalogue "
+                    + "to DocC, but \(withheld.count) of them exclude that catalogue from their "
+                    + "sourceFiles and so contributed no articles: "
+                    + withheld.joined(separator: ", ") + ".",
+                ruleId: "doc-lint.coverage")
+        }
         return Diagnostic(
             severity: .note,
-            message: "doc-lint examined \(documented.count) target(s) owning a DocC catalogue.",
+            message: "doc-lint examined \(documented.count) target(s) owning a DocC catalogue, "
+                + "each declaring it where DocC can read it.",
             ruleId: "doc-lint.coverage")
     }
 
