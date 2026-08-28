@@ -271,13 +271,22 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
                 // Without the module every fence fails with `no such module` — a wall of
                 // findings about this checker's own environment, indistinguishable at a
                 // glance from findings about the documentation. Say what actually happened.
+                //
+                // A warning, not a note, because a note does not reach the summary line: the
+                // run printed PASSED while examining nothing, which is the vacuous pass
+                // `doc-lint` was already hardened against. Not an error, because unlike a
+                // missing catalogue this is not a fact about the project — it is the order
+                // the checkers ran in, and the full gate fixes it by running `build` first.
+                // It fires on a standalone `--check doc-comment-code`, which is exactly the
+                // invocation that would otherwise be believed.
                 diagnostics.append(
                     Diagnostic(
-                        severity: .note,
+                        severity: .warning,
                         message: """
-                            Skipped \(module): no built module found under .build/debug. Run \
-                            the build first — this checker compiles documentation against the \
-                            module, it does not build it.
+                            Skipped \(module): no built module found under .build/debug, so no \
+                            fence in it was examined — this is not a pass. Run the build first, \
+                            or run the full gate, which builds before this checker. This checker \
+                            compiles documentation against the module; it does not build it.
                             """,
                         ruleId: "doc-comment-code.module-unavailable"))
                 continue

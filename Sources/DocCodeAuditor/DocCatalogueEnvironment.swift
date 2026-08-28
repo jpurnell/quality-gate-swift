@@ -39,12 +39,19 @@ enum DocCatalogueEnvironment {
             return Resolved(
                 options: nil,
                 notes: [
+                    // Warning rather than note for the reason given in
+                    // `DocCommentCodeAuditor`: a note never reaches the summary, so the run
+                    // reports PASSED having examined nothing. `doc-code` is default-on and so
+                    // has been quietly capable of a vacuous pass for longer than its opt-in
+                    // sibling.
                     Diagnostic(
-                        severity: .note,
+                        severity: .warning,
                         message: """
                             Skipped \(catalogue.moduleName): no built module found under \
-                            .build/debug. Run the build first — this checker compiles \
-                            documentation against the module, it does not build it.
+                            .build/debug, so no fence in it was examined — this is not a pass. \
+                            Run the build first, or run the full gate, which builds before this \
+                            checker. This checker compiles documentation against the module; it \
+                            does not build it.
                             """,
                         ruleId: "\(checkerId).module-unavailable")
                 ])

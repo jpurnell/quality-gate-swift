@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`doc-code.module-unavailable` and `doc-comment-code.module-unavailable` are
+  warnings, not notes.** With no built module under `.build/debug` neither checker
+  examines a single fence — but a note never reaches the summary line, so the run
+  printed `PASSED` having looked at nothing. That is the vacuous pass `doc-lint`
+  was already hardened against, and `doc-code` has been default-on while quietly
+  capable of it.
+
+  A warning rather than an error, because the two cases differ: a missing
+  catalogue is a fact about the project, while an unbuilt module is only the
+  order the checkers ran in — the full gate already fixes it by running `build`
+  (registry position 173) before `doc-code` (177) and `doc-comment-code` (180).
+  The warning therefore fires on a standalone `--check doc-comment-code`, which
+  is precisely the invocation that would otherwise be believed.
+
+  Found by trusting it: a fleet survey of 39 repositories run as
+  `--check doc-comment-code` recorded every cold-`.build` repository as SKIPPED
+  and read that as clean. Re-running as `--check build --check doc-comment-code`
+  turned three of those "clean" repositories red — 23 real errors that the first
+  pass had reported as nothing to see.
+
 ### Added
 
 - **`doc-lint.catalogue-excluded`** — a target that owns `X.docc` but excludes it
