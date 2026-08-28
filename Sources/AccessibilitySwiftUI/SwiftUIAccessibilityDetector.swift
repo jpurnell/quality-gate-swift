@@ -58,9 +58,18 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
 
+    /// Names of properties declared `@ScaledMetric` in this file.
+    ///
+    /// `@ScaledMetric` is the API for keeping a designed point size while still growing
+    /// with Dynamic Type. A size driven by one is therefore not a fixed size, even though
+    /// it is spelled `.system(size:)` — the spelling is all this rule can see, so without
+    /// this the correct fix and the defect look identical.
+    private let scaledMetricNames: Set<String>
+
     init(fileName: String, source: String, exemptionPatterns: [String], tree: SourceFileSyntax) {
         self.fileName = fileName
         self.source = source
+        self.scaledMetricNames = Self.scaledMetricProperties(in: tree)
         self.exemptionPatterns = exemptionPatterns
         self.sourceLines = source.lines
         self.converter = SourceLocationConverter(fileName: fileName, tree: tree)
@@ -345,6 +354,18 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
                ternaryBranches(first.expression) != nil {
                 return true
             }
+            // `Text(on ? "Saved" : "Save")` changes the words. This is the strongest
+            // companion of the lot — a colour-blind reader gets the state by reading, with
+            // no inference from weight or opacity — and it was the one the rule missed.
+            // WineTaster's "Results saved for X" / "Save results for X" button was flagged
+            // for colour-only signalling while stating its state in plain language.
+            if let ref = call.calledExpression.as(DeclReferenceExprSyntax.self),
+               ref.baseName.text == "Text",
+               let first = call.arguments.first,
+               first.label == nil,
+               ternaryBranches(first.expression) != nil {
+                return true
+            }
         }
         for child in node.children(viewMode: .sourceAccurate) where containsStateVaryingCompanion(child) {
             return true
@@ -514,6 +535,30 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         ))
     }
 
+    /// Property names carrying the `@ScaledMetric` attribute anywhere in the file.
+    private static func scaledMetricProperties(in tree: SourceFileSyntax) -> Set<String> {
+        final class Walker: SyntaxVisitor {
+            var names: Set<String> = []
+            override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+                let isScaled = node.attributes.contains { attribute in
+                    attribute.as(AttributeSyntax.self)?
+                        .attributeName.trimmedDescription == "ScaledMetric"
+                }
+                if isScaled {
+                    for binding in node.bindings {
+                        if let pattern = binding.pattern.as(IdentifierPatternSyntax.self) {
+                            names.insert(pattern.identifier.text)
+                        }
+                    }
+                }
+                return .visitChildren
+            }
+        }
+        let walker = Walker(viewMode: .sourceAccurate)
+        walker.walk(tree)
+        return walker.names
+    }
+
     /// Detects `.font(.system(size: N))` — should use semantic text styles
     /// for Dynamic Type support (Low vision, Motor).
     private func checkFixedFontSize(_ node: FunctionCallExprSyntax) {
@@ -523,10 +568,18 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             return
         }
 
-        let hasSize = node.arguments.contains { arg in
-            arg.label?.text == "size"
+        guard let sizeArg = node.arguments.first(where: { $0.label?.text == "size" }) else { return }
+
+        // A size that reads a `@ScaledMetric` property already grows with Dynamic Type.
+        if let ref = sizeArg.expression.as(DeclReferenceExprSyntax.self),
+           scaledMetricNames.contains(ref.baseName.text) {
+            return
         }
-        guard hasSize else { return }
+        if let member = sizeArg.expression.as(MemberAccessExprSyntax.self),
+           member.base?.trimmedDescription == "self",
+           scaledMetricNames.contains(member.declName.baseName.text) {
+            return
+        }
 
         let location = node.startLocation(
             converter: converter

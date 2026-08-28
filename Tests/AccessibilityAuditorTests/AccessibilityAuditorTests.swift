@@ -308,6 +308,60 @@ struct AccessibilityAuditorTests {
         #expect(hard.count >= 1, "A literal hex string is exactly what this rule is for")
     }
 
+    // MARK: - fixed-font-size: @ScaledMetric is the sanctioned way to keep a design size
+
+    @Test("A size driven by @ScaledMetric is not a fixed font size")
+    func scaledMetricSizeIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            @ScaledMetric(relativeTo: .largeTitle) private var logoPointSize: CGFloat = 90
+            var body: some View {
+                Image(systemName: "applelogo")
+                    .font(Font.system(size: logoPointSize))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Scaled.swift")
+        let fixed = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
+        #expect(fixed.isEmpty,
+                "@ScaledMetric grows the value with Dynamic Type, which is the outcome this rule exists to secure")
+    }
+
+    @Test("A literal size is still a fixed font size")
+    func literalSizeStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").font(.system(size: 90))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Literal.swift")
+        let fixed = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
+        #expect(fixed.count >= 1, "A literal ignores Dynamic Type entirely")
+    }
+
+    @Test("A plain stored property is not a scaled size")
+    func plainPropertySizeStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            private let logoPointSize: CGFloat = 90
+            var body: some View {
+                Text("Hi").font(.system(size: logoPointSize))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "PlainProp.swift")
+        let fixed = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.fixed-font-size" }
+        #expect(fixed.count >= 1, "Naming a constant does not make it scale")
+    }
+
     // MARK: - color-only: a non-colour companion in the same chain
 
     @Test("A state-varying .opacity counts as a non-colour companion")
@@ -345,6 +399,43 @@ struct AccessibilityAuditorTests {
         let result = try await auditor.auditSource(source, fileName: "ColorAlone.swift")
         let colorOnly = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
         #expect(colorOnly.count >= 1, "Nothing but the colour changes here")
+    }
+
+    @Test("A state-varying Text label counts as a non-colour companion")
+    func conditionalTextCompanionIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let isSaved: Bool
+            var body: some View {
+                Text(isSaved ? "Results saved" : "Save results")
+                    .foregroundStyle(isSaved ? Color.green : Color.red)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "TextCompanion.swift")
+        let colorOnly = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
+        #expect(colorOnly.isEmpty,
+                "The label itself changes with the state, which a colour-blind reader can read directly — a stronger companion than the opacity this rule already accepts")
+    }
+
+    @Test("A Text whose content does not vary is not a companion")
+    func staticTextIsNotACompanion() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            let isOn: Bool
+            var body: some View {
+                Text("Status")
+                    .foregroundStyle(isOn ? Color.green : Color.red)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "StaticText.swift")
+        let colorOnly = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.color-only-differentiation" }
+        #expect(colorOnly.count >= 1, "Fixed text tells a colour-blind reader nothing about the state")
     }
 
     // MARK: - standard-shortcut-override: appSettings owns Command-comma

@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **`a11y.swiftui.color-only-differentiation` missed the strongest companion there is.**
+  The rule accepted a state-varying `.opacity`, `.font`, `.fontWeight` or
+  `Image(systemName:)` as proof that colour was not the only signal, but not a
+  state-varying `Text`. A button reading "Results saved for Justin" versus "Save results
+  for Justin" was reported for signalling by colour alone while stating its state in
+  plain language — the one form a colour-blind reader gets with no inference at all.
+- **`a11y.swiftui.fixed-font-size` flagged `@ScaledMetric`.** `.font(.system(size:))` was
+  reported regardless of what the size argument was, so the sanctioned way to keep a
+  designed point size while growing with Dynamic Type looked identical to a hard literal.
+  A size that reads a `@ScaledMetric` property in the same file is now accepted; a
+  literal, or a plain `let`, still is not.
+
+
 - **`xcode-build` built a dependency instead of the app under test.** `discoverScheme`
   returned `schemes.first`. With Swift package dependencies, `xcodebuild -list` reports
   a scheme per resolved package beside the project's own, and a dependency often sorts
