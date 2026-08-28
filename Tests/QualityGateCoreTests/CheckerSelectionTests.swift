@@ -128,23 +128,27 @@ struct CheckerSelectionTests {
         }
     }
 
-    @Test("doc-comment-code is opt-in too, and is not doc-code")
-    func docCommentCodeIsOptIn() {
+    @Test("doc-comment-code is default-on, and is still not doc-code")
+    func docCommentCodeIsDefaultOn() {
         // Two ids, on purpose. `doc-code` was made green at real cost, and sixteen of this
         // repository's twenty `///` fences failed the day `doc-comment-code` was measured.
-        // A shared id would have turned the green one red on the day this landed, and a gate
-        // that is red on arrival gets skipped.
+        // A shared id would have turned the green one red on the day it landed, and a gate
+        // that is red on arrival gets skipped. That separation is what let the two be
+        // promoted independently — which is what happened: `doc-comment-code` is now in the
+        // default set, after a 39-repository survey found 5 red, 60 errors, all repaired.
         let registry = allIDs + ["doc-code", "doc-comment-code"]
 
         let byDefault = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
         )
-        #expect(!byDefault.contains("doc-comment-code"))
+        #expect(byDefault.contains("doc-comment-code"))
 
+        // `--full` means "the slow ones too" and never carried this. It must not be what
+        // turns the checker on, or the flag quietly becomes a documentation-convention flag.
         let full = CheckerSelection.resolve(
             requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
         )
-        #expect(!full.contains("doc-comment-code"))
+        #expect(full.contains("doc-comment-code"))
 
         // Enabling one must never enable the other.
         #expect(CheckerSelection.resolve(
@@ -220,6 +224,30 @@ struct CheckerSelectionTests {
         )
         #expect(!byDefault.contains("logging"))
         #expect(byDefault.contains("safety"))
+    }
+
+    @Test("excludedCheckers declines a default-on checker, but not an explicit --check")
+    func configuredExclusionAppliesToDefaultsNotToExplicitRequests() {
+        // The config form of `--exclude`, unioned with the flag by the CLI. It exists for a
+        // package the checker cannot evaluate at all — Ignite, whose fence compile stops at
+        // a missing `cmark_gfm_extensions` before any fence is read — so the fact can be
+        // stated once in writing rather than relying on every invocation carrying a flag.
+        let registry = allIDs + ["doc-comment-code"]
+
+        let byDefault = CheckerSelection.resolve(
+            requested: [], excluded: ["doc-comment-code"], configuredEnabled: [], full: false,
+            allIDs: registry
+        )
+        #expect(!byDefault.contains("doc-comment-code"))
+        #expect(byDefault.contains("safety"))
+
+        // But naming it explicitly is a request to see what it says, and a config file must
+        // not be able to silently refuse that — otherwise the excluded package becomes
+        // unexaminable, and the exclusion stops being reviewable.
+        #expect(CheckerSelection.resolve(
+            requested: ["doc-comment-code"], excluded: ["doc-comment-code"], configuredEnabled: [],
+            full: false, allIDs: registry
+        ) == ["doc-comment-code"])
     }
 
     @Test("--exclude is honoured against configured enabledCheckers")

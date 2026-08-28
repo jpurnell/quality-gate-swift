@@ -4,6 +4,46 @@
 
 ### Changed
 
+- **`doc-comment-code` is in the default checker set.** It shipped opt-in because
+  16 of this repository's 20 `///` fences failed the day it was written, and a
+  gate that is red on arrival gets skipped. Promotion was gated on the fleet, not
+  on this package: 39 gate-configured repositories surveyed, 5 red, 60 errors,
+  all repaired first — with **zero** `<!-- docs:illustrative -->` markers, on the
+  same terms `doc-code` met. `--full` is unrelated and still means "the slow ones
+  too".
+
+  The errors were not all one thing, which is the part worth keeping. Most were
+  ordinary breakage — fences naming values nothing defined, one that called
+  `countLeaves(...)` with `...` as the argument. Two other shapes recurred:
+  **platform-gated types** (`PolarBleApiAdapter`, `HKHealthStoreAdapter`), which
+  exist and are complete but are compiled behind `#if canImport(...)` for iOS or
+  watchOS and so are absent on the macOS where documentation builds; and
+  **quoted declarations**, fences showing the shape of the very type they were
+  attached to, which cannot compile without fabricating a redeclaration. The
+  first were fixed by parameterising the example, the second by converting to
+  DocC symbol links.
+
+### Added
+
+- **`excludedCheckers`** in `.quality-gate.yml` — the config form of `--exclude`,
+  unioned with the flag. It applies to the default set and to `all`, and
+  deliberately **not** to an explicit `--check <id>`: naming a checker is a
+  request to see what it says, and a config file should not silently refuse that,
+  or the excluded package becomes unexaminable and the exclusion stops being
+  reviewable.
+
+  It exists for a package a checker cannot evaluate at all. `Ignite` is the case
+  and currently the only one: it depends on swift-markdown, whose C target
+  `cmark_gfm_extensions` the fence compile cannot reach, so compilation stops at
+  that barrier before a single fence is read — 16 of its 17 findings are that
+  barrier restated. The entry records "this checker cannot evaluate this
+  package", which is true. It does not record "this package's documentation is
+  fine", which is unknown, and stays unknown until the fence compile learns to
+  feed a package's C-target module maps to the compiler. That is the real fix and
+  is not this change.
+
+### Changed
+
 - **`doc-code.module-unavailable` and `doc-comment-code.module-unavailable` are
   warnings, not notes.** With no built module under `.build/debug` neither checker
   examines a single fence — but a note never reaches the summary line, so the run

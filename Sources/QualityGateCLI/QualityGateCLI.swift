@@ -388,7 +388,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Destructive maintenance checkers (disk-clean) are opt-in even under "all".
         let preProfileCheckers = CheckerSelection.resolve(
             requested: check,
-            excluded: exclude,
+            excluded: exclude + configuration.excludedCheckers,
             configuredEnabled: configuration.enabledCheckers,
             full: full,
             allIDs: allCheckers.map(\.id)

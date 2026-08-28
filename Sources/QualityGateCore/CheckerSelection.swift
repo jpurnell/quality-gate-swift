@@ -18,7 +18,10 @@ public enum CheckerSelection {
     /// - Parameters:
     ///   - requested: Values from `--check`. May contain the sentinel `"all"` and/or
     ///     explicit checker ids.
-    ///   - excluded: Values from `--exclude`.
+    ///   - excluded: Values from `--exclude`, plus `Configuration.excludedCheckers`. The
+    ///     two are unioned by the caller because they mean the same thing; the config form
+    ///     exists so a repository the checker cannot evaluate can say so once, in writing,
+    ///     instead of relying on every invocation remembering a flag.
     ///   - configuredEnabled: `Configuration.enabledCheckers` (from `.quality-gate.yml`).
     ///   - full: The `--full` flag; opts `xcode-build` back into the default set.
     ///   - allIDs: All registered checker ids, in registry (output) order.
@@ -80,15 +83,36 @@ public enum CheckerSelection {
             // exactly the shape `doc-code` has just finished walking, so the precedent for
             // promoting them later is now on the record rather than hypothetical.
             //
-            // `doc-comment-code` also stays opt-in, though its number has already moved: 16
-            // of this repository's 20 `///` fences failed the day the rule was written — 10
-            // of them one `## Usage` template copied into ten auditors — and all 16 are now
-            // repaired, with no exemptions. It carries its own id rather than sharing
-            // `doc-code`'s precisely so that landing it red could not take a green `doc-code`
-            // down with it, and that separation is worth keeping now that the ids can be
-            // promoted independently. Promoting it is a separate decision on the same terms
-            // `doc-code` met, and the terms are the point: adopt the convention by repairing
-            // the documentation, never by relaxing the rule.
+            // `doc-comment-code` is now default-on, on the same terms `doc-code` met. The
+            // history is worth keeping: 16 of this repository's 20 `///` fences failed the
+            // day the rule was written — 10 of them one `## Usage` template copied into ten
+            // auditors — and all 16 were repaired with no exemptions. It carries its own id
+            // rather than sharing `doc-code`'s precisely so that landing it red could not
+            // take a green `doc-code` down with it; that separation let the two be promoted
+            // independently, which is exactly what happened.
+            //
+            // Promotion was gated on a fleet survey rather than on this package alone, and
+            // the survey is the part worth recording. Of 39 gate-configured repositories,
+            // 5 were red — 60 errors between them — and every one was repaired before the
+            // flip, again with zero `<!-- docs:illustrative -->` markers. Two findings from
+            // that sweep outlived it:
+            //
+            // First, the survey itself was wrong on the first pass. Run as
+            // `--check doc-comment-code` it does not run `build`, and this checker compiles
+            // against a built module rather than building one, so every cold-`.build`
+            // repository reported SKIPPED and read as clean. Three "clean" repositories were
+            // red once `build` ran first. That is why `module-unavailable` is now a warning
+            // rather than a note.
+            //
+            // Second, one repository cannot be evaluated at all. `Ignite` depends on
+            // swift-markdown, whose C target `cmark_gfm_extensions` the fence compile cannot
+            // reach; compilation stops at that barrier before a single fence is read, and
+            // 16 of its 17 findings are that barrier restated. Its docs are not implicated.
+            // It carries `excludedCheckers: [doc-comment-code]` until the fence compile
+            // learns to feed a package's C-target module maps to the compiler — which is the
+            // real fix, and is not this change. The exclusion records "the checker cannot
+            // evaluate this package", which is true; it does not record "this package's
+            // documentation is fine", which is unknown.
             //
             // `--full` still deliberately does not carry a documentation convention; it means
             // "the slow ones too". That distinction outlives this promotion.
@@ -99,7 +123,7 @@ public enum CheckerSelection {
             // convention means wrapping a table in delimiters, which is a decision about the
             // document, not a setting.
             var optOut: Set<String> = [
-                "xcode-build", "doc-run", "doc-claims", "doc-comment-code", "doc-generated",
+                "xcode-build", "doc-run", "doc-claims", "doc-generated",
             ]
             if full { optOut.remove("xcode-build") }
             // `--exclude` is honoured here too, which it was not before. While `doc-code` was

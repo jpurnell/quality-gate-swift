@@ -1679,6 +1679,8 @@ public struct CustomRuleConfig: Sendable, Equatable, Codable {
 ///   - recursion
 ///   - concurrency
 ///   - pointer-escape
+/// excludedCheckers:
+///   - doc-comment-code
 /// concurrency:
 ///   justificationKeyword: "Justification:"
 ///   allowPreconcurrencyImports:
@@ -1744,6 +1746,21 @@ public struct Configuration: Sendable, Codable, Equatable {
 
     /// Checkers to run. Empty means all checkers are enabled.
     public var enabledCheckers: [String]
+
+    /// Checkers to skip, by id — the config-file form of `--exclude`.
+    ///
+    /// Applies to the default set and to `all`. It deliberately does **not** apply to an
+    /// explicit `--check <id>`: naming a checker on the command line is a request to see
+    /// what it says, and a config file should not be able to silently refuse that.
+    ///
+    /// This is a load-bearing escape hatch, not a suppression knob, and the difference is
+    /// whether the entry records something true. `Ignite` excludes `doc-comment-code`
+    /// because the checker cannot compile that package's fences at all — a missing
+    /// `cmark_gfm_extensions` barrier stops compilation before any fence is read, and the
+    /// checker says so itself. "This checker cannot evaluate this package" is a different
+    /// claim from "this package's documentation is fine", and only the first is true there.
+    /// An entry that means the second is a suppression and belongs nowhere.
+    public var excludedCheckers: [String]
 
     /// Build configuration to use (debug or release). Defaults to debug.
     public var buildConfiguration: String?
@@ -1912,6 +1929,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         safetyExemptions: [String] = ["// SAFETY:"],
         trapPolicy: TrapPolicy = .default,
         enabledCheckers: [String] = [],
+        excludedCheckers: [String] = [],
         buildConfiguration: String? = nil,
         testFilter: String? = nil,
         docTarget: String? = nil,
@@ -1965,6 +1983,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.safetyExemptions = safetyExemptions
         self.trapPolicy = trapPolicy
         self.enabledCheckers = enabledCheckers
+        self.excludedCheckers = excludedCheckers
         self.buildConfiguration = buildConfiguration
         self.testFilter = testFilter
         self.docTarget = docTarget
@@ -2077,6 +2096,7 @@ extension Configuration {
         case safetyExemptions
         case trapPolicy
         case enabledCheckers
+        case excludedCheckers
         case buildConfiguration
         case testFilter
         case docTarget
@@ -2151,6 +2171,7 @@ extension Configuration {
         safetyExemptions = try container.decodeIfPresent([String].self, forKey: .safetyExemptions) ?? ["// SAFETY:"]
         trapPolicy = try container.decodeIfPresent(TrapPolicy.self, forKey: .trapPolicy) ?? .default
         enabledCheckers = try container.decodeIfPresent([String].self, forKey: .enabledCheckers) ?? []
+        excludedCheckers = try container.decodeIfPresent([String].self, forKey: .excludedCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
         docTarget = try container.decodeIfPresent(String.self, forKey: .docTarget)

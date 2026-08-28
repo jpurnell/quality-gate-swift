@@ -33,13 +33,21 @@ import QualityGateCore
 /// - **Only `swift`-tagged fences are compiled.** Untagged and foreign-tagged fences are
 ///   never guessed at, and are counted in the coverage line so the silence is legible.
 ///
-/// ## Opt-in, and error severity once opted into
+/// ## Default-on, and error severity
 ///
 /// Sixteen of this repository's twenty doc-comment fences failed when the rule was first
-/// measured, and a gate that is red on arrival gets skipped. It is enabled by
-/// `--check doc-comment-code` or `enabledCheckers`; `--full` deliberately does not enable it.
-/// Once enabled the findings are errors, and there is no knob that downgrades them, because
-/// a knob that turns a red gate green is a suppression by another name.
+/// measured, and a gate that is red on arrival gets skipped — so it shipped opt-in and was
+/// promoted into the default set only after the fleet was repaired: 39 repositories
+/// surveyed, 5 red, 60 errors, all fixed with zero `<!-- docs:illustrative -->` markers.
+/// `--full` is unrelated and never enabled it; `--full` means "the slow ones too".
+///
+/// The findings are errors and no knob downgrades them, because a knob that turns a red
+/// gate green is a suppression by another name. The one escape hatch is
+/// `Configuration.excludedCheckers`, which removes the checker rather than softening it —
+/// for a package this checker cannot evaluate at all. `Ignite` is the case: its fence
+/// compile stops at a missing `cmark_gfm_extensions` module before any fence is read, so
+/// its error count describes the barrier, not the documentation. See ``ArticleAuditor``
+/// on why a barrier makes the count meaningless.
 public struct DocCommentCodeAuditor: QualityChecker, Sendable {
 
     private static let logger = Logger(subsystem: "com.quality-gate", category: "DocCommentCodeAuditor")
