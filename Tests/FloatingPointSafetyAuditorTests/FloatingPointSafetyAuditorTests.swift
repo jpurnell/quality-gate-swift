@@ -293,6 +293,48 @@ struct FPDivisionTests {
 
     // MARK: - Must NOT flag
 
+    @Test("Does NOT flag division by a numeric conversion of a non-zero literal")
+    func exemptConvertedNonZeroLiteral() {
+        let code = """
+        let level = Float(significanceLevel) / Float(1000)
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId },
+                "Float(1000) cannot be zero; wrapping a literal in a numeric conversion does not make the divisor unknown")
+    }
+
+    @Test("Does NOT flag Double(60) or CGFloat(2) divisors")
+    func exemptOtherConvertedLiterals() {
+        let code = """
+        let a = elapsed / Double(60)
+        let b = width / CGFloat(2)
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Still flags a conversion of zero")
+    func flagsConvertedZeroLiteral() {
+        let code = """
+        let broken = value / Float(0)
+        """
+        let results = diagnose(code)
+        #expect(results.contains { $0.ruleId == ruleId },
+                "A conversion of zero is exactly the division this rule exists to catch")
+    }
+
+    @Test("Still flags a conversion of a variable")
+    func flagsConvertedVariable() {
+        let code = """
+        func compute(count: Int, value: Double) -> Double {
+            return value / Double(count)
+        }
+        """
+        let results = diagnose(code)
+        #expect(results.contains { $0.ruleId == ruleId },
+                "Double(count) is unknown at compile time and count can be zero")
+    }
+
     @Test("Does NOT flag guarded division with != 0 check")
     func exemptGuardedNotEqualZero() {
         let code = """

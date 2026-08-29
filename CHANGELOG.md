@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **`a11y.swiftui.hardcoded-color-string` flagged computed colours.** It fired when *any*
+  component argument was a literal, so `Color(hue: temperature, saturation: 1, brightness: 1)`
+  — a visualisation ramp whose hue carries the data — was reported as a hardcoded colour
+  bypassing Dark Mode. It now requires *every* component to be a literal, which is what
+  "hardcoded" means and what the suggested fix assumes.
+- **`fp-division-unguarded` flagged a converted literal.** `isNonZeroLiteral` recognised
+  `1000` but not `Float(1000)`, so `Float(level) / Float(1000)` was reported as needing a
+  zero guard on a divisor that cannot be zero — a guard no one can write meaningfully. A
+  single-argument numeric conversion is now unwrapped and the literal inside judged, so
+  `Float(0)` and `Double(count)` are still flagged.
+
+
 - **`a11y.swiftui.color-only-differentiation` missed the strongest companion there is.**
   The rule accepted a state-varying `.opacity`, `.font`, `.fontWeight` or
   `Image(systemName:)` as proof that colour was not the only signal, but not a

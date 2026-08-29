@@ -308,6 +308,82 @@ struct AccessibilityAuditorTests {
         #expect(hard.count >= 1, "A literal hex string is exactly what this rule is for")
     }
 
+    // MARK: - hardcoded-color: a computed component means the colour is not fixed
+
+    @Test("A colour with a data-driven component is not hardcoded")
+    func computedColorComponentIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        extension Color {
+            static func forTemperature(_ temperature: Double) -> Color {
+                Color(hue: temperature, saturation: 1.0, brightness: 1.0)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Ramp.swift")
+        let hard = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hard.isEmpty,
+                "The hue varies with the data; full saturation and brightness are the constants of a visualisation ramp, not a themed UI colour that should follow Dark Mode")
+    }
+
+    @Test("A colour with every component literal is still hardcoded")
+    func fullyLiteralColorStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Text("Hi").foregroundStyle(Color(red: 0.2, green: 0.4, blue: 0.6))
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Fixed.swift")
+        let hard = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.hardcoded-color-string" }
+        #expect(hard.count >= 1, "Nothing here varies; this is exactly the fixed colour the rule is for")
+    }
+
+    // MARK: - missing-accessibility-label: hiding a Canvas covers what it draws
+
+    @Test("Hiding a decorative Canvas covers the Image it resolves for drawing")
+    func canvasResolvedImageIsNotFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct Dots: View {
+            var body: some View {
+                Canvas { context, size in
+                    let image = context.resolve(Image(systemName: "circle.fill"))
+                    context.draw(image, at: .zero)
+                }
+                .accessibilityHidden(true)
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Dots.swift")
+        let missing = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-label" }
+        // `resolve` returns a GraphicsContext.ResolvedImage rather than a View, so no
+        // modifier can be attached to the Image itself. Hiding the Canvas is the only
+        // place the intent can be expressed, and it is the correct one for decoration.
+        #expect(missing.isEmpty, "Hiding the Canvas covers everything it draws")
+    }
+
+    @Test("An Image in the view hierarchy still needs a label")
+    func plainImageStillFlagged() async throws {
+        let source = """
+        import SwiftUI
+
+        struct MyView: View {
+            var body: some View {
+                Image(systemName: "star")
+            }
+        }
+        """
+        let result = try await auditor.auditSource(source, fileName: "Star.swift")
+        let missing = result.diagnostics.filter { $0.ruleId == "a11y.swiftui.missing-accessibility-label" }
+        #expect(missing.count >= 1)
+    }
+
     // MARK: - fixed-font-size: @ScaledMetric is the sanctioned way to keep a design size
 
     @Test("A size driven by @ScaledMetric is not a fixed font size")

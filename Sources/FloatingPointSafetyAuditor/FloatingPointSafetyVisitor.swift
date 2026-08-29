@@ -822,8 +822,28 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
             return intLit.literal.text != "0"
         }
+        // `Float(1000)` is as constant as `1000`. Only the spelling differs, and a divisor
+        // written that way was being reported as an unknown quantity needing a zero guard
+        // — a guard on a literal, which no one can write meaningfully. The conversion is
+        // unwrapped and the literal inside is judged instead, so `Float(0)` still fails
+        // and `Double(count)` still fails: the argument has to be a literal itself.
+        if let call = expr.as(FunctionCallExprSyntax.self),
+           let callee = call.calledExpression.as(DeclReferenceExprSyntax.self),
+           Self.numericConversions.contains(callee.baseName.text),
+           call.arguments.count == 1,
+           let only = call.arguments.first,
+           only.label == nil {
+            return isNonZeroLiteral(only.expression)
+        }
         return false
     }
+
+    /// Types whose single-argument initialiser is a numeric conversion, not a computation.
+    private static let numericConversions: Set<String> = [
+        "Float", "Double", "CGFloat", "Float80", "Decimal",
+        "Int", "Int8", "Int16", "Int32", "Int64",
+        "UInt", "UInt8", "UInt16", "UInt32", "UInt64"
+    ]
 
     /// Returns true if the expression represents a zero value (0, 0.0, .zero).
     private func isZeroExpression(_ expr: ExprSyntax) -> Bool {

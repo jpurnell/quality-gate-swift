@@ -289,6 +289,20 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
         // A component carried by a property or parameter is chosen at runtime — a
         // theme colour, a mode identity passed through attributes — and there is no
         // literal for the suggested fix to replace. Only a literal is hardcoded.
+        // A component that varies at runtime makes this a computed colour, not a fixed
+        // one. `Color(hue: temperature, saturation: 1, brightness: 1)` is a visualisation
+        // ramp: the hue carries the data and the other two are the constants of the ramp.
+        // Dark Mode adaptation is not the question there, and the rule's own message —
+        // "hardcoded color value" — does not describe it. Only a colour whose every
+        // component is a literal is actually hardcoded.
+        let componentArguments = node.arguments.filter { arg in
+            guard let label = arg.label?.text else { return false }
+            return componentLabels.contains(label)
+        }
+        let everyComponentIsLiteral = !componentArguments.isEmpty
+            && componentArguments.allSatisfy { Self.isLiteralExpression($0.expression) }
+        guard everyComponentIsLiteral else { return }
+
         let hasLiteralComponent = node.arguments.contains { arg in
             guard let label = arg.label?.text, componentLabels.contains(label) else { return false }
             return Self.isLiteralExpression(arg.expression)
