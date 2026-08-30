@@ -584,6 +584,14 @@ func collectStoredProperties(memberBlock: MemberBlockSyntax) -> Set<String> {
         // Skip static
         let isStatic = varDecl.modifiers.contains { $0.name.text == "static" }
         if isStatic { continue }
+        // Skip nonisolated. A property declared outside the type's isolation is not
+        // isolated state, so a deinit touching it cannot trap — and counting it as
+        // isolated made two rules contradict each other: `task-no-deinit` asks for a
+        // deinit that cancels a stored Task, while `main-actor-deinit-touches-state`
+        // forbids a deinit that reads isolated state. `nonisolated(unsafe)` is the
+        // declaration that resolves the pair, and it was being ignored here.
+        let isNonisolated = varDecl.modifiers.contains { $0.name.text == "nonisolated" }
+        if isNonisolated { continue }
         for binding in varDecl.bindings {
             let isStored = binding.accessorBlock == nil
             guard isStored else { continue }

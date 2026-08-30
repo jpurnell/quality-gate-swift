@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **`main-actor-deinit-touches-state` contradicted `task-no-deinit`.**
+  `collectStoredProperties` skipped `static` but not `nonisolated`, so a property
+  declared outside the type's isolation still counted as isolated state. That made the
+  pair unsatisfiable: one rule asks for a `deinit` that cancels a stored `Task`, the
+  other forbids a `deinit` that touches isolated state, and `nonisolated(unsafe)` — the
+  declaration that resolves it — was ignored. Nonisolated properties are now skipped, as
+  static ones already were; a deinit touching an ordinary isolated property still fails.
+
+
 - **`a11y.swiftui.hardcoded-color-string` flagged computed colours.** It fired when *any*
   component argument was a literal, so `Color(hue: temperature, saturation: 1, brightness: 1)`
   — a visualisation ramp whose hue carries the data — was reported as a hardcoded colour

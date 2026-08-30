@@ -101,6 +101,45 @@ struct MainActorDeinitTests {
         #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
     }
 
+    @Test("Does not flag a deinit that touches only nonisolated(unsafe) state")
+    func ignoresNonisolatedUnsafeProperty() async throws {
+        // Without this the two rules contradict each other: `concurrency.task-no-deinit`
+        // asks for a deinit that cancels a stored Task, and this rule forbids a deinit
+        // that touches isolated state. `nonisolated(unsafe)` is what resolves it — the
+        // property is declared outside the actor's isolation, so the deinit cannot trap.
+        let code = """
+        @MainActor
+        final class A {
+            // Justification: read and cancelled only in deinit.
+            nonisolated(unsafe) private var task: Task<Void, Never>?
+            deinit {
+                task?.cancel()
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
+    @Test("Still flags a deinit touching an ordinary isolated property")
+    func flagsIsolatedPropertyAlongsideNonisolated() async throws {
+        let code = """
+        @MainActor
+        final class A {
+            // Justification: read and cancelled only in deinit.
+            nonisolated(unsafe) private var task: Task<Void, Never>?
+            var frameCount = 0
+            deinit {
+                task?.cancel()
+                print(frameCount)
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId },
+                "frameCount is isolated state and is still read from deinit")
+    }
+
     @Test("Does not flag deinit in non-MainActor class")
     func ignoresNonMainActorClass() async throws {
         let code = """
