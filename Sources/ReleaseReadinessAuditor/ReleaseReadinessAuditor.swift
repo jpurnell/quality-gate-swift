@@ -141,6 +141,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         contentsOf: Self.checkDependencyVersionsResolvable(
                             readmeVersions: advertised,
                             tags: tags,
+                            isBoundary: pushedRefs != nil,
                             filePath: readmeFullPath
                         )
                     )
@@ -400,24 +401,38 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
 
     /// Verifies every README-advertised dependency version resolves to an existing tag.
     ///
+    /// Severity follows the same rule as ``ReleaseTagInvariant/parity(version:tags:isBoundary:)``,
+    /// and for the same reason: a release commit bumps the README's `from:` pin and the
+    /// CHANGELOG heading together, so the tag has to name a commit that does not exist until
+    /// that commit is made. Blocking at commit time asks for the tag first and the commit
+    /// first at once, and a rule satisfiable only by inverting the project's own order is how
+    /// `--no-verify` gets its first exception. The harm this rule names needs a consumer, and
+    /// a consumer needs a push.
+    ///
     /// - Parameters:
     ///   - readmeVersions: Versions advertised in the README (from `parseReadmeDependencyVersions`).
     ///   - tags: The project's git tags.
+    ///   - isBoundary: Whether this run is a push boundary, which is what earns the error.
     ///   - filePath: Optional path used for diagnostic reporting.
-    /// - Returns: One `.error` diagnostic per advertised version with no matching tag.
+    /// - Returns: One diagnostic per advertised version with no matching tag — `.error` at a
+    ///   push boundary, `.note` elsewhere.
     static func checkDependencyVersionsResolvable(
         readmeVersions: [String],
         tags: [String],
+        isBoundary: Bool,
         filePath: String? = nil
     ) -> [Diagnostic] {
         let normalizedTags = Set(tags.map(normalizeVersion))
         return readmeVersions.compactMap { version in
             guard !normalizedTags.contains(normalizeVersion(version)) else { return nil }
             return Diagnostic(
-                severity: .error,
-                message: "README advertises dependency version \(version) but no matching git tag exists — consumers following the README cannot resolve the package.",
+                severity: isBoundary ? .error : .note,
+                message: isBoundary
+                    ? "README advertises dependency version \(version) but no matching git tag exists — consumers following the README cannot resolve the package."
+                    : "README advertises dependency version \(version) with no matching git tag yet. Tag it before pushing; this is a note because the tag names a commit that does not exist until you make it.",
                 filePath: filePath,
-                ruleId: "release-unresolvable-dependency"
+                ruleId: "release-unresolvable-dependency",
+                suggestedFix: "git tag -a v\(version) -m \"Version \(version)\" && git push --atomic origin HEAD v\(version)"
             )
         }
     }

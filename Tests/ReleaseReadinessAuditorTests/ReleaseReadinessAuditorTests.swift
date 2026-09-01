@@ -560,19 +560,46 @@ struct DependencyResolvableTests {
     func allResolvable() {
         let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
             readmeVersions: ["1.0.0", "1.1.0"],
-            tags: ["v1.0.0", "v1.1.0", "v1.2.0"]
+            tags: ["v1.0.0", "v1.1.0", "v1.2.0"],
+            isBoundary: true
         )
         #expect(diagnostics.isEmpty)
     }
 
-    @Test("Errors for an advertised version with no matching tag")
-    func unresolvable() {
+    @Test("A tagged version is silent away from a boundary too")
+    func allResolvableOffBoundary() {
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["1.0.0"],
+            tags: ["v1.0.0"],
+            isBoundary: false
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Errors for an advertised version with no matching tag, at a push boundary")
+    func unresolvableAtBoundary() {
         let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
             readmeVersions: ["2.0.0"],
-            tags: ["v1.0.0"]
+            tags: ["v1.0.0"],
+            isBoundary: true
         )
         #expect(diagnostics.count == 1)
         #expect(diagnostics.first?.severity == .error)
+        #expect(diagnostics.first?.ruleId == "release-unresolvable-dependency")
+    }
+
+    @Test("Notes, not errors, away from a push boundary")
+    func unresolvableOffBoundary() {
+        // The tag names a commit that does not exist until the release commit is made, so
+        // at commit time this is unsatisfiable. Blocking here is what teaches people to
+        // reach for --no-verify; the harm needs a consumer, and a consumer needs a push.
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["2.0.0"],
+            tags: ["v1.0.0"],
+            isBoundary: false
+        )
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.severity == .note)
         #expect(diagnostics.first?.ruleId == "release-unresolvable-dependency")
     }
 
@@ -580,17 +607,41 @@ struct DependencyResolvableTests {
     func multipleUnresolvable() {
         let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
             readmeVersions: ["2.0.0", "3.0.0"],
-            tags: ["v1.0.0"]
+            tags: ["v1.0.0"],
+            isBoundary: true
         )
         #expect(diagnostics.count == 2)
         #expect(diagnostics.allSatisfy { $0.ruleId == "release-unresolvable-dependency" })
+    }
+
+    @Test("Only the untagged version of several advertised is reported")
+    func onlyTheUntaggedOne() {
+        let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["1.0.0", "2.0.0"],
+            tags: ["v1.0.0"],
+            isBoundary: true
+        )
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.message.contains("2.0.0") == true)
+    }
+
+    @Test("A bare tag matches a v-prefixed advertised version and vice versa")
+    func prefixInsensitive() {
+        let bareTag = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["1.0.0"], tags: ["1.0.0"], isBoundary: true)
+        #expect(bareTag.isEmpty)
+
+        let prefixedTag = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
+            readmeVersions: ["1.0.0"], tags: ["v1.0.0"], isBoundary: true)
+        #expect(prefixedTag.isEmpty)
     }
 
     @Test("No diagnostics when README advertises nothing")
     func nothingAdvertised() {
         let diagnostics = ReleaseReadinessAuditor.checkDependencyVersionsResolvable(
             readmeVersions: [],
-            tags: []
+            tags: [],
+            isBoundary: true
         )
         #expect(diagnostics.isEmpty)
     }
