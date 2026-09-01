@@ -317,6 +317,50 @@ struct SchemaConsistencyTests {
         let results = diagnose(code)
         #expect(results.contains { $0.ruleId == "mcp-unused-property" })
     }
+
+    @Test("Array and matrix getters count as accessing a property")
+    func arrayAndMatrixGettersCountAsAccess() {
+        // The getter map listed the scalar `…Optional` forms but no optional array form
+        // and no matrix getter at all, so a property read through one looked unread.
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that does something useful for the user",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "series": MCPSchemaProperty(
+                            type: "array",
+                            description: "The observations to analyse in order"
+                        ),
+                        "weights": MCPSchemaProperty(
+                            type: "array",
+                            description: "Optional weights applied to each observation"
+                        ),
+                        "grid": MCPSchemaProperty(
+                            type: "array",
+                            description: "A matrix of points to evaluate the model on"
+                        ),
+                    ],
+                    required: ["series"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let series = try args.getDoubleArray("series")
+                let weights = try args.getDoubleArrayIfPresent("weights")
+                let grid = try args.getDoubleMatrix("grid")
+                return .success(text: "\\(series.count) \\(weights?.count ?? 0) \\(grid.count)")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-unused-property" },
+                "All three properties are read, two of them through getters the map omitted")
+    }
 }
 
 // MARK: - Agent-Friendliness Tests
@@ -586,6 +630,258 @@ struct TypeMappingTests {
         """
         let results = diagnose(code)
         #expect(!results.contains { $0.ruleId == "mcp-type-mismatch" })
+    }
+}
+
+// MARK: - Domain Getter and Helper-Delegation Tests
+
+@Suite("MCPReadinessAuditor: Domain getters and helper delegation")
+struct DomainGetterTests {
+    @Test("getTimeSeries counts as property access")
+    func timeSeriesGetterRecognized() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that forecasts a trend from time series observations",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "data": MCPSchemaProperty(
+                            type: "array",
+                            description: "Time series data with periods and values to analyze"
+                        ),
+                    ],
+                    required: ["data"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let ts = try args.getTimeSeries("data")
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-unused-property" },
+                "getTimeSeries should count as usage, got: \(results)")
+    }
+
+    @Test("getTimeSeries on an array schema is not a type mismatch")
+    func timeSeriesGetterNoTypeMismatch() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that forecasts a trend from time series observations",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "data": MCPSchemaProperty(
+                            type: "array",
+                            description: "Time series data with periods and values to analyze"
+                        ),
+                    ],
+                    required: ["data"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let ts = try args.getTimeSeries("data")
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-type-mismatch" },
+                "getTimeSeries accepts the wrapped object and the flat array, got: \(results)")
+    }
+
+    @Test("getDoubleFromObject counts as access to the outer object property")
+    func doubleFromObjectRecognized() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that reads named scalars out of a parameter bag object",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "fixed_params": MCPSchemaProperty(
+                            type: "object",
+                            description: "Parameters held constant across every row of the table"
+                        ),
+                    ],
+                    required: ["fixed_params"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let principal = try args.getDoubleFromObject("fixed_params", key: "principal")
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        // The first argument is the top-level schema property; `key:` names a field inside it.
+        #expect(!results.contains { $0.ruleId == "mcp-unused-property" },
+                "getDoubleFromObject should count as usage of the outer property, got: \(results)")
+        #expect(!results.contains { $0.ruleId == "mcp-type-mismatch" },
+                "The outer property is an object, which is what this getter expects, got: \(results)")
+    }
+
+    @Test("hasKey counts as property access")
+    func hasKeyRecognized() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that branches on whether an optional mode was supplied",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "mode": MCPSchemaProperty(
+                            type: "string",
+                            description: "Optional mode selector that changes the calculation"
+                        ),
+                    ],
+                    required: []
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let advanced = args.hasKey("mode")
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-unused-property" },
+                "hasKey should count as usage, got: \(results)")
+    }
+
+    @Test("Property read in a private helper counts as accessed")
+    func helperDelegationRecognized() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that dispatches to one of two table builders by shape",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "formula_type": MCPSchemaProperty(
+                            type: "string",
+                            description: "Which formula the generated table should evaluate"
+                        ),
+                        "variable_param": MCPSchemaProperty(
+                            type: "string",
+                            description: "Name of the parameter that varies across the table"
+                        ),
+                    ],
+                    required: ["formula_type"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let formulaType = try args.getString("formula_type")
+                return try await execute1VariableTable(args: args, formulaType: formulaType)
+            }
+
+            private func execute1VariableTable(args: [String: AnyCodable], formulaType: String) async throws -> MCPToolCallResult {
+                let variableParam = try args.getString("variable_param")
+                return .success(text: variableParam)
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(!results.contains { $0.ruleId == "mcp-unused-property" },
+                "A property read in a helper the tool calls is not dead schema, got: \(results)")
+    }
+
+    @Test("A throwing getter in a conditional helper is not a required mismatch")
+    func helperThrowingGetterNotRequired() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that dispatches to one of two table builders by shape",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "formula_type": MCPSchemaProperty(
+                            type: "string",
+                            description: "Which formula the generated table should evaluate"
+                        ),
+                        "variable_param": MCPSchemaProperty(
+                            type: "string",
+                            description: "Name of the parameter that varies across the table"
+                        ),
+                    ],
+                    required: ["formula_type"]
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let formulaType = try args.getString("formula_type")
+                return try await execute1VariableTable(args: args, formulaType: formulaType)
+            }
+
+            private func execute1VariableTable(args: [String: AnyCodable], formulaType: String) async throws -> MCPToolCallResult {
+                let variableParam = try args.getString("variable_param")
+                return .success(text: variableParam)
+            }
+        }
+        """
+        let results = diagnose(code)
+        // A helper runs only on the branch that calls it, so its throwing getters are
+        // conditionally required — unlike one in execute() itself, which always runs.
+        #expect(!results.contains { $0.ruleId == "mcp-required-mismatch" },
+                "Helper-level getters are conditionally required, got: \(results)")
+    }
+
+    @Test("A throwing getter in execute() itself still requires the key")
+    func executeThrowingGetterStillRequired() {
+        let code = """
+        import SwiftMCPServer
+
+        struct FooTool: MCPToolHandler, Sendable {
+            let tool = MCPTool(
+                name: "foo",
+                description: "A tool that always reads a threshold before doing its work",
+                inputSchema: MCPToolInputSchema(
+                    properties: [
+                        "threshold": MCPSchemaProperty(
+                            type: "number",
+                            description: "Cutoff value applied to every observation in the set"
+                        ),
+                    ],
+                    required: []
+                )
+            )
+
+            func execute(arguments: [String: AnyCodable]?) async throws -> MCPToolCallResult {
+                guard let args = arguments else { throw ToolError.missingArgument }
+                let threshold = try args.getDouble("threshold")
+                return .success(text: "ok")
+            }
+        }
+        """
+        let results = diagnose(code)
+        #expect(results.contains { $0.ruleId == "mcp-required-mismatch" },
+                "An unconditional throwing getter must still demand the key be required")
     }
 }
 

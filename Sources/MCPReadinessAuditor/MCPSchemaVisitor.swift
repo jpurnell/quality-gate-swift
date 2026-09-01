@@ -38,6 +38,11 @@ struct MCPExtractedArgAccess: Sendable {
     let isThrowing: Bool
     /// The line number of this access.
     let line: Int
+    /// Whether the access is in `execute()` itself rather than a helper it calls.
+    ///
+    /// A helper runs only on the branch that calls it, so its throwing getters are
+    /// conditionally required; one in `execute()` runs on every call and is not.
+    let inExecute: Bool
 }
 
 // MARK: - Type Mapping
@@ -54,12 +59,41 @@ private let getterTypeMap: [String: Set<String>] = [
     "getBoolOptional": ["boolean"],
     "getStringArray": ["array"],
     "getDoubleArray": ["array"],
+    // The optional array forms and the matrix getters were missing, so a property read
+    // through one of them looked unread and was reported as dead schema. The scalar
+    // `…Optional` variants were already here; these complete the set.
+    "getStringArrayIfPresent": ["array"],
+    "getDoubleArrayIfPresent": ["array"],
+    "getStringArrayOptional": ["array"],
+    "getDoubleArrayOptional": ["array"],
+    "getDoubleMatrix": ["array"],
+    "getDoubleMatrixIfPresent": ["array"],
+    "getDoubleMatrixOptional": ["array"],
+    // Domain getters. `getTimeSeries` accepts both the wrapped `{"data": [...]}` object
+    // and a flat array of points, so either schema type is correct for it.
+    "getTimeSeries": ["array", "object"],
+    "getPeriod": ["object"],
+    // `getDoubleFromObject(_ objectKey:key:)` reads a scalar out of a nested bag; its first
+    // argument is the top-level property, so it is that property that gets used.
+    "getDoubleFromObject": ["object"],
 ]
+
+/// Accessors that prove a property is used but imply nothing about its type.
+///
+/// These are excluded from `getterTypeMap` deliberately: a presence check is valid
+/// against a property of any type, so running the type-mismatch rule on one would
+/// report a conflict that does not exist.
+private let accessOnlyGetters: Set<String> = ["hasKey"]
+
+/// Every method name that counts as reading an argument.
+private let recognizedGetters: Set<String> = Set(getterTypeMap.keys).union(accessOnlyGetters)
 
 /// Getter names that throw (non-optional variants).
 private let throwingGetters: Set<String> = [
     "getString", "getInt", "getDouble", "getBool",
-    "getStringArray", "getDoubleArray",
+    "getStringArray", "getDoubleArray", "getDoubleMatrix", "getDoubleFromObject",
+    // `…IfPresent` throws only when the key is present and malformed, so an absent key is
+    // not an error and the argument does not belong in `required`.
 ]
 
 // MARK: - Visitor
@@ -125,11 +159,13 @@ final class MCPSchemaVisitor: SyntaxVisitor {
                 }
             }
 
-            // Pass 2: Extract argument accesses from `func execute(...)`
+            // Pass 2: Extract argument accesses from `func execute(...)` and from any
+            // helper it delegates to. A tool that dispatches to `execute1VariableTable`
+            // still reads the caller's arguments — scanning only `execute` reported every
+            // such property as dead schema.
             if let funcDecl = member.decl.as(FunctionDeclSyntax.self) {
-                if funcDecl.name.text == "execute" {
-                    extractedAccesses = extractArgAccesses(from: funcDecl)
-                }
+                let isExecute = funcDecl.name.text == "execute"
+                extractedAccesses += extractArgAccesses(from: funcDecl, inExecute: isExecute)
             }
         }
 
@@ -285,16 +321,16 @@ final class MCPSchemaVisitor: SyntaxVisitor {
     // MARK: - Execute Body Analysis
 
     /// Extracts argument access calls from an `execute(arguments:)` method body.
-    private func extractArgAccesses(from funcDecl: FunctionDeclSyntax) -> [MCPExtractedArgAccess] {
+    private func extractArgAccesses(from funcDecl: FunctionDeclSyntax, inExecute: Bool = true) -> [MCPExtractedArgAccess] {
         guard let body = funcDecl.body else { return [] }
         var accesses: [MCPExtractedArgAccess] = []
-        collectArgAccesses(from: Syntax(body), into: &accesses)
+        collectArgAccesses(from: Syntax(body), into: &accesses, inExecute: inExecute)
         return accesses
     }
 
     /// Recursively walks syntax nodes looking for getter calls like `args.getString("key")`
     /// and subscript accesses like `args["key"]`.
-    private func collectArgAccesses(from node: SyntaxProtocol, into accesses: inout [MCPExtractedArgAccess]) {
+    private func collectArgAccesses(from node: SyntaxProtocol, into accesses: inout [MCPExtractedArgAccess], inExecute: Bool) {
         guard node.children(viewMode: .sourceAccurate).count > 0 || node.is(FunctionCallExprSyntax.self) || node.is(SubscriptCallExprSyntax.self) else { return }
         let syntax = Syntax(fromProtocol: node)
 
@@ -302,14 +338,15 @@ final class MCPSchemaVisitor: SyntaxVisitor {
            let memberAccess = call.calledExpression.as(MemberAccessExprSyntax.self) {
             let methodName = memberAccess.declName.baseName.text
 
-            if getterTypeMap.keys.contains(methodName) {
+            if recognizedGetters.contains(methodName) {
                 if let firstArg = call.arguments.first,
                    let key = extractStringLiteral(from: firstArg.expression) {
                     let access = MCPExtractedArgAccess(
                         key: key,
                         getterName: methodName,
                         isThrowing: throwingGetters.contains(methodName),
-                        line: lineNumber(of: Syntax(call))
+                        line: lineNumber(of: Syntax(call)),
+                        inExecute: inExecute
                     )
                     accesses.append(access)
                 }
@@ -325,14 +362,15 @@ final class MCPSchemaVisitor: SyntaxVisitor {
                     key: key,
                     getterName: "subscript",
                     isThrowing: false,
-                    line: lineNumber(of: Syntax(subscriptCall))
+                    line: lineNumber(of: Syntax(subscriptCall)),
+                    inExecute: inExecute
                 )
                 accesses.append(access)
             }
         }
 
         for child in node.children(viewMode: .sourceAccurate) {
-            collectArgAccesses(from: child, into: &accesses)
+            collectArgAccesses(from: child, into: &accesses, inExecute: inExecute)
         }
     }
 
@@ -408,8 +446,9 @@ final class MCPSchemaVisitor: SyntaxVisitor {
                 continue
             }
 
-            // Rule: mcp-required-mismatch
-            if access.isThrowing && !schema.required.contains(access.key) {
+            // Rule: mcp-required-mismatch — only for accesses in execute() itself, which
+            // run on every call. A helper's getters run only on the branch that calls it.
+            if access.isThrowing && access.inExecute && !schema.required.contains(access.key) {
                 emit(
                     severity: .warning,
                     message: "Argument '\(access.key)' uses throwing getter \(access.getterName)() but is not in inputSchema required array",
