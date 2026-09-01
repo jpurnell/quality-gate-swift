@@ -172,6 +172,12 @@ final class LoggingVisitor: SyntaxVisitor {
     /// Also detects `privacy:` usage inside non-Apple fallback blocks (Rule 7).
     private func checkMissingPrivacy(_ node: FunctionCallExprSyntax) {
         guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self) else { return }
+        // A logger call always has a receiver — `logger.error(…)`. An implicit member
+        // expression, `.error(…)`, resolves against the contextual type instead, so it is
+        // an enum case or a static factory. `MCPToolCallResult.error(message:)` is one,
+        // and matching on the method name alone reported nine of them in a package that
+        // contains no Logger at all.
+        guard memberAccess.base != nil else { return }
         let methodName = memberAccess.declName.baseName.text
         guard logMethodNames.contains(methodName) else { return }
 

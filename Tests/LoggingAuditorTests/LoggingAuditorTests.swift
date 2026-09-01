@@ -382,6 +382,34 @@ struct MissingPrivacyTests {
         #expect(result.diagnostics.contains { $0.ruleId == ruleId })
     }
 
+    @Test("Does not flag an implicit member named like a log level")
+    func ignoresImplicitMemberNamedError() async throws {
+        // `.error(message:)` here is a static factory on the contextual result type, not a
+        // Logger call — a logger always has a receiver. businessMathMCP has no Logger at
+        // all and was reporting nine of these.
+        let code = """
+        func run() -> MCPToolCallResult {
+            return .error(message: "Failed to calculate IRR: \\(error.localizedDescription)")
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(!result.diagnostics.contains { $0.ruleId == ruleId },
+                "An implicit member expression cannot be a call on a logger instance")
+    }
+
+    @Test("Still flags a logger call written on an explicit receiver")
+    func stillFlagsExplicitReceiver() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        func run() {
+            logger.error("Failed: \\(reason)")
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.contains { $0.ruleId == ruleId })
+    }
+
     @Test("Does not flag logger call with privacy annotation")
     func ignoresAnnotated() async throws {
         let code = """
