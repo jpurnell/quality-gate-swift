@@ -25,6 +25,15 @@ let pointerValueAccessors: Set<String> = [
     "indices", "startIndex", "endIndex", "underestimatedCount",
 ]
 
+/// Argument labels that hand a pointer over rather than copying from it.
+///
+/// `Data(bytesNoCopy:count:deallocator:)` is the one that matters in practice: it looks like
+/// every other `Data` initializer and is the only one that keeps pointing at the block's memory
+/// after the block returns.
+let pointerRetainingArgumentLabels: Set<String> = [
+    "bytesNoCopy", "bytesNoCopyOf", "start",
+]
+
 /// Method names that consume a buffer pointer to produce a value.
 let pointerValueMethods: Set<String> = [
     "reduce", "map", "filter", "forEach", "compactMap", "flatMap",
@@ -330,7 +339,12 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             return
         }
         // 3. Generic pointer escape via return.
-        if expressionContainsTrackedPointer(expression, tracked: tracked) {
+        //
+        // `isPointerExpression`, not `expressionContainsTrackedPointer`: what matters is whether
+        // the value *leaving* the block is a pointer, not whether one is mentioned on the way to
+        // producing it. The other call sites below keep the broader test, because there the
+        // pointer being an argument is exactly the escape — it is what gets stored.
+        if isPointerExpression(expression, tracked: tracked) {
             emitReturnFromWithBlock(at: expression)
         }
     }
@@ -663,10 +677,109 @@ func extractClosureBoundNames(_ closure: ClosureExprSyntax) -> Set<String> {
     return ["$0"]
 }
 
-/// True if the expression evaluates to (or wraps) a tracked pointer. Skips
-/// `.pointee` / value-extracting member accesses and value-method receivers.
+/// Strips the markers that wrap an expression without changing what it evaluates to.
+///
+/// `try read(into: raw)` is a `TryExprSyntax` around the call, and `(read(into: raw))` a tuple
+/// around it. Both mean exactly what the call means; without unwrapping, a `try` in front of a
+/// borrowing call is enough to make the analysis fall back to "mentions a pointer anywhere",
+/// which is how the same code passed unthrown and failed thrown.
+///
+/// - Parameter expr: The expression to unwrap.
+/// - Returns: The expression inside the effect markers and redundant parentheses.
+func unwrappingEffects(_ expr: ExprSyntax) -> ExprSyntax {
+    if let tried = expr.as(TryExprSyntax.self) {
+        return unwrappingEffects(tried.expression)
+    }
+    if let awaited = expr.as(AwaitExprSyntax.self) {
+        return unwrappingEffects(awaited.expression)
+    }
+    // A single-element tuple with no label is parentheses, not a tuple.
+    if let tuple = expr.as(TupleExprSyntax.self), tuple.elements.count == 1,
+        let only = tuple.elements.first, only.label == nil
+    {
+        return unwrappingEffects(only.expression)
+    }
+    return expr
+}
+
+/// True if the expression **evaluates to** a tracked pointer — which is a narrower question
+/// than whether one appears inside it.
+///
+/// `read(into: raw)` returns an `Int`. The pointer is borrowed for the duration of the call and
+/// is not part of the result, so a with-block returning that expression lets nothing escape.
+/// Treating any mention as an escape flags every syscall wrapper ever written, and the fixes it
+/// invites — hoisting the call into a `var` outside the block, splitting one line into three —
+/// are worse code written to satisfy a checker.
+///
+/// A call is therefore transparent to its arguments, with two exceptions, both of which return
+/// a pointer rather than merely accepting one: an initializer of a pointer type, and an
+/// argument label that hands the memory over instead of copying from it.
+///
+/// - Parameters:
+///   - expr: The expression under test.
+///   - tracked: The pointer names currently in scope.
+/// - Returns: `true` when the expression's value carries a tracked pointer.
 func isPointerExpression(_ expr: ExprSyntax, tracked: Set<String>) -> Bool {
-    return expressionContainsTrackedPointer(expr, tracked: tracked)
+    guard let call = unwrappingEffects(expr).as(FunctionCallExprSyntax.self) else {
+        return expressionContainsTrackedPointer(expr, tracked: tracked)
+    }
+
+    if let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
+        // A method that consumes a buffer to produce a value — `.reduce`, `.map` — returns the
+        // value, not the buffer. Its receiver being the pointer is the point of calling it.
+        if pointerValueMethods.contains(member.declName.baseName.text) {
+            return false
+        }
+        // Anything else reached through the pointer — `raw.baseAddress`, `p.advanced(by:)` — is
+        // the pointer's own value coming back out.
+        if expressionContainsTrackedPointer(call.calledExpression, tracked: tracked) {
+            return true
+        }
+    }
+
+    let argumentsCarryPointer = call.arguments.contains {
+        expressionContainsTrackedPointer($0.expression, tracked: tracked)
+    }
+    guard argumentsCarryPointer else { return false }
+
+    // An initializer is treated as keeping what it is handed. `Holder(ptr: p)` stores it,
+    // `UnsafeRawBufferPointer(p)` rewraps it, and `Data(p)` copies it — and nothing in the
+    // syntax distinguishes the three. The conservative reading is the safe one, and the
+    // allowlist is how a caller says a particular type only borrows.
+    if isInitializerCall(call) { return true }
+
+    // An ordinary function returns whatever it returns; the pointer went in as a borrow. That a
+    // function might *store* it is a real risk, and a different rule's job — the conservative
+    // fallback on the call itself, which the allowlist also governs. Answering it here too
+    // would report one fault twice, under a rule that describes something else.
+    return call.arguments.contains { argument in
+        guard let label = argument.label?.text,
+            pointerRetainingArgumentLabels.contains(label)
+        else { return false }
+        return expressionContainsTrackedPointer(argument.expression, tracked: tracked)
+    }
+}
+
+/// Whether a call is constructing a value rather than invoking a function.
+///
+/// Judged by Swift's naming convention, which is all the syntax offers: a callee that is a bare
+/// capitalised identifier, or a member chain ending in one, is a type being initialised.
+///
+/// - Parameter call: The call to classify.
+/// - Returns: `true` when the callee names a type.
+func isInitializerCall(_ call: FunctionCallExprSyntax) -> Bool {
+    let name: String
+    if let identifier = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+        name = identifier.baseName.text
+    } else if let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
+        // `Foo.init(…)` names the type one level up; `foo.bar(…)` does not.
+        name = member.declName.baseName.text == "init"
+            ? (member.base?.trimmedDescription ?? "")
+            : member.declName.baseName.text
+    } else {
+        return false
+    }
+    return name.first?.isUppercase == true
 }
 
 /// Walks an expression looking for tracked pointer references. Skips

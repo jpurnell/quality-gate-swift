@@ -42,8 +42,8 @@ import QualityGateCore
 ///
 /// It was briefly default-on — promoted and reverted on 2026-08-27, when a sweep of all 86
 /// gate-configured repositories found 12 red carrying 162 errors that the promoting survey
-/// had never enumerated. See ``CheckerSelection`` for what the survey missed and what
-/// re-promoting requires.
+/// had never enumerated. See `CheckerSelection` in QualityGateCore for what the survey missed
+/// and what re-promoting requires.
 ///
 /// Once enabled the findings are errors and no knob downgrades them, because a knob that
 /// turns a red gate green is a suppression by another name. The one escape hatch is
