@@ -2,7 +2,45 @@
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-09-02
+
 ### Fixed
+
+- **`pointer-escape.return-from-with-block` flagged a borrowed argument.** The return path
+  asked *does a tracked pointer appear anywhere in this expression*, when the rule is about what
+  **leaves** the block. `return read(into: raw)` returns an `Int`; the pointer went in as a
+  borrow. Every syscall wrapper written in the obvious way was reported, and the fixes it
+  invited — hoisting the call into a `var` outside the block, splitting one line into three —
+  were worse code written to satisfy a checker.
+
+  `isPointerExpression` now classifies the call rather than scanning it: a method that consumes
+  a buffer to produce a value returns the value, a member reached through the pointer returns
+  the pointer, an initializer may keep what it is handed, and an ordinary function returns
+  whatever it returns. Effect markers are unwrapped first — `try f(p)` took the broad path, so
+  the same code passed unthrown and failed thrown.
+
+  **Coverage is unchanged.** Handing a pointer to a function whose contract is unknown is still
+  reported by `passed-as-inout`'s conservative fallback, and `allowedEscapeFunctions` remains
+  the way to say a named function borrows rather than keeps.
+
+### Changed
+
+- **`task-captures-self-no-isolation` says what the problem is, and stops prescribing a fix the
+  compiler rejects.** It advised `await self.method()`. A non-detached `Task` inherits its
+  actor's isolation — since Swift 5.5 — so awaiting a *synchronous* isolated member is redundant
+  and the compiler answers `warning: no 'async' operations occur within 'await' expression`. A
+  rule whose remedy trades an error for a warning teaches people to stop reading it.
+
+  The finding is an **ordering** hazard, not a data race: the work is deferred, and what it
+  finds when it runs may not be what the author was looking at. The message and the guide now
+  say that, and name the three fixes that work — do the isolated work before the `Task`,
+  snapshot into locals named apart from the properties, or move a multi-step sequence into one
+  isolated method the `Task` awaits.
+
+  The rule itself is unchanged. A narrowing was proposed and rejected: it would also have
+  stopped the rule flagging `self.someMethod()` inside a `Task`, which is the shape of every
+  real defect it has found.
+
 
 - **`main-actor-deinit-touches-state` contradicted `task-no-deinit`.**
   `collectStoredProperties` skipped `static` but not `nonisolated`, so a property
@@ -1488,7 +1526,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.1...HEAD
+[3.1.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/jpurnell/quality-gate-swift/compare/v2.0.2...v3.0.0
 [2.0.2]: https://github.com/jpurnell/quality-gate-swift/compare/v2026.07.12...v2.0.2

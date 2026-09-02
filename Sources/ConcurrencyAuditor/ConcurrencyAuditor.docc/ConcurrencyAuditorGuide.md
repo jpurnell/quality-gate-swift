@@ -92,7 +92,31 @@ final class SendableHandlerBox: Sendable {
 
 ### `concurrency.task-captures-self-no-isolation`
 
-Inside an actor or `@MainActor` class, spawning a `Task { self.x += 1 }` looks innocent but introduces a race: the Task body runs in a non-isolated context unless you explicitly hop back. The `await self.method()` form is the recommended fix because it makes the isolation hop visible.
+Inside an actor or `@MainActor` class, spawning a `Task { self.x += 1 }` looks innocent, but the
+work is **deferred**: the enclosing call returns, and the mutation happens whenever the scheduler
+gets to it. What it finds then may not be what the author was looking at.
+
+This is an *ordering* hazard, not a data race. A non-detached `Task` inherits its actor's
+isolation — it has since Swift 5.5 — so the access is serialised; the compiler will confirm that
+by rejecting a redundant `await` on a synchronous isolated member with *"no 'async' operations
+occur within 'await' expression"*. **So adding `await` is not the fix**, and this guide used to
+say it was.
+
+The fixes that work:
+
+- **Do the isolated work before the `Task`.** If it must happen first, it must happen first —
+  a comment saying "before sending" above a deferred task is a claim the scheduler is free to
+  falsify.
+- **Snapshot what the Task needs into locals**, named *apart* from the properties they came
+  from. A local shadowing the property it snapshots reads, three lines later, as though it were
+  still the live value.
+- **Move a multi-step sequence into one isolated method the Task awaits.** Two statements in a
+  deferred task can be interleaved between; one method cannot.
+
+Real defects found by this rule, all of the last shape: a pending response registered inside a
+nested task under a comment claiming it happened before the send; a reconnect that cancelled the
+old connection and redialled as separate statements, so a concurrent reconnect could have the
+cancel land on the connection that just replaced it.
 
 ```swift
 // ❌ flagged

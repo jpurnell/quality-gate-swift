@@ -206,12 +206,12 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                     let line = startLine(of: Syntax(node))
                     diagnostics.append(Diagnostic(
                         severity: .error,
-                        message: "Task closure captures isolated state without an explicit isolation hop; use 'await self.method()' instead",
+                        message: "Task closure touches actor state after the enclosing call has returned; the work is deferred, and by the time it runs the state may be something else",
                         filePath: fileName,
                         lineNumber: line,
                         columnNumber: 1,
                         ruleId: "concurrency.task-captures-self-no-isolation",
-                        suggestedFix: "Replace direct property access with an awaited isolated method call."
+                        suggestedFix: "Do the isolated work before the Task, snapshot what the Task needs into locals named apart from the properties, or move a multi-step sequence into one isolated method the Task awaits. Adding 'await' alone does not help: a non-detached Task inherits the actor's isolation, so awaiting a synchronous member is redundant and the compiler says so."
                     ))
                 }
             }
