@@ -1360,6 +1360,10 @@ public struct XcodeBuildCheckerConfig: Sendable, Equatable {
 
     /// Simulator destinations to build for. Empty derives the destination from the
     /// scheme's own `SUPPORTED_PLATFORMS`, falling back to `generic/platform=macOS`.
+    ///
+    /// Deriving it costs an `xcodebuild -showBuildSettings` spawn, measured at 16-32s
+    /// across three projects. Setting this skips that query outright — worth doing for a
+    /// project whose destination is not in doubt.
     public var destinations: [String]
 
     /// Whether to pass `-skipPackagePluginValidation` and `-skipMacroValidation`.

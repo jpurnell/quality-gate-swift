@@ -24,6 +24,13 @@
   `CODE_SIGNING_ALLOWED=NO`, which would override the project's own settings to ask the
   same question.
 
+  **Cost: 16-32s per run.** Reading the settings means a second `xcodebuild` spawn on top
+  of the `-list` used for scheme discovery, and `-showBuildSettings` is not fast — measured
+  at 16s, 17s and 32s across three projects, one of which returns an empty array for its
+  trouble. Pinning `destinations:` in a project's `.quality-gate.yml` skips the query
+  entirely, the same way `scheme:` skips `-list`; that is the lever for a project that
+  wants the time back.
+
   **This makes iOS projects build for the first time.** Any that were failing this way have
   not been compiled by the gate at all, so the next sweep may surface real errors that were
   masked. Those are discoveries, not regressions — the first one found was a dependency
