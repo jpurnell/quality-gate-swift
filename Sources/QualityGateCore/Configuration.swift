@@ -1358,20 +1358,32 @@ public struct XcodeBuildCheckerConfig: Sendable, Equatable {
     /// Xcode scheme to build. nil auto-detects the first scheme.
     public var scheme: String?
 
-    /// Simulator destinations to build for. Empty uses `generic/platform=macOS`.
+    /// Simulator destinations to build for. Empty derives the destination from the
+    /// scheme's own `SUPPORTED_PLATFORMS`, falling back to `generic/platform=macOS`.
     public var destinations: [String]
+
+    /// Whether to pass `-skipPackagePluginValidation` and `-skipMacroValidation`.
+    ///
+    /// Off by default. Xcode validates a package plugin interactively before letting it
+    /// run, and a gate has no way to answer that prompt — so a project depending on such a
+    /// package fails with `exit code 1 but produced no further output`. Turning this on
+    /// says the project accepts executing its dependencies' build-time plugin code
+    /// unvalidated, which is why it is a per-project decision and not a default.
+    public var skipPluginValidation: Bool
 
     /// Creates an Xcode build checker configuration with the given options.
     public init(
         project: String? = nil,
         workspace: String? = nil,
         scheme: String? = nil,
-        destinations: [String] = []
+        destinations: [String] = [],
+        skipPluginValidation: Bool = false
     ) {
         self.project = project
         self.workspace = workspace
         self.scheme = scheme
         self.destinations = destinations
+        self.skipPluginValidation = skipPluginValidation
     }
 
     /// Default Xcode build checker configuration.
@@ -1380,7 +1392,7 @@ public struct XcodeBuildCheckerConfig: Sendable, Equatable {
 
 extension XcodeBuildCheckerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case project, workspace, scheme, destinations
+        case project, workspace, scheme, destinations, skipPluginValidation
     }
 
     /// Creates an Xcode build checker configuration by decoding from the given decoder.
@@ -1391,6 +1403,8 @@ extension XcodeBuildCheckerConfig: Codable {
         workspace = try container.decodeIfPresent(String.self, forKey: .workspace) ?? defaults.workspace
         scheme = try container.decodeIfPresent(String.self, forKey: .scheme) ?? defaults.scheme
         destinations = try container.decodeIfPresent([String].self, forKey: .destinations) ?? defaults.destinations
+        skipPluginValidation = try container.decodeIfPresent(
+            Bool.self, forKey: .skipPluginValidation) ?? defaults.skipPluginValidation
     }
 }
 

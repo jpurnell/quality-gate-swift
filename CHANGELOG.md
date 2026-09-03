@@ -4,6 +4,43 @@
 
 ### Fixed
 
+- **`xcode-build` asked every project to build for the Mac.** The destination defaulted to
+  `generic/platform=macOS` unconditionally. IconquerApp declares one scheme per platform —
+  `iConquer_iOS`, `iConquer_macOS`, `iConquer_tvOS`, `iConquer_visionOS` — and
+  `preferredScheme` finds no scheme matching the container name `IconquerApp`, so it took
+  `schemes.first` (`iConquer_iOS`) and asked xcodebuild for a Mac. The result was
+  `xcodebuild exited 70`, a wall of destination noise, and not one file reference.
+
+  The destination now comes from the chosen scheme's own `SUPPORTED_PLATFORMS`, read via
+  `-showBuildSettings`. An explicit `destinations:` still wins — the author has said what
+  they want. When the settings cannot be read the old macOS default stands, because a
+  checker that guesses here fails a project for a reason it invented.
+
+  Device families resolve to their **simulator** destination. `generic/platform=iOS`
+  demands a signing identity, and a checker answering "does this compile" has no business
+  requiring a development team — it failed IconquerApp with `Signing for "iConquer_iOS"
+  requires a development team`, which is true, irrelevant, and fatal on any machine without
+  the team configured, including every CI runner. Chosen over forcing
+  `CODE_SIGNING_ALLOWED=NO`, which would override the project's own settings to ask the
+  same question.
+
+  **This makes iOS projects build for the first time.** Any that were failing this way have
+  not been compiled by the gate at all, so the next sweep may surface real errors that were
+  masked. Those are discoveries, not regressions — the first one found was a dependency
+  advertising an iOS floor it could not honour, and it had been green on the host for
+  months.
+
+### Added
+
+- **`xcodeBuild.skipPluginValidation`**, default off. Xcode validates a package plugin
+  interactively before letting it run and a gate cannot answer that prompt, so a project
+  depending on such a package failed with `exit code 1 but produced no further output` —
+  a message naming nothing and pointing nowhere. Enabling it says the project accepts
+  running its dependencies' build-time plugin code unvalidated, which is why it is a
+  per-project decision and not a default.
+
+### Fixed
+
 - **A module built by another compiler was reported as a documentation defect.** `doc-code` and
   `doc-comment-code` compile fences against `.build/debug` without running `swift build` first —
   deliberately, so they read a finished build rather than racing one. Nothing verified that build

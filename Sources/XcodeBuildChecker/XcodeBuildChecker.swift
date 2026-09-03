@@ -113,6 +113,47 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         return schemes.first
     }
 
+    /// The generic destination for the platforms a scheme can actually build.
+    ///
+    /// `SUPPORTED_PLATFORMS` is a space-separated list of SDK names, which is what
+    /// `xcodebuild -showBuildSettings` reports and not what `-destination` accepts — hence
+    /// the mapping. Both the device and simulator SDK of a family point at the same generic
+    /// destination, because a generic destination names the family.
+    ///
+    /// The host wins when the scheme supports it: `generic/platform=macOS` needs neither a
+    /// booted simulator nor a signing identity, so it is the cheapest true answer. It is
+    /// only ever returned when the scheme genuinely lists `macosx`.
+    ///
+    /// - Returns: The destination, or `nil` when the platforms are unrecognised or absent —
+    ///   which the caller treats as "could not tell" and falls back to its previous default.
+    ///   A guess here would fail a project for a reason this checker invented.
+    static func defaultDestination(supportedPlatforms: String) -> String? {
+        let sdks = Set(supportedPlatforms.split(separator: " ").map(String.init))
+        // Ordered: the first family the scheme supports wins, host first.
+        //
+        // Device families resolve to their *Simulator* destination, which is the whole
+        // point: `generic/platform=iOS` demands a signing identity, and a checker that
+        // answers "does this compile" has no business requiring a development team. It
+        // failed IconquerApp with `Signing for "iConquer_iOS" requires a development
+        // team` — true, irrelevant, and fatal on any machine without the team configured,
+        // which includes every CI runner. The simulator destination needs no identity and
+        // no device, making it the exact analogue of bare macOS for the host.
+        //
+        // Chosen over forcing `CODE_SIGNING_ALLOWED=NO`, which would override the
+        // project's own signing settings to ask the same question.
+        let families: [(platform: String, sdks: Set<String>)] = [
+            ("macOS", ["macosx"]),
+            ("iOS Simulator", ["iphoneos", "iphonesimulator"]),
+            ("tvOS Simulator", ["appletvos", "appletvsimulator"]),
+            ("watchOS Simulator", ["watchos", "watchsimulator"]),
+            ("visionOS Simulator", ["xros", "xrsimulator"]),
+        ]
+        for family in families where !family.sdks.isDisjoint(with: sdks) {
+            return "generic/platform=\(family.platform)"
+        }
+        return nil
+    }
+
     /// Run xcodebuild for each configured destination and collect diagnostics.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
@@ -139,9 +180,22 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         let scheme = try config.scheme ?? discoverScheme(
             projectArgs: projectArgs, root: configuration.resolvedProjectRoot.path)
 
-        let destinations = config.destinations.isEmpty
-            ? ["generic/platform=macOS"]
-            : config.destinations
+        // Ask the scheme what it can build before assuming the host. A blind
+        // `generic/platform=macOS` reported `xcodebuild exited 70` and a wall of
+        // destination noise for IconquerApp, whose only fault was being an iOS app: it
+        // declares one scheme per platform, so `preferredScheme` picked `iConquer_iOS` and
+        // this line asked for a Mac. An explicit `destinations:` still wins — the author
+        // has said what they want, and this must not second-guess it.
+        let destinations: [String]
+        if config.destinations.isEmpty {
+            let discovered = discoverDestination(
+                projectArgs: projectArgs,
+                scheme: scheme,
+                root: configuration.resolvedProjectRoot.path)
+            destinations = [discovered ?? "generic/platform=macOS"]
+        } else {
+            destinations = config.destinations
+        }
 
         var allDiagnostics: [Diagnostic] = []
         var anyBuildFailed = false
@@ -152,6 +206,14 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             args.append(contentsOf: ["-scheme", scheme])
             args.append(contentsOf: ["-destination", destination])
             args.append("-quiet")
+            // Opt-in, and off by default on purpose: skipping validation means the build
+            // executes a package's plugin code without the trust check Xcode would
+            // otherwise insist on interactively. A gate cannot answer that prompt, so a
+            // project depending on such a package fails with `exit code 1 but produced no
+            // further output` until its own config says it accepts the trade.
+            if config.skipPluginValidation {
+                args.append(contentsOf: ["-skipPackagePluginValidation", "-skipMacroValidation"])
+            }
 
             // SAFETY: runs xcodebuild to check compilation
             let result = try ProcessRunner.run(
@@ -280,6 +342,42 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         }
 
         return scheme
+    }
+
+    /// The destination the scheme's own build settings imply, or `nil` when they cannot
+    /// be read.
+    ///
+    /// Failure is deliberately quiet: this runs to *improve* on a default, so a project
+    /// whose settings cannot be read is left exactly where it was rather than failed for
+    /// the reading. `-showBuildSettings` is asked for one scheme, and the first entry that
+    /// carries `SUPPORTED_PLATFORMS` answers the question.
+    private func discoverDestination(
+        projectArgs: [String], scheme: String, root: String
+    ) -> String? {
+        var args = ["-showBuildSettings", "-json"]
+        args.append(contentsOf: projectArgs)
+        args.append(contentsOf: ["-scheme", scheme])
+
+        // SAFETY: runs xcodebuild -showBuildSettings to read the scheme's platforms
+        guard let result = try? ProcessRunner.run(
+            "/usr/bin/xcodebuild", arguments: args, currentDirectory: root),
+            result.exitCode == 0,
+            let data = result.stdout.data(using: .utf8)
+        else { return nil }
+
+        // silent: an unreadable settings dump leaves the caller's default in place
+        guard let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return nil }
+
+        for entry in entries {
+            guard let settings = entry["buildSettings"] as? [String: Any],
+                  let platforms = settings["SUPPORTED_PLATFORMS"] as? String,
+                  let destination = Self.defaultDestination(supportedPlatforms: platforms)
+            else { continue }
+            Self.logger.debug("xcode-build chose \(destination, privacy: .public) for scheme \(scheme, privacy: .public)")
+            return destination
+        }
+        return nil
     }
 
     private func destinationLabel(_ destination: String) -> String {
