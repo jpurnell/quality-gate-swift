@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A module built by another compiler was reported as a documentation defect.** `doc-code` and
+  `doc-comment-code` compile fences against `.build/debug` without running `swift build` first —
+  deliberately, so they read a finished build rather than racing one. Nothing verified that build
+  was usable. After an `xcode-select` switch on 2026-09-01, every project whose `.build` predated
+  the new toolchain produced `compiled module was created by an older version of the compiler`,
+  and the reporter rephrased the cascade behind it as claims about the author's prose: an
+  unresolvable `some Protocol` in a signature puts every parameter out of scope, and
+  `cannot find 'decoder' in scope` was reported as *"references 'decoder', which nothing in the
+  fence defines"* — against fences that were correct. **605 findings across 57 projects, none of
+  them real.** One package read as broken for four days on documentation nobody had touched.
+
+  `ArticleAuditor.reduce` now treats a module/compiler version mismatch as a **barrier**, the
+  same class as `no such module`: both carry a source location naming the `import` line, and both
+  have a real problem that is the build. Both directions are matched — a toolchain moves forward
+  when a beta is adopted and backward when it is abandoned.
+
+  A barrier now also **suppresses the cascade behind it**, which is where the damage was. The
+  barrier's own located error is kept, so `no such module`'s deliberate report-it-twice contract
+  survives: the reader still gets one line to edit, and it says `rebuild` rather than naming
+  innocent ones.
+
+  This is the fifth phrasing added to a check whose own test file already warned that *"the
+  compiler has at least four ways to say it could not proceed, and the one this package produces
+  was not the one being matched."*
+
 ## [3.1.1] - 2026-09-02
 
 ### Fixed

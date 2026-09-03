@@ -237,7 +237,7 @@ public enum ArticleAuditor {
             guard let range = line.range(of: ": error: ") else { continue }
             let message = String(line[range.upperBound...])
 
-            if message.hasPrefix("no such module") {
+            if message.hasPrefix("no such module") || isModuleLoadFailure(message) {
                 // This one *does* carry a source location — it names the `import` line — so
                 // without the explicit check it would be filed as an ordinary compile error,
                 // sending the reader to fix a line whose real problem is the build. Record
@@ -267,7 +267,37 @@ public enum ArticleAuditor {
             errors.append(RawError(line: number, message: message))
         }
 
-        return (errors, barrier)
+        // Everything *behind* a barrier is cascade, not measurement. Keeping it is how one
+        // unloadable module became 605 findings across 57 projects on 2026-09-02, each one
+        // phrased as a claim about the author's documentation: an unresolvable `some
+        // Protocol` in a signature puts every parameter out of scope, and `cannot find 'x'
+        // in scope` is reported as "nothing in the fence defines 'x'" against code that is
+        // correct.
+        //
+        // The barrier's *own* located error is kept, which is why this filters by message
+        // rather than clearing the list. A located barrier is reported twice on purpose —
+        // once as the barrier, once against the import line the reader has to edit — and
+        // clearing outright deleted that second report, breaking the `no such module`
+        // contract while fixing the cascade. The reader still gets one actionable line,
+        // and it says `rebuild` instead of naming innocent ones.
+        guard let barrier else { return (errors, nil) }
+        return (errors.filter { $0.message == barrier }, barrier)
+    }
+
+    /// Whether a *located* error is really about the build rather than the line it names.
+    ///
+    /// The compiler attaches these to the `import` line, so without an explicit check they
+    /// are filed as ordinary compile errors — the same trap ``reduce(output:)`` already
+    /// avoids for `no such module`. Both directions are matched on purpose: a toolchain
+    /// moves forward when a beta is adopted and backward when it is abandoned, and a
+    /// machine carrying both Xcode and Xcode-beta can produce either message on any day.
+    ///
+    /// Matched by phrase rather than structurally because these carry a location, which is
+    /// exactly what the structural test uses to decide. The cost of a missing phrase is a
+    /// wrong verdict, so a new one belongs here the day it is first seen.
+    static func isModuleLoadFailure(_ message: String) -> Bool {
+        message.contains("compiled module was created by an older version of the compiler")
+            || message.contains("cannot be imported by the Swift")
     }
 
     /// The line number in a `path:LINE:COL` diagnostic head.

@@ -60,6 +60,49 @@ struct DiagnosticReductionTests {
         #expect(reduced.barrier == "no such module 'MyChecker'")
     }
 
+    @Test("A module built by another compiler is a barrier, not a documentation defect")
+    func staleModuleIsABarrier() {
+        // Same class as `no such module`: it names the import line, so without the explicit
+        // check it is filed as an ordinary compile error and the reader is sent to fix a
+        // fence whose real problem is that `.build` predates the current toolchain.
+        //
+        // Observed 2026-09-02 across 57 projects after an `xcode-select` switch: 605
+        // findings, every one of them this, and every one of them phrased as a claim about
+        // the author's documentation. Both directions are matched — a toolchain moves
+        // forward when a beta is adopted and backward when it is abandoned.
+        let phrasings = [
+            "compiled module was created by an older version of the compiler; rebuild 'Foo' and try again: /p/.build/debug/Foo.swiftmodule/arm64-apple-macos.swiftmodule",
+            "module compiled with Swift 6.3 cannot be imported by the Swift 6.4 compiler: /p/.build/debug/Foo.swiftmodule/arm64-apple-macos.swiftmodule",
+        ]
+        for phrasing in phrasings {
+            let reduced = ArticleAuditor.reduce(
+                output: "/tmp/doc-code-x/main.swift:2:8: error: \(phrasing)")
+            #expect(reduced.barrier == phrasing, "\(phrasing) should be a barrier")
+        }
+    }
+
+    @Test("A stale module suppresses the cascade it causes")
+    func staleModuleSuppressesItsCascade() {
+        // The cascade is the actual damage: one unloadable module turns every parameter in
+        // the fence into `cannot find 'x' in scope`, which the reporter rephrases as
+        // "nothing in the fence defines 'x'" — a false claim about code that is correct.
+        let output = """
+            /tmp/doc-code-x/main.swift:2:8: error: compiled module was created by an older version of the compiler; rebuild 'Foo' and try again: /p/Foo.swiftmodule
+            /tmp/doc-code-x/main.swift:5:9: error: cannot find 'decoder' in scope
+            /tmp/doc-code-x/main.swift:6:5: error: cannot find 'window' in scope
+            """
+        let reduced = ArticleAuditor.reduce(output: output)
+        #expect(
+            reduced.barrier
+                == "compiled module was created by an older version of the compiler; rebuild 'Foo' and try again: /p/Foo.swiftmodule")
+        // The barrier's own located error survives — `no such module` is reported twice on
+        // purpose, and that contract must hold for this phrasing too.
+        #expect(reduced.errors.count == 1)
+        #expect(
+            reduced.errors.allSatisfy { !$0.message.hasPrefix("cannot find ") },
+            "the cascade behind a barrier must not be reported as undefined symbols")
+    }
+
     // MARK: - Behaviour that must not regress
 
     @Test("One error per source line; the rest are cascade")
