@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-09-03
+
 ### Fixed
 
 - **`xcode-build` asked every project to build for the Mac.** The destination defaulted to
@@ -1597,7 +1599,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.1...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...HEAD
+[3.1.2]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/jpurnell/quality-gate-swift/compare/v2.0.2...v3.0.0
