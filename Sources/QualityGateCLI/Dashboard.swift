@@ -8,7 +8,6 @@ import IJSSensor
 import IJSAggregator
 import IJSDashboardCore
 import IJSDashboardCLI
-import IJSDashboardUI
 
 struct Dashboard: AsyncParsableCommand {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "Dashboard")
@@ -32,9 +31,6 @@ struct Dashboard: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Export HTML report to pulse directory")
     var exportHtml: Bool = false
-
-    @Flag(name: .long, help: "Open the native SwiftUI dashboard window instead of the terminal UI")
-    var native: Bool = false
 
     @Option(name: .long, help: "Output path for HTML report (default: pulse directory)")
     var output: String?
@@ -197,27 +193,13 @@ struct Dashboard: AsyncParsableCommand {
             print(DashboardRenderer.renderJSON(portfolio: portfolio, projects: projects))
         } else if summary {
             print(DashboardRenderer.renderPortfolio(portfolio, projects: projects, pulse: pulse))
-        } else if native {
-            // Health timeline: the recent runs' checker pass rate (passing checkers
-            // ÷ total checkers per run), oldest→newest — matching the terminal.
-            let health = allRuns.mapValues { runs -> [Double] in
-                runs.sorted { $0.metadata.timestamp < $1.metadata.timestamp }
-                    .suffix(14)
-                    .map { run in
-                        let results = run.metadata.results
-                        let count = results.count
-                        guard count > 0 else { return 0 }
-                        return Double(results.filter { $0.status.isPassing }.count) / Double(count)
-                    }
-            }
-            // Inbox + trends: same computation as DashboardLoader, so the
-            // drill-down matches the app.
-            let inbox = allRuns.mapValues { DashboardLoader.inboxFindings(fromLatestOf: $0) }
-            let trends = allRuns.mapValues { TrendComputer.dailyPassRate(from: $0) }
-            await IJSDashboardUI.launch(portfolio: portfolio, projects: projects, pulse: pulse,
-                                        health: health, groups: manifest.groups, inbox: inbox,
-                                        trends: trends)
         } else {
+            // The `--native` flag lived here and called IJSDashboardUI.launch.
+            // That single optional call was the only thing linking SwiftUI into
+            // this binary, and with it three private BusinessMath packages and a
+            // hard requirement on Xcode. The native window now ships as its own
+            // executable in the quality-gate-dashboard package; the terminal,
+            // JSON, and HTML renderers below are what CI and the pulse use.
             DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }
     }

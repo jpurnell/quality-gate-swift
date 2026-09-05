@@ -4,7 +4,11 @@ import os
 #endif
 import QualityGateCore
 import IndexStoreInfra
-import IJSSensor
+// CorpusKit directly, not via IJSSensor — this reaches OrientationReport and
+// ModuleOrientationCard, which are corpus DTOs. See the note in
+// ComplexityTelemetryEmitter: a checker may depend on the corpus's types, but
+// not on the IJS modules that write them.
+import CorpusKit
 
 /// Advisory whole-codebase legibility analyzer.
 ///

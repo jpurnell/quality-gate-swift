@@ -233,11 +233,6 @@ let package = Package(
             name: "quality-gate",
             targets: ["QualityGateCLI"]
         ),
-        // Native dashboard app (macOS)
-        .executable(
-            name: "IJSDashboardApp",
-            targets: ["IJSDashboardApp"]
-        ),
         // IJS MCP Server
         .executable(
             name: "ijs-mcp-server",
@@ -261,8 +256,6 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
         .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.15.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
-        .package(url: "https://github.com/jpurnell/BusinessMath-UI", from: "0.5.0"),
-        .package(url: "https://github.com/jpurnell/BusinessMath-Adapters", from: "0.4.1"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.3.1"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
@@ -782,7 +775,9 @@ let package = Package(
             name: "ComplexityAnalyzer",
             dependencies: [
                 "QualityGateCore",
-                "IJSSensor",
+                // CorpusKit, not IJSSensor: a checker depends on the corpus's
+                // shared types, never on the IJS modules that write the corpus.
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -798,7 +793,8 @@ let package = Package(
             name: "LegibilityAnalyzer",
             dependencies: [
                 "QualityGateCore",
-                "IJSSensor",
+                // CorpusKit, not IJSSensor — see ComplexityAnalyzer above.
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -969,45 +965,8 @@ let package = Package(
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
             ]
         ),
-        .target(
-            name: "IJSDashboardUI",
-            dependencies: [
-                "IJSDashboardCore",
-                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
-                .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
-                .product(name: "SwiftGUIKitSwiftUI", package: "SwiftCLIKit"),
-                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
-                .product(name: "BusinessMath", package: "BusinessMath"),
-                .product(name: "BusinessMathUI", package: "BusinessMath-UI"),
-                .product(name: "BusinessMathAdapters", package: "BusinessMath-Adapters"),
-            ]
-        ),
-        .executableTarget(
-            name: "ijs-dashboard-preview",
-            dependencies: [
-                "IJSDashboardUI",
-                "IJSDashboardCore",
-                .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
-                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
-            ]
-        ),
-        .executableTarget(
-            name: "IJSDashboardApp",
-            dependencies: [
-                "IJSDashboardCore",
-                "IJSDashboardUI",
-            ]
-        ),
-        .testTarget(
-            name: "IJSDashboardUITests",
-            dependencies: [
-                "IJSDashboardUI",
-                "IJSDashboardCore",
-                .product(name: "SwiftGUIKit", package: "SwiftCLIKit"),
-                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
-                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
-            ]
-        ),
+        // IJSDashboardUI, ijs-dashboard-preview, IJSDashboardApp and
+        // IJSDashboardUITests moved to the quality-gate-dashboard package.
 
         // MARK: - Test Kit
         .target(
@@ -1220,7 +1179,10 @@ let package = Package(
                 "IJSRefiner",
                 "IJSDashboardCore",
                 "IJSDashboardCLI",
-                "IJSDashboardUI",
+                // IJSDashboardUI is deliberately absent. It moved to the
+                // quality-gate-dashboard package on 2026-09-05 — linking it here
+                // pulled SwiftUI, AVKit and three private BusinessMath packages
+                // into the CLI, so the gate could not build without Xcode.
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),

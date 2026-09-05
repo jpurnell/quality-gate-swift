@@ -1,5 +1,9 @@
 import Foundation
-import IJSSensor
+// CorpusKit directly, not via IJSSensor. IJSSensor is a shim whose whole body is
+// `@_exported import CorpusKit`, so importing it here made a checker depend on an
+// IJS module to reach shared corpus DTOs. A checker may depend on the types the
+// corpus is written in; it must not depend on the system that writes it.
+import CorpusKit
 
 /// Converts per-function complexity records into a corpus-ready ComplexityReport.
 public struct ComplexityTelemetryEmitter {
