@@ -254,7 +254,12 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.4.0"),
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.7.0"),
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
-        .package(url: "git@github.com:jpurnell/quality-gate-corpus-kit.git", from: "1.15.0"),
+        // HTTPS, not git@ — CI authenticates private dependencies by rewriting
+        // `https://github.com/` through a token (`url.insteadOf`), which cannot
+        // touch an SSH remote. With the SSH form this dependency failed on any
+        // machine without a GitHub SSH key regardless of how the token was
+        // scoped: "Host key verification failed", observed on the runner host.
+        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.15.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.3.1"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
