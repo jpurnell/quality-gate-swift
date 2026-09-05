@@ -25,4 +25,7 @@ jobs:
       checks: "safety dependency-audit"
       continue-on-failure: true
     secrets:
-      corpus-token: ${{ secrets.CORPUS_PUSH_TOKEN }}
+      # Not corpus access — this is the token that lets the "Build quality-gate
+      # from latest main" step clone jpurnell/quality-gate-swift, which is
+      # private. No corpus-repo is set here, so no corpus credential is needed.
+      dependency-token: ${{ secrets.SPM_PRIVATE_DEPS_TOKEN }}

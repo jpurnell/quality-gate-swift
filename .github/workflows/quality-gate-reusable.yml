@@ -25,7 +25,19 @@ name: Quality Gate (Reusable)
 #         continue-on-failure: true
 #         corpus-repo: jpurnell/org-judgement-corpus
 #       secrets:
-#         corpus-token: ${{ secrets.CORPUS_PUSH_TOKEN }}
+#         corpus-deploy-key: ${{ secrets.CORPUS_DEPLOY_KEY }}
+#
+# Two credentials, two jobs — they were one PAT until 2026-09-05 and that
+# conflation is why a corpus-scoped token sat in an `insteadOf` rewrite aimed
+# at every dependency host:
+#
+#   corpus-deploy-key  SSH key, write-scoped to the corpus repo alone (§4).
+#                      Reaches exactly one repository, which is the point.
+#   dependency-token   HTTPS PAT with *read* on private SPM dependencies.
+#                      Only needed if `swift build` resolves private URLs.
+#
+# A deploy key cannot authorize dependency fetches and a dependency token
+# should never hold corpus write. Pass whichever the repo actually needs.
 
 on:
   workflow_call:
@@ -66,8 +78,14 @@ on:
         required: false
         default: "main"
     secrets:
+      corpus-deploy-key:
+        description: "SSH private key with write access to the corpus repo (preferred transport)"
+        required: false
+      dependency-token:
+        description: "PAT with read access to private SPM dependencies (only if `swift build` resolves private URLs)"
+        required: false
       corpus-token:
-        description: "PAT with push access to corpus repo"
+        description: "DEPRECATED — the old dual-purpose PAT. Superseded by corpus-deploy-key + dependency-token; still accepted so existing callers keep working through the migration."
         required: false
 
 permissions:
@@ -104,14 +122,47 @@ jobs:
         # Must run on every job (not only cache-miss): the project's own
         # `swift build` in "Run quality gate" resolves private URL dependencies
         # and needs the token rewrite even when the quality-gate binary is cached.
+        #
+        # This rewrite is indiscriminate — it redirects *every* github.com HTTPS
+        # URL through the supplied token. That is why the corpus credential no
+        # longer arrives here: a corpus-scoped PAT in this position was offered
+        # to every dependency host and could authorize none of them.
         env:
-          GH_TOKEN: ${{ secrets.corpus-token }}
+          DEPENDENCY_TOKEN: ${{ secrets.dependency-token }}
+          LEGACY_TOKEN: ${{ secrets.corpus-token }}
         run: |
           git config --global submodule.recurse false
           git config --global fetch.recurseSubmodules false
+
+          GH_TOKEN="$DEPENDENCY_TOKEN"
+          if [ -z "$GH_TOKEN" ] && [ -n "$LEGACY_TOKEN" ]; then
+            echo "::warning::Using deprecated 'corpus-token' for dependency auth. Pass 'dependency-token' instead; 'corpus-token' will be removed."
+            GH_TOKEN="$LEGACY_TOKEN"
+          fi
+
           if [ -n "$GH_TOKEN" ]; then
             git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
+
+      - name: Configure corpus SSH transport
+        if: inputs.corpus-repo != ''
+        env:
+          DEPLOY_KEY: ${{ secrets.corpus-deploy-key }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "No corpus-deploy-key supplied — falling back to token transport."
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          # printf, not echo: the key is multi-line and must land byte-exact,
+          # and a missing trailing newline makes ssh reject it as malformed.
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/qg_corpus"
+          chmod 600 "$HOME/.ssh/qg_corpus"
+          ssh-keyscan -t ed25519,rsa github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          # IdentitiesOnly stops ssh from offering the runner's other keys first
+          # and tripping GitHub's "Too many authentication failures" cutoff.
+          echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/qg_corpus -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
+          echo "CORPUS_TRANSPORT=ssh" >> "$GITHUB_ENV"
 
       - name: Build quality-gate from latest main
         if: steps.qg-cache.outputs.cache-hit != 'true'
@@ -137,6 +188,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.corpus-token }}
         run: |
+          if [ "$CORPUS_TRANSPORT" = "ssh" ]; then
+            git clone --depth 1 --branch ${{ inputs.corpus-branch }} \
+              "git@github.com:${{ inputs.corpus-repo }}.git" _corpus
+            exit 0
+          fi
+
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::corpus-repo is set but no corpus credential was supplied. Pass corpus-deploy-key."
+            exit 1
+          fi
+          echo "::warning::Cloning corpus over the deprecated token transport. Pass 'corpus-deploy-key' instead."
           git clone --depth 1 --branch ${{ inputs.corpus-branch }} \
             "https://x-access-token:${GH_TOKEN}@github.com/${{ inputs.corpus-repo }}.git" \
             _corpus
