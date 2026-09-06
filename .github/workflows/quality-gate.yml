@@ -24,6 +24,12 @@ on:
 permissions:
   contents: read
   security-events: write   # SARIF upload to code scanning
+  # codeql-action reads GET /repos/{o}/{r}/actions/runs/{id} to stamp the upload
+  # with run metadata. On a PRIVATE repository that call needs `actions: read`,
+  # and without it the step fails *after* validating and fingerprinting the SARIF
+  # — "Resource not accessible by integration", which reads like a code-scanning
+  # entitlement problem and is not one.
+  actions: read
 
 jobs:
   quality-gate:
@@ -41,7 +47,7 @@ jobs:
 
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: .quality-gate-ci/quality-gate.sarif
 
