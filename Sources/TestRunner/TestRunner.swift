@@ -583,12 +583,37 @@ public struct TestRunner: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
+    /// The environment for the spawned `swift test`, with this run's own control
+    /// variables removed.
+    ///
+    /// `QG_NO_INDEX_BUILD` tells `StoreLocator` "do not compile to produce an index;
+    /// degrade to AST-only". That is correct for *this* process's checkers — a
+    /// portfolio sweep must not rebuild every project. It is wrong for the project's
+    /// **test suite**, which is a separate program under test whose fixtures build
+    /// their own index stores. Inherited, it makes those fixtures silently
+    /// unavailable and every index-backed expectation fail.
+    ///
+    /// The bug hid for months because it needs a *cold* fixture: with a warm
+    /// `.build`, `StoreLocator` finds an existing store and returns before it would
+    /// have thrown. Only a clean checkout forces the build that the flag forbids, so
+    /// local hooks structurally could not see it — the first self-hosted CI run did.
+    ///
+    /// Same leak class as ``CorpusGitTransport/scrubbed(environment:)`` and
+    /// `GIT_INDEX_FILE`: a variable scoped to the tool leaking into a child that is
+    /// not the tool.
+    static func childEnvironment(from parent: [String: String]) -> [String: String] {
+        var environment = parent
+        environment.removeValue(forKey: "QG_NO_INDEX_BUILD")
+        return environment
+    }
+
     private func runSwiftTest(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
         // SAFETY: runs swift test to execute the project's test suite
         let result = try ProcessRunner.run(
             "/usr/bin/swift",
             arguments: ["test"] + arguments,
-            currentDirectory: root
+            currentDirectory: root,
+            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment)
         )
 
         // Combine stdout and stderr
