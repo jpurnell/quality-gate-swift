@@ -52,7 +52,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 ## Highlights
 
 - **AST-first analysis** — SwiftSyntax-based visitors instead of regex, so rules understand scope, type context, and control flow; index-store-backed checkers resolve symbols across files
-- **Modular architecture** — 45 built-in checkers, each an independent SPM module with its own test target and DocC catalogue. 3,326 tests across 59 test targets
+- **Modular architecture** — 46 built-in checkers, each an independent SPM module with its own test target and DocC catalogue. 3,213 tests across 60 test targets
 - **Structured output** — terminal, JSON, SARIF 2.1.0 for GitHub Code Scanning, and Xcode Build Phase format
 - **Auto-fix support** — checkers implementing `FixableChecker` can patch issues automatically with `--fix`, except where fixing would launder the defect (see `doc-claims` above)
 - **Read-only on strangers' code** — `--foreign` analyses a repo you don't own without writing to it; every write redirects to an overlay and `--fix` is refused
@@ -349,7 +349,7 @@ quality-gate-swift/
 │   ├── IJS*/                             # Institutional Judgment System modules
 │   ├── [45 checker modules]             # One module per checker (see table above)
 │   └── [35 DocC catalogues]            # Per-module documentation
-├── Tests/                               # 3,326 tests across 59 test targets
+├── Tests/                               # 3,213 tests across 60 test targets
 ├── Plugins/
 │   └── QualityGatePlugin/              # SPM command plugin
 └── .github/workflows/                   # CI, quality gate, security staleness

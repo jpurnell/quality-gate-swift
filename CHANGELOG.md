@@ -2,6 +2,71 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **A checker that could not read a file has not checked it.** Eighty-seven `// silent:`
+  suppressions removed across the codebase, from 89 to 2, with no behaviour change — every
+  fallback, `continue` and return value is preserved. What changes is that a degraded run can
+  now say so.
+
+  Most were one idiom repeated: `guard let source = try? String(contentsOfFile: path, …)
+  else { continue }`, which dropped any file that would not open and then reported **passed**.
+  The gate already refuses that mistake at checker granularity — `NOT REACHED — 0 findings
+  from them means nothing` — and the same sentence was true per file with nothing saying it.
+  Fifteen checkers now route through `SourceFileReader`, which reports the skip and names who
+  lost coverage.
+
+  Six suppressions hid a wrong answer rather than a quiet one: dead-code provenance selecting
+  an older session summary because a stat failure sorted a file last; `privacy-manifest`
+  silently not applying because an `Info.plist` would not open; a corpus with a remote
+  reporting "no remote" when git failed to spawn; `doc-code` attributing findings from
+  `.build/checkouts` to the project when git could not list ignored paths; and stress mode
+  reporting "no race found" when every invocation failed to run.
+
+- **Regex patterns compile once.** `RegionScanner`, `SelfContradictionRule` and
+  `PropertyCoverage` recompiled literal patterns on every call behind `try?`. Each is now a
+  static compiled in a `do/catch` that reports failure — cheaper, and the "this cannot throw"
+  claim is no longer load-bearing.
+
+### Fixed
+
+- **The gate's own index flag reached the program it was testing.** `quality-gate ci` sets
+  `QG_NO_INDEX_BUILD=1` on its own process; `TestRunner` spawned `swift test` inheriting the
+  whole environment, so `StoreLocator` refused to build the test fixtures' index stores and
+  `UnreachableCodeAuditor` degraded to AST-only inside the test process. Seven cross-module
+  expectations failed with nothing connecting them to a variable set three layers up.
+
+  It only appears on a *cold* fixture: a warm `.build` short-circuits before the flag is
+  consulted, and the fixture's `.build` is gitignored — so it exists on a dev machine always
+  and in a clean checkout never. Local hooks could not have caught this by construction; the
+  first self-hosted CI run did.
+
+- **`quality-gate-corpus-kit` was declared over SSH.** CI authenticates private dependencies
+  by rewriting `https://github.com/` through a token, and that rewrite cannot touch an SSH
+  remote, so this one dependency was unauthenticatable in CI regardless of token scope.
+
+- **SARIF upload needs `actions: read` on private repositories.** codeql-action reads the
+  workflow run to stamp its upload; without that permission the step failed *after* validating
+  and fingerprinting the SARIF, with an error that reads like a code-scanning entitlement
+  problem and is not one. Also moved `upload-sarif` from v3 to v4, and marked the step
+  `continue-on-error` since code scanning itself requires GitHub Advanced Security, which a
+  personal account cannot buy.
+
+### Removed
+
+- **The dashboard's GUI tier moved to `quality-gate-dashboard`.** `QualityGateCLI` depended on
+  `IJSDashboardUI`, so building `quality-gate` required SwiftUI, AVKit and Xcode's
+  `PreviewsMacros` plugin. The whole coupling was one optional call site — `--native`, calling
+  `IJSDashboardUI.launch` once — and it put three private BusinessMath repositories into every
+  consumer's dependency token to draw charts the CLI never drew.
+
+  The gate now resolves **4 private dependencies instead of 7** and builds with Command Line
+  Tools alone: verified at 11m39s on a 2013 Mac Pro with no Xcode installed.
+
+  **Breaking:** `quality-gate dashboard --native` is gone. The native window is the
+  `IJSDashboardApp` binary in the new package; terminal, JSON and HTML output are unchanged.
+
+
 ## [3.1.2] - 2026-09-03
 
 ### Fixed
