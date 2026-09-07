@@ -255,7 +255,6 @@ public struct DocLinter: QualityChecker, Sendable {
     /// - Parameter projectRoot: The package root.
     /// - Returns: Target names owning a `.docc`, sorted for a stable command line.
     static func documentedTargets(projectRoot: String) -> [String] {
-        let manager = FileManager.default
         var targets: Set<String> = []
 
         for spelling in ["Sources", "Source", "src"] {

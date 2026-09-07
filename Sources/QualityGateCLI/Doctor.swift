@@ -94,7 +94,7 @@ struct Doctor: AsyncParsableCommand {
             // lose exactly the signal this block exists to print.
             let unitCount: Int?
             do {
-                unitCount = try FileManager.default.contentsOfDirectory(atPath: units.path).count
+                unitCount = try fm.contentsOfDirectory(atPath: units.path).count
             } catch {
                 Self.logger.debug(
                     "doctor could not list index units at \(units.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
