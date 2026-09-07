@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import IndexStoreInfra
 import QualityGateCore
 
@@ -15,6 +18,8 @@ import QualityGateCore
 /// is skipped — flagging a library for a manifest it never needs would train
 /// users to disable the checker, so the risk is biased toward under-flagging.
 public struct PrivacyManifestChecker: QualityChecker, Sendable {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PrivacyManifestChecker")
 
     /// The checker identifier.
     public let id = "privacy-manifest"
@@ -112,11 +117,20 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
                 ruleId: "privacy-manifest")])
         }
 
-        // silent: an unreadable manifest is itself the finding, reported as the error below
-        guard let data = try? Data(contentsOf: manifest) else {
+        let data: Data
+        do {
+            data = try Data(contentsOf: manifest)
+        } catch {
+            // The error is not discarded here — it becomes the finding. It was, however,
+            // reported without its cause, leaving "could not be read" to cover a
+            // permissions problem, a broken symlink and a truncated file alike.
+            // Logged as well as returned: the diagnostic reaches whoever reads the
+            // report, the log reaches whoever is running the gate right now.
+            Self.logger.debug(
+                "privacy-manifest could not read \(manifest.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return (.failed, [Diagnostic(
                 severity: .error,
-                message: "PrivacyInfo.xcprivacy could not be read.",
+                message: "PrivacyInfo.xcprivacy could not be read: \(error.localizedDescription)",
                 filePath: manifest.path,
                 ruleId: "privacy-manifest")])
         }
@@ -144,12 +158,25 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
         path: String,
         requireTopLevelKeys: Bool
     ) -> [Diagnostic] {
-        // silent: a parse failure is the finding — reported as the malformed-manifest error below
-        guard let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-              let dictionary = object as? [String: Any] else {
+        let object: Any
+        do {
+            object = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        } catch {
+            // Again the finding carries the failure, but a plist parse error names the
+            // byte offset and the malformation — which is the difference between "fix
+            // your manifest" and "fix line 12".
+            Self.logger.debug(
+                "privacy-manifest could not parse \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return [Diagnostic(
                 severity: .error,
-                message: "PrivacyInfo.xcprivacy is not a valid property list.",
+                message: "PrivacyInfo.xcprivacy is not a valid property list: \(error.localizedDescription)",
+                filePath: path,
+                ruleId: "privacy-manifest")]
+        }
+        guard let dictionary = object as? [String: Any] else {
+            return [Diagnostic(
+                severity: .error,
+                message: "PrivacyInfo.xcprivacy is a property list but not a dictionary.",
                 filePath: path,
                 ruleId: "privacy-manifest")]
         }
@@ -180,8 +207,17 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
         }
 
         for url in files where url.pathExtension == "pbxproj" {
-            // silent: an unreadable project file simply doesn't contribute a signal
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text: String
+            do {
+                text = try String(contentsOf: url, encoding: .utf8)
+            } catch {
+                // Not merely "no signal". This decides whether the target is an app, and
+                // a false negative means the privacy-manifest check never runs — a
+                // compliance gap that looks exactly like a clean pass.
+                Self.logger.warning(
+                    "privacy-manifest could not read \(url.lastPathComponent, privacy: .public) during app detection; the check may not apply when it should: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
             if text.contains("com.apple.product-type.application") { return true }
         }
 
@@ -191,11 +227,23 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
     /// True if an `Info.plist` carries the markers of an application bundle:
     /// an executable name plus a launch screen or scene manifest.
     static func infoPlistHasAppMarkers(_ url: URL) -> Bool {
-        // silent: an Info.plist we can't read isn't an app-detection signal
-        guard let data = try? Data(contentsOf: url) else { return false }
-        // silent: an Info.plist we can't parse isn't an app-detection signal
-        guard let object = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-              let dictionary = object as? [String: Any] else { return false }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            Self.logger.warning(
+                "privacy-manifest could not read Info.plist at \(url.path, privacy: .public) during app detection; the check may not apply when it should: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        let object: Any
+        do {
+            object = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        } catch {
+            Self.logger.warning(
+                "privacy-manifest could not parse Info.plist at \(url.path, privacy: .public) during app detection; the check may not apply when it should: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        guard let dictionary = object as? [String: Any] else { return false }
         return dictionary["CFBundleExecutable"] != nil
             && (dictionary["UILaunchScreen"] != nil || dictionary["UIApplicationSceneManifest"] != nil)
     }
