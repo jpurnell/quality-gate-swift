@@ -102,12 +102,23 @@ extension IndexFreshness {
     static func newestUnit(inStoreAt storeURL: URL) -> (newest: Date, count: Int)? {
         let units = StoreLocator.unitsDirectory(in: storeURL)
         let fm = FileManager.default
-        // silent: an absent or unreadable units directory is the expected no-store case, reported to the caller as `.noIndexUnits` rather than as an error.
-        guard let entries = try? fm.contentsOfDirectory(
-            at: units,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ), !entries.isEmpty else { return nil }
+        // Absence is the expected no-store case and stays quiet. A units directory that
+        // exists and will not enumerate reports the same `.noIndexUnits`, and that is an
+        // index the run has but cannot date — every index-backed checker then degrades to
+        // AST-only for a reason nothing states.
+        guard fm.fileExists(atPath: units.path) else { return nil } // SAFETY: read-only probe of the project's own index store
+        let entries: [URL]
+        do {
+            entries = try fm.contentsOfDirectory(
+                at: units,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles])
+        } catch {
+            Self.logger.warning(
+                "index units exist but will not enumerate; index-backed checkers will degrade to AST-only: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard !entries.isEmpty else { return nil }
 
         var newest: Date?
         var count = 0

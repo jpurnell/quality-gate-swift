@@ -403,8 +403,15 @@ public enum StoreLocator {
         }
         // An unreadable units directory is treated as "not covered", so the enrichment is
         // retried rather than coverage being assumed that the store may not have.
-        // silent: unreadable means not-covered; the caller retries rather than assuming
-        guard let entries = try? fm.contentsOfDirectory(atPath: unitsDirectory(in: store).path) else {
+        // Retrying is the safe direction, but an *unreadable* store retries on every run
+        // forever while an absent one is enriched once. Both answer "not covered"; only
+        // one of them is a loop, and it presents to the user as an unexplained slow gate.
+        let entries: [String]
+        do {
+            entries = try fm.contentsOfDirectory(atPath: unitsDirectory(in: store).path)
+        } catch {
+            Self.logger.warning(
+                "index store units are unreadable; treating tests as un-indexed and re-enriching on every run: \(error.localizedDescription, privacy: .public)")
             return true
         }
         return !entries.contains { $0.contains("Tests") }
@@ -422,12 +429,18 @@ public enum StoreLocator {
     private static func enrichSwiftbuildStore(packageRoot: URL) {
         // Enrichment is opportunistic: any failure leaves the existing store in place,
         // which is exactly the previous behaviour.
-        // silent: opportunistic enrichment; failure keeps the store that already worked
-        _ = try? ProcessRunner.run(
-            "/usr/bin/env",
-            arguments: ["swift", "build", "--build-tests", "--package-path", packageRoot.path],
-            mergeStderr: true
-        )
+        // Keeping the working store is right; being unable to find out why the index never
+        // covers tests is not. Debug, because a package whose tests do not build is a
+        // legitimate everyday state.
+        do {
+            _ = try ProcessRunner.run(
+                "/usr/bin/env",
+                arguments: ["swift", "build", "--build-tests", "--package-path", packageRoot.path],
+                mergeStderr: true)
+        } catch {
+            Self.logger.debug(
+                "index enrichment could not build test targets; keeping the existing store: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Ensure a fresh index store exists for `packageRoot`.
@@ -542,10 +555,19 @@ public enum StoreLocator {
         let units = unitsDirectory(in: store)
         let fm = FileManager.default
         // Must exist and be a non-empty index-while-building store.
-        // silent: an absent .build/out (native toolchains, or before the first index-while-build) is the expected no-store case, signaled to the caller by returning nil to trigger the dedicated index-build fallback.
-        guard let entries = try? fm.contentsOfDirectory(atPath: units.path), !entries.isEmpty else {
+        // Absence is the documented no-store case. A store that exists and will not
+        // enumerate is not: it triggers the dedicated index build on every run, paying
+        // minutes each time for a store that is already there.
+        guard fm.fileExists(atPath: units.path) else { return nil } // SAFETY: read-only probe of the project's own build directory
+        let entries: [String]
+        do {
+            entries = try fm.contentsOfDirectory(atPath: units.path)
+        } catch {
+            Self.logger.warning(
+                "swiftbuild index store exists but will not enumerate; falling back to a dedicated index build on every run: \(error.localizedDescription, privacy: .public)")
             return nil
         }
+        guard !entries.isEmpty else { return nil }
         // Must be current: no source file newer than the store's unit records.
         guard let storeMtime = mtime(of: units) else { return nil }
         // Package root, not an assumed `Sources/`. SwiftyJSON and Alamofire keep their code

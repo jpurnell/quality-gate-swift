@@ -69,10 +69,17 @@ public struct CheckerTableGenerator: RegionGenerator {
     ) throws -> String {
         let registry = projectRoot
             .appendingPathComponent("Sources/QualityGateCLI/QualityGateCLI.swift")
-        guard let source = try? String(contentsOf: registry, encoding: .utf8) else { // silent: an unreadable registry is turned into the `ungeneratable` finding below, which names the file
+        let source: String
+        do {
+            source = try String(contentsOf: registry, encoding: .utf8)
+        } catch {
+            // The finding already names the file. "Absent or unreadable" covers a deleted
+            // registry and a permissions problem alike, and only one of those is fixed by
+            // restoring the file.
             throw RegionGeneratorError.ungeneratable(
                 reason: "`Sources/QualityGateCLI/QualityGateCLI.swift` is absent or unreadable, "
-                    + "so there is no registry to derive the checker reference from.")
+                    + "so there is no registry to derive the checker reference from: "
+                    + error.localizedDescription)
         }
 
         let collector = RegistryCollector(viewMode: .sourceAccurate)

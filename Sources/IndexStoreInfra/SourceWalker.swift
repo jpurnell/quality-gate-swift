@@ -174,13 +174,21 @@ public enum SourceWalker {
     /// foreign-mode surveys point at strangers' packages, and silently reducing a survey to zero
     /// files while reporting success is precisely the failure this walk must not have.
     private static func gitIgnoredPaths(under root: URL) -> Set<String> {
-        // silent: no git, no exclusion — a non-repository is walked in full, exactly as before.
-        guard let result = try? ProcessRunner.run(
-            "/usr/bin/git",
-            arguments: ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"],
-            currentDirectory: root.path,
-            timeout: 30
-        ) else {
+        // A non-repository yielding no exclusions is documented above and correct. git
+        // *failing inside a repository* takes the identical path and is not: the walk then
+        // includes everything .gitignore names — `.build/checkouts` above all — so findings
+        // from third-party dependency source are attributed to this project. The 30s
+        // timeout makes that reachable on a large tree, not hypothetical.
+        let result: ProcessRunner.Output
+        do {
+            result = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"],
+                currentDirectory: root.path,
+                timeout: 30)
+        } catch {
+            Self.logger.warning(
+                "source walk could not ask git for ignored paths under \(root.path, privacy: .public); scanning without exclusions, which may surface findings from ignored directories: \(error.localizedDescription, privacy: .public)")
             return []
         }
         guard result.exitCode == 0 else { return [] }

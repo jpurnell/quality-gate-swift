@@ -24,7 +24,11 @@ public enum PackageTargets {
     ///   produce the same roster, and only one of those is a document worth rewriting.
     public static func load(projectRoot: URL) -> [String]? {
         let manifest = projectRoot.appendingPathComponent("Package.swift")
-        guard let source = try? String(contentsOf: manifest, encoding: .utf8) else { return nil } // silent: an absent or unreadable manifest is the nil case this function is documented to return, and the caller turns it into an `ungeneratable` finding that names the file
+        // `nil` is this function's documented answer and the caller turns it into an
+        // `ungeneratable` finding naming the file. That finding cannot distinguish a
+        // package with no manifest from one whose manifest would not open, so the
+        // distinction is recorded here instead of being lost between the two.
+        guard let source = SourceFileReader.read(manifest, checker: "doc-generated") else { return nil }
         let collector = TargetCollector(viewMode: .sourceAccurate)
         collector.walk(Parser.parse(source: source))
         return collector.names.isEmpty ? nil : collector.names
