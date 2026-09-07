@@ -93,9 +93,17 @@ enum TelemetryEmission {
         } catch {
             logger.warning("Spool drain failed: \(error.localizedDescription, privacy: .public)")
         }
-        // silent: an unreadable work-log just means no baseline SHA — provenance is best-effort
-        let lastRecordedSHA = (try? await writer.readWorkLog(from: corpus))?
-            .last(where: { $0.commitSHA != nil })?.commitSHA
+        // No baseline SHA means provenance captures recent commits rather than the ones
+        // since the last record — a wider, less precise answer that looks the same.
+        let lastRecordedSHA: String?
+        do {
+            lastRecordedSHA = try await writer.readWorkLog(from: corpus)
+                .last(where: { $0.commitSHA != nil })?.commitSHA
+        } catch {
+            Self.logger.warning(
+                "telemetry could not read the corpus work log; provenance will have no baseline commit: \(error.localizedDescription, privacy: .public)")
+            lastRecordedSHA = nil
+        }
         let provenance = GitProvenance.capture(
             repoPath: gatedProjectDir,
             sinceSHA: lastRecordedSHA

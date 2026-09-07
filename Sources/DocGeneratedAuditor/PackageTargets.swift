@@ -49,7 +49,7 @@ public enum PackageTargets {
                 .appendingPathComponent("\(module).md")
         }
         for url in candidates {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8) else { continue } // silent: most modules have no catalogue at either candidate path, so absence is the ordinary case and produces a visible placeholder rather than an error
+            guard let contents = SourceFileReader.read(url, checker: "doc-generated") else { continue }
             if let abstract = abstract(fromArticle: contents) { return abstract }
         }
         return nil

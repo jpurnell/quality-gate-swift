@@ -89,7 +89,10 @@ public struct BaselineLedger: Sendable, Equatable {
         let rule = diagnostic.ruleId ?? ""
         var content = diagnostic.message
         if let path = diagnostic.filePath, let line = diagnostic.lineNumber,
-           let source = try? String(contentsOfFile: path, encoding: .utf8) { // silent: unreadable source falls back to the message hash
+           // Falling back to the message hash is not neutral: the two hashes differ, so a
+           // baseline recorded from the line no longer matches the same finding read from
+           // the message, and a suppressed diagnostic reappears as new.
+           let source = SourceFileReader.read(path, checker: "baseline") {
             let lines = source.lines
             if line >= 1 && line <= lines.count {
                 content = lines[line - 1].trimmingCharacters(in: .whitespaces)

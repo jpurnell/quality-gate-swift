@@ -1,5 +1,8 @@
 import ArgumentParser
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 import ReleaseReadinessAuditor
 
@@ -27,6 +30,8 @@ import ReleaseReadinessAuditor
 /// the calendar event and nothing is being blamed on a commit.
 struct Release: AsyncParsableCommand {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "Release")
+
     static let configuration = CommandConfiguration(
         commandName: "release",
         abstract: "Check the obligations that come due when a version is cut."
@@ -40,7 +45,17 @@ struct Release: AsyncParsableCommand {
 
     func run() async throws {
         let root = FileManager.default.currentDirectoryPath
-        let configuration = (try? Configuration.load(from: config)) ?? Configuration() // silent: an unreadable config falls back to defaults, which name the conventional paths this command reads
+        // Defaults name the conventional paths, so this degrades usefully — but a config
+        // that exists and will not parse then has no effect at all, silently, and the
+        // release reads paths its author did not choose.
+        let configuration: Configuration
+        do {
+            configuration = try Configuration.load(from: config)
+        } catch {
+            Self.logger.warning(
+                "release could not load \(config, privacy: .public); using default paths instead of the configured ones: \(error.localizedDescription, privacy: .public)")
+            configuration = Configuration()
+        }
 
         let changelogPath = (root as NSString)
             .appendingPathComponent(configuration.releaseReadiness.changelogPath)

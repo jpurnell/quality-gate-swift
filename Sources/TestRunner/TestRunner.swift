@@ -292,12 +292,21 @@ public struct TestRunner: QualityChecker, Sendable {
 
     /// Short HEAD commit hash, or empty when git is unavailable. Best-effort.
     private static func currentCommit(projectRoot: String) -> String {
-        // silent: commit hash is best-effort metadata; git absence must not fail the gate
-        guard let output = try? ProcessRunner.run(
-            "/usr/bin/git",
-            arguments: ["rev-parse", "--short", "HEAD"],
-            currentDirectory: projectRoot
-        ), output.exitCode == 0 else { return "" }
+        // Debug rather than warning: a non-git directory is an expected input here and the
+        // hash is metadata. The empty string it returns is indistinguishable from a repo
+        // whose HEAD could not be read, which is the part worth recording.
+        let output: ProcessRunner.Output
+        do {
+            output = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["rev-parse", "--short", "HEAD"],
+                currentDirectory: projectRoot)
+        } catch {
+            Self.logger.debug(
+                "test runner could not read the HEAD commit; flip records will carry no commit: \(error.localizedDescription, privacy: .public)")
+            return ""
+        }
+        guard output.exitCode == 0 else { return "" }
         return output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

@@ -110,9 +110,10 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
     /// - Returns: Diagnostics and a coverage statement.
     public static func scan(root: String, excludePatterns: [String] = []) -> Scan {
         let fileManager = FileManager.default
-        // silent: no readable manifest means no exclude lists, so every .metal file is treated as compiled
-        let manifest = (try? String(
-            contentsOfFile: root + "/Package.swift", encoding: .utf8)) ?? ""
+        // Erring toward checking everything is the safe direction, but a manifest that
+        // exists and will not read produces exclusions silently ignored — findings in
+        // files the author deliberately excluded.
+        let manifest = SourceFileReader.read(root + "/Package.swift", checker: "gpu-safety") ?? ""
 
         var diagnostics: [Diagnostic] = []
         var metalFileCount = 0

@@ -122,7 +122,7 @@ public struct CheckerTableGenerator: RegionGenerator {
 
         var found: [String: Declaration] = [:]
         for case let file as URL in walker where file.pathExtension == "swift" {
-            guard let source = try? String(contentsOf: file, encoding: .utf8) else { // silent: one unreadable file must not empty the whole reference; a type that is never found is reported by the caller as ungeneratable
+            guard let source = SourceFileReader.read(file, checker: "doc-generated") else {
                 continue
             }
             guard source.contains("QualityChecker") || source.contains("FixableChecker") else {

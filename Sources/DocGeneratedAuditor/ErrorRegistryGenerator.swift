@@ -86,7 +86,7 @@ public struct ErrorRegistryGenerator: RegionGenerator {
             .sorted { $0.path < $1.path }
 
         for file in files {
-            guard let source = try? String(contentsOf: file, encoding: .utf8) else { // silent: an unreadable source file is skipped so one bad file cannot make the whole registry ungeneratable; an enum that is never found is still reported
+            guard let source = SourceFileReader.read(file, checker: "doc-generated") else {
                 continue
             }
             guard source.contains("enum \(enumName)") else { continue }
