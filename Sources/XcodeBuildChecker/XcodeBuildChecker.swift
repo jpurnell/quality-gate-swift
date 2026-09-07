@@ -358,16 +358,35 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         args.append(contentsOf: projectArgs)
         args.append(contentsOf: ["-scheme", scheme])
 
-        // SAFETY: runs xcodebuild -showBuildSettings to read the scheme's platforms
-        guard let result = try? ProcessRunner.run(
-            "/usr/bin/xcodebuild", arguments: args, currentDirectory: root),
-            result.exitCode == 0,
-            let data = result.stdout.data(using: .utf8)
-        else { return nil }
+        let result: ProcessRunner.Output
+        do {
+            // SAFETY: reads the scheme's platforms via -showBuildSettings
+            result = try ProcessRunner.run(
+                "/usr/bin/xcodebuild", arguments: args, currentDirectory: root)
+        } catch {
+            // Quiet, not invisible: the caller keeps its default destination either way,
+            // but "xcodebuild would not run" and "the scheme names no platforms" are
+            // different facts and used to be indistinguishable from outside.
+            Self.logger.debug(
+                "xcode-build could not run -showBuildSettings for scheme \(scheme, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
 
-        // silent: an unreadable settings dump leaves the caller's default in place
-        guard let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return nil }
+        guard result.exitCode == 0, let data = result.stdout.data(using: .utf8) else {
+            Self.logger.debug(
+                "xcode-build got exit \(result.exitCode, privacy: .public) from -showBuildSettings for scheme \(scheme, privacy: .public)")
+            return nil
+        }
+
+        let parsed: Any
+        do {
+            parsed = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            Self.logger.debug(
+                "xcode-build could not parse -showBuildSettings JSON for scheme \(scheme, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let entries = parsed as? [[String: Any]] else { return nil }
 
         for entry in entries {
             guard let settings = entry["buildSettings"] as? [String: Any],
