@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 import SwiftParser
 import SwiftSyntax
@@ -25,6 +28,22 @@ import SwiftSyntax
 /// has no property, and converting it to one destroys the thing that makes it worth
 /// having.
 public enum PropertyCoverage {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "PropertyCoverage")
+
+    /// Compiled once. A literal pattern cannot fail today; compiling here means an edit
+    /// that broke it would report itself rather than silently returning no coverage.
+    private static let testDeclarationRegex: NSRegularExpression? = {
+        do {
+            return try NSRegularExpression(
+                pattern: #"(@Test\b(\([^)]*\))?|func\s+test[A-Z_]\w*)"#,
+                options: [.dotMatchesLineSeparators])
+        } catch {
+            logger.error(
+                "property coverage could not compile its test-declaration pattern; no symbols will be reported as covered: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }()
 
     /// The rule's identifier.
     public static let ruleId = "test-quality.property-coverage"
@@ -88,11 +107,7 @@ public enum PropertyCoverage {
     public static func propertyCoveredSymbols(inTestSource source: String) -> Set<String> {
         var covered: Set<String> = []
         let stripped = strippingMultilineStrings(source)
-        let pattern = #"(@Test\b(\([^)]*\))?|func\s+test[A-Z_]\w*)"#
-        // silent: this pattern is a compile-time constant, so a throw here is unreachable
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
-            return []
-        }
+        guard let regex = testDeclarationRegex else { return [] }
         let range = NSRange(stripped.startIndex..., in: stripped)
         for match in regex.matches(in: stripped, range: range) {
             guard let whole = Range(match.range, in: stripped) else { continue }

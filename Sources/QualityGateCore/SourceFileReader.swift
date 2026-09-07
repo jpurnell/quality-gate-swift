@@ -8,13 +8,8 @@ import os
 /// ## Why this exists
 ///
 /// Every scanning checker walks a file list and reads each entry. The idiom that grew up
-/// around that walk was:
-///
-/// ```swift
-/// guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
-/// ```
-///
-/// which silently drops any file that will not open — a permissions problem, a broken
+/// around that walk was `guard let source = try? String(contentsOfFile: path, encoding:
+/// .utf8) else { continue }`, which silently drops any file that will not open — a permissions problem, a broken
 /// symlink, a file deleted between the walk and the read, or text that is not valid UTF-8.
 /// The checker then finishes and reports **passed**.
 ///

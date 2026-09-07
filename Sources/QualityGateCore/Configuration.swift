@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import Yams
 
 /// Configurable scorer weights for the consistency scoring algorithm.
@@ -1717,6 +1720,8 @@ public struct CustomRuleConfig: Sendable, Equatable, Codable {
 /// ```
 public struct Configuration: Sendable, Codable, Equatable {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "Configuration")
+
     /// The resolved repository root this run analyzes, set by the CLI from
     /// `RunEnvironment` after root resolution. `nil` until then.
     ///
@@ -2176,11 +2181,21 @@ extension Configuration {
         // Asked with a permissive key type, because a container keyed by the schema's own
         // enum can only ever report keys inside that enum — which is exactly why an
         // unknown key was invisible.
-        // silent: a decoder that cannot offer a permissive container reports no unknown keys
-        if let permissive = try? decoder.container(keyedBy: AnyCodingKey.self) {
+        //
+        // The line above already obtained a keyed container from this decoder, so the
+        // value is a mapping and asking again with a different key type cannot fail. That
+        // made `try?` defensible and silence indefensible: this is the code that catches a
+        // config key the schema never heard, and losing it silently reinstates precisely
+        // the bug it was written for — BusinessMath running 35 checkers while its file
+        // claimed 42. If the unreachable ever happens, it says so.
+        do {
+            let permissive = try decoder.container(keyedBy: AnyCodingKey.self)
             let present = Set(permissive.allKeys.map(\.stringValue))
             let known = Set(CodingKeys.allCases.map(\.stringValue))
             unknownKeys = UnknownConfigurationKeys.check(present: present, known: known)
+        } catch {
+            Self.logger.error(
+                "configuration could not enumerate its keys permissively; unknown-key detection is off for this file and a misspelled key will be discarded in silence: \(error.localizedDescription, privacy: .public)")
         }
 
         parallelWorkers = try container.decodeIfPresent(Int.self, forKey: .parallelWorkers)

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 
 /// A delimited block of derived content inside a markdown document.
@@ -143,8 +146,26 @@ public struct RegionScan: Sendable, Equatable {
 /// sit in the tree without being flagged.
 public enum RegionScanner {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "RegionScanner")
+
     private static let openingPattern = #"^\s*<!--\s*generated:([A-Za-z0-9][A-Za-z0-9._-]*)\s*-->\s*$"#
     private static let closingPattern = #"^\s*<!--\s*/generated:([A-Za-z0-9][A-Za-z0-9._-]*)\s*-->\s*$"#
+
+    /// Compiled once rather than per line. `match` used to take a pattern string and
+    /// recompile it for every line of every document, relying on both callers passing
+    /// literals — true, but enforced by nothing except that they are the only two.
+    private static let openingRegex: NSRegularExpression? = compile(openingPattern, name: "openingPattern")
+    private static let closingRegex: NSRegularExpression? = compile(closingPattern, name: "closingPattern")
+
+    private static func compile(_ pattern: String, name: String) -> NSRegularExpression? {
+        do {
+            return try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.error(
+                "region scanner could not compile \(name, privacy: .public); generated regions will not be recognised: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
 
     /// Scans a document for regions and malformed delimiters.
     ///
@@ -171,7 +192,7 @@ public enum RegionScanner {
                 continue
             }
 
-            if let id = match(openingPattern, in: line) {
+            if let id = match(openingRegex, in: line) {
                 if let outer = open {
                     defects.append(RegionDefect(
                         kind: .overlapping, id: id, line: number, relatedLine: outer.line))
@@ -187,7 +208,7 @@ public enum RegionScanner {
                 continue
             }
 
-            if let id = match(closingPattern, in: line) {
+            if let id = match(closingRegex, in: line) {
                 guard let current = open else {
                     defects.append(RegionDefect(kind: .unopened, id: id, line: number))
                     continue
@@ -214,10 +235,8 @@ public enum RegionScanner {
         return RegionScan(regions: regions, defects: defects.sorted { $0.line < $1.line })
     }
 
-    private static func match(_ pattern: String, in line: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { // silent: both patterns are compile-time constants, so a throw here is unreachable and a nil result is the correct degradation
-            return nil
-        }
+    private static func match(_ regex: NSRegularExpression?, in line: String) -> String? {
+        guard let regex else { return nil }
         let range = NSRange(line.startIndex..<line.endIndex, in: line)
         guard let hit = regex.firstMatch(in: line, range: range),
               hit.numberOfRanges > 1,

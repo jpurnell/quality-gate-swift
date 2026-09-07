@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 
 /// One tick-box line in a markdown checklist.
@@ -70,8 +73,27 @@ public struct SelfContradiction: Sendable, Equatable {
 /// whitespace — and drops the markdown that decorates it.
 public enum ChecklistParser {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ChecklistParser")
+
     private static let itemPattern = #"^\s*[-*+]\s+\[([ xX])\]\s*(.*)$"#
     private static let separatorPattern = #"\s+[—–]\s+|\s+--?\s+|:\s"#
+
+    /// Compiled once. These patterns are literals, so the failure branch is unreachable
+    /// today — but "unreachable" was previously a comment rather than anything enforced,
+    /// and an editing slip would have degraded every call silently and forever. Compiling
+    /// here narrows that to one reported failure instead of an invisible per-call one.
+    private static let itemRegex: NSRegularExpression? = compile(itemPattern, name: "itemPattern")
+    private static let separatorRegex: NSRegularExpression? = compile(separatorPattern, name: "separatorPattern")
+
+    private static func compile(_ pattern: String, name: String) -> NSRegularExpression? {
+        do {
+            return try NSRegularExpression(pattern: pattern)
+        } catch {
+            logger.error(
+                "checklist parser could not compile \(name, privacy: .public); checklist items will not be found: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
 
     /// Every `- [ ]` / `- [x]` line outside a fenced code block, in document order.
     ///
@@ -81,9 +103,7 @@ public enum ChecklistParser {
     /// - Parameter content: The document's full text.
     /// - Returns: The items found.
     public static func items(in content: String) -> [ChecklistItem] {
-        guard let item = try? NSRegularExpression(pattern: itemPattern) else { // silent: a compile-time constant pattern; an empty result is the correct degradation and the caller's tests would fail loudly
-            return []
-        }
+        guard let item = itemRegex else { return [] }
         var found: [ChecklistItem] = []
         var inFence = false
         var fenceMarker: Character = "`"
@@ -122,7 +142,7 @@ public enum ChecklistParser {
     /// The artifact name a checklist line is about.
     static func label(from text: String) -> String {
         var head = text
-        if let separator = try? NSRegularExpression(pattern: separatorPattern) { // silent: a compile-time constant pattern; falling through leaves the whole line as the label, which only ever makes the comparison stricter
+        if let separator = separatorRegex {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             if let hit = separator.firstMatch(in: text, range: range),
                let cut = Range(hit.range, in: text) {

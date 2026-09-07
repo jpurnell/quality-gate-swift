@@ -165,16 +165,44 @@ public struct TestRunner: QualityChecker, Sendable {
         for name in tagged { filterArgs.append(contentsOf: ["--filter", name]) }
 
         var rosters: [[TestOutcome]] = []
+        var failedInvocations = 0
         await Self.withCPUContention(enabled: stress.contention) {
             for _ in 0..<stress.runs {
-                // silent: a failed stress invocation is best-effort; skip that run's roster
-                guard let (output, _) = try? await self.runSwiftTest(arguments: ["--parallel"] + filterArgs, in: projectRoot) else { continue }
-                rosters.append(TestRosterParser.parse(output))
+                do {
+                    let (output, _) = try await self.runSwiftTest(
+                        arguments: ["--parallel"] + filterArgs, in: projectRoot)
+                    rosters.append(TestRosterParser.parse(output))
+                } catch {
+                    failedInvocations += 1
+                    Self.logger.warning(
+                        "stress invocation failed; that run contributes no roster: \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
 
+        // `flips` needs two rosters to compare and returns none below that, so too few
+        // successful runs produce zero diagnostics — identical to "ran N times, found no
+        // race". Stress mode exists to answer a question, and "could not ask" is not the
+        // same answer as "no".
+        guard rosters.count >= 2 else {
+            let note = Diagnostic(
+                severity: .warning,
+                message: "stress mode could not run: \(failedInvocations) of \(stress.runs) invocations failed, leaving \(rosters.count) roster(s) — fewer than the two a comparison needs. No race was ruled out.",
+                ruleId: "test.stress-unavailable")
+            return withAppended([note], to: result, startTime: startTime)
+        }
+
         let flips = StressAnalysis.flips(rosters: rosters)
-        let diagnostics = StressAnalysis.diagnostics(for: flips, runs: stress.runs, strict: stress.strict)
+        var diagnostics = StressAnalysis.diagnostics(for: flips, runs: rosters.count, strict: stress.strict)
+        if failedInvocations > 0 {
+            // Comparing fewer runs than were asked for is a weaker result, not the one
+            // requested, and the count reported alongside a flip should be the count that
+            // produced it.
+            diagnostics.append(Diagnostic(
+                severity: .note,
+                message: "stress mode compared \(rosters.count) of \(stress.runs) requested runs; \(failedInvocations) invocation(s) failed",
+                ruleId: "test.stress-partial"))
+        }
         guard !diagnostics.isEmpty else { return result }
         return withAppended(diagnostics, to: result, startTime: startTime)
     }
