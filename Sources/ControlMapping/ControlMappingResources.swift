@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// Loads the control-mapping reference data bundled with the tool: the curated
 /// rule-ID registry, the framework catalogs (`*.catalog.json`), and the
@@ -8,6 +11,8 @@ import Foundation
 /// not the analysed project's — so it ships as module resources, read through
 /// `Bundle.module`, never from the project under audit.
 public enum ControlMappingResources {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ControlMapping")
 
     /// The wrapper shape of `rule-registry.json`.
     private struct Registry: Codable {
@@ -20,7 +25,7 @@ public enum ControlMappingResources {
         guard let url = Bundle.module.url(forResource: "rule-registry", withExtension: "json") else {
             return []
         }
-        // silent: a missing/corrupt registry yields an empty set; the checker then skips rather than crash
+        // `decode` reports why it failed; an empty set here means the checker skips.
         guard let registry: Registry = decode(url) else { return [] }
         return Set(registry.ruleIds)
     }
@@ -47,9 +52,23 @@ public enum ControlMappingResources {
 
     /// Decodes a JSON resource, returning nil on any read/parse failure.
     private static func decode<T: Decodable>(_ url: URL) -> T? {
-        // silent: a malformed resource is skipped, not fatal; loaders return empty and the checker skips
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        // silent: same posture for a decode failure
-        return try? JSONDecoder().decode(T.self, from: data)
+        // A control catalogue that will not load leaves the compliance checker with no
+        // controls to map against, and it then passes for want of anything to fail on.
+        // Skipping stays the behaviour; being unable to say why does not.
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            Self.logger.warning(
+                "control-mapping could not read resource \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            Self.logger.warning(
+                "control-mapping could not decode resource \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 }

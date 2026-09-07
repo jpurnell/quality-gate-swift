@@ -62,8 +62,15 @@ public enum PluginRunner {
             executable: executable, arguments: ["contract"],
             stdin: nil, timeoutSeconds: timeoutSeconds)
         guard case .responded(let data) = outcome else { return nil }
-        // silent: an undecodable descriptor is a skip-with-note upstream, not an error here
-        return try? JSONDecoder().decode(PluginDescriptor.self, from: data)
+        // The skip *is* reported upstream as a note. What the note cannot say is why the
+        // descriptor would not decode, which is what the plugin author needs.
+        do {
+            return try JSONDecoder().decode(PluginDescriptor.self, from: data)
+        } catch {
+            Self.logger.warning(
+                "plugin descriptor could not be decoded: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Runs `<plugin> check` with the request on stdin.

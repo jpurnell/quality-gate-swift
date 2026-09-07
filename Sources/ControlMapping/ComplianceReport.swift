@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// Output format for the compliance coverage report.
 public enum ComplianceReportFormat: String, Sendable, CaseIterable {
@@ -12,6 +15,8 @@ public enum ComplianceReportFormat: String, Sendable, CaseIterable {
 /// by static analysis, **not** an assertion of compliance. Out-of-scope controls
 /// are listed, never hidden.
 public enum ComplianceReport {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ComplianceReport")
 
     /// The scope-boundary statement printed with every report — the trust anchor
     /// and the liability shield.
@@ -73,9 +78,19 @@ public enum ComplianceReport {
             controls: matrix)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        // silent: encoding a plain value type cannot realistically fail; a minimal object is a safe fallback
-        guard let data = try? encoder.encode(report),
-              let string = String(data: data, encoding: .utf8) else {
+        // "{}" is a valid document and a useless report — a consumer cannot tell it from
+        // a genuinely empty result. Encoding a plain value type should not fail, so if it
+        // ever does that is the interesting fact, not the fallback.
+        let data: Data
+        do {
+            data = try encoder.encode(report)
+        } catch {
+            Self.logger.warning(
+                "control-mapping could not encode its compliance report; emitting an empty document: \(error.localizedDescription, privacy: .public)")
+            return "{}"
+        }
+        guard let string = String(data: data, encoding: .utf8) else {
+            Self.logger.warning("control-mapping encoded a compliance report that is not valid UTF-8; emitting an empty document")
             return "{}"
         }
         return string

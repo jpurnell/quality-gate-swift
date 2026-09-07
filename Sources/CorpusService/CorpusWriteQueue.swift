@@ -1,5 +1,8 @@
 import CorpusKit
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 
 /// One validated write bound for the corpus (Phase 3b §1).
@@ -73,6 +76,8 @@ public enum CorpusWriteQueueError: Error, Sendable, Equatable {
 /// only writer of its clone, and a rejected push surfaces as a typed error
 /// instead of being merged away.
 public actor CorpusWriteQueue {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "CorpusWriteQueue")
 
     /// The service's checkout of the corpus repository — the corpus base
     /// path artifacts are applied under, and the git worktree flushes
@@ -201,8 +206,15 @@ public actor CorpusWriteQueue {
 
     /// Whether the clone has a remote named `origin`.
     private func hasOriginRemote() -> Bool {
-        // silent: a failed spawn means git is unusable here; "no remote" keeps flush local-only, and runGit surfaces real git failures.
-        guard let result = try? executeGit(["remote", "get-url", "origin"]) else {
+        // "No remote" and "git would not run" produce the same answer and mean opposite
+        // things. The first is a local-only corpus working as intended; the second is a
+        // corpus with somewhere to push that will now never push, silently.
+        let result: (status: Int32, output: String)
+        do {
+            result = try executeGit(["remote", "get-url", "origin"])
+        } catch {
+            Self.logger.warning(
+                "corpus queue could not ask git for a remote; treating the corpus as local-only, so nothing will be pushed: \(error.localizedDescription, privacy: .public)")
             return false
         }
         return result.status == 0

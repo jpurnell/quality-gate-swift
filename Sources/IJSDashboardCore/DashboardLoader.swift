@@ -6,6 +6,9 @@
 // `dashboard --native` and the standalone SwiftUI app so both compute identically.
 
 import Foundation
+#if canImport(os)
+import os
+#endif
 import IJSAggregator
 import IJSSensor
 import JudgmentWorkbench
@@ -81,6 +84,8 @@ public struct DashboardData: Sendable {
 /// Loads `DashboardData` from a corpus path.
 public enum DashboardLoader {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "DashboardLoader")
+
     /// Reads the corpus, computes summaries, the latest pulse, and the health
     /// timeline. Pure over the filesystem — safe to call off the main actor.
     /// - Parameters:
@@ -89,12 +94,26 @@ public enum DashboardLoader {
     public static func load(corpusPath: String, week: String? = nil) throws -> DashboardData {
         let reader = CorpusReader(corpusPath: corpusPath)
         let allRuns = try reader.loadAll()
-        // silent: an absent/unreadable manifest is non-fatal — fall back to empty.
-        let manifest = (try? reader.loadManifest()) ?? CorpusManifest()
+        // A manifest that will not load costs every project its lifecycle and grouping,
+        // so the dashboard renders a portfolio that looks smaller and flatter than it is.
+        let manifest: CorpusManifest
+        do {
+            manifest = try reader.loadManifest()
+        } catch {
+            Self.logger.warning(
+                "dashboard could not load the corpus manifest; rendering without lifecycle or grouping: \(error.localizedDescription, privacy: .public)")
+            manifest = CorpusManifest()
+        }
 
-        // silent: orientation reports are optional — their absence is non-fatal.
-        let orientationCards = (try? reader.loadAllOrientationReports())
-            .map { PortfolioOrientation.cards(from: $0, knownProjects: Set(allRuns.keys)) } ?? [:]
+        let orientationCards: [String: ModuleOrientationCard]
+        do {
+            orientationCards = PortfolioOrientation.cards(
+                from: try reader.loadAllOrientationReports(), knownProjects: Set(allRuns.keys))
+        } catch {
+            Self.logger.debug(
+                "dashboard found no readable orientation reports; omitting those cards: \(error.localizedDescription, privacy: .public)")
+            orientationCards = [:]
+        }
 
         let projects = allRuns
             .map { entry in
@@ -148,9 +167,18 @@ public enum DashboardLoader {
         ) else { return nil }
         var newest: Date?
         for case let fileURL as URL in enumerator {
-            // silent: a file whose mtime can't be read simply doesn't advance the signature
-            guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
-                  let modified = values.contentModificationDate else { continue }
+            // Not merely "doesn't advance". This signature decides whether cached
+            // dashboard data is still current, so a file that cannot report its mtime
+            // leaves the signature artificially old — and stale data is served as fresh.
+            let values: URLResourceValues
+            do {
+                values = try fileURL.resourceValues(forKeys: Set(keys))
+            } catch {
+                Self.logger.warning(
+                    "dashboard could not stat \(fileURL.lastPathComponent, privacy: .public) for the freshness signature; cached data may be served as current: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+            guard let modified = values.contentModificationDate else { continue }
             if let current = newest {
                 if modified > current { newest = modified }
             } else {

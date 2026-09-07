@@ -1,6 +1,9 @@
 import ArgumentParser
 import ControlMapping
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// `quality-gate standards-watch` — detect upstream drift in the compliance
 /// control catalogs (RegulatoryControlMapping Phase 3).
@@ -12,6 +15,8 @@ import Foundation
 /// enforcement path. Exits non-zero if any catalog has drifted, so a cron job
 /// can alert.
 struct StandardsWatchCommand: AsyncParsableCommand {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "StandardsWatch")
     static let configuration = CommandConfiguration(
         commandName: "standards-watch",
         abstract: "Detect upstream drift in the SOC2/ISO/HIPAA control catalogs (detect + alert only). Exits non-zero on drift."
@@ -79,8 +84,16 @@ struct StandardsWatchCommand: AsyncParsableCommand {
         guard let url = components.url, url.host == "www.federalregister.gov" else { return [] }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
-        // silent: the Federal Register probe is advisory — any failure just omits the early-warning line
-        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return [] }
+        // Advisory, but an omitted early-warning line and "nothing is changing" look
+        // identical to the reader, and only one of them is true.
+        let data: Data
+        do {
+            (data, _) = try await URLSession.shared.data(for: request)
+        } catch {
+            Self.logger.warning(
+                "standards watch could not reach the Federal Register; omitting the early-warning line, which is not the same as there being no warning: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         return FederalRegisterWatch.parse(data)
     }
 }

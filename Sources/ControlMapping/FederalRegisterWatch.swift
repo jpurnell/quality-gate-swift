@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// A proposed rule on the Federal Register that touches a watched regulation —
 /// an early warning that a standard may change before the eCFR text does.
@@ -36,6 +39,8 @@ public struct ProposedRule: Sendable, Codable, Equatable {
 /// lives in the CLI adapter), so it is fully unit-tested.
 public enum FederalRegisterWatch {
 
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "FederalRegisterWatch")
+
     /// The `documents.json` envelope shape we consume.
     private struct Response: Codable {
         let results: [ProposedRule]
@@ -45,8 +50,17 @@ public enum FederalRegisterWatch {
     /// response. Non-proposed documents (final rules that merely cite the part)
     /// are dropped; a malformed response yields an empty list, never a throw.
     public static func parse(_ data: Data) -> [ProposedRule] {
-        // silent: a malformed FR response yields no early warnings; the watch reports "none"
-        guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return [] }
+        // A watch that reports "no proposed rules" because it could not parse the feed is
+        // indistinguishable from one reporting genuine quiet — and the whole point of the
+        // watch is early warning.
+        let response: Response
+        do {
+            response = try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            Self.logger.warning(
+                "federal-register watch could not decode the response; reporting no proposed rules, which is not the same as there being none: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
         return response.results.filter { $0.type == "Proposed Rule" }
     }
 
