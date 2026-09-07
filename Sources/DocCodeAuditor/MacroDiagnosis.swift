@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// Tells apart the two unrelated causes behind one compiler message.
 ///
@@ -146,8 +147,7 @@ public struct MacroDiagnosis: Sendable, Equatable {
         /// - Returns: What is on disk.
         public static func read(projectRoot: URL, buildDirectory: String) -> Environment {
             let manifestURL = projectRoot.appendingPathComponent("Package.swift")
-            // silent: no manifest means no macros declared, so the empty environment is correct
-            guard let manifest = try? String(contentsOf: manifestURL, encoding: .utf8) else {
+            guard let manifest = SourceFileReader.read(manifestURL, checker: "doc-code") else {
                 return .unknown
             }
             var built: Set<String> = []
@@ -172,8 +172,7 @@ public struct MacroDiagnosis: Sendable, Equatable {
                     at: directory, includingPropertiesForKeys: nil,
                     options: [.skipsHiddenFiles]) else { continue }
                 for case let url as URL in walker where url.pathExtension == "swift" {
-                    // silent: an unreadable plugin file contributes no registrations, so no cause is named
-                    guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                    guard let text = SourceFileReader.read(url, checker: "doc-code") else { continue }
                     found.formUnion(registeredTypes(inPluginSource: text))
                 }
             }

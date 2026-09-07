@@ -71,8 +71,7 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
 
         var allDiagnostics: [Diagnostic] = []
         for path in files {
-            // silent: an unreadable file must not abort the walk, as a throwing read once did.
-            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
+            guard let source = SourceFileReader.read(path, checker: "process-safety") else {
                 continue
             }
             allDiagnostics.append(contentsOf: auditSource(source, fileName: path))

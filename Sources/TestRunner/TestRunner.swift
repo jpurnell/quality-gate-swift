@@ -200,8 +200,7 @@ public struct TestRunner: QualityChecker, Sendable {
         while let rel = enumerator.nextObject() as? String {
             guard rel.hasSuffix(".swift") else { continue }
             let path = (testsDir as NSString).appendingPathComponent(rel)
-            // silent: an unreadable test file is skipped; stress scan is best-effort
-            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            guard let source = SourceFileReader.read(path, checker: "test") else { continue }
             for name in TimingTestScanner.timingTests(in: source, marker: marker) where !seen.contains(name) {
                 seen.insert(name)
                 names.append(name)

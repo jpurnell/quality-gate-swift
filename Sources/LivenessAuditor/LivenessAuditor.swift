@@ -90,8 +90,7 @@ public struct LivenessAuditor: QualityChecker, Sendable {
         var skipped = 0
 
         for path in files {
-            // silent: an unreadable file is skipped, not counted clean; the walker reports it.
-            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else {
+            guard let source = SourceFileReader.read(path, checker: "liveness") else {
                 continue
             }
             let scan = Self.scan(source: source, fileName: path)

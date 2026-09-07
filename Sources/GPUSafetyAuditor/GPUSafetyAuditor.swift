@@ -139,8 +139,7 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
 
             if relative.hasSuffix(".metal") {
                 metalFileCount += 1
-                // silent: an unreadable shader is counted in coverage but not audited, never reported clean
-                guard let text = try? String(contentsOfFile: fullPath, encoding: .utf8) else {
+                guard let text = SourceFileReader.read(fullPath, checker: "gpu-safety") else {
                     continue
                 }
                 let excluded = ShaderSourceLocator.isExcluded(
@@ -168,8 +167,7 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
                     diagnostics.append(contentsOf: kernels.flatMap(KernelBoundsRule.diagnose))
                 }
             } else if relative.hasSuffix(".swift") {
-                // silent: an unreadable Swift file yields no dispatch findings rather than failing the scan
-                guard let text = try? String(contentsOfFile: fullPath, encoding: .utf8) else {
+                guard let text = SourceFileReader.read(fullPath, checker: "gpu-safety") else {
                     continue
                 }
                 diagnostics.append(contentsOf: DispatchRules.diagnose(

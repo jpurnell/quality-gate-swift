@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// The macro plugins a package builds for itself.
 ///
@@ -30,8 +31,7 @@ enum MacroPlugins {
     ///   statement about the tree and points somewhere useful.
     static func flags(projectRoot: URL, buildDirectory: String) -> [String] {
         let manifest = projectRoot.appendingPathComponent("Package.swift")
-        // silent: a directory with no manifest is not a package and declares no macros
-        guard let source = try? String(contentsOf: manifest, encoding: .utf8) else { return [] }
+        guard let source = SourceFileReader.read(manifest, checker: "doc-code") else { return [] }
 
         var flags: [String] = []
         for name in macroTargets(in: source) {

@@ -274,8 +274,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
             ) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
                 guard !url.path.contains(".build/"), !url.path.contains(".docc/") else { continue }
-                // silent: an unreadable source file contributes no candidates, so the run reports fewer rather than a clean sweep
-                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                guard let text = SourceFileReader.read(url, checker: "test-quality") else { continue }
                 let found = PropertyCoverage.candidates(in: text, path: url.path)
                 candidates += found.candidates
                 for (caller, callees) in found.calls {
@@ -291,8 +290,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
             at: tests, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
             for case let url as URL in walker where url.pathExtension == "swift" {
                 guard !url.path.contains(".build/") else { continue }
-                // silent: an unreadable test file contributes no coverage, erring toward reporting a candidate
-                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                guard let text = SourceFileReader.read(url, checker: "test-quality") else { continue }
                 covered.formUnion(PropertyCoverage.propertyCoveredSymbols(inTestSource: text))
             }
         }

@@ -227,8 +227,7 @@ public struct DocLinter: QualityChecker, Sendable {
                 let isArticle = url.pathExtension == "md"
                 let isSwift = url.pathExtension == "swift"
                 guard isArticle || isSwift else { continue }
-                // silent: an unreadable file yields no findings; it is already DocC's to report
-                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                guard let text = SourceFileReader.read(url, checker: "doc-lint") else { continue }
                 // In Swift, only doc comments carry symbol links; ordinary comments and
                 // string literals containing double backticks are not references.
                 let searchable = isSwift

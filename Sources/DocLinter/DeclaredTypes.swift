@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import SwiftParser
 import SwiftSyntax
 
@@ -48,8 +49,7 @@ public enum DeclaredTypes {
                 at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
             ) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                // silent: an unreadable source file contributes no declarations to the map
-                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                guard let text = SourceFileReader.read(url, checker: "doc-lint") else { continue }
                 let module = moduleName(of: url, spelling: spelling) ?? "Module"
                 for (name, path) in colliding(in: text, moduleName: module, names: names) {
                     // First declaration wins, so the map is stable whatever order the

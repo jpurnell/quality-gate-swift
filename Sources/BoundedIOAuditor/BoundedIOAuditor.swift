@@ -142,8 +142,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
         var sites = 0
         var acknowledged = 0
         for path in scan.files {
-            // silent: an unreadable file is skipped, not counted clean; the walker reports it.
-            guard let source = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            guard let source = SourceFileReader.read(path, checker: "bounded-io") else { continue }
             let result = Self.scan(
                 source: source, fileName: path, kernelPath: configuration.boundedIO.kernelPath)
             diagnostics.append(contentsOf: result.diagnostics)

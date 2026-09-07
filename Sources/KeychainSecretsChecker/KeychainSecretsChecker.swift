@@ -80,8 +80,7 @@ public struct KeychainSecretsChecker: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
         for file in Self.swiftFiles(under: scanRoot) {
-            // silent: an unreadable file cannot be scanned; skip it rather than fail the gate
-            guard let source = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+            guard let source = SourceFileReader.read(file, checker: "keychain-secrets") else { continue }
             let findings = Self.analyze(source: source, filePath: file, config: config)
             diagnostics.append(contentsOf: findings.diagnostics)
             overrides.append(contentsOf: findings.overrides)

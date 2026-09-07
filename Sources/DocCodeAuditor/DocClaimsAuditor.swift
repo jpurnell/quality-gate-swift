@@ -163,8 +163,7 @@ public struct DocClaimsAuditor: QualityChecker, Sendable {
     /// build and report nothing.
     static func articlesCarryingClaims(_ articles: [URL], imports: [String]) -> [URL] {
         articles.filter { article in
-            // silent: an unreadable article carries no claim this rung can verify, and doc-code already reports the file it could not read
-            guard let text = try? String(contentsOf: article, encoding: .utf8) else { return false }
+            guard let text = SourceFileReader.read(article, checker: "doc-claims") else { return false }
             return !ArticleAssembler.assemble(text, imports: imports).claims.isEmpty
         }
     }

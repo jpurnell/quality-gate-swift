@@ -38,8 +38,7 @@ extension TargetTypeMap {
     ///   manifest or it yields nothing.
     public static func parsingManifest(packageRoot: String) -> TargetTypeMap {
         let manifestPath = (packageRoot as NSString).appendingPathComponent("Package.swift")
-        // silent: no manifest is an ordinary case — the convention answers it.
-        guard let source = try? String(contentsOfFile: manifestPath, encoding: .utf8) else {
+        guard let source = SourceFileReader.read(manifestPath, checker: "safety") else {
             return .fromLayout(packageRoot: packageRoot)
         }
 
