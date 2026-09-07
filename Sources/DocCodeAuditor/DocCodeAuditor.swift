@@ -37,6 +37,28 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
 
     private static let logger = Logger(subsystem: "com.quality-gate", category: "DocCodeAuditor")
 
+    /// Lists a directory that may legitimately not exist, reporting only real failures.
+    ///
+    /// Every caller probes an *optional* layout path — `.build/checkouts` in a package
+    /// with no dependencies, `Sources` vs `Source` vs `src`, two competing module-map
+    /// layouts. Absence is the ordinary answer and says nothing.
+    ///
+    /// A directory that exists and will not enumerate is a different fact. The scan
+    /// quietly loses header or module-map paths, and the failure surfaces later as a
+    /// compile error naming a header that "does not exist" — pointing nowhere near the
+    /// directory that could not be read.
+    private static func directoryContents(_ manager: FileManager, at url: URL) -> [URL] {
+        guard manager.fileExists(atPath: url.path) else { return [] } // SAFETY: read-only probe of a build-layout path
+        do {
+            return try manager.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        } catch {
+            Self.logger.warning(
+                "doc-code could not list \(url.path, privacy: .public), continuing without it: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+
     /// Unique identifier for this checker.
     public let id = "doc-code"
 
@@ -182,9 +204,7 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         // A bounded descent rather than a recursive enumeration: `.build/checkouts` holds
         // every dependency's whole source tree, and walking it would cost thousands of
         // stats to answer a question the layout already answers in four levels.
-        // silent: a package with no resolved dependencies has no .build/checkouts to read
-        let resolved = (try? manager.contentsOfDirectory(
-            at: checkouts, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        let resolved = directoryContents(manager, at: checkouts)
 
         // The project itself, on the same footing as any dependency. A `.systemLibrary` target
         // is declared in the package that consumes it and commits its modulemap in-tree, so it
@@ -205,9 +225,7 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
             // directory that did not exist. Three `stat`s per package, against a wrong verdict.
             for spelling in ["Sources", "Source", "src"] {
                 let sources = package.appendingPathComponent(spelling, isDirectory: true)
-                // silent: a checkout with no directory of this name contributes no header paths, which is the ordinary case for two of the three spellings
-                let targets = (try? manager.contentsOfDirectory(
-                    at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+                let targets = directoryContents(manager, at: sources)
                 for target in targets {
                     for directory in [target.appendingPathComponent("include", isDirectory: true), target] {
                         // SAFETY: CLI tool checks a dependency checkout for a C target's modulemap
@@ -305,17 +323,13 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
         // Swift Build: one directory of `<Target>.modulemap`.
         let generated = projectRoot.appendingPathComponent(
             ".build/out/Intermediates.noindex/GeneratedModuleMaps", isDirectory: true)
-        // silent: absent under the classic llbuild layout, which the next block reads instead
-        found += ((try? manager.contentsOfDirectory(
-            at: generated, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+        found += directoryContents(manager, at: generated)
             .filter { $0.pathExtension == "modulemap" }
             .map(\.path)
 
         // Classic llbuild: `<Target>.build/module.modulemap` beside the products.
         let debug = projectRoot.appendingPathComponent(".build/debug", isDirectory: true)
-        // silent: an unbuilt package has no .build/debug, already reported as a skip with its reason
-        for directory in (try? manager.contentsOfDirectory(
-            at: debug, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [] {
+        for directory in directoryContents(manager, at: debug) {
             guard directory.pathExtension == "build" else { continue }
             let modulemap = directory.appendingPathComponent("module.modulemap")
             // SAFETY: CLI tool checks the project's own build tree for a generated modulemap

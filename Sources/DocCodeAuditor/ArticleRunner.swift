@@ -254,6 +254,38 @@ public enum ArticleRunner {
 
     private static let logger = Logger(subsystem: "com.quality-gate", category: "DocRunAuditor")
 
+    /// Reads back one captured stream, treating an unreadable capture as empty output.
+    ///
+    /// The termination status is the verdict and is already in hand, so an empty string
+    /// is a survivable answer. It is also a misleading one: a doc example that failed
+    /// gets reported with no output at all, which reads as "it produced nothing" rather
+    /// than "its output could not be recovered".
+    private static func capturedText(at url: URL, stream: String) -> String {
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            Self.logger.warning(
+                "doc-run could not read its captured \(stream, privacy: .public); reporting empty output: \(error.localizedDescription, privacy: .public)")
+            return ""
+        }
+    }
+
+    /// Re-reads the source this run just assembled, for the link step's rpath decisions.
+    ///
+    /// Returning `""` degrades gracefully: the Testing rpath is omitted and the link
+    /// error that follows names the missing symbol. That is a survivable outcome and
+    /// the reason this never threw — but it produces a *confusing* link error rather
+    /// than the real cause, so the real cause is recorded here.
+    private static func assembledSource(at url: URL) -> String {
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            Self.logger.warning(
+                "doc-run could not re-read the source it just wrote at \(url.lastPathComponent, privacy: .public); linking without the Testing rpath: \(error.localizedDescription, privacy: .public)")
+            return ""
+        }
+    }
+
     /// Assembles, builds and runs one article.
     ///
     /// - Parameters:
@@ -285,8 +317,17 @@ public enum ArticleRunner {
         let work = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("doc-run-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        // silent: removing this checker's own temporary directory; a leftover costs disk, not correctness
-        defer { try? FileManager.default.removeItem(at: work) }
+        defer {
+            do {
+                try FileManager.default.removeItem(at: work)
+            } catch {
+                // One leftover costs disk, not correctness. A *recurring* leftover is a
+                // slow leak in a checker that runs on every article of every build, and
+                // nothing else would ever report it.
+                Self.logger.debug(
+                    "doc-run could not remove its work directory \(work.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
 
         let source = work.appendingPathComponent("main.swift")
         try assembled.source.write(to: source, atomically: true, encoding: .utf8)
@@ -345,8 +386,7 @@ public enum ArticleRunner {
         arguments += linkArguments(
             imports: options.audit.imports,
             searchPaths: librarySearchPaths(options: options),
-            // silent: this call wrote that file moments ago; an unreadable one costs only the Testing rpath, and the link error that follows says so
-            source: (try? String(contentsOf: source, encoding: .utf8)) ?? "")
+            source: assembledSource(at: source))
 
         let output = capture(arguments: arguments)
         guard output.status != 0 else { return nil }
@@ -451,10 +491,17 @@ public enum ArticleRunner {
                 [])
         }
         defer {
-            // silent: closing a capture handle whose contents are already read back by now
-            try? out.close()
-            // silent: as above, for the other stream
-            try? err.close()
+            // Both handles are read back by the time this runs, so a failure costs no
+            // content — it costs a file descriptor. doc-run opens two per article, so a
+            // persistent failure is an fd leak proportional to the documentation set.
+            for (handle, stream) in [(out, "stdout"), (err, "stderr")] {
+                do {
+                    try handle.close()
+                } catch {
+                    Self.logger.debug(
+                        "doc-run could not close its \(stream, privacy: .public) capture handle: \(error.localizedDescription, privacy: .public)")
+                }
+            }
         }
 
         // Not routed through ProcessRunner because this streams to file handles rather than
@@ -481,10 +528,8 @@ public enum ArticleRunner {
             termination = .buildFailed("could not launch: \(error.localizedDescription)")
         }
 
-        // silent: an unreadable capture means output this checker cannot see, which is what an empty string says; the termination status is the verdict and is already in hand
-        let stdout = (try? String(contentsOf: outPath, encoding: .utf8)) ?? ""
-        // silent: as above, for the other stream
-        let stderr = (try? String(contentsOf: errPath, encoding: .utf8)) ?? ""
+        let stdout = capturedText(at: outPath, stream: "stdout")
+        let stderr = capturedText(at: errPath, stream: "stderr")
         return (
             RunOutcome(
                 termination: termination,
