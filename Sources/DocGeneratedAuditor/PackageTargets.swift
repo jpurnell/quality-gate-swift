@@ -34,6 +34,22 @@ public enum PackageTargets {
         return collector.names.isEmpty ? nil : collector.names
     }
 
+    /// The `.testTarget` names the manifest declares.
+    ///
+    /// A separate walk from ``load(projectRoot:)`` because that one deliberately excludes test
+    /// targets — the rosters it feeds are about shipped modules. Counting the package's scale
+    /// wants both halves, so this asks the same manifest the other question.
+    ///
+    /// - Parameter projectRoot: The package root.
+    /// - Returns: The test target names, empty when there is no manifest or none are declared.
+    public static func testTargetNames(projectRoot: URL) -> [String] {
+        let manifest = projectRoot.appendingPathComponent("Package.swift")
+        guard let source = SourceFileReader.read(manifest, checker: "doc-generated") else { return [] }
+        let collector = TestTargetCollector(viewMode: .sourceAccurate)
+        collector.walk(Parser.parse(source: source))
+        return collector.names
+    }
+
     /// The abstract from a module's DocC catalogue, if it has one.
     ///
     /// The abstract is DocC's own convention: the first paragraph under the symbol heading. It
@@ -99,6 +115,36 @@ public enum PackageTargets {
 
         guard !paragraph.isEmpty else { return nil }
         return paragraph.joined(separator: " ")
+    }
+
+    /// Collects `.testTarget` names in the `Package(targets:)` array, and only there.
+    ///
+    /// The same descent as ``TargetCollector`` and for the same reason: a product's
+    /// `targets: [...]` list and a dependency's `.target(name:)` use the same spelling and
+    /// declare no module.
+    private final class TestTargetCollector: SyntaxVisitor {
+        var names: [String] = []
+
+        override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+            guard node.calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text == "Package",
+                  let argument = node.arguments.first(where: { $0.label?.text == "targets" }),
+                  let array = argument.expression.as(ArrayExprSyntax.self)
+            else {
+                return .visitChildren
+            }
+            for element in array.elements {
+                guard let call = element.expression.as(FunctionCallExprSyntax.self),
+                      let member = call.calledExpression.as(MemberAccessExprSyntax.self),
+                      member.declName.baseName.text == "testTarget",
+                      let name = call.arguments.first(where: { $0.label?.text == "name" }),
+                      let literal = name.expression.as(StringLiteralExprSyntax.self)
+                else {
+                    continue
+                }
+                names.append(literal.segments.description)
+            }
+            return .skipChildren
+        }
     }
 
     /// Collects the names in the `Package(targets:)` array, and only there.

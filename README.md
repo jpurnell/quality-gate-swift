@@ -52,7 +52,14 @@ Per-checker sample counts and false-positive rates, with every override classifi
 ## Highlights
 
 - **AST-first analysis** — SwiftSyntax-based visitors instead of regex, so rules understand scope, type context, and control flow; index-store-backed checkers resolve symbols across files
-- **Modular architecture** — 46 built-in checkers, each an independent SPM module with its own test target and DocC catalogue. 3,213 tests across 60 test targets
+- **Modular architecture** — every checker an independent SPM module with its own test target
+  and DocC catalogue.
+
+<!-- generated:scale -->
+- **123 targets** — 63 source, 60 test
+- **45 registered checkers**
+<!-- /generated:scale -->
+
 - **Structured output** — terminal, JSON, SARIF 2.1.0 for GitHub Code Scanning, and Xcode Build Phase format
 - **Auto-fix support** — checkers implementing `FixableChecker` can patch issues automatically with `--fix`, except where fixing would launder the defect (see `doc-claims` above)
 - **Read-only on strangers' code** — `--foreign` analyses a repo you don't own without writing to it; every write redirects to an overlay and `--fix` is refused

@@ -79,6 +79,7 @@ public enum RegionGeneratorRegistry {
             ChangelogLinksGenerator(),
             ErrorRegistryGenerator(),
             ModuleStructureGenerator(),
+            ScaleGenerator(),
             StatusRosterGenerator(),
         ] + CheckerCategory.allCases.map(CheckerTableGenerator.init(category:))
     }
