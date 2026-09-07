@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 
 /// Captures the causal provenance behind a gate run: git commits, `CHANGELOG`
 /// delta, and the newest session summary.
@@ -13,6 +16,8 @@ import Foundation
 /// binary, or any subprocess failure yields all-`nil`/empty results and
 /// **never** throws — a provenance failure must never fail the gate.
 public struct GitProvenance: Sendable {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "GitProvenance")
 
     /// The provenance captured for a single gate run.
     public struct Result: Sendable, Equatable {
@@ -101,14 +106,21 @@ public struct GitProvenance: Sendable {
 
     /// Runs `git -C <repo> <args...>`, returning trimmed stdout on success or `nil` on any failure.
     private static func runGit(_ args: [String], in repoPath: String) -> String? {
-        // silent: git provenance is best-effort metadata; git absence must not fail the gate
-        guard let output = try? ProcessRunner.run(
-            "/usr/bin/git",
-            arguments: ["-C", repoPath] + args,
-            environment: scrubbedGitEnvironment
-        ), output.exitCode == 0 else {
+        let output: ProcessRunner.Output
+        do {
+            output = try ProcessRunner.run(
+                "/usr/bin/git",
+                arguments: ["-C", repoPath] + args,
+                environment: scrubbedGitEnvironment)
+        } catch {
+            // Debug, not warning: a non-git directory and an absent git binary are both
+            // documented, expected outcomes for this type. Recorded anyway, because
+            // "provenance is all nil" otherwise has no attributable cause.
+            Self.logger.debug(
+                "git provenance could not run git \(args.first ?? "", privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
+        guard output.exitCode == 0 else { return nil }
         let trimmed = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -123,8 +135,14 @@ public struct GitProvenance: Sendable {
     private static func captureChangelogDelta(repoPath: String) -> String? {
         let path = (repoPath as NSString).appendingPathComponent("CHANGELOG.md")
         guard FileManager.default.fileExists(atPath: path) else { return nil }
-        // silent: CHANGELOG is best-effort context; an unreadable file yields nil
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+        let contents: String
+        do {
+            contents = try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            // The file exists — that is guarded immediately above — so this is a
+            // permissions or encoding problem, not an absent CHANGELOG.
+            Self.logger.warning(
+                "git provenance found a CHANGELOG it could not read: \(error.localizedDescription, privacy: .public)")
             return nil
         }
 
@@ -161,8 +179,16 @@ public struct GitProvenance: Sendable {
         // SAFETY: read-only stat of a fixed guidelines subpath under the gated repo
         guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { return nil }
 
-        // silent: summaries are best-effort context; a listing failure yields nil
-        guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { return nil }
+        let entries: [String]
+        do {
+            entries = try fm.contentsOfDirectory(atPath: dir)
+        } catch {
+            // Existence and directory-ness are both guarded above, so a failure here is
+            // the directory refusing to enumerate.
+            Self.logger.warning(
+                "git provenance could not list the summaries directory: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
         let files = entries.filter { !$0.hasPrefix(".") }
         guard !files.isEmpty else { return nil }
 
@@ -170,10 +196,19 @@ public struct GitProvenance: Sendable {
         let newest = files
             .map { name -> (name: String, modified: Date) in
                 let full = (dir as NSString).appendingPathComponent(name)
-                // silent: mtime is best-effort ordering; a stat failure falls back to distantPast
-                let attrs = try? fm.attributesOfItem(atPath: full)
-                let modified = (attrs?[.modificationDate] as? Date) ?? .distantPast
-                return (name, modified)
+                do {
+                    let attrs = try fm.attributesOfItem(atPath: full)
+                    return (name, (attrs[.modificationDate] as? Date) ?? .distantPast)
+                } catch {
+                    // Not merely missing metadata. This value orders the list, and
+                    // `.distantPast` sorts a file *last* — so a summary that cannot be
+                    // stat'd can never be chosen as the newest, and the run is attributed
+                    // to an older session instead. Silently picking the wrong answer is
+                    // worse than picking none, so say so.
+                    Self.logger.warning(
+                        "git provenance could not stat summary \(name, privacy: .public); it cannot be selected as newest: \(error.localizedDescription, privacy: .public)")
+                    return (name, .distantPast)
+                }
             }
             .sorted { lhs, rhs in
                 if lhs.modified == rhs.modified { return lhs.name > rhs.name }
@@ -183,8 +218,15 @@ public struct GitProvenance: Sendable {
 
         guard let newest else { return nil }
         let path = (dir as NSString).appendingPathComponent(newest.name)
-        // silent: summary text is best-effort context; an unreadable file yields nil
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let contents: String
+        do {
+            contents = try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            // This name came from the directory listing moments ago, so it existed then.
+            Self.logger.warning(
+                "git provenance could not read the newest summary \(newest.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
         let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return String(trimmed.prefix(textCap))
