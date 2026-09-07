@@ -83,8 +83,7 @@ public struct TargetTypeMap: Sendable {
         ]
         for (container, type) in containers {
             let base = (packageRoot as NSString).appendingPathComponent(container)
-            // silent: most packages have only some of these directories; absence is ordinary.
-            let entries = (try? manager.contentsOfDirectory(atPath: base)) ?? []
+            let entries = SourceFileReader.contentsOfDirectory(atPath: base, checker: "trap-policy")
             for entry in entries where !entry.hasPrefix(".") {
                 var isDirectory: ObjCBool = false
                 let full = (base as NSString).appendingPathComponent(entry)

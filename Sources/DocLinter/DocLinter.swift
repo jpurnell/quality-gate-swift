@@ -260,12 +260,10 @@ public struct DocLinter: QualityChecker, Sendable {
 
         for spelling in ["Sources", "Source", "src"] {
             let root = (projectRoot as NSString).appendingPathComponent(spelling)
-            // silent: most packages have only one of the three spellings, so an absent directory is the ordinary case
-            let entries = (try? manager.contentsOfDirectory(atPath: root)) ?? []
+            let entries = SourceFileReader.contentsOfDirectory(atPath: root, checker: "doc-lint")
             for entry in entries {
                 let module = (root as NSString).appendingPathComponent(entry)
-                // silent: a file rather than a directory under Sources/ simply owns no catalogue
-                let contents = (try? manager.contentsOfDirectory(atPath: module)) ?? []
+                let contents = SourceFileReader.contentsOfDirectory(atPath: module, checker: "doc-lint")
                 if contents.contains(where: { $0.hasSuffix(".docc") }) {
                     targets.insert(entry)
                 }

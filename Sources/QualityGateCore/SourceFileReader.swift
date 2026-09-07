@@ -64,4 +64,32 @@ public enum SourceFileReader {
             return nil
         }
     }
+
+    /// Lists a directory that may legitimately not exist, reporting only real failures.
+    ///
+    /// Callers probe *optional* layout paths — `Sources` vs `Source` vs `src`, an index
+    /// store that has not been built yet, a package with no dependencies. Absence is the
+    /// ordinary answer and says nothing worth recording.
+    ///
+    /// `contentsOfDirectory` cannot tell those apart on its own: it fails identically for
+    /// "not there" and for a directory that exists and will not enumerate. The second
+    /// quietly shrinks whatever the caller was about to scan. An existence check makes
+    /// absence silent by construction, so the error path is left meaning only what it
+    /// should.
+    ///
+    /// - Parameters:
+    ///   - path: Directory to list.
+    ///   - checker: The checker id doing the listing, so the log names who lost coverage.
+    /// - Returns: The entry names, or `[]` when the directory is absent or unreadable.
+    public static func contentsOfDirectory(atPath path: String, checker: String) -> [String] {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: path) else { return [] } // SAFETY: read-only probe of a path the caller already resolved
+        do {
+            return try manager.contentsOfDirectory(atPath: path)
+        } catch {
+            logger.warning(
+                "\(checker, privacy: .public) could not list \(path, privacy: .public), continuing without its contents: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
 }

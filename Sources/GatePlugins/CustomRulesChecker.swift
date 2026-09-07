@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os
+#endif
 import QualityGateCore
 
 /// Tier-1 declarative custom rules (Phase 4b): SwiftLint `custom_rules`
@@ -9,6 +12,8 @@ import QualityGateCore
 /// escape hatch (recorded, never silent), and may gate — they are the user's
 /// own policy, so gating is theirs to declare via each rule's `severity`.
 public struct CustomRulesChecker: QualityChecker, Sendable {
+
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "CustomRulesChecker")
     /// Checker identifier.
     public let id = "custom-rules"
     /// Display name.
@@ -104,11 +109,19 @@ public struct CustomRulesChecker: QualityChecker, Sendable {
         to files: [String],
         root: String
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        // silent: an unparsable pattern becomes the error finding just below
-        guard let regex = try? NSRegularExpression(pattern: rule.pattern) else {
+        let regex: NSRegularExpression
+        do {
+            regex = try NSRegularExpression(pattern: rule.pattern)
+        } catch {
+            Self.logger.debug(
+                "custom rule \(rule.id, privacy: .public) has an invalid pattern: \(error.localizedDescription, privacy: .public)")
+            // Not swallowed — this becomes the finding. What was missing is the reason:
+            // NSRegularExpression names the offending construct and its index, which is
+            // the difference between "your pattern is invalid" and "unmatched ( at 12".
+            // The author of the rule is the person who has to fix it.
             return ([Diagnostic(
                 severity: .error,
-                message: "custom rule '\(rule.id)' has an invalid pattern: \(rule.pattern)",
+                message: "custom rule '\(rule.id)' has an invalid pattern: \(rule.pattern) — \(error.localizedDescription)",
                 ruleId: rule.id,
                 origin: "custom-rule")], [])
         }

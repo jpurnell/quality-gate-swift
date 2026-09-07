@@ -89,8 +89,17 @@ struct Doctor: AsyncParsableCommand {
             // package's own Swift code holds only Clang module units, passes every
             // freshness check, and answers nothing — which is exactly what one surveyed
             // package turned out to have. The count is the honest signal.
-            // silent: an unreadable units directory is reported as an unknown count, not an error
-            let unitCount = (try? fm.contentsOfDirectory(atPath: units.path))?.count
+            // Deliberately optional, unlike the shared helper: doctor reports "unreadable"
+            // to the user as a distinct outcome from "empty", and flattening the two would
+            // lose exactly the signal this block exists to print.
+            let unitCount: Int?
+            do {
+                unitCount = try FileManager.default.contentsOfDirectory(atPath: units.path).count
+            } catch {
+                Self.logger.debug(
+                    "doctor could not list index units at \(units.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                unitCount = nil
+            }
             if let unitCount {
                 print("  units:      \(unitCount)")
                 if unitCount == 0 {
