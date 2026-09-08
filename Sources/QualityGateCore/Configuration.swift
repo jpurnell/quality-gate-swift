@@ -86,6 +86,30 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
     /// the directory basename (Phase 0.4). Default false for one release so
     /// portfolios migrate deliberately via `migrate-corpus-identity`.
     public var useRemoteIdentity: Bool
+    /// Why this project is deliberately not in the corpus, or nil if it is or should be.
+    ///
+    /// A reason, never a boolean: `optOut: true` cannot be told apart from someone making
+    /// the message stop, while a sentence can be re-read and judged in three months. An
+    /// empty or whitespace-only value is therefore treated as no opt-out at all, and the
+    /// registration notice keeps appearing.
+    ///
+    /// Most new repositories here are explorations that run the gate so they are built
+    /// well *in case* they become real. The corpus measures judgement across serious work,
+    /// so staying out is a legitimate, and common, decision — it just has to be a recorded
+    /// one.
+    public var optOut: String?
+    /// Report when the corpus's newest pulse is older than this many hours. `0` disables.
+    ///
+    /// Default 36. Pulse generation is daily, so a healthy corpus is at most ~24 hours
+    /// stale — but the job fires on the first launchd slot after the machine wakes, which
+    /// in practice is 08:01 and drifts later on a slow morning. 36 hours absorbs that drift
+    /// while still reporting a genuinely missed day well before a second one passes.
+    ///
+    /// An earlier draft used days with a default of 3. That was calibrated against the
+    /// historical one-day gaps as if they were normal, when in fact they were the
+    /// `generate-pulse.sh` marker bug — so the threshold was set to tolerate exactly the
+    /// failure worth catching.
+    public var pulseStaleAfterHours: Int
 
     /// Creates a consistency checker configuration with the specified values.
     public init(
@@ -95,7 +119,9 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
         defaultRiskTier: Int = 2,
         scorerWeights: ScorerWeightsConfig? = nil,
         exemptions: [String] = [],
-        useRemoteIdentity: Bool = false
+        useRemoteIdentity: Bool = false,
+        optOut: String? = nil,
+        pulseStaleAfterHours: Int = 36
     ) {
         self.corpusPath = corpusPath
         self.projectID = projectID
@@ -104,6 +130,8 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
         self.scorerWeights = scorerWeights
         self.exemptions = exemptions
         self.useRemoteIdentity = useRemoteIdentity
+        self.optOut = optOut
+        self.pulseStaleAfterHours = pulseStaleAfterHours
     }
 
     /// Default consistency checker configuration.
@@ -205,7 +233,7 @@ extension IJSConfig: Codable {
 
 extension ConsistencyCheckerConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions, useRemoteIdentity
+        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions, useRemoteIdentity, optOut, pulseStaleAfterHours
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -219,6 +247,8 @@ extension ConsistencyCheckerConfig: Codable {
         scorerWeights = try container.decodeIfPresent(ScorerWeightsConfig.self, forKey: .scorerWeights) ?? defaults.scorerWeights
         exemptions = try container.decodeIfPresent([String].self, forKey: .exemptions) ?? defaults.exemptions
         useRemoteIdentity = try container.decodeIfPresent(Bool.self, forKey: .useRemoteIdentity) ?? defaults.useRemoteIdentity
+        optOut = try container.decodeIfPresent(String.self, forKey: .optOut) ?? defaults.optOut
+        pulseStaleAfterHours = try container.decodeIfPresent(Int.self, forKey: .pulseStaleAfterHours) ?? defaults.pulseStaleAfterHours
     }
 }
 

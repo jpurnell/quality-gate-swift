@@ -686,6 +686,49 @@ struct QualityGateCLI: AsyncParsableCommand {
             print("\n[ijs] Foreign mode: telemetry silent (corpus not configured by the overlay)")
         }
 
+        // Corpus participation advisory. Deliberately after emission, so a run that just
+        // wrote its first telemetry reads as registered rather than being told to onboard
+        // seconds after doing so.
+        //
+        // Printed here rather than inside a Reporter because it is not a result: JSON and
+        // SARIF consumers have no use for it, and it must stay out of the diagnostic list
+        // so it cannot affect error or warning counts under --strict.
+        if outputFormat == .terminal, !runEnvironment.isForeign {
+            let presence = configuration.consistency.corpusPath.map { path in
+                CorpusPresenceProbe.probe(
+                    corpusPath: path,
+                    projectID: EffectiveProjectID.resolve(consistency: configuration.consistency)
+                )
+            }
+            let advisory = CorpusRegistrationAdvisor.advise(
+                config: configuration.consistency,
+                presence: presence,
+                gatePassed: !hasFailure
+            )
+            if let text = advisory.rendered() {
+                print(text)
+            }
+
+            // Pulse freshness is a separate question about the same corpus, so it shares
+            // the block but not the verdict: a registered project can be looking at a
+            // corpus nobody has generated a pulse for in a week, and that is worth saying
+            // even though its own registration is fine.
+            if let path = configuration.consistency.corpusPath, !hasFailure {
+                let freshness = PulseFreshnessProbe.probe(
+                    corpusPath: path,
+                    now: Date(),
+                    staleAfterHours: configuration.consistency.pulseStaleAfterHours
+                )
+                if let text = freshness.rendered() {
+                    // Only open a block if registration did not already open one.
+                    if advisory.rendered() == nil {
+                        print("\n── Corpus " + String(repeating: "─", count: 32))
+                    }
+                    print(text + "\n")
+                }
+            }
+        }
+
         // Suggest --fix when status fails and --fix wasn't used
         if hasFailure && !fix {
             let hasFixable = allResults.contains { result in
