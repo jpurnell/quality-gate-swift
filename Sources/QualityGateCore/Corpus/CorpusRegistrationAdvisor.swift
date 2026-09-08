@@ -56,7 +56,11 @@ extension CorpusAdvisory {
                 Nothing is wrong. Projects are deliberately left out until they are
                 worth measuring — this is only asking whether that is still true.
 
-                  quality-gate onboard-corpus     # config and a seeding run, in one step
+                  consistency:                    # in .quality-gate.yml
+                    corpusPath: <path to the corpus>
+                    projectID: <name for this project>
+
+                Then run the gate once: configuration alone registers nothing.
 
                 Not yet:  consistency: { optOut: "<reason>" }
                 """)
@@ -67,7 +71,7 @@ extension CorpusAdvisory {
                 Nothing is wrong. The configuration alone does not register a project;
                 the gate has to run once for the first telemetry to land.
 
-                  quality-gate onboard-corpus     # config and a seeding run, in one step
+                  quality-gate --check all        # one clean run seeds the corpus
 
                 Not yet:  consistency: { optOut: "<reason>" }
                 """)
