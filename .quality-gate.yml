@@ -45,8 +45,8 @@ security:
   # occurrences are `git -c user.name=…` and `swift build -c release`, both
   # pinned by tests so a future rewrite cannot quietly start flagging them.
   #
-  # See project/plans/proposals/CommandInjectionEarnsItsName.md, and
-  # project/plans/completed/ProcessSafetyAuditorCatchesTheClass.md for the
+  # See quality-gate-swift-project/plans/proposals/CommandInjectionEarnsItsName.md, and
+  # quality-gate-swift-project/plans/completed/ProcessSafetyAuditorCatchesTheClass.md for the
   # containment half — note completed/, not proposals/, where the old comment
   # pointed after the file moved.
   enabledRules:
@@ -92,10 +92,13 @@ doc-generated:
   # exist, and this checker cannot see refs to tell you so.
   tagPrefix: "v"
 
-# v2 layout: the master plan is project-owned, not framework content.
+# The master plan is project-owned, not framework content — and since this repository went
+# public it is not in this repository at all. It lives in the private companion cloned as a
+# sibling, so the path leaves the tree. A clone without the companion gets `status: skipped`
+# carrying that reason, never a pass: nothing is compared, and the run says so.
 status:
   guidelinesPath: "."
-  masterPlanPath: project/master_plan.md
+  masterPlanPath: ../quality-gate-swift-project/master_plan.md
 
 # A stamp naming its own commit cannot be right inside that commit, so the tracked file holds a
 # placeholder and the build scripts overwrite-then-restore it. That has failed twice (`d644d35`,

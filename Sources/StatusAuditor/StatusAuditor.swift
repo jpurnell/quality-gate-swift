@@ -92,15 +92,24 @@ public struct StatusAuditor: FixableChecker, Sendable {
         var allDiagnostics: [Diagnostic] = []
 
         // Parse Master Plan if it exists
+        // `.skipped`, not `.passed`. Every finding this checker makes compares a documented
+        // claim against the tree; with no plan to read there is no claim, and answering
+        // "passed" would assert agreement that was never tested. That distinction matters
+        // most for exactly this repository: the plan lives in a private companion, so an
+        // absent plan is the normal state of any clone without access to it.
         guard fileManager.fileExists(atPath: masterPlanPath) else { // SAFETY: CLI tool reads local master plan file
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,
-                status: .passed,
+                status: .skipped,
                 diagnostics: [
                     Diagnostic(
                         severity: .note,
-                        message: "No Master Plan found at \(masterPlanPath). Skipping status audit.",
+                        message: """
+                            Skipped — no Master Plan at \(masterPlanPath). \
+                            Nothing was compared; this is not a pass. If this project keeps its \
+                            plan in a companion repository, clone it beside the code.
+                            """,
                         ruleId: "status.no-master-plan"
                     )
                 ],
