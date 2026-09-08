@@ -1738,7 +1738,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// construct a `Configuration` and chdir afterwards included).
     ///
     /// A checker is a pure function of (root, configuration); this is the root half.
-    /// See `project/plans/proposals/CheckerRootThreading.md`.
+    /// See `quality-gate-swift-project/plans/proposals/CheckerRootThreading.md`.
     public var resolvedProjectRoot: URL {
         projectRoot ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }

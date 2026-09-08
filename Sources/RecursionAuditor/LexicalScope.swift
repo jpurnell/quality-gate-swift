@@ -16,7 +16,7 @@ import SwiftSyntax
 ///
 /// Semantic resolution — typealiases, protocol witnesses, generic constraints —
 /// stays in the index-backed pass, which degrades honestly when no index exists.
-/// See `project/plans/proposals/RecursionNeedsScopeTracking.md`.
+/// See `quality-gate-swift-project/plans/proposals/RecursionNeedsScopeTracking.md`.
 struct LexicalScope {
     /// One frame per enclosing block, closure, or case body.
     private var frames: [Set<String>] = [[]]

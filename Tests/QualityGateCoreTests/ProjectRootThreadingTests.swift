@@ -7,7 +7,7 @@ import Testing
 /// A checker is a pure function of (root, configuration). The root travels inside
 /// `Configuration` — lazily falling back to the process working directory so every
 /// caller that never sets it keeps today's behavior exactly.
-/// See `project/plans/proposals/CheckerRootThreading.md`.
+/// See `quality-gate-swift-project/plans/proposals/CheckerRootThreading.md`.
 @Suite("Configuration project root")
 struct ProjectRootThreadingTests {
 

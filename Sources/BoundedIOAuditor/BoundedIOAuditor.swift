@@ -91,7 +91,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
     /// no `QualityGateCore`, so every spawn site it owned was outside the kernel by
     /// construction and the emitted fix named a symbol it could not import — **writing the
     /// correct fix did not clear the rule.** Override with `boundedIO.kernelPath`. See
-    /// `project/plans/proposals/BoundedIOKernelPath.md`.
+    /// `quality-gate-swift-project/plans/proposals/BoundedIOKernelPath.md`.
     ///
     /// The path is now vestigial and matches no file in any repository, including this one:
     /// `ProcessRunner` moved to `swift-process-kernel` so that packages *this one depends on*

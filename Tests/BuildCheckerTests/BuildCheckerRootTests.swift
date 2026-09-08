@@ -11,7 +11,7 @@ import QualityGateCore
 /// working directory. Before `runSwiftBuild` passed `currentDirectory:`, the existence
 /// check looked at the configured root while the build ran against the process cwd,
 /// so the two could silently examine different trees.
-/// See `project/plans/proposals/CheckerRootThreading.md` §3.4.
+/// See `quality-gate-swift-project/plans/proposals/CheckerRootThreading.md` §3.4.
 @Suite("BuildChecker root threading")
 struct BuildCheckerRootTests {
 

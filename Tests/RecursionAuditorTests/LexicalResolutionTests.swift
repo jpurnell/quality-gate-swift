@@ -8,7 +8,7 @@ import Testing
 /// Every "does not flag" fixture here is reduced from a real site in the 22-package
 /// survey corpus, and every one of them compiles and terminates — which is the
 /// independent evidence that today's finding is false. See
-/// `project/plans/proposals/RecursionNeedsScopeTracking.md`.
+/// `quality-gate-swift-project/plans/proposals/RecursionNeedsScopeTracking.md`.
 @Suite("Pass 1 lexical resolution")
 struct LexicalResolutionTests {
 

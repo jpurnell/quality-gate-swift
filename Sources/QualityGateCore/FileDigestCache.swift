@@ -13,7 +13,7 @@ import Synchronization
 /// `.docc` files — nothing the gate itself mutates mid-run; `SourceWalker` skips
 /// `.build` and the records directory. If a checker ever declares a gate-mutated path
 /// as a cache input, this snapshot assumption must be revisited (see
-/// `project/plans/proposals/SharedFileDigestMap.md`).
+/// `quality-gate-swift-project/plans/proposals/SharedFileDigestMap.md`).
 ///
 /// The map deliberately dies with the process: cross-run memoization would reintroduce
 /// exactly the staleness class the per-run scope avoids.

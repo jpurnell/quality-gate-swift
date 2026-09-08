@@ -16,7 +16,7 @@ import Testing
 /// passed as a filename. Injection needs an interpreter. The checkable property is a shell
 /// invoked with `-c` and a command string that is not a literal.
 ///
-/// See `project/plans/proposals/CommandInjectionEarnsItsName.md`.
+/// See `quality-gate-swift-project/plans/proposals/CommandInjectionEarnsItsName.md`.
 @Suite("security.command-injection")
 struct CommandInjectionTests {
 

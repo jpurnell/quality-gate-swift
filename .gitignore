@@ -34,10 +34,20 @@ latestReport.json
 .ijs-corpus/
 build/
 
-# Vendored development-guidelines framework (managed, replaceable).
-# A plain directory with no .git of its own. If a .git appears in here, something
-# re-cloned it in place and this repo has a nested repository again — see
-# MIGRATION_REPORT.md. The pre-v2 tree was removed 2026-08-13.
+# Private companions, cloned as siblings and never committed here.
+#
+# `project/` holds the master plan, proposals and session summaries;
+# `development-guidelines/` is the shared framework. Both are private, and these two
+# entries are what keeps that true. The rule exists because it was learned the
+# expensive way: a disclosure scan before publishing found a client's name in 44 files
+# and 45 commits, roughly 25 of them under `project/`. Nothing there was careless — a
+# proposal names the client because that is why the checker exists. The boundary is
+# structural so the judgement does not have to be made sentence by sentence.
+#
+# Cloning either one *inside* this tree is the failure mode these lines catch. If a
+# .git appears under development-guidelines/, something re-cloned it in place and this
+# repository has a nested repository again.
+/project/
 /development-guidelines/
 /.claude/skills/
 

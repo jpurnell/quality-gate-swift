@@ -582,8 +582,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             )
             // Honour the configured location rather than rebuilding the v1 path:
             // masterPlanPath is relative to guidelinesPath, exactly as StatusAuditor
-            // resolves it. A v2 project sets `guidelinesPath: "."` with
-            // `masterPlanPath: project/master_plan.md`.
+            // resolves it. This project sets `guidelinesPath: "."` with a plan path that
+            // leaves the tree entirely — the plan lives in a private companion repository
+            // cloned as a sibling, so the relative path walks up out of the checkout.
             let masterPlanPath = (guidelinesDir as NSString).appendingPathComponent(
                 configuration.status.masterPlanPath
             )

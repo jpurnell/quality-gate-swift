@@ -14,7 +14,7 @@ import QualityGateCore
 /// file. The only reachable green state was an `// Unbounded:` marker on the kernel's own
 /// `Process()`, which inverts what that marker means.
 ///
-/// See `project/plans/proposals/BoundedIOKernelPath.md`.
+/// See `quality-gate-swift-project/plans/proposals/BoundedIOKernelPath.md`.
 @Suite("bounded-io: the kernel is configurable")
 struct KernelPathConfigTests {
 

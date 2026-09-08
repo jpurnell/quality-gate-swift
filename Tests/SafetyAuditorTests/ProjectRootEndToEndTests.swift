@@ -10,7 +10,7 @@ import QualityGateCore
 /// One checker, not forty-six: the per-checker edits are mechanical substitutions once
 /// the artery exists, and each checker's own tests keep passing through the lazy cwd
 /// fallback. This test is the one that fails if the artery itself regresses.
-/// See `project/plans/proposals/CheckerRootThreading.md` §4.
+/// See `quality-gate-swift-project/plans/proposals/CheckerRootThreading.md` §4.
 @Suite("Project root end-to-end")
 struct ProjectRootEndToEndTests {
 

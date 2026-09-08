@@ -1,6 +1,6 @@
 # Gate benchmarks
 
-Scripts backing `project/summaries/BLOG_POST_SUBPROCESS_MEASUREMENT.md`, which asked whether
+Scripts backing `quality-gate-swift-project/summaries/BLOG_POST_SUBPROCESS_MEASUREMENT.md`, which asked whether
 adopting [swift-subprocess 1.0](https://github.com/swiftlang/swift-subprocess) would speed up the
 gate. It would not, on macOS — measured benefit was 0%.
 
