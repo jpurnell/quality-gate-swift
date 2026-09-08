@@ -86,29 +86,39 @@ rule — so treat a red arrival as remediation work, not as a reason to weaken t
 DESIGN → RED (failing test) → GREEN (minimum to pass) → REFACTOR → DOCUMENT → VERIFY
 ```
 
+## Companion repository
+
+This repository is public and holds the code. The **reasoning** — master plan, design
+proposals, checklists and session summaries — lives in a separate **private** companion,
+cloned as a sibling:
+
+```
+quality-gate-swift/           ← here: Sources, Tests, docs, CHANGELOG
+quality-gate-swift-project/   ← private: master_plan, plans, proposals, summaries
+```
+
+The split is deliberate and its rationale is in `development-guidelines/rules/
+project_companion_repo.md`: a proposal records *why* a checker exists, and that answer often
+names a client. A directory boundary is a better place to make the publish/don't-publish
+decision than a per-sentence judgement made while writing.
+
+`development-guidelines/` is likewise a private framework, gitignored here and cloned
+alongside. A contributor without either companion can still build, test and gate this
+repository; they see references by path and know what they are missing.
+
 ### Design Proposals
 For non-trivial features (new checker, new protocol, architectural change):
-write a design proposal in `project/plans/proposals/`
-before writing code.
+write a design proposal in the companion's `plans/proposals/`
+before writing code, and reference it by path from the code commit.
 
 ### Session Protocol
-- **Start**: Read the latest file in `project/summaries/`
-- **End**: Create a session summary in `project/summaries/<YYYY-MM-DD>_<TaskName>.md`
+- **Start**: Read the latest file in the companion's `summaries/`
+- **End**: Create a session summary in the companion's `summaries/<YYYY-MM-DD>_<TaskName>.md`
 
-Both live at the repository root, not under `development-guidelines/`. The v2 layout made the
-plan and its history project-owned rather than framework content — `.quality-gate.yml` records
-the same move for `masterPlanPath`.
-
-The pre-v2 tree used to be kept at `development-guidelines.pre-v2/`, and that note used to warn
-that a stale path still resolved to a real directory and so read as correct. **It was removed on
-2026-08-13**, so a stale path now fails loudly, which is the better failure. Everything it held
-was verified present under `project/` first: all twenty of its `02_IMPLEMENTATION_PLANS/UPCOMING/`
-designs are in `project/plans/`, most in `completed/` because they shipped. See
-`development-guidelines/project/plans/project-state-cleanup.md` for the survey.
-
-`development-guidelines/` itself remains — a vendored copy with no `.git` of its own. If a `.git`
-appears inside it, something has re-cloned it in place and this repository has a nested repository
-again, which is how project state leaks into the shared framework's history.
+Both lived at this repository's root until 2026-09-08, when they moved to the companion so
+this repository could be made public. `.quality-gate.yml`'s `masterPlanPath` points at the
+companion; a checker that needs the plan reports it as unavailable rather than passing, so a
+clone without the companion cannot mistake absence for compliance.
 
 ## Build Feedback
 
@@ -125,7 +135,11 @@ Fix all build errors before proceeding to the next change.
 
 ## References
 
+These live in the private `development-guidelines` framework, cloned alongside. Paths are
+given so a reader knows what governs this code even without access to it.
+
 - Full coding rules: `development-guidelines/rules/coding_rules.md`
 - TDD contract: `development-guidelines/rules/test_driven_development.md`
 - Enforcement architecture: `development-guidelines/rules/enforcement.md`
 - Session workflow: `development-guidelines/rules/session_workflow.md`
+- Companion-repo policy: `development-guidelines/rules/project_companion_repo.md`
