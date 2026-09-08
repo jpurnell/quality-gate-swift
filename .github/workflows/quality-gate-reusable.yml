@@ -77,6 +77,16 @@ on:
         type: string
         required: false
         default: "main"
+      runner:
+        description: "runs-on value as a JSON array string, e.g. '[\"macos-latest\"]' or '[\"self-hosted\",\"macos\",\"quality-gate\"]' — labels must match the runner's, which are case-sensitive"
+        type: string
+        required: false
+        default: '["macos-latest"]'
+      self-hosted:
+        description: "Set true for self-hosted runners: skips the GitHub-hosted toolchain setup, and installs without sudo or writes to system locations"
+        type: boolean
+        required: false
+        default: false
     secrets:
       corpus-deploy-key:
         description: "SSH private key with write access to the corpus repo (preferred transport)"
@@ -94,7 +104,7 @@ permissions:
 
 jobs:
   quality-gate:
-    runs-on: macos-latest
+    runs-on: ${{ fromJSON(inputs.runner) }}
     timeout-minutes: 120
     env:
       CI: "true"
@@ -106,12 +116,16 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      # --- GitHub-hosted setup. A self-hosted runner brings its own toolchain,
+      # --- and must not have CI install one over it.
       - name: Install Swift 6.2
+        if: ${{ !inputs.self-hosted }}
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '6.2'
 
       - name: Cache quality-gate binary
+        if: ${{ !inputs.self-hosted }}
         id: qg-cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -119,6 +133,10 @@ jobs:
           key: quality-gate-swift62-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
       - name: Configure git auth for private dependencies
+        # Hosted only. This rewrites GLOBAL git config to inject a token; on a
+        # self-hosted runner that is someone's actual machine, and it already has
+        # the owner's credentials. CI does not get to edit them.
+        if: ${{ !inputs.self-hosted }}
         # Must run on every job (not only cache-miss): the project's own
         # `swift build` in "Run quality gate" resolves private URL dependencies
         # and needs the token rewrite even when the quality-gate binary is cached.
@@ -165,7 +183,9 @@ jobs:
           echo "CORPUS_TRANSPORT=ssh" >> "$GITHUB_ENV"
 
       - name: Build quality-gate from latest main
-        if: steps.qg-cache.outputs.cache-hit != 'true'
+        # Installs to /usr/local/bin, which is why it is hosted-only: that path
+        # needs privileges a self-hosted runner should not be exercising.
+        if: ${{ !inputs.self-hosted && steps.qg-cache.outputs.cache-hit != 'true' }}
         timeout-minutes: 25
         env:
           GIT_SUBMODULE_STRATEGY: none
@@ -181,6 +201,39 @@ jobs:
           fi
           cp .build/release/quality-gate /usr/local/bin/
           echo "quality-gate built from $(git rev-parse --short HEAD)"
+
+      - name: Ensure quality-gate (self-hosted)
+        # Self-hosted path: prefer whatever the owner already installed, and only
+        # build if there is nothing on PATH. Installs to a user-writable directory
+        # so this never needs sudo and never writes to a system location.
+        #
+        # The clone is unauthenticated because quality-gate-swift is public as of
+        # 2026-09-08. It was private when this step was first written, which is why
+        # the hosted path still carries a token rewrite and this one does not.
+        if: ${{ inputs.self-hosted }}
+        timeout-minutes: 25
+        run: |
+          if command -v quality-gate >/dev/null 2>&1; then
+            echo "Using pre-installed quality-gate at $(command -v quality-gate)"
+            quality-gate --version || true
+          else
+            echo "quality-gate not on PATH; building from latest main"
+            rm -rf "$RUNNER_TEMP/quality-gate-swift"
+            git clone --depth 1 --no-recurse-submodules \
+              https://github.com/jpurnell/quality-gate-swift.git "$RUNNER_TEMP/quality-gate-swift"
+            cd "$RUNNER_TEMP/quality-gate-swift"
+            swift build -c release 2>&1 | tee "$RUNNER_TEMP/qg-build.log" | tail -20
+            BUILD_EXIT=${PIPESTATUS[0]}
+            if [ "$BUILD_EXIT" -ne 0 ]; then
+              echo "::error::quality-gate build failed (exit $BUILD_EXIT). Last 50 lines:"
+              tail -50 "$RUNNER_TEMP/qg-build.log"
+              exit "$BUILD_EXIT"
+            fi
+            mkdir -p "$HOME/.local/bin"
+            cp .build/release/quality-gate "$HOME/.local/bin/"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            echo "quality-gate built from $(git rev-parse --short HEAD)"
+          fi
 
       - name: Checkout corpus
         if: inputs.corpus-repo != ''
@@ -298,3 +351,13 @@ jobs:
             gh issue create --title "$TITLE" --body "$BODY" --label "ci-failure"
             echo "Opened new failure issue"
           fi
+
+      - name: Remove corpus deploy key (self-hosted)
+        # A hosted runner is destroyed after the job, so the key written by
+        # "Configure corpus SSH transport" goes with it. A self-hosted runner is
+        # someone's machine and keeps whatever CI leaves behind — so the key has to
+        # be removed explicitly, and on every path out of the job, including failure.
+        if: ${{ always() && inputs.self-hosted }}
+        run: |
+          rm -f "$HOME/.ssh/qg_corpus"
+          echo "Corpus deploy key removed from $HOME/.ssh"
