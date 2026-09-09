@@ -78,7 +78,7 @@ on:
         required: false
         default: "main"
       runner:
-        description: "runs-on value as a JSON array string, e.g. '[\"macos-latest\"]' or '[\"self-hosted\",\"macos\",\"quality-gate\"]' — labels must match the runner's, which are case-sensitive"
+        description: "runs-on value as a JSON array string, e.g. '[\"macos-latest\"]' or '[\"self-hosted\",\"macos\",\"quality-gate\"]' — every label listed must be present on the target runner"
         type: string
         required: false
         default: '["macos-latest"]'
