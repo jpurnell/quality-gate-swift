@@ -37,7 +37,9 @@ struct PersistentIndexDatabaseTests {
     // MARK: - Lifecycle (skipped when this checkout has no store, like the probe suite)
 
     /// This repository's own swiftbuild store, or nil on a clean checkout.
-    private func localStore() -> URL? {
+    ///
+    /// Static so the `.enabled(if:)` traits below can consult it before a test runs.
+    private static func localStore() -> URL? {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let store = root.appendingPathComponent(".build/out")
         let units = store.appendingPathComponent("v5/units")
@@ -46,9 +48,19 @@ struct PersistentIndexDatabaseTests {
         return store
     }
 
-    @Test("the database survives the session that built it, and a second session reuses it")
+    /// Whether this checkout has an index store for these tests to read.
+    ///
+    /// These three tests used to open with `guard let store = localStore() else { return }`,
+    /// which reported success on a clean checkout having asserted nothing — the shape
+    /// `unasserted-optional-unwrap` was written to find, in the repository that ships it.
+    /// The condition was real; the way it was spelled turned "this machine cannot run the
+    /// test" into "the test passed". As a trait, the framework records a skip instead.
+    private static var hasLocalStore: Bool { localStore() != nil }
+
+    @Test("the database survives the session that built it, and a second session reuses it",
+          .enabled(if: hasLocalStore, "no swiftbuild index store in this checkout"))
     func databasePersistsAcrossSessions() throws {
-        guard let store = localStore() else { return }
+        let store = try #require(Self.localStore())
         guard let lib = IndexStoreSession.findLibIndexStore() else {
             Issue.record("libIndexStore.dylib not found via active toolchain")
             return
@@ -70,9 +82,10 @@ struct PersistentIndexDatabaseTests {
                 "a session reopened against the persisted database answered no symbols")
     }
 
-    @Test("releasing a session closes the database back to its 'saved' directory")
+    @Test("releasing a session closes the database back to its 'saved' directory",
+          .enabled(if: hasLocalStore, "no swiftbuild index store in this checkout"))
     func releaseSavesTheDatabase() throws {
-        guard let store = localStore() else { return }
+        let store = try #require(Self.localStore())
         guard let lib = IndexStoreSession.findLibIndexStore() else {
             Issue.record("libIndexStore.dylib not found via active toolchain")
             return
@@ -103,9 +116,10 @@ struct PersistentIndexDatabaseTests {
                 "session release did not close the database cleanly; the next run will discard and re-ingest")
     }
 
-    @Test("an unusable database directory demotes to an ephemeral session that still answers")
+    @Test("an unusable database directory demotes to an ephemeral session that still answers",
+          .enabled(if: hasLocalStore, "no swiftbuild index store in this checkout"))
     func unusableDirectoryFallsBackToEphemeral() throws {
-        guard let store = localStore() else { return }
+        let store = try #require(Self.localStore())
         guard let lib = IndexStoreSession.findLibIndexStore() else {
             Issue.record("libIndexStore.dylib not found via active toolchain")
             return

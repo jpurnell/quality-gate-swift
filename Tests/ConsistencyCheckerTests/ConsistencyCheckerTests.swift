@@ -437,8 +437,11 @@ struct ConsistencyCheckerTests {
         let result = try await checker.check(configuration: config)
 
         let calDiags = result.diagnostics.filter { $0.ruleId == "calibration-recommended" }
-        #expect(!calDiags.isEmpty)
-        guard let diag = calDiags.first else { return }
+        // `#expect(!isEmpty)` followed by `guard let … else { return }` did assert — the
+        // expectation fails before the guard exits — but it says the same thing twice and
+        // the guard reads as a silent escape. `#require` says it once and stops the test at
+        // the point the assumption breaks.
+        let diag = try #require(calDiags.first)
         #expect(diag.severity == .note)
         #expect(diag.message.contains("safety"))
         #expect(diag.message.contains("false positive rate"))

@@ -18,6 +18,30 @@ import SwiftParser
 /// - `@Test` functions with no assertions (`#expect` or `#require`)
 /// - Weak assertions (`!= 0`, `!= nil`) without quantitative bounds
 ///
+/// ## Two kinds of rule live here
+///
+/// The five rules above are properties of one assertion's *syntax*. They are exact, they are
+/// fast, and a finding is a defect.
+///
+/// The rules in `SemanticTestRules` and `SelfReferentialExpectation` are proxies. They
+/// cannot see the relationship between an assertion and the thing under test — no syntactic
+/// rule can — so they name shapes where vacuous tests are found in practice:
+///
+/// | Rule | Severity | Default |
+/// |---|---|---|
+/// | `unasserted-optional-unwrap` | error | on |
+/// | `self-referential-expectation` | error | on |
+/// | `non-strict-improvement` | warning | on |
+/// | `skipped-test-inventory` | note | on |
+/// | `unvaried-parameter` | warning | opt-in |
+/// | `assertion-on-constant` | warning | opt-in |
+/// | `tolerance-without-magnitude` | warning | opt-in |
+///
+/// The opt-in three arrive red on a clean corpus and would be switched off rather than
+/// acted on; `TestQualityVisitor.optInRules` records what each measured and why.
+/// Suppression for these rules must **name** the rule — see
+/// `TestQualityVisitor.scopedOverrideIfExempted(line:ruleId:)`.
+///
 /// ## The exact-comparison rule is not implemented here
 ///
 /// `exact-double-equality` and `fp-safety`'s `fp-equality` are the same rule.
@@ -46,7 +70,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     public let name = "Test Quality Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Floating-point assertions, missing test assertions, unseeded randomness in tests"
+    public let summary = "Floating-point assertions, missing or vacuous test assertions, silent skips, unseeded randomness in tests"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
@@ -91,9 +115,14 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         var allOverrides: [DiagnosticOverride] = []
 
         if fileManager.fileExists(atPath: testsPath) { // SAFETY: CLI reads Tests/ from cwd; no user-supplied path component
+            // Built once for the whole run: `self-referential-expectation` compares an
+            // assertion against a body in `Sources/`, so it needs the other half of the
+            // package. Every other rule here is a property of the test file alone.
+            let implementations = SelfReferentialExpectation.buildIndex(projectRoot: currentDir)
             let result = try await auditDirectory(
                 at: testsPath,
-                configuration: configuration
+                configuration: configuration,
+                implementations: implementations
             )
             allDiagnostics.append(contentsOf: result.diagnostics)
             allOverrides.append(contentsOf: result.overrides)
@@ -112,11 +141,10 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         }
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = allDiagnostics.isEmpty ? .passed : .failed
 
         return CheckResult(
             checkerId: id,
-            status: status,
+            status: Self.status(for: allDiagnostics),
             diagnostics: allDiagnostics,
             overrides: allOverrides,
             duration: duration
@@ -144,22 +172,38 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         )
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
 
         return CheckResult(
             checkerId: id,
-            status: status,
+            status: Self.status(for: result.diagnostics),
             diagnostics: result.diagnostics,
             overrides: result.overrides,
             duration: duration
         )
     }
 
+    /// The status a set of diagnostics implies, by their severity.
+    ///
+    /// Previously this was `diagnostics.isEmpty ? .passed : .failed`, which failed the
+    /// checker on any finding whatever its severity. That held while every rule here was an
+    /// error or a warning. `skipped-test-inventory` is the first to emit `.note`, whose
+    /// entire purpose is to be reported without gating — and counting notes as failures
+    /// would have made a rule that never blocks a commit block every commit.
+    ///
+    /// This matches what `OverrideProcessor` already documents for the same question:
+    /// any error fails, any warning warns, notes alone pass.
+    static func status(for diagnostics: [Diagnostic]) -> CheckResult.Status {
+        if diagnostics.contains(where: { $0.severity == .error }) { return .failed }
+        if diagnostics.contains(where: { $0.severity == .warning }) { return .warning }
+        return .passed
+    }
+
     // MARK: - Private Implementation
 
     private func auditDirectory(
         at path: String,
-        configuration: Configuration
+        configuration: Configuration,
+        implementations: SelfReferentialExpectation.ImplementationIndex
     ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
@@ -183,7 +227,8 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
                 let result = auditSourceCode(
                     source,
                     fileName: fullPath,
-                    configuration: configuration
+                    configuration: configuration,
+                    implementations: implementations
                 )
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
@@ -217,7 +262,8 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     private func auditSourceCode(
         _ source: String,
         fileName: String,
-        configuration: Configuration
+        configuration: Configuration,
+        implementations: SelfReferentialExpectation.ImplementationIndex = .empty
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let sourceFile = Parser.parse(source: source)
         // One converter for the file. Six rules used to build their own per visited node, each
@@ -231,7 +277,9 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
             fileName: fileName,
             source: source,
             converter: converter,
-            exemptionPatterns: configuration.safetyExemptions + ["// TEST-QUALITY:"]
+            exemptionPatterns: configuration.safetyExemptions + ["// TEST-QUALITY:"],
+            enabledOptInRules: Set(configuration.enabledCheckers),
+            implementations: implementations
         )
         visitor.walk(sourceFile)
 
@@ -318,16 +366,85 @@ private final class TestQualityVisitor: SyntaxVisitor {
     private var currentTestFunctionLine: Int?
     private var currentTestHasAssertion: Bool = false
 
+    /// How many closures or nested function declarations enclose the node being visited,
+    /// counted from the `@Test` function's own body.
+    ///
+    /// `return` means different things at different depths. At zero it abandons the test;
+    /// deeper, it answers a closure or a helper and the test carries on. Only
+    /// `unasserted-optional-unwrap` consults this — the other rules are properties of a
+    /// line and do not care what encloses it.
+    private var nestedScopeDepth: Int = 0
+
+    /// What the `@Test` currently being walked has done so far — see `unvaried-parameter`.
+    private var currentTestShape = SemanticTestRules.TestShape()
+
     /// Whether the file imports the Testing framework.
     private var importsTestingFramework: Bool = false
 
-    init(fileName: String, source: String, converter: SourceLocationConverter, exemptionPatterns: [String]) {
+    /// Rule ids the project has opted into — see ``TestQualityVisitor/isEnabled(_:)``.
+    let enabledOptInRules: Set<String>
+
+    /// Single-expression bodies from `Sources/`, for `self-referential-expectation`.
+    /// Empty when auditing a bare source string, so the rule reports nothing.
+    let implementations: SelfReferentialExpectation.ImplementationIndex
+
+    init(
+        fileName: String,
+        source: String,
+        converter: SourceLocationConverter,
+        exemptionPatterns: [String],
+        enabledOptInRules: Set<String> = [],
+        implementations: SelfReferentialExpectation.ImplementationIndex = .empty
+    ) {
         self.converter = converter
         self.fileName = fileName
         self.source = source
         self.exemptionPatterns = exemptionPatterns
+        self.enabledOptInRules = enabledOptInRules
+        self.implementations = implementations
         self.sourceLines = source.lines
         super.init(viewMode: .sourceAccurate)
+    }
+
+    /// Rules that ship off by default because they arrive red on real corpora.
+    ///
+    /// Both were measured across BusinessMath's 557 test files, and both are *correct*:
+    ///
+    /// - `tolerance-without-magnitude` — **384 findings**. Almost all are optimizer and
+    ///   quadrature tests asserting convergence to within 5–20% of an expected value. Some
+    ///   of those tolerances were surely loosened until the test passed; others are honest
+    ///   statements about a quantity that genuinely is not known more precisely. The rule
+    ///   cannot tell the two apart, which is the point — it makes the ratio visible so a
+    ///   human can. That is a review conversation, not a build failure.
+    /// - `assertion-on-constant` — **73 findings**, every one an `#expect(true)`. These are
+    ///   unambiguous, but they are also a seventy-three item worklist that has nothing to do
+    ///   with whatever commit first trips over them.
+    ///
+    /// This repository has already paid for the alternative twice. `property-coverage`
+    /// arrived with 69 findings and `doc-code` with 16, and both shipped opt-in for the same
+    /// reason recorded there: *a rule that is red on arrival gets skipped*, and a skipped
+    /// rule protects nothing. Promotion is earned by repairing a corpus, never by relaxing
+    /// the rule.
+    ///
+    /// Enable per project:
+    /// `enabledCheckers: ["test-quality.tolerance-without-magnitude"]`.
+    /// - `unvaried-parameter` — **129 findings** after the fixture, conformance and refusal
+    ///   exclusions cut it from 141. The survivors include genuine targets — `combination(10,
+    ///   c: 3)` asserted against a single expected value cannot tell that `c` is ignored —
+    ///   alongside initialization tests where the shape is simply what the test is. The
+    ///   proposal makes this rule's promotion conditional on a false-positive rate "measured
+    ///   below a threshold on at least two real corpora"; it has been measured on one, and
+    ///   129 is not below a threshold. Opt-in is what that condition means in practice.
+    static let optInRules: Set<String> = [
+        "tolerance-without-magnitude",
+        "assertion-on-constant",
+        "unvaried-parameter",
+    ]
+
+    /// Whether a rule should report, given what the project opted into.
+    private func isEnabled(_ ruleId: String) -> Bool {
+        guard Self.optInRules.contains(ruleId) else { return true }
+        return enabledOptInRules.contains("test-quality.\(ruleId)")
     }
 
     // MARK: - Import Detection
@@ -342,27 +459,43 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
     // MARK: - @Test Function Tracking
 
-    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let hasTestAttribute = node.attributes.contains { attr in
+    /// Whether a declaration carries the `@Test` attribute.
+    ///
+    /// Extracted from the two copies that `visit` and `visitPost` each kept: they had to
+    /// agree for the enter/leave bookkeeping to balance, and two copies of a predicate that
+    /// must agree is one copy too many.
+    private func isTestFunction(_ node: FunctionDeclSyntax) -> Bool {
+        node.attributes.contains { attr in
             if let identAttr = attr.as(AttributeSyntax.self) {
                 let attrName: String
                 if let identifier = identAttr.attributeName.as(IdentifierTypeSyntax.self) {
                     attrName = identifier.name.text
                 } else {
-                    attrName = identAttr.attributeName.description.trimmingCharacters(in: .whitespaces)
+                    attrName = identAttr.attributeName.description.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 return attrName == "Test"
             }
             return false
         }
+    }
 
-        if hasTestAttribute {
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        if let skip = SemanticTestRules.skipTrait(in: node.attributes) {
+            recordSkip(skip, at: node)
+        }
+
+        if isTestFunction(node) {
             currentTestFunctionName = node.name.text
             let location = node.startLocation(
                 converter: converter
             )
             currentTestFunctionLine = location.line
             currentTestHasAssertion = false
+            nestedScopeDepth = 0
+            currentTestShape = SemanticTestRules.TestShape()
+        } else if currentTestFunctionName != nil {
+            // A helper declared inside the test body. Its `return` is its own.
+            nestedScopeDepth += 1
         }
 
         return .visitChildren
@@ -370,19 +503,23 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
     override func visitPost(_ node: FunctionDeclSyntax) {
         // Only process when leaving a @Test function, not nested helpers.
-        let hasTestAttribute = node.attributes.contains { attr in
-            if let identAttr = attr.as(AttributeSyntax.self) {
-                let attrName: String
-                if let identifier = identAttr.attributeName.as(IdentifierTypeSyntax.self) {
-                    attrName = identifier.name.text
-                } else {
-                    attrName = identAttr.attributeName.description.trimmingCharacters(in: .whitespaces)
-                }
-                return attrName == "Test"
+        guard isTestFunction(node) else {
+            if currentTestFunctionName != nil, nestedScopeDepth > 0 {
+                nestedScopeDepth -= 1
             }
-            return false
+            return
         }
-        guard hasTestAttribute else { return }
+
+        if let testName = currentTestFunctionName,
+           currentTestHasAssertion,
+           SemanticTestRules.isUnvaried(currentTestShape) {
+            emit(
+                severity: .warning,
+                message: "Test '\(testName)' makes one call with fixed arguments and one assertion, so it cannot detect that a parameter is ignored.",
+                ruleId: "unvaried-parameter",
+                fix: "Assert across a spread of inputs — a monotonicity, or a relation that must hold at several values",
+                at: node)
+        }
 
         if let testName = currentTestFunctionName, !currentTestHasAssertion {
             let line = currentTestFunctionLine ?? 1
@@ -403,6 +540,20 @@ private final class TestQualityVisitor: SyntaxVisitor {
         currentTestFunctionName = nil
         currentTestFunctionLine = nil
         currentTestHasAssertion = false
+        nestedScopeDepth = 0
+    }
+
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+        if currentTestFunctionName != nil {
+            nestedScopeDepth += 1
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ClosureExprSyntax) {
+        if currentTestFunctionName != nil, nestedScopeDepth > 0 {
+            nestedScopeDepth -= 1
+        }
     }
 
     // MARK: - Force Try Detection
@@ -433,12 +584,99 @@ private final class TestQualityVisitor: SyntaxVisitor {
         return .visitChildren
     }
 
+    // A disabled suite is reported once, at the suite. Reporting it per test it contains
+    // would turn one decision into forty lines of output and bury the decision.
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        if let skip = SemanticTestRules.skipTrait(in: node.attributes) {
+            recordSkip(skip, at: node)
+        }
+        return .visitChildren
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        if let skip = SemanticTestRules.skipTrait(in: node.attributes) {
+            recordSkip(skip, at: node)
+        }
+        return .visitChildren
+    }
+
+    override func visit(_ node: ThrowStmtSyntax) -> SyntaxVisitorContinueKind {
+        // Not scoped to `@Test`: XCTSkip is the XCTest spelling, and the XCTest suites that
+        // still use it declare `func testX()` with no attribute at all.
+        if let skip = SemanticTestRules.xctSkip(in: node) {
+            recordSkip(skip, at: node)
+        }
+        return .visitChildren
+    }
+
+    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        // Only calls the test itself makes. A call nested inside a closure argument is part
+        // of the same single statement and would double-count the one thing being measured.
+        if currentTestFunctionName != nil, nestedScopeDepth == 0,
+           !SemanticTestRules.looksLikeFixtureConstruction(node) {
+            currentTestShape.subjectCalls += 1
+            if SemanticTestRules.hasOnlyLiteralArguments(node) {
+                currentTestShape.allLiteralCalls += 1
+            }
+        }
+        return .visitChildren
+    }
+
+    // MARK: - Unasserted Optional Unwrap Detection
+
+    override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
+        guard currentTestFunctionName != nil, nestedScopeDepth == 0 else {
+            return .visitChildren
+        }
+
+        // An environment gate is a skip, not a defect, and is claimed by the inventory
+        // first — see `SemanticTestRules.isEnvironmentGate`.
+        if SemanticTestRules.isEnvironmentGate(node) {
+            recordSkip(
+                SemanticTestRules.Skip(mechanism: .environmentGate, reason: nil),
+                at: node)
+            return .visitChildren
+        }
+
+        // Scoped to a `@Test` body's own scope. A helper may legitimately fall back to a
+        // default; a test that falls back has silently stopped testing. Inside a closure
+        // or a nested `func`, `return` leaves that scope and not the test — see
+        // `nestedScopeDepth`.
+        guard SemanticTestRules.isUnassertedOptionalUnwrap(node) else {
+            return .visitChildren
+        }
+
+        let location = node.startLocation(converter: converter)
+        let line = location.line
+
+        if let override = scopedOverrideIfExempted(line: line, ruleId: "unasserted-optional-unwrap") {
+            overrides.append(override)
+            return .visitChildren
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .error,
+            message: "Guard binds an optional and returns without asserting. When the value is nil this test passes having run none of its assertions.",
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
+            ruleId: "unasserted-optional-unwrap",
+            suggestedFix: "If the value must exist, use try #require(...) so nil fails loudly. If its absence is a legitimate skip — an unavailable GPU, a missing fixture — move the condition into a .enabled(if:) trait, so the run is recorded as skipped instead of counted as passed."
+        ))
+
+        return .visitChildren
+    }
+
     // MARK: - #expect / #require Macro Detection
 
     override func visit(_ node: MacroExpansionExprSyntax) -> SyntaxVisitorContinueKind {
         let macroName = node.macroName.text
         if macroName == "expect" || macroName == "require" {
             currentTestHasAssertion = true
+            currentTestShape.assertions += 1
+            if node.arguments.contains(where: { $0.label?.text == "throws" }) {
+                currentTestShape.assertsAThrow = true
+            }
 
             // Analyze the arguments for anti-patterns.
             analyzeExpectArguments(node)
@@ -522,6 +760,109 @@ private final class TestQualityVisitor: SyntaxVisitor {
             let expr = argument.expression
             analyzeExpressionForAntiPatterns(expr, in: node)
         }
+
+        analyzeAssertedCondition(node)
+    }
+
+    /// Applies the rules that read the assertion as a *claim* rather than as syntax.
+    ///
+    /// Only the first argument, and only when it is unlabeled. `#expect` takes an optional
+    /// trailing comment — `#expect(x == y, "the fit should converge")` — and a labelled
+    /// form, `#expect(throws: MyError.self)`. Both would defeat these rules if the whole
+    /// argument list were scanned: a comment string is a literal, so every commented
+    /// assertion would look like `assertion-on-constant`.
+    private func analyzeAssertedCondition(_ node: MacroExpansionExprSyntax) {
+        guard let first = node.arguments.first, first.label == nil else { return }
+        let condition = first.expression
+
+        if SemanticTestRules.isAssertionOnConstant(condition) {
+            emit(
+                severity: .warning,
+                message: "Assertion compares only literals, so it passes for every possible implementation.",
+                ruleId: "assertion-on-constant",
+                fix: "Assert something computed by the code under test",
+                at: node)
+        }
+
+        for comparison in SemanticTestRules.comparisons(in: condition) {
+            analyzeComparison(comparison, in: node)
+        }
+    }
+
+    /// The rules that read one comparison. A compound assertion yields several.
+    private func analyzeComparison(
+        _ comparison: SemanticTestRules.Comparison,
+        in node: MacroExpansionExprSyntax
+    ) {
+        if let testName = currentTestFunctionName,
+           SemanticTestRules.claimsImprovement(testName: testName),
+           SemanticTestRules.isNonStrictImprovement(comparison) {
+            emit(
+                severity: .warning,
+                message: "Test '\(testName)' claims an improvement but asserts '\(comparison.op)', which an unchanged implementation also satisfies.",
+                ruleId: "non-strict-improvement",
+                fix: "Assert the strict comparison, or record why a tie is legitimate with // TEST-QUALITY: non-strict-improvement — <reason>",
+                at: node)
+        }
+
+        if let restated = SelfReferentialExpectation.restatedFunction(
+            in: comparison, using: implementations) {
+            emit(
+                severity: .error,
+                message: "Expected value restates the body of '\(restated)', so this assertion holds for whatever that body is.",
+                ruleId: SelfReferentialExpectation.ruleId,
+                fix: "Assert a value derived independently of the implementation — a worked example, a reference implementation, or a published figure",
+                at: node)
+        }
+
+        if let ratio = SemanticTestRules.toleranceRatio(comparison),
+           ratio > Self.toleranceRatioThreshold {
+            // Rounded arithmetic rather than String(format:), which bridges to the C
+            // printf ABI. One decimal place is enough to make the ratio legible.
+            let percent = (ratio * 1000).rounded() / 10
+            emit(
+                severity: .warning,
+                message: "Tolerance is \(percent)% of the magnitude it is checked against, which asserts little about the expected value.",
+                ruleId: "tolerance-without-magnitude",
+                fix: "Tighten the tolerance, or state the relative bound explicitly so the ratio is visible in review",
+                at: node)
+        }
+    }
+
+    /// The ratio above which an absolute tolerance is reported.
+    ///
+    /// One percent, from the proposal. It is a starting point rather than a derived value,
+    /// and it is deliberately a single named constant so that changing it is one edit with
+    /// one place to argue about.
+    private static let toleranceRatioThreshold = 0.01
+
+    /// Appends a diagnostic unless the line carries a suppression comment.
+    private func emit(
+        severity: Diagnostic.Severity,
+        message: String,
+        ruleId: String,
+        fix: String,
+        at node: some SyntaxProtocol
+    ) {
+        guard isEnabled(ruleId) else { return }
+
+        let location = node.startLocation(converter: converter)
+        let line = location.line
+
+        if let override = scopedOverrideIfExempted(line: line, ruleId: ruleId) {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: severity,
+            message: message,
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
+            ruleId: ruleId,
+            suggestedFix: fix
+        ))
     }
 
     /// Analyzes expressions inside #expect for anti-patterns.
@@ -693,7 +1034,86 @@ private final class TestQualityVisitor: SyntaxVisitor {
         return lineContent.contains("??")
     }
 
+    // MARK: - Skipped Test Inventory
+
+    /// Records a test that does not run, at `.note` severity.
+    ///
+    /// `.note` rather than `.warning` is the whole design of this rule. A warning gates —
+    /// this package's bar is zero warnings, and `--strict` fails on them — so an inventory
+    /// reported as a warning would block every commit in any repository that has ever
+    /// disabled a test, which is how a rule gets switched off. A note is reported on every
+    /// run and never changes the verdict, which is exactly what "a standing inventory that
+    /// cannot rot quietly" asks for. A project that wants it to bite can say so:
+    /// `overrides: { test-quality.skipped-test-inventory: warning }`.
+    private func recordSkip(_ skip: SemanticTestRules.Skip, at node: some SyntaxProtocol) {
+        let location = node.startLocation(converter: converter)
+        let line = location.line
+
+        if let override = scopedOverrideIfExempted(line: line, ruleId: "skipped-test-inventory") {
+            overrides.append(override)
+            return
+        }
+
+        var message = "This test does not run: \(skip.mechanism.describedAsWritten)."
+        if let reason = skip.reason {
+            message += " Stated reason: \"\(reason)\"."
+        } else if skip.mechanism == .disabledTrait {
+            message += " No reason was recorded."
+        }
+        // Best effort, and never part of the verdict — see `SkippedTestAge`.
+        if let days = SkippedTestAge.days(path: fileName, line: line) {
+            message += " Last touched \(days) day\(days == 1 ? "" : "s") ago."
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .note,
+            message: message,
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
+            ruleId: "skipped-test-inventory",
+            suggestedFix: "Fix and re-enable it, or delete it. A test that has not run in months is a deleted test that still costs review attention."
+        ))
+    }
+
     // MARK: - Exemption Checking
+
+    /// A suppression that must name the rule it suppresses.
+    ///
+    /// The six original rules accept any marker in `exemptionPatterns` — a bare
+    /// `// TEST-QUALITY:` silences whatever fires on that line. The semantic rules do not,
+    /// and the reason was measured rather than assumed.
+    ///
+    /// BusinessMath contains 73 lines of `#expect(true) // TEST-QUALITY: <reason>`, written
+    /// to get past `missing-assertion`. Every one of them is precisely what
+    /// `assertion-on-constant` was built to find. Under a blanket marker, the comment
+    /// excusing the first rule would have silently excused the rule designed to catch it,
+    /// and the new rule would have shipped reporting zero findings on a corpus containing
+    /// seventy-three — indistinguishable, from the outside, from a rule that works.
+    ///
+    /// This is the hazard this file already documents for `fp-safety:disable`: a marker
+    /// scoped to the rule it names must not silence a different one. Naming the rule also
+    /// makes the acknowledgement legible in review — `// TEST-QUALITY: non-strict-improvement
+    /// — a grid optimum can legitimately tie` says which judgement was made and why.
+    private func scopedOverrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
+        let linesToCheck = [line - 1, line]
+            .filter { $0 >= 1 && $0 <= sourceLines.count }
+
+        for lineNum in linesToCheck {
+            let lineContent = sourceLines[lineNum - 1]
+            guard lineContent.contains("// TEST-QUALITY:"), lineContent.contains(ruleId) else {
+                continue
+            }
+            return DiagnosticOverride(
+                ruleId: ruleId,
+                justification: lineContent.trimmingCharacters(in: .whitespaces),
+                filePath: fileName,
+                lineNumber: line
+            )
+        }
+
+        return nil
+    }
 
     private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
         let linesToCheck = [line - 1, line]

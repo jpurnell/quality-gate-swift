@@ -2,6 +2,64 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Seven semantic rules for `test-quality`**, aimed at tests that pass while testing
+  nothing — where the flaw is not in the assertion's syntax. Proposal:
+  `plans/proposals/TestQualityAuditor_SemanticRules.md` (companion).
+
+  On by default: `unasserted-optional-unwrap` (error) — `guard let x = f() else { return }`
+  inside a `@Test`, which reports success having run no assertions when `f()` returns nil;
+  `self-referential-expectation` (error) — an expected value that restates the body of the
+  function under test; `non-strict-improvement` (warning) — `#expect(new <= old)` in a test
+  whose name claims an improvement an unchanged implementation also satisfies; and
+  `skipped-test-inventory` (**note**) — every test that does not run, with its stated reason
+  and its `git blame` age.
+
+  Opt-in, because each arrives red on a corpus that passes the gate today:
+  `tolerance-without-magnitude` (384 findings), `unvaried-parameter` (129),
+  `assertion-on-constant` (73). A rule that is red on arrival gets switched off rather than
+  acted on — the lesson `property-coverage` and `doc-code` already paid for. Enable by rule
+  id in `enabledCheckers`.
+
+  Every rule was measured against a 557-file corpus, and the corpus changed five of the
+  seven. `unasserted-optional-unwrap` first reported 66; `continue` is not a test exit, a
+  `return` carrying a value answers a closure rather than abandoning a test, and a guard
+  inside a nested `func` is out of scope — narrowed, it reports 24, clustered in the GPU
+  paths the rule was written for. `non-strict-improvement` exempts a comparison against a
+  literal, which removed the bounds-check false positives entirely.
+
+- **Suppression for the semantic rules must name the rule.** A bare `// TEST-QUALITY:`
+  suppresses the five original rules; the new ones require `// TEST-QUALITY: <rule-id> —
+  <reason>`. The corpus carries 73 lines of `#expect(true) // TEST-QUALITY: <reason>` written
+  to satisfy `missing-assertion` — every one of them exactly what `assertion-on-constant`
+  exists to find. Under a blanket marker the new rule would have reported zero findings on a
+  corpus containing seventy-three, and looked like a working rule while doing it.
+
+### Fixed
+
+- **`test-quality` failed on any diagnostic, whatever its severity.** Status was
+  `diagnostics.isEmpty ? .passed : .failed`, which was invisible while every rule emitted an
+  error or a warning. It now matches what `OverrideProcessor` already documents: any error
+  fails, any warning warns, notes alone pass. Without this, `skipped-test-inventory` — whose
+  whole purpose is to report without gating — would have blocked every commit in any
+  repository that has ever disabled a test.
+
+- **Comparisons with arithmetic on either side were invisible to the new rules.** The parser
+  leaves a `SequenceExprSyntax` flat, so `scaled(x, y, z) == x * y / z` is seven elements,
+  not three. The reader required exactly three and returned nil for everything else — the
+  rules built on it would have reported nothing on precisely the assertions most worth
+  reading. It now splits at the first comparison operator, and splits `&&`/`||` into
+  conjuncts first, which removed a bounds-check false positive that reached the corpus.
+
+- **Three silent skips in this repository's own tests.** `PersistentIndexDatabaseTests` opened
+  three tests with `guard let store = localStore() else { return }`, reporting success on a
+  clean checkout having asserted nothing — the shape the new rule was written to find, in the
+  repository that ships it. The condition was real; it is now an `.enabled(if:)` trait, so the
+  framework records a skip instead of counting one as a pass, and `#require` fails loudly if
+  the invariant breaks. `ConsistencyCheckerTests` gained a `#require` in place of an
+  `#expect`-then-`guard` pair that said the same thing twice.
+
 ### Changed
 
 - **A checker that could not read a file has not checked it.** Eighty-seven `// silent:`
