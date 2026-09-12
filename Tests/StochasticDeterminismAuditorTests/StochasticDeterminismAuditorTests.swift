@@ -925,3 +925,83 @@ struct UnseededTestCallOptOutTests {
         #expect(StochasticDeterminismConfig.default.flagUnseededTestCalls)
     }
 }
+
+// MARK: - Composition Roots
+
+/// Where a program names the concrete implementations it runs with.
+///
+/// The rule this auditor enforces is that a function must not silently depend on ambient
+/// randomness — it should take a generator so a caller can inject one. That rule has an end:
+/// **injection has to terminate somewhere**, and the place it terminates is the entry point.
+/// `SystemRandomNumberGenerator` is the standard library's only concrete generator and it is
+/// deliberately unseedable, so a program that needs real randomness has no way to satisfy the
+/// suggestion at its root, and no restructuring available — an entry point has no caller.
+///
+/// Before this, a correctly-structured program that injected its generator through every layer
+/// was still reported, for the one line where it chose the production source. The advice
+/// offered — "accept an RNG parameter instead" — is not something `main.swift` can do.
+@Suite("StochasticDeterminismAuditor: Composition roots")
+struct CompositionRootTests {
+
+    private let composed = """
+        var entropy = SystemRandomNumberGenerator()
+        let service = Service(generator: entropy)
+        service.run()
+        """
+
+    @Test("main.swift may name the production generator")
+    func mainSwiftIsExempt() {
+        #expect(diagnose(composed, filePath: "Sources/app/main.swift").isEmpty)
+        #expect(diagnose(composed, filePath: "/x/Sources/AppMain/main.swift").isEmpty)
+    }
+
+    @Test("a @main type may name it too")
+    func attributeMainIsExempt() {
+        let source = """
+            @main
+            struct Tool {
+                static func main() {
+                    var entropy = SystemRandomNumberGenerator()
+                    Service(generator: entropy).run()
+                }
+            }
+            """
+        #expect(diagnose(source, filePath: "Sources/app/Tool.swift").isEmpty)
+    }
+
+    @Test("every other file is still reported")
+    func ordinaryFilesAreNotExempt() {
+        // The rule still has teeth where it means something: a type reaching for ambient
+        // randomness in the middle of its work is the thing this auditor exists to catch.
+        let source = """
+            struct Minter {
+                func token() -> UInt64 {
+                    var entropy = SystemRandomNumberGenerator()
+                    return entropy.next()
+                }
+            }
+            """
+        let found = diagnose(source, filePath: "Sources/app/Minter.swift")
+        #expect(found.count == 1)
+        #expect(found.first?.ruleId == "stochastic-no-seed")
+    }
+
+    @Test("a file merely named like an entry point is not one")
+    func nameMustBeExact() {
+        // `mainViewModel.swift` is not a composition root, and a substring match would make
+        // this exemption a way to opt out by filename.
+        for path in ["Sources/app/mainViewModel.swift", "Sources/app/domain.swift",
+                     "Sources/main/Service.swift"] {
+            #expect(!diagnose(composed, filePath: path).isEmpty, "\(path) must still be checked")
+        }
+    }
+
+    @Test("the other rules still apply inside a composition root")
+    func onlyTheGeneratorRuleIsRelaxed() {
+        // The exemption is about naming the production generator, not about the file being
+        // unexamined. An unseeded `.random()` in `main.swift` is still a function depending on
+        // ambient randomness with no way to be reproduced.
+        let source = "let value = Double.random(in: 0...1)\n"
+        #expect(!diagnose(source, filePath: "Sources/app/main.swift").isEmpty)
+    }
+}

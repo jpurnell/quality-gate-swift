@@ -57,6 +57,12 @@ final class StochasticVisitor: SyntaxVisitor {
     /// Whether the current enclosing function accepts an RNG parameter.
     private var functionHasRNGParameter = false
 
+    /// Whether this file declares a type marked `@main`.
+    ///
+    /// Set during the walk rather than read from the path, because `@main` is how a program
+    /// names its entry point when that entry point is not in `main.swift`.
+    private var declaresMainAttribute = false
+
     /// Stack tracking nested function declarations and their RNG status.
     private var rngParameterStack: [Bool] = []
 
@@ -112,6 +118,58 @@ final class StochasticVisitor: SyntaxVisitor {
     /// function cannot follow, since it has no caller to inject one. A test seeds its own.
     var isTestFile: Bool {
         filePath.contains("/Tests/") || filePath.hasPrefix("Tests/")
+    }
+
+    /// Whether this file is a program's entry point.
+    ///
+    /// **Why the generator rule stops here.** The rule is that a function must not silently
+    /// depend on ambient randomness — it should take a generator, so a caller can inject one.
+    /// That rule has an end: injection terminates at the entry point, which by definition has
+    /// no caller to inject anything.
+    ///
+    /// `SystemRandomNumberGenerator` is the standard library's only concrete
+    /// `RandomNumberGenerator`, and it is deliberately unseedable because unpredictability is
+    /// its contract. So a program needing real randomness — session tokens, salts, challenges —
+    /// must name it once, somewhere, and no restructuring makes that line disappear. Reporting
+    /// it told a correctly-built program to do something impossible, and the advice offered,
+    /// *"accept an RNG parameter instead"*, is not something `main.swift` can act on.
+    ///
+    /// Matched exactly, on the file name alone: `mainViewModel.swift` is not an entry point,
+    /// and a substring test would turn this into a way to opt out by choosing a filename.
+    var isCompositionRoot: Bool {
+        (filePath as NSString).lastPathComponent == "main.swift" || declaresMainAttribute
+    }
+
+    // MARK: - Entry Point Detection
+
+    override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
+        noteMainAttribute(node.attributes)
+        return .visitChildren
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        noteMainAttribute(node.attributes)
+        return .visitChildren
+    }
+
+    override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
+        noteMainAttribute(node.attributes)
+        return .visitChildren
+    }
+
+    /// Records that this file declares the program's entry point.
+    ///
+    /// Set on the way *down*, so a `SystemRandomNumberGenerator` inside the `@main` type is
+    /// reached after the attribute has been seen. A file whose `@main` type appears below some
+    /// other declaration that names the generator would still report that one — which is the
+    /// right answer, since it is not in the entry point.
+    private func noteMainAttribute(_ attributes: AttributeListSyntax) {
+        for attribute in attributes {
+            guard case .attribute(let value) = attribute,
+                  value.attributeName.trimmedDescription == "main" else { continue }
+            declaresMainAttribute = true
+            return
+        }
     }
 
     // MARK: - Function Declaration Tracking
@@ -204,7 +262,11 @@ final class StochasticVisitor: SyntaxVisitor {
 
         // Check for SystemRandomNumberGenerator.
         // Ceded to TestQualityAuditor's `unseeded-random` inside Tests/.
-        if name == "SystemRandomNumberGenerator", !isTestFile {
+        // Exempt in a composition root, and **only** this rule is. An unseeded `.random()`
+        // in `main.swift` is still a dependency on ambient randomness that nothing can
+        // reproduce; what is permitted here is naming the production generator, which is what
+        // an entry point is for.
+        if name == "SystemRandomNumberGenerator", !isTestFile, !isCompositionRoot {
             if !functionHasRNGParameter && !isExemptFunction() {
                 emitDiagnostic(
                     ruleId: "stochastic-no-seed",
