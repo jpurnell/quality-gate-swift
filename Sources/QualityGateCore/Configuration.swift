@@ -354,6 +354,13 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// SQL-executing function names that trigger the sql-injection rule.
     public var sqlFunctionNames: [String]
 
+    /// How strictly `security.weak-crypto` is held.
+    ///
+    /// Defaults to ``WeakCryptoPolicy/forbidden``, which is the behaviour that existed
+    /// before the setting did. Set `justified` where a weak hash is dictated by a file
+    /// format being read rather than chosen — see ``WeakCryptoPolicy``.
+    public var weakCryptoPolicy: WeakCryptoPolicy
+
     /// Creates a security auditor configuration with the given options.
     public init(
         enabledRules: [String] = [],
@@ -365,12 +372,14 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
         sqlFunctionNames: [String] = [
             "execute", "prepare", "query", "rawQuery",
             "sqlite3_exec", "sqlite3_prepare"
-        ]
+        ],
+        weakCryptoPolicy: WeakCryptoPolicy = .default
     ) {
         self.enabledRules = enabledRules
         self.secretPatterns = secretPatterns
         self.allowedHTTPHosts = allowedHTTPHosts
         self.sqlFunctionNames = sqlFunctionNames
+        self.weakCryptoPolicy = weakCryptoPolicy
     }
 
     /// Default security auditor configuration.
@@ -379,7 +388,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
 
 extension SecurityAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames
+        case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames, weakCryptoPolicy
     }
 
     /// Creates a security auditor configuration by decoding from the given decoder.
@@ -390,6 +399,7 @@ extension SecurityAuditorConfig: Codable {
         secretPatterns = try container.decodeIfPresent([String].self, forKey: .secretPatterns) ?? defaults.secretPatterns
         allowedHTTPHosts = try container.decodeIfPresent([String].self, forKey: .allowedHTTPHosts) ?? defaults.allowedHTTPHosts
         sqlFunctionNames = try container.decodeIfPresent([String].self, forKey: .sqlFunctionNames) ?? defaults.sqlFunctionNames
+        weakCryptoPolicy = try container.decodeIfPresent(WeakCryptoPolicy.self, forKey: .weakCryptoPolicy) ?? defaults.weakCryptoPolicy
     }
 }
 

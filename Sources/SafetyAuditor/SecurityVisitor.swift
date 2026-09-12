@@ -436,6 +436,32 @@ final class SecurityVisitor: SyntaxVisitor {
             return
         }
 
+        // Whether a weak hash is a defect depends on what it is for. Deriving a key for a
+        // file format that names SHA-1 is not a security choice — the alternative is
+        // refusing to open the file — and no property of the surrounding code says so. A
+        // stated reason does, which is what `justified` asks for.
+        switch configuration.weakCryptoPolicy.verdict(in: (), evidence: ()) {
+        case .count:
+            // Not reachable: the policy offers no aggregate level, deliberately. Reporting
+            // is the safe reading if one is ever added without revisiting this.
+            break
+        case .requireJustification:
+            guard !hasWeakCryptoJustification(line: location.line) else { return }
+            diagnostics.append(Diagnostic(
+                severity: .warning,
+                message: "Use of weak cryptographic hash '\(algorithm)'. [CWE-327] "
+                    + "Add a `// Justification:` comment saying why it is correct here.",
+                filePath: fileName,
+                lineNumber: location.line,
+                columnNumber: location.column,
+                ruleId: "security.weak-crypto",
+                suggestedFix: "// Justification: <why this hash is dictated rather than chosen>"
+            ))
+            return
+        case .report:
+            break
+        }
+
         diagnostics.append(Diagnostic(
             severity: .warning,
             message: "Use of weak cryptographic hash '\(algorithm)'. [CWE-327]",
@@ -445,6 +471,16 @@ final class SecurityVisitor: SyntaxVisitor {
             ruleId: "security.weak-crypto",
             suggestedFix: "Use SHA256 or stronger from CryptoKit: SHA256.hash(data:)"
         ))
+    }
+
+    /// Whether the line above the call carries a `// Justification:` comment.
+    ///
+    /// Adjacent by design, matching how `@unchecked Sendable` is justified elsewhere: a
+    /// reason anywhere in the file would drift away from the thing it excuses, and the
+    /// reader who needs it is looking at this line.
+    private func hasWeakCryptoJustification(line: Int) -> Bool {
+        guard line >= 2, line - 2 < sourceLines.count else { return false }
+        return sourceLines[line - 2].contains("// Justification:")
     }
 
     // MARK: Eval JS (CWE-95)
