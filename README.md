@@ -166,7 +166,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 <!-- generated:checker-table-code-hygiene -->
 | `accessibility` | AccessibilityAuditor | SwiftUI accessibility: missing labels, fixed font sizes, color-only differentiation |
 | `logging` | LoggingAuditor | `print()` in production code, silent `catch` blocks, missing os.Logger usage |
-| `test-quality` | TestQualityAuditor | Floating-point assertions, missing or vacuous test assertions, silent skips, unseeded randomness in tests |
+| `test-quality` | TestQualityAuditor | Floating-point assertions, missing or vacuous test assertions, silent skips, ambient time, unseeded randomness in tests |
 | `context` | ContextAuditor | Missing consent guards, unguarded analytics, surveillance patterns |
 | `idiom` | IdiomAuditor | Non-idiomatic Swift the language has a shorter form for; `// idiom:exempt` is recorded, never silent (advisory) |
 | `smells` | SmellPack | Structural smells in declarations: long parameter lists, feature envy, primitive obsession; `// smell:exempt` is recorded (advisory) |

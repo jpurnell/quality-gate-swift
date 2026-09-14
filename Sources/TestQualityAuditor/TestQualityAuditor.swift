@@ -32,6 +32,8 @@ import SwiftParser
 /// | `unasserted-optional-unwrap` | error | on |
 /// | `self-referential-expectation` | error | on |
 /// | `non-strict-improvement` | warning | on |
+/// | `coalesced-assertion` | warning | on |
+/// | `ambient-calendar-in-test` | warning | on |
 /// | `skipped-test-inventory` | note | on |
 /// | `unvaried-parameter` | warning | opt-in |
 /// | `assertion-on-constant` | warning | opt-in |
@@ -41,6 +43,13 @@ import SwiftParser
 /// acted on; `TestQualityVisitor.optInRules` records what each measured and why.
 /// Suppression for these rules must **name** the rule — see
 /// `TestQualityVisitor.scopedOverrideIfExempted(line:ruleId:)`.
+///
+/// `coalesced-assertion` and `ambient-calendar-in-test` are on, at `warning`, and are
+/// **warnings for one release by design** rather than by hesitation. The gate is shared with
+/// five repositories and only one of them has been swept; a rule that blocks all five on its
+/// first run cannot be evaluated before it has already cost someone a morning. Promotion to
+/// `error` is a separate, deliberate change, made once each consumer has seen its own
+/// population.
 ///
 /// ## The exact-comparison rule is not implemented here
 ///
@@ -70,7 +79,7 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     public let name = "Test Quality Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Floating-point assertions, missing or vacuous test assertions, silent skips, unseeded randomness in tests"
+    public let summary = "Floating-point assertions, missing or vacuous test assertions, silent skips, ambient time, unseeded randomness in tests"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
@@ -388,6 +397,10 @@ private final class TestQualityVisitor: SyntaxVisitor {
     /// Empty when auditing a bare source string, so the rule reports nothing.
     let implementations: SelfReferentialExpectation.ImplementationIndex
 
+    /// Lines carrying a `// TEST-QUALITY-FILE:` marker — see
+    /// ``TestQualityVisitor/fileScopedOverride(line:ruleId:)``.
+    let fileScopedMarkers: [String]
+
     init(
         fileName: String,
         source: String,
@@ -402,7 +415,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
         self.exemptionPatterns = exemptionPatterns
         self.enabledOptInRules = enabledOptInRules
         self.implementations = implementations
-        self.sourceLines = source.lines
+        let lines = source.lines
+        self.sourceLines = lines
+        self.fileScopedMarkers = lines.filter { $0.contains(Self.fileMarker) }
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -727,6 +742,17 @@ private final class TestQualityVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        // Not scoped to a `@Test` body: the corpus reads the calendar as a suite-level
+        // property as often as inside a test, and the reading is ambient either way.
+        if let ambient = SemanticTestRules.ambientCalendarReference(in: node) {
+            emit(
+                severity: .warning,
+                message: "\(ambient.reading.describedAsWritten).",
+                ruleId: "ambient-calendar-in-test",
+                fix: "Use a fixed calendar shared by the suite — a Calendar with an explicit timeZone, named once as a fixture — so the assertion means the same thing on every machine.",
+                at: node)
+        }
+
         if node.baseName.text == "SystemRandomNumberGenerator" {
             let location = node.startLocation(
                 converter: converter
@@ -774,6 +800,15 @@ private final class TestQualityVisitor: SyntaxVisitor {
     private func analyzeAssertedCondition(_ node: MacroExpansionExprSyntax) {
         guard let first = node.arguments.first, first.label == nil else { return }
         let condition = first.expression
+
+        if let site = SemanticTestRules.coalescedLiteral(in: condition) {
+            emit(
+                severity: .warning,
+                message: "Assertion falls back to '\(site.fallback)' when the optional is nil, so a missing value is asserted as if it were present.",
+                ruleId: "coalesced-assertion",
+                fix: "Bind the value first — let v = try #require(optional) — and assert on v, so absence is what fails. try #require cannot be inlined into #expect: the macro expands its condition into a non-throwing closure, so the binding must be its own statement and the enclosing function must be marked throws.",
+                at: node)
+        }
 
         if SemanticTestRules.isAssertionOnConstant(condition) {
             emit(
@@ -1112,7 +1147,41 @@ private final class TestQualityVisitor: SyntaxVisitor {
             )
         }
 
-        return nil
+        return fileScopedOverride(line: line, ruleId: ruleId)
+    }
+
+    /// The marker that suppresses a named rule for a whole file.
+    ///
+    /// Spelled `-FILE:` rather than `:` so it cannot be mistaken for the line-scoped marker
+    /// by either a reader or `overrideIfExempted`, whose pattern is `// TEST-QUALITY:` and
+    /// does not match this one.
+    private static let fileMarker = "// TEST-QUALITY-FILE:"
+
+    /// A suppression stated once for a file whose *subject* is the flagged shape.
+    ///
+    /// `ambient-calendar-in-test` is why this exists. A suite that exists to prove behaviour
+    /// across time zones reads the ambient calendar in every test it contains, on purpose;
+    /// BusinessMath's `ZoneInvariance.swift` is that file. Repeating a line marker on forty
+    /// sites is the noise that gets a rule switched off, and `excludePatterns` is too blunt —
+    /// it would hide every other test-quality rule in the same file, including the ones that
+    /// would find a real defect there.
+    ///
+    /// The three properties that keep this from becoming a blanket escape hatch are the same
+    /// ones ``TestQualityVisitor/scopedOverrideIfExempted(line:ruleId:)`` argues for: the
+    /// marker must **name** the rule, so it cannot silence a rule its author never considered;
+    /// it records an override **per suppressed site**, so the count stays visible in the
+    /// report rather than collapsing to one; and it applies only to the scoped rules, never to
+    /// the five syntactic ones, whose findings are defects rather than judgements.
+    private func fileScopedOverride(line: Int, ruleId: String) -> DiagnosticOverride? {
+        guard let marker = fileScopedMarkers.first(where: { $0.contains(ruleId) }) else {
+            return nil
+        }
+        return DiagnosticOverride(
+            ruleId: ruleId,
+            justification: marker.trimmingCharacters(in: .whitespaces),
+            filePath: fileName,
+            lineNumber: line
+        )
     }
 
     private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {

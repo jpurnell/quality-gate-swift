@@ -4,6 +4,48 @@
 
 ### Added
 
+- **Two more `test-quality` rules, both `warning` for one release.** Proposal:
+  `plans/completed/TestQualityAuditor_CoalescingAndAmbientCalendar.md` (companion).
+
+  `coalesced-assertion` — `#expect(abs((ma[k] ?? 0) - 100.0) < 1e-6)` fabricates a literal for
+  a value that may be missing. When the key is absent the failure is about arithmetic rather
+  than about lookup, and in the shapes where the fabricated value satisfies the comparison
+  there is no failure at all; either way the assertion has stopped being about the optional.
+  BusinessMath grew 211 of these over roughly two years and every one was found by a human
+  reading tests, which is the whole argument for a rule — there is nothing left to find and
+  everything left to prevent.
+
+  `ambient-calendar-in-test` — `Calendar.current` makes a fiscal-year assertion depend on
+  where CI runs. `Calendar(identifier:)` is included because it *looks* fixed: pinning the
+  calendar system reads as diligence, so the site survives review, but the initialiser takes
+  no time zone and the value carries `TimeZone.current`.
+
+  **Warning severity is the design, not hesitation.** The gate is shared with five
+  repositories and only one has been swept; a rule that blocks all five on its first run
+  cannot be evaluated before it has already cost someone a morning. Promotion to `error` is a
+  separate change, made once each consumer has seen its own population.
+
+  The proposal named four items and two shipped. `Date()` was dropped from
+  `ambient-calendar-in-test` during its adversarial review — separating a *timestamp* reading
+  from a *calendar date* reading needs dataflow, not syntax, and would have been wrong in both
+  directions — which also avoided a head-on collision with `hardcoded-date`, whose suggested
+  fix is literally "Use `Date()`". The boundary now stated in both rules: a timestamp wants
+  `Date()`, a calendar date wants a fixed calendar. A third item was withdrawn on
+  reconciliation because `assertion-on-constant` already owns it and owns it better, and a
+  fourth — "fix the checker's nested-scope bug" — was reproduced against the shipping binary
+  and does not occur; the auditor already handles the case, and the workaround markers written
+  for it had outlived their cause.
+
+- **A file-scoped suppression marker, `// TEST-QUALITY-FILE: <rule-id> — <reason>`.** A suite
+  whose *subject* is the flagged shape — one that exists to prove behaviour across time zones
+  reads the ambient calendar in every test, on purpose — needed either forty copies of a line
+  marker or `excludePatterns`, and `excludePatterns` would have hidden every other
+  test-quality rule in the same file, including the ones that would find a real defect there.
+  The marker keeps the three properties that stop it becoming a blanket escape hatch: it must
+  **name** the rule, it records an override **per suppressed site** so the count stays visible
+  in the report, and it applies only to the semantic rules and never to the five syntactic
+  ones, whose findings are defects rather than judgements.
+
 - **Seven semantic rules for `test-quality`**, aimed at tests that pass while testing
   nothing — where the flaw is not in the assertion's syntax. Proposal:
   `plans/proposals/TestQualityAuditor_SemanticRules.md` (companion).
@@ -37,6 +79,21 @@
   corpus containing seventy-three, and looked like a working rule while doing it.
 
 ### Fixed
+
+- **Ten sites in this repository's own tests, found by the two new rules on their first run.**
+  Nine `coalesced-assertion` — `#expect(abs((result?.mean ?? 0) - 0.5) < 0.001)` and
+  `?? -1` variants across `TrendAnalysisTests`, `PulseStatisticsTests`, `WeightedScoringTests`
+  and `ProjectFactsExtractorTests` — are now `try #require` bindings, so a missing value fails
+  by naming itself instead of failing an arithmetic comparison it was never about. One
+  `ambient-calendar-in-test` in `StatusAuditorTests` was a real zone defect rather than a
+  stylistic one: the test built "200 days ago" through `Calendar.current` and rendered it with
+  `ISO8601DateFormatter`, which formats in GMT, so the day it read back was produced in a
+  different zone from the one that built it. It now offsets by elapsed time and touches no
+  calendar at all.
+
+  The carve-outs were measured on the same run. A rule matching `??` and stopping there would
+  have reported twenty-six findings here, of which seventeen are correct code: fourteen
+  fallbacks inside search predicates, and three spellings of `?? false`.
 
 - **`test-quality` failed on any diagnostic, whatever its severity.** Status was
   `diagnostics.isEmpty ? .passed : .failed`, which was invisible while every rule emitted an

@@ -57,38 +57,42 @@ struct ProjectFactsExtractorTests {
     }
 
     @Test("A project's facts contain none of a sibling's anomalies or work")
-    func noCrossContamination() {
+    func noCrossContamination() throws {
         let facts = extractor.facts(from: twoProjectInput())
-        let math = facts.first { $0.projectID == "BusinessMath" }
+        let math = try #require(facts.first { $0.projectID == "BusinessMath" })
         // BusinessMath must carry only its own anomaly (overrideRate) and its own commit.
-        #expect(math?.anomalies.allSatisfy { $0.metric == "overrideRate" } == true)
-        #expect(math?.work.allSatisfy { $0.commitSHA == "aaa111" } == true)
-        #expect(math?.work.contains { $0.commitSHA == "ccc333" } == false)
-        #expect(abs((math?.weightedScore ?? -1) - 0.937) < 1e-6)
+        #expect(math.anomalies.allSatisfy { $0.metric == "overrideRate" })
+        #expect(math.work.allSatisfy { $0.commitSHA == "aaa111" })
+        #expect(math.work.contains { $0.commitSHA == "ccc333" } == false)
+        let mathScore = try #require(math.weightedScore)
+        #expect(abs(mathScore - 0.937) < 1e-6)
     }
 
     @Test("Anomalies are matched to a project by scope, not by order")
-    func anomaliesMatchedByScope() {
+    func anomaliesMatchedByScope() throws {
         let facts = extractor.facts(from: twoProjectInput())
         for f in facts {
             #expect(f.anomalies.isEmpty == false)
         }
         // The high-z passRate anomaly belongs to Charts, the overrideRate to Math.
-        #expect(abs((facts.first { $0.projectID == "BusinessMathCharts" }?.anomalies.first?.zScore ?? -1) - 5.1) < 1e-6)
-        #expect(abs((facts.first { $0.projectID == "BusinessMath" }?.anomalies.first?.zScore ?? -1) - 2.4) < 1e-6)
+        let charts = try #require(facts.first { $0.projectID == "BusinessMathCharts" }?.anomalies.first)
+        let math = try #require(facts.first { $0.projectID == "BusinessMath" }?.anomalies.first)
+        #expect(abs(charts.zScore - 5.1) < 1e-6)
+        #expect(abs(math.zScore - 2.4) < 1e-6)
     }
 
     @Test("A project present only in weightedScores still appears, defaulting to passing")
-    func projectUniverseIsUnion() {
+    func projectUniverseIsUnion() throws {
         let pulse = PulseFixtures.pulse(
             statistics: PulseFixtures.emptyStats(weightedScores: ["Orphan": 0.9])
         )
         let facts = extractor.facts(from: NarrativeInput(pulse: pulse, previousPulse: nil, workLogsByProject: [:]))
-        let orphan = facts.first { $0.projectID == "Orphan" }
-        #expect(orphan?.projectID == "Orphan")
-        #expect(orphan?.passing == true)          // no snapshot → default passing
-        #expect(abs((orphan?.weightedScore ?? -1) - 0.9) < 1e-6)
-        #expect(orphan?.anomalies.isEmpty == true)
+        let orphan = try #require(facts.first { $0.projectID == "Orphan" })
+        #expect(orphan.projectID == "Orphan")
+        #expect(orphan.passing)                   // no snapshot → default passing
+        let orphanScore = try #require(orphan.weightedScore)
+        #expect(abs(orphanScore - 0.9) < 1e-6)
+        #expect(orphan.anomalies.isEmpty)
     }
 
     @Test("Facts are returned sorted by project ID")

@@ -400,6 +400,269 @@ enum SemanticTestRules {
         }
     }
 
+    // MARK: - coalesced-assertion
+
+    /// A `??` inside an asserted condition, and the value it fabricates.
+    struct CoalescingSite {
+        /// The fallback as written, for the diagnostic to quote.
+        let fallback: String
+    }
+
+    /// Whether an assertion fabricates a value for one that may be missing.
+    ///
+    /// ```swift
+    /// import Testing
+    ///
+    /// let periods = [7, 14, 28]
+    /// let ma: [Int: Double] = [:]
+    ///
+    /// @Test func movingAverage() {
+    ///     #expect(abs((ma[periods[0]] ?? 0) - 100.0) < 1e-6)
+    /// }
+    /// ```
+    ///
+    /// When the key is absent this does not report a missing key. It reports that `0` is not
+    /// within `1e-6` of `100.0` — a failure about arithmetic, for a defect about lookup — and
+    /// in the shapes where the fabricated value happens to satisfy the comparison, it reports
+    /// nothing at all. Either way the assertion has stopped being about the optional. The fix
+    /// is to require the value, so that absence is the thing that fails.
+    ///
+    /// BusinessMath grew 211 of these over roughly two years and every one was found by a
+    /// human reading tests. The population is now zero, which is the whole argument for a
+    /// rule: there is nothing left to find and everything left to prevent.
+    ///
+    /// ## Four carve-outs, three of them measured
+    ///
+    /// - **Only the asserted condition.** A fallback in the failure message —
+    ///   `#expect(found?.count == 1, "got \(found ?? [])")` — cannot change whether the test
+    ///   passes. The caller passes only the first unlabelled argument.
+    /// - **Only a literal fallback.** `#expect((rHat ?? .infinity) < 1.1)` is correct: the
+    ///   value is chosen precisely because it cannot be plausible, so absence *fails*. That
+    ///   carve-out needs no special case — a poison value is never a literal, because its
+    ///   whole purpose is to be recognisable as impossible. Anything computed
+    ///   (`?? defaultScore()`) is likewise the test's own stated choice rather than a
+    ///   fabrication buried in an assertion.
+    /// - **`?? false`, unless negated.** `#expect(diag?.message.contains("x") ?? false)` is
+    ///   the canonical Swift spelling of *non-nil and true*; absence yields `false` and the
+    ///   assertion fails. Under a `!` the sense flips and absence passes, so the negated form
+    ///   is flagged. This is conservative in one direction: `#expect((flags["a"] ?? false) ==
+    ///   expected)` really is a fabrication and is not reported, because deciding that needs
+    ///   to know what `expected` is.
+    /// - **Not inside a closure.** `#expect(diagnostics.contains { ($0.ruleId ?? "").contains("x") })`
+    ///   is correct and idiomatic: the fallback answers the *predicate*, where "missing means
+    ///   does not match" is the right reading, and the search as a whole still fails if
+    ///   nothing matches. This is the distinction `unasserted-optional-unwrap` already draws
+    ///   — a value returned from a closure answers the closure, not the test — and without it
+    ///   this rule reported fourteen findings on this repository's own suite, every one of
+    ///   them correct code.
+    ///
+    /// A fallback inside string interpolation is skipped for the same reason as the message
+    /// argument: it is formatting.
+    ///
+    /// ## What is deliberately not carved out
+    ///
+    /// A genuinely sparse map — a counter where "no entry" and "zero" are the same fact —
+    /// makes `#expect((counts[k] ?? 0) >= 0)` correct, and this rule reports it. No instance
+    /// was found in BusinessMath, and inventing a carve-out for a shape with no evidence
+    /// behind it is how a rule acquires holes nobody can justify later. The recorded
+    /// acknowledgement is the answer: `// TEST-QUALITY: coalesced-assertion — <reason>`.
+    ///
+    /// - Parameter condition: An assertion's first unlabelled argument.
+    /// - Returns: The first fabricating fallback in it, or `nil`.
+    static func coalescedLiteral(in condition: ExprSyntax) -> CoalescingSite? {
+        let scan = CoalescingScanner(boundary: Syntax(condition).id, viewMode: .sourceAccurate)
+        scan.walk(condition)
+        return scan.site
+    }
+
+    /// Finds the first `??` whose fallback stands in for a value the assertion needed.
+    private final class CoalescingScanner: SyntaxVisitor {
+        /// The condition's own node; the negation walk stops here rather than escaping into
+        /// the enclosing macro and file.
+        let boundary: SyntaxIdentifier
+        var site: CoalescingSite?
+
+        init(boundary: SyntaxIdentifier, viewMode: SyntaxTreeViewMode) {
+            self.boundary = boundary
+            super.init(viewMode: viewMode)
+        }
+
+        override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+            .skipChildren
+        }
+
+        override func visit(_ node: StringLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+            .skipChildren
+        }
+
+        /// `Parser.parse` does not fold operators, so `x ?? 0` arrives as a flat sequence.
+        override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
+            let elements = Array(node.elements)
+            for (index, element) in elements.enumerated() {
+                guard let op = element.as(BinaryOperatorExprSyntax.self),
+                      op.operator.text == "??",
+                      index + 1 < elements.count else {
+                    continue
+                }
+                consider(fallback: elements[index + 1], at: Syntax(element))
+            }
+            return .visitChildren
+        }
+
+        /// The folded shape, which a caller gets after `OperatorTable`.
+        override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
+            if let op = node.operator.as(BinaryOperatorExprSyntax.self),
+               op.operator.text == "??" {
+                consider(fallback: node.rightOperand, at: Syntax(node.operator))
+            }
+            return .visitChildren
+        }
+
+        private func consider(fallback: ExprSyntax, at operatorNode: Syntax) {
+            guard site == nil else { return }
+            guard let rendered = SemanticTestRules.fabricatedFallback(fallback) else { return }
+            if SemanticTestRules.isFalseLiteral(fallback),
+               !SemanticTestRules.isNegated(operatorNode, upTo: boundary) {
+                return
+            }
+            site = CoalescingSite(fallback: rendered)
+        }
+    }
+
+    /// A fallback written as a literal, rendered as source, or `nil` if it is computed.
+    ///
+    /// Collection literals count: `?? []` fabricates an empty report as surely as `?? 0`
+    /// fabricates a zero.
+    static func fabricatedFallback(_ expr: ExprSyntax) -> String? {
+        let bare = withoutParentheses(expr)
+        let isLiteralShape = bare.is(IntegerLiteralExprSyntax.self)
+            || bare.is(FloatLiteralExprSyntax.self)
+            || bare.is(BooleanLiteralExprSyntax.self)
+            || bare.is(StringLiteralExprSyntax.self)
+            || bare.is(ArrayExprSyntax.self)
+            || bare.is(DictionaryExprSyntax.self)
+        if isLiteralShape { return rendered(bare) }
+        if let prefix = bare.as(PrefixOperatorExprSyntax.self),
+           prefix.operator.text == "-",
+           numericLiteral(bare) != nil {
+            return rendered(bare)
+        }
+        return nil
+    }
+
+    /// Whether an expression is the boolean literal `false`.
+    static func isFalseLiteral(_ expr: ExprSyntax) -> Bool {
+        withoutParentheses(expr).as(BooleanLiteralExprSyntax.self)?.literal.text == "false"
+    }
+
+    /// Whether an odd number of `!` operators stands between a node and the condition root.
+    ///
+    /// The boundary matters: without it the walk continues past the assertion into the
+    /// enclosing statement and file, where any unrelated `!` would flip the answer.
+    static func isNegated(_ node: Syntax, upTo boundary: SyntaxIdentifier) -> Bool {
+        var negations = 0
+        var current: Syntax? = node
+        while let candidate = current {
+            if let prefix = candidate.as(PrefixOperatorExprSyntax.self),
+               prefix.operator.text == "!" {
+                negations += 1
+            }
+            if candidate.id == boundary { break }
+            current = candidate.parent
+        }
+        return negations % 2 == 1
+    }
+
+    /// An expression with its enclosing parentheses removed.
+    ///
+    /// Terminates on the first expression that is not a single unlabelled tuple element,
+    /// which every expression eventually is.
+    private static func withoutParentheses(_ expr: ExprSyntax) -> ExprSyntax {
+        guard let tuple = expr.as(TupleExprSyntax.self),
+              tuple.elements.count == 1,
+              let only = tuple.elements.first,
+              only.label == nil else {
+            return expr
+        }
+        return withoutParentheses(only.expression)
+    }
+
+    /// An expression as source, without the trivia the parser attached to it.
+    private static func rendered(_ expr: ExprSyntax) -> String {
+        expr.description.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - ambient-calendar-in-test
+
+    /// A test reading its calendar from the machine it happens to run on.
+    struct AmbientTimeSite {
+        /// Which ambient reading was written.
+        enum Reading {
+            /// `Calendar.current`.
+            case current
+            /// `Calendar(identifier:)` — the calendar system is fixed, the time zone is not.
+            case identifierInitialiser
+
+            /// How the diagnostic names it.
+            var describedAsWritten: String {
+                switch self {
+                case .current:
+                    return "Calendar.current takes the calendar system, locale and time zone of whatever machine runs this test"
+                case .identifierInitialiser:
+                    return "Calendar(identifier:) fixes the calendar system and still inherits TimeZone.current, so its date arithmetic depends on where this test runs"
+                }
+            }
+        }
+
+        /// The reading found.
+        let reading: Reading
+    }
+
+    /// Whether a reference to `Calendar` reads the ambient one.
+    ///
+    /// Both spellings are found from the same node — the `Calendar` reference itself — by
+    /// asking what encloses it: a `.current` member access, or a call passing `identifier:`.
+    ///
+    /// ## Why `Calendar(identifier:)` counts
+    ///
+    /// It looks fixed, and that is the problem. Pinning the calendar *system* reads as
+    /// diligence, so the site survives review — but the initialiser takes no time zone, the
+    /// value carries `TimeZone.current`, and every component it computes still moves with the
+    /// runner. A fiscal-year boundary asserted through one of these passes in Cupertino and
+    /// fails in Auckland.
+    ///
+    /// ## Why `Date()` is not here
+    ///
+    /// It was, in the first draft, with a carve-out for two readings bracketing each other —
+    /// `let before = Date(); …; let after = Date()` — which is correct code. That carve-out
+    /// is a dataflow question and this is a syntax matcher, so it would have been wrong in
+    /// both directions: flagging the correct bracketing tests, and missing every reading
+    /// laundered through a helper. `Date()` was dropped rather than approximated.
+    ///
+    /// The boundary that remains is worth stating, because a neighbouring rule owns the other
+    /// half: **a timestamp wants `Date()`; a calendar date wants a fixed calendar.**
+    /// `hardcoded-date` owns the first and its suggested fix is literally *"Use `Date()`"*.
+    /// A version of this rule that flagged `Date()` would have pulled against it on the same
+    /// line.
+    static func ambientCalendarReference(in node: DeclReferenceExprSyntax) -> AmbientTimeSite? {
+        guard node.baseName.text == "Calendar" else { return nil }
+        let reference = Syntax(node).id
+
+        if let member = node.parent?.as(MemberAccessExprSyntax.self),
+           member.base?.id == reference,
+           member.declName.baseName.text == "current" {
+            return AmbientTimeSite(reading: .current)
+        }
+
+        if let call = node.parent?.as(FunctionCallExprSyntax.self),
+           call.calledExpression.id == reference,
+           call.arguments.contains(where: { $0.label?.text == "identifier" }) {
+            return AmbientTimeSite(reading: .identifierInitialiser)
+        }
+
+        return nil
+    }
+
     // MARK: - skipped-test-inventory
 
     /// A test that does not run, and the reason its author gave.

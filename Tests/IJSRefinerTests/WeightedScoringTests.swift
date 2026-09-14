@@ -57,7 +57,7 @@ struct WeightedScoringTests {
     }
 
     @Test("All checkers pass produces score of 1.0")
-    func allPass() async {
+    func allPass() async throws {
         let refiner = PulseRefiner(writer: DirectCorpusTransport())
         let metadata = [
             makeMetadata(
@@ -69,7 +69,8 @@ struct WeightedScoringTests {
         let scores = await refiner.computeWeightedScores(
             projectMetadata: ["test-project": metadata]
         )
-        #expect(abs((scores["test-project"] ?? 0) - 1.0) < 1e-6)
+        let score = try #require(scores["test-project"])
+        #expect(abs(score - 1.0) < 1e-6)
     }
 
     @Test("Safety checker failure causes large score drop")

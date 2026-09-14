@@ -63,13 +63,13 @@ struct TrendAnalysisTests {
     }
 
     @Test("CI bounds match known distribution")
-    func ciBoundsKnown() {
+    func ciBoundsKnown() throws {
         let values = Array(repeating: 0.5, count: 30)
-        let result = TrendAnalysis.compute(metric: "overrideRate", values: values)
-        #expect(result?.metric == "overrideRate")
-        #expect(abs((result?.mean ?? 0) - 0.5) < 0.001)
-        #expect(abs((result?.ci90Low ?? 0) - 0.5) < 0.001)
-        #expect(abs((result?.ci90High ?? 0) - 0.5) < 0.001)
+        let result = try #require(TrendAnalysis.compute(metric: "overrideRate", values: values))
+        #expect(result.metric == "overrideRate")
+        #expect(abs(result.mean - 0.5) < 0.001)
+        #expect(abs(result.ci90Low - 0.5) < 0.001)
+        #expect(abs(result.ci90High - 0.5) < 0.001)
     }
 
     @Test("Codable round-trip preserves all fields")

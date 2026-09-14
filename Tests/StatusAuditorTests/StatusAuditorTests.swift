@@ -451,12 +451,14 @@ struct StatusValidatorTests {
 
     @Test("Flags stale Last Updated date")
     func flagsStaleLastUpdated() {
-        // 200 days ago (threshold is 90)
-        let calendar = Calendar.current
-        let oldDate = calendar.date(byAdding: .day, value: -200, to: .now)
+        // 200 days ago (threshold is 90). Offset by elapsed time rather than by calendar
+        // component: `ISO8601DateFormatter` renders in GMT, so a date produced through
+        // `Calendar.current` was being read back in a different zone from the one that
+        // built it, and the rendered day could differ by one depending on where this ran.
+        let oldDate = Date.now.addingTimeInterval(TimeInterval(-200 * 24 * 60 * 60))
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
-        let dateStr = formatter.string(from: oldDate ?? .now)
+        let dateStr = formatter.string(from: oldDate)
 
         let diags = StatusValidator.validate(
             documented: [], actual: [:],

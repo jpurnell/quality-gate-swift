@@ -27,6 +27,8 @@ The rules above are properties of a single assertion's *syntax*: exact, fast, an
 | `unasserted-optional-unwrap` | error | on | `guard let x = f() else { return }` in a `@Test` — when `f()` returns nil the test passes having run no assertions |
 | `self-referential-expectation` | error | on | An expected value that restates the body of the function it is testing, so the assertion holds for whatever that body is |
 | `non-strict-improvement` | warning | on | `#expect(new <= old)` in a test whose name claims *better*, *improve*, *beat*, *exceed* or *outperform* — an unchanged implementation also passes |
+| `coalesced-assertion` | warning | on | `#expect(abs((ma[k] ?? 0) - 100.0) < 1e-6)` — the assertion fabricates a literal for a value that may be missing, so absence is no longer what fails |
+| `ambient-calendar-in-test` | warning | on | `Calendar.current` or `Calendar(identifier:)` in a test — the result depends on the locale and time zone of whatever machine runs it |
 | `skipped-test-inventory` | note | on | Every test that does not run: `.disabled(…)`, `.enabled(if:)`, `XCTSkip`, or an early return gated on the environment |
 | `unvaried-parameter` | warning | **opt-in** | One call, all-literal arguments, one assertion — cannot detect that a parameter is ignored |
 | `assertion-on-constant` | warning | **opt-in** | `#expect(true)`, `#expect(1.0 == 1.0)` — an assertion that never reaches your code |
@@ -44,6 +46,25 @@ enabledCheckers:
   - test-quality.assertion-on-constant
   - test-quality.tolerance-without-magnitude
 ```
+
+#### Two rules are warnings for one release
+
+`coalesced-assertion` and `ambient-calendar-in-test` are on by default and report at `warning`. That is a policy decision, not hesitation about the rules: this gate is shared with five repositories and only one of them has been swept, so a rule that blocks all five on its first run cannot be evaluated before it has already cost someone a morning. The warning release is how each consumer sees its own population. Promotion to `error` is a separate, deliberate change.
+
+Both were narrowed by a corpus before shipping, which is the only evidence that matters for a proxy rule:
+
+- `coalesced-assertion` ignores a fallback inside a **closure** passed to the assertion. `#expect(diagnostics.contains { ($0.ruleId ?? "").contains("bounded-io") })` is correct — the fallback answers the *predicate*, where "missing means does not match" is the right reading, and the search still fails if nothing matches. Without that carve-out the rule reported fourteen findings on this repository's own suite, every one of them correct code. It also ignores `?? false` unless a `!` encloses it, because `#expect(x?.p() ?? false)` is the canonical spelling of *non-nil and true* and a missing value already fails it.
+- `ambient-calendar-in-test` covers `Calendar` and nothing else. `Date()` was in the first draft and was dropped: telling a *timestamp* reading from a *calendar date* reading needs dataflow, and `hardcoded-date`'s suggested fix is literally "Use `Date()`", so the two rules would have pulled against each other on one line. **A timestamp wants `Date()`; a calendar date wants a fixed calendar.**
+
+#### A file whose subject is the flagged shape
+
+A suite that exists to prove behaviour across time zones reads the ambient calendar in every test it contains, on purpose. Repeating a line marker on forty sites is the noise that gets a rule switched off, and `excludePatterns` is too blunt — it would hide every other test-quality rule in the same file, including the ones that would find a real defect there. State the marker once, for the file:
+
+```swift
+// TEST-QUALITY-FILE: ambient-calendar-in-test — this suite's subject is time-zone behaviour
+```
+
+It still has to name the rule, so it cannot silence one its author never considered, and it still records an override **per suppressed site**, so the count stays visible in the report instead of collapsing to one. It applies only to the semantic rules, never to the five syntactic ones.
 
 #### The inventory never gates
 
@@ -77,7 +98,7 @@ For unit testing the auditor itself, `auditSource(_:fileName:configuration:)` ac
 
 The five syntactic rules can be suppressed with a bare `// TEST-QUALITY:` comment on the same line or the line immediately above the flagged construct.
 
-The **semantic rules require the marker to name the rule**, because a blanket marker suppresses rules its author never considered. The corpus measurement found 73 lines of `#expect(true) // TEST-QUALITY: <reason>` written to satisfy `missing-assertion` — every one of them precisely what `assertion-on-constant` exists to find. Naming the rule keeps one acknowledgement from silently becoming another:
+The **semantic rules require the marker to name the rule** — on the flagged line or the one above it, or once for the whole file as `// TEST-QUALITY-FILE: <rule-id> — <reason>` — because a blanket marker suppresses rules its author never considered. The corpus measurement found 73 lines of `#expect(true) // TEST-QUALITY: <reason>` written to satisfy `missing-assertion` — every one of them precisely what `assertion-on-constant` exists to find. Naming the rule keeps one acknowledgement from silently becoming another:
 
 ```swift
 import Testing

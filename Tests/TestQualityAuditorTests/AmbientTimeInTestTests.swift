@@ -1,0 +1,265 @@
+import XCTest
+import TestQualityAuditor
+import QualityGateCore
+
+/// `ambient-calendar-in-test` — a test whose date arithmetic depends on where it runs.
+///
+/// The rule covers `Calendar.current` and `Calendar(identifier:)` and nothing else. `Date()`
+/// was in the first draft and was dropped: telling a *timestamp* reading from a *calendar
+/// date* reading needs to follow the value through bindings and helpers, which a
+/// `SyntaxVisitor` cannot do, and getting it wrong would have flagged the correct
+/// bracketing tests while missing every reading laundered through a helper. The boundary
+/// that survives is stated in `testLeavesTimestampReadingsToHardcodedDate`: a timestamp
+/// wants `Date()`, a calendar date wants a fixed calendar.
+final class AmbientTimeInTestTests: XCTestCase {
+
+    private let auditor = TestQualityAuditor()
+    private let ruleId = "ambient-calendar-in-test"
+
+    private func result(_ source: String) async throws -> CheckResult {
+        try await auditor.auditSource(
+            source, fileName: "SomeTests.swift", configuration: Configuration())
+    }
+
+    private func diagnostics(_ source: String) async throws -> [Diagnostic] {
+        try await result(source).diagnostics.filter { $0.ruleId == ruleId }
+    }
+
+    // MARK: - Must flag
+
+    func testFlagsCalendarCurrent() async throws {
+        // `BondPricingTests.swift@2251c71a:31`.
+        let source = """
+        import Testing
+
+        @Test func accruedInterest() {
+            let calendar = Calendar.current
+            #expect(calendar.component(.year, from: settlement) == 2024)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(found.first?.lineNumber, 4)
+        XCTAssertEqual(found.first?.severity, .warning)
+    }
+
+    func testFlagsCalendarIdentifierInitialiser() async throws {
+        // It looks fixed — the calendar *system* is pinned — and it is not: the initialiser
+        // takes no time zone, so the value carries `TimeZone.current`, and every component
+        // it computes still depends on where the test runs.
+        let source = """
+        import Testing
+
+        @Test func fiscalYear() {
+            let calendar = Calendar(identifier: .gregorian)
+            #expect(calendar.component(.month, from: yearEnd) == 9)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1)
+    }
+
+    func testFlagsReadingOutsideATestFunction() async throws {
+        // `BondPricingTests` reads the calendar as a suite-level property, so a rule scoped
+        // to `@Test` bodies would have missed the site the proposal names.
+        let source = """
+        import Testing
+
+        struct BondPricingTests {
+            let calendar = Calendar.current
+
+            @Test func accruedInterest() {
+                #expect(calendar.component(.year, from: settlement) == 2024)
+            }
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertEqual(found.first?.lineNumber, 4)
+    }
+
+    func testFlagsEachReadingSeparately() async throws {
+        let source = """
+        import Testing
+
+        @Test func twoReadings() {
+            let a = Calendar.current
+            let b = Calendar(identifier: .iso8601)
+            #expect(a.component(.year, from: d) == b.component(.year, from: d))
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 2)
+    }
+
+    // MARK: - Must not flag
+
+    func testIgnoresAFixedCalendarFixture() async throws {
+        // The shape the diagnostic asks for: a named fixture that pins both the calendar
+        // system and the time zone, defined once and shared.
+        let source = """
+        import Testing
+
+        @Test func fiscalYear() {
+            let calendar = gregorianUTC
+            #expect(calendar.component(.month, from: yearEnd) == 9)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty)
+    }
+
+    func testIgnoresAnUnrelatedCurrentReading() async throws {
+        // The rule claims `Calendar` only. `TimeZone.current` and `Locale.current` are
+        // ambient too, and are deliberately out of scope: the corpus evidence is about
+        // calendar arithmetic, and a rule should claim the territory it measured.
+        let source = """
+        import Testing
+
+        @Test func zoneName() {
+            #expect(TimeZone.current.identifier.isEmpty == false)
+            #expect(Locale.current.identifier.isEmpty == false)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty)
+    }
+
+    func testLeavesTimestampReadingsToHardcodedDate() async throws {
+        // A timestamp wants `Date()`; a calendar date wants a fixed calendar.
+        // `hardcoded-date` owns the first — its suggested fix is literally "Use Date()" —
+        // and this rule owns the second. Neither mentions the other's territory, and a rule
+        // that flagged `Date()` here would have pulled against `hardcoded-date` on one line.
+        let source = """
+        import Testing
+
+        @Test func recency() {
+            let stamp = Date()
+            #expect(stamp.timeIntervalSinceNow < 1.0)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty, "Date() was dropped from this rule and stays dropped")
+    }
+
+    func testIgnoresACalendarNamedInAStringLiteral() async throws {
+        let source = """
+        import Testing
+
+        @Test func reportsTheRule() {
+            #expect(diagnostic.message.contains("Calendar.current"))
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty)
+    }
+
+    // MARK: - Suppression
+
+    func testLineMarkerSuppressesOneSiteAndIsRecorded() async throws {
+        let source = """
+        import Testing
+
+        @Test func usesTheRunnersCalendar() {
+            // TEST-QUALITY: ambient-calendar-in-test — the subject is what a user's own calendar yields
+            let calendar = Calendar.current
+            #expect(calendar.component(.year, from: settlement) >= 2024)
+        }
+        """
+
+        let outcome = try await result(source)
+        XCTAssertTrue(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
+        XCTAssertEqual(outcome.overrides.filter { $0.ruleId == ruleId }.count, 1)
+    }
+
+    func testFileMarkerSuppressesEverySiteInTheFile() async throws {
+        // A suite whose *subject* is zone behaviour reads the ambient calendar on purpose,
+        // in every test. Repeating a line marker forty times is the noise that gets a rule
+        // switched off, so the marker can be stated once for the file — still naming the
+        // rule, still recorded as an override per site, so the count stays visible.
+        let source = """
+        import Testing
+
+        // TEST-QUALITY-FILE: ambient-calendar-in-test — this suite's subject is time-zone behaviour
+
+        @Test func componentsInTheRunnersZone() {
+            let calendar = Calendar.current
+            #expect(calendar.component(.year, from: d) >= 2024)
+        }
+
+        @Test func iso8601InTheRunnersZone() {
+            let calendar = Calendar(identifier: .iso8601)
+            #expect(calendar.component(.year, from: d) >= 2024)
+        }
+        """
+
+        let outcome = try await result(source)
+        XCTAssertTrue(
+            outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty,
+            "one marker covers the file")
+        XCTAssertEqual(
+            outcome.overrides.filter { $0.ruleId == ruleId }.count, 2,
+            "and every suppressed site is still counted")
+    }
+
+    func testFileMarkerSuppressesOnlyTheRuleItNames() async throws {
+        let source = """
+        import Testing
+
+        // TEST-QUALITY-FILE: ambient-calendar-in-test — this suite's subject is time-zone behaviour
+
+        @Test func componentsInTheRunnersZone() {
+            let calendar = Calendar.current
+            #expect(abs((counts["a"] ?? 0) - 3.0) < 1e-6)
+            #expect(calendar.component(.year, from: d) >= 2024)
+        }
+        """
+
+        let outcome = try await result(source)
+        XCTAssertTrue(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
+        XCTAssertEqual(
+            outcome.diagnostics.filter { $0.ruleId == "coalesced-assertion" }.count, 1,
+            "a file marker is scoped to its named rule, exactly as a line marker is")
+    }
+
+    func testBlanketMarkerDoesNotSuppressIt() async throws {
+        let source = """
+        import Testing
+
+        @Test func usesTheRunnersCalendar() {
+            let calendar = Calendar.current // TEST-QUALITY: intentional
+            #expect(calendar.component(.year, from: settlement) >= 2024)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1)
+    }
+
+    // MARK: - Idempotence
+
+    func testTwoRunsReportTheSameDiagnostics() async throws {
+        let source = """
+        import Testing
+
+        @Test func twoReadings() {
+            let a = Calendar.current
+            let b = Calendar(identifier: .iso8601)
+            #expect(a.component(.year, from: d) == b.component(.year, from: d))
+        }
+        """
+
+        let first = try await diagnostics(source)
+        let second = try await diagnostics(source)
+        XCTAssertEqual(first.map(\.lineNumber), second.map(\.lineNumber))
+        XCTAssertEqual(first.map(\.message), second.map(\.message))
+    }
+}
