@@ -70,8 +70,16 @@ struct DiagnosticReductionTests {
         // findings, every one of them this, and every one of them phrased as a claim about
         // the author's documentation. Both directions are matched — a toolchain moves
         // forward when a beta is adopted and backward when it is abandoned.
+        //
+        // The "different version" phrasing is verbatim from 2026-09-15, when Xcode 27.0
+        // replaced Xcode-beta (swiftlang-6.4.0.33.1 → 6.4.0.34.1). A build-number change
+        // is neither older nor newer to the compiler, and only "older" was matched, so the
+        // 09-02 fix missed it entirely: 65 of 74 corpus projects red, 1,361 findings, no
+        // barriers. A version stamp that differs is the whole class; direction is not.
         let phrasings = [
             "compiled module was created by an older version of the compiler; rebuild 'Foo' and try again: /p/.build/debug/Foo.swiftmodule/arm64-apple-macos.swiftmodule",
+            "compiled module was created by a newer version of the compiler; rebuild 'Foo' and try again: /p/.build/debug/Foo.swiftmodule/arm64-apple-macos.swiftmodule",
+            "compiled module was created by a different version of the compiler '6.4.0.33.1'; rebuild 'Logging' and try again: /p/.build/debug/Logging.swiftmodule/arm64-apple-macos.swiftmodule",
             "module compiled with Swift 6.3 cannot be imported by the Swift 6.4 compiler: /p/.build/debug/Foo.swiftmodule/arm64-apple-macos.swiftmodule",
         ]
         for phrasing in phrasings {

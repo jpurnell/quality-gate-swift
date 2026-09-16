@@ -295,8 +295,12 @@ public enum ArticleAuditor {
     /// Matched by phrase rather than structurally because these carry a location, which is
     /// exactly what the structural test uses to decide. The cost of a missing phrase is a
     /// wrong verdict, so a new one belongs here the day it is first seen.
+    ///
+    /// The phrase stops before the direction on purpose. Matching "an older version" missed
+    /// "a different version of the compiler '6.4.0.33.1'" — what a build-number change
+    /// says — on 2026-09-15, and 65 of 74 corpus projects read as broken documentation.
     static func isModuleLoadFailure(_ message: String) -> Bool {
-        message.contains("compiled module was created by an older version of the compiler")
+        message.contains("compiled module was created by")
             || message.contains("cannot be imported by the Swift")
     }
 

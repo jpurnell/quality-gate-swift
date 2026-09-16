@@ -80,6 +80,26 @@
 
 ### Fixed
 
+- **`doc-code` and `doc-comment-code` recognise a module from *any* other compiler as a
+  barrier, not only an older one.** The 2026-09-02 fix matched "compiled module was created
+  by an **older** version of the compiler". On 2026-09-15 Xcode 27.0 replaced Xcode-beta
+  (`swiftlang-6.4.0.33.1` → `6.4.0.34.1`), and a build-number change says "a **different**
+  version of the compiler '6.4.0.33.1'". Nothing matched, so every unrebuilt project filed
+  it as an ordinary compile error with the hint to fix the example or mark it illustrative:
+  65 of 74 corpus projects red, 353 `doc-code` and 1,008 `doc-comment-code` findings, zero
+  of them real and zero reported as barriers.
+
+  The match now stops at "compiled module was created by", before the direction. The
+  09-02 commit said both directions were matched; its test used a hand-written string, and
+  the second phrasing it listed was a different message altogether. The test now carries the
+  verbatim 09-15 message.
+
+  Two things a rebuild needs to know, because both surfaced while clearing it: plain
+  `swift build` does not refresh an **executable** target's `.swiftmodule` (only
+  `swift build --build-tests` does), and a barrier is still an error — this fix makes the
+  finding say *rebuild*, it does not make a stale build pass. The daily portfolio sweep, which
+  never builds, now reports these projects as stale builds rather than failures.
+
 - **Ten sites in this repository's own tests, found by the two new rules on their first run.**
   Nine `coalesced-assertion` — `#expect(abs((result?.mean ?? 0) - 0.5) < 0.001)` and
   `?? -1` variants across `TrendAnalysisTests`, `PulseStatisticsTests`, `WeightedScoringTests`
