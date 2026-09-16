@@ -92,7 +92,11 @@ final class CoalescedAssertionTests: XCTestCase {
         XCTAssertEqual(found.count, 1)
     }
 
-    func testSeverityIsWarningWhileTheRuleIsMeasured() async throws {
+    func testSeverityIsErrorAfterItsWarningRelease() async throws {
+        // Shipped at `warning` on 2026-09-14 so five repositories could see their own
+        // populations before anything blocked — 54 findings between them. Two working days
+        // later the population was zero, every site repaired rather than suppressed, so the
+        // condition ADR-001 sets for promotion was met.
         let source = """
         import Testing
 
@@ -102,9 +106,7 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(
-            found.first?.severity, .warning,
-            "the rule ships at warning for one release so five repositories can be measured")
+        XCTAssertEqual(found.first?.severity, .error)
     }
 
     func testSuggestedFixSaysRequireCannotBeInlined() async throws {

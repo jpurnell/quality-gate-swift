@@ -27,8 +27,8 @@ The rules above are properties of a single assertion's *syntax*: exact, fast, an
 | `unasserted-optional-unwrap` | error | on | `guard let x = f() else { return }` in a `@Test` — when `f()` returns nil the test passes having run no assertions |
 | `self-referential-expectation` | error | on | An expected value that restates the body of the function it is testing, so the assertion holds for whatever that body is |
 | `non-strict-improvement` | warning | on | `#expect(new <= old)` in a test whose name claims *better*, *improve*, *beat*, *exceed* or *outperform* — an unchanged implementation also passes |
-| `coalesced-assertion` | warning | on | `#expect(abs((ma[k] ?? 0) - 100.0) < 1e-6)` — the assertion fabricates a literal for a value that may be missing, so absence is no longer what fails |
-| `ambient-calendar-in-test` | warning | on | `Calendar.current` or `Calendar(identifier:)` in a test — the result depends on the locale and time zone of whatever machine runs it |
+| `coalesced-assertion` | error | on | `#expect(abs((ma[k] ?? 0) - 100.0) < 1e-6)` — the assertion fabricates a literal for a value that may be missing, so absence is no longer what fails |
+| `ambient-calendar-in-test` | error | on | `Calendar.current` or `Calendar(identifier:)` in a test — the result depends on the locale and time zone of whatever machine runs it |
 | `skipped-test-inventory` | note | on | Every test that does not run: `.disabled(…)`, `.enabled(if:)`, `XCTSkip`, or an early return gated on the environment |
 | `unvaried-parameter` | warning | **opt-in** | One call, all-literal arguments, one assertion — cannot detect that a parameter is ignored |
 | `assertion-on-constant` | warning | **opt-in** | `#expect(true)`, `#expect(1.0 == 1.0)` — an assertion that never reaches your code |
@@ -47,9 +47,16 @@ enabledCheckers:
   - test-quality.tolerance-without-magnitude
 ```
 
-#### Two rules are warnings for one release
+#### Two rules spent one release as warnings, and are now errors
 
-`coalesced-assertion` and `ambient-calendar-in-test` are on by default and report at `warning`. That is a policy decision, not hesitation about the rules: this gate is shared with five repositories and only one of them has been swept, so a rule that blocks all five on its first run cannot be evaluated before it has already cost someone a morning. The warning release is how each consumer sees its own population. Promotion to `error` is a separate, deliberate change.
+`coalesced-assertion` and `ambient-calendar-in-test` shipped 2026-09-14 at `warning` and were promoted to `error` on 2026-09-16. That sequence is ADR-001, not an exception to it: the gate is shared with five repositories and only one had been swept, so a rule that blocks all five on its first run cannot be evaluated before it has already cost someone a morning.
+
+What the release bought, in two working days:
+
+- **54 findings became 0**, in every repository by repair rather than suppression. 40 `coalesced-assertion` sites became `try #require` bindings; 14 ambient readings became fixed calendars. Not one line marker and not one file marker was needed.
+- **The rules were found wrong 26 times** — 17 `coalesced-assertion` and 9 `ambient-calendar-in-test` — and both carve-out sets below come from that. Had they shipped at `error`, those 26 would have been build failures, and the fix anyone reaches for at that point is the marker, not the carve-out.
+
+Promotion is the recorded end of that process. If a rule of yours is arriving red, this is the shape to copy.
 
 Both were narrowed by a corpus before shipping, which is the only evidence that matters for a proxy rule:
 

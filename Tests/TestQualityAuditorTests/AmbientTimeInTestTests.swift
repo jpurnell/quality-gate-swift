@@ -41,7 +41,9 @@ final class AmbientTimeInTestTests: XCTestCase {
         let found = try await diagnostics(source)
         XCTAssertEqual(found.count, 1)
         XCTAssertEqual(found.first?.lineNumber, 4)
-        XCTAssertEqual(found.first?.severity, .warning)
+        XCTAssertEqual(
+            found.first?.severity, .error,
+            "promoted 2026-09-16, after one release at warning took five repositories to zero")
     }
 
     func testFlagsCalendarIdentifierInitialiser() async throws {

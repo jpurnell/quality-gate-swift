@@ -4,6 +4,20 @@
 
 ### Added
 
+- **`coalesced-assertion` and `ambient-calendar-in-test` promoted to `error`.** They shipped at
+  `warning` on 2026-09-14 and were promoted on 2026-09-16, which is the rollout ADR-001
+  prescribes rather than an exception to it. The release measured **54 findings across the five
+  consuming repositories**; two working days later the population was **zero**, and every
+  repository got there by repair — 40 coalesced assertions became `try #require` bindings, 14
+  ambient readings became fixed calendars. Not one line marker and not one file marker was
+  needed, which is the strongest thing that can be said for a proxy rule: given a window to act,
+  people fixed the code rather than silenced the checker.
+
+  The release also found the rules wrong 26 times — 17 `coalesced-assertion`, 9
+  `ambient-calendar-in-test` — and every carve-out either rule carries comes from those. At
+  `error` on day one those 26 would have been build failures, and the fix anyone reaches for
+  then is the marker, not the carve-out.
+
 - **Two more `test-quality` rules, both `warning` for one release.** Proposal:
   `plans/completed/TestQualityAuditor_CoalescingAndAmbientCalendar.md` (companion).
 

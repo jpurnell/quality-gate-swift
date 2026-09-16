@@ -32,8 +32,8 @@ import SwiftParser
 /// | `unasserted-optional-unwrap` | error | on |
 /// | `self-referential-expectation` | error | on |
 /// | `non-strict-improvement` | warning | on |
-/// | `coalesced-assertion` | warning | on |
-/// | `ambient-calendar-in-test` | warning | on |
+/// | `coalesced-assertion` | error | on |
+/// | `ambient-calendar-in-test` | error | on |
 /// | `skipped-test-inventory` | note | on |
 /// | `unvaried-parameter` | warning | opt-in |
 /// | `assertion-on-constant` | warning | opt-in |
@@ -44,12 +44,19 @@ import SwiftParser
 /// Suppression for these rules must **name** the rule — see
 /// `TestQualityVisitor.scopedOverrideIfExempted(line:ruleId:)`.
 ///
-/// `coalesced-assertion` and `ambient-calendar-in-test` are on, at `warning`, and are
-/// **warnings for one release by design** rather than by hesitation. The gate is shared with
-/// five repositories and only one of them has been swept; a rule that blocks all five on its
-/// first run cannot be evaluated before it has already cost someone a morning. Promotion to
-/// `error` is a separate, deliberate change, made once each consumer has seen its own
-/// population.
+/// `coalesced-assertion` and `ambient-calendar-in-test` **were warnings for one release and are
+/// now errors**, which is the rollout ADR-001 describes rather than an exception to it. They
+/// shipped 2026-09-14 at `warning` because the gate is shared with five repositories and only
+/// one had been swept; a rule that blocks all five on its first run cannot be evaluated before
+/// it has already cost someone a morning.
+///
+/// The release measured 54 findings across the five. Two working days later the population was
+/// zero, and every repository got there by repair rather than by suppression — 40
+/// `coalesced-assertion` sites became `try #require` bindings and 14 ambient readings became
+/// fixed calendars. The measurement also found the rules themselves wrong 17 and 9 times
+/// respectively, which is the other half of what a warning release buys: both carve-out sets in
+/// `SemanticTestRules` come from it. Promotion here is the recorded end of that process, not a
+/// bet on it.
 ///
 /// ## The exact-comparison rule is not implemented here
 ///
@@ -746,7 +753,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
         // property as often as inside a test, and the reading is ambient either way.
         if let ambient = SemanticTestRules.ambientCalendarReference(in: node) {
             emit(
-                severity: .warning,
+                severity: .error,
                 message: "\(ambient.reading.describedAsWritten).",
                 ruleId: "ambient-calendar-in-test",
                 fix: "Use a fixed calendar shared by the suite — a Calendar with an explicit timeZone, named once as a fixture — so the assertion means the same thing on every machine.",
@@ -803,7 +810,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
         if let site = SemanticTestRules.coalescedLiteral(in: condition) {
             emit(
-                severity: .warning,
+                severity: .error,
                 message: "Assertion falls back to '\(site.fallback)' when the optional is nil, so a missing value is asserted as if it were present.",
                 ruleId: "coalesced-assertion",
                 fix: "Bind the value first — let v = try #require(optional) — and assert on v, so absence is what fails. try #require cannot be inlined into #expect: the macro expands its condition into a non-throwing closure, so the binding must be its own statement and the enclosing function must be marked throws.",
