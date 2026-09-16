@@ -54,7 +54,23 @@ enabledCheckers:
 Both were narrowed by a corpus before shipping, which is the only evidence that matters for a proxy rule:
 
 - `coalesced-assertion` ignores a fallback inside a **closure** passed to the assertion. `#expect(diagnostics.contains { ($0.ruleId ?? "").contains("bounded-io") })` is correct — the fallback answers the *predicate*, where "missing means does not match" is the right reading, and the search still fails if nothing matches. Without that carve-out the rule reported fourteen findings on this repository's own suite, every one of them correct code. It also ignores `?? false` unless a `!` encloses it, because `#expect(x?.p() ?? false)` is the canonical spelling of *non-nil and true* and a missing value already fails it.
-- `ambient-calendar-in-test` covers `Calendar` and nothing else. `Date()` was in the first draft and was dropped: telling a *timestamp* reading from a *calendar date* reading needs dataflow, and `hardcoded-date`'s suggested fix is literally "Use `Date()`", so the two rules would have pulled against each other on one line. **A timestamp wants `Date()`; a calendar date wants a fixed calendar.**
+- `ambient-calendar-in-test` covers `Calendar` and nothing else. `Date()` was in the first draft and was dropped: telling a *timestamp* reading from a *calendar date* reading needs dataflow, and `hardcoded-date`'s suggested fix is literally "Use `Date()`", so the two rules would have pulled against each other on one line. **A timestamp wants `Date()`; a calendar date wants a fixed calendar.** It also spares a `Calendar(identifier:)` whose `timeZone` is pinned by a later statement in the same block — including one inside an `if let`, and one pinned on a `DateComponents` the calendar was assigned into. `Calendar.current` gets no such carve-out: pinning a zone fixes half of it, and the calendar *system* is still the runner's, so the same instant yields a different year under a Japanese or Buddhist locale.
+
+#### What the five repositories actually contain
+
+Measured 2026-09-16 with the shipped binary, which is what the warning release was for:
+
+| Repository | Test files | `coalesced-assertion` | `ambient-calendar-in-test` |
+|---|---:|---:|---:|
+| BusinessMath | 579 | 4 | 8 |
+| BusinessMathPro | 40 | **31** | 5 |
+| BusinessMathMarketData | 14 | 3 | 1 |
+| businessMathMCP | 26 | 2 | 0 |
+| BusinessMathCharts | 6 | 0 | 0 |
+
+Two things in that table decided what happened next. The zone carve-outs above came from it — 9 of the 23 ambient sites were correct code pinning their own zone, and a rule wrong two times in five gets suppressed rather than fixed. And the `coalesced-assertion` column is why promotion to `error` is not on the table yet: 40 findings across four repositories is a worklist, not a gate.
+
+It is also why the rule earns its place. Seven sites in `BusinessMathPro/Risk/PortfolioRiskTests.swift` read `#expect(abs(greeks.gamma[equityId] ?? 0.0) < 1e-10)` — asserting a Greek is zero, in a form that passes just as happily when the Greek was never computed at all. Those are tests that stopped testing, and nothing else found them.
 
 #### A file whose subject is the flagged shape
 

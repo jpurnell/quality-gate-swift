@@ -656,11 +656,160 @@ enum SemanticTestRules {
 
         if let call = node.parent?.as(FunctionCallExprSyntax.self),
            call.calledExpression.id == reference,
-           call.arguments.contains(where: { $0.label?.text == "identifier" }) {
+           call.arguments.contains(where: { $0.label?.text == "identifier" }),
+           !isPinnedByTimeZoneAssignment(call) {
             return AmbientTimeSite(reading: .identifierInitialiser)
         }
 
         return nil
+    }
+
+    /// Whether a `Calendar(identifier:)` binding has its time zone pinned in the same block.
+    ///
+    /// ```swift
+    /// var calendar = Calendar(identifier: .gregorian)
+    /// calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+    /// ```
+    ///
+    /// The initialiser pins the calendar *system* and the next statement pins the only
+    /// ambient part left, so nothing here moves with the runner. There is no initialiser that
+    /// takes both, which is why the two-statement form is the idiom rather than a smell.
+    ///
+    /// ## This was measured, not anticipated
+    ///
+    /// The first release of this rule did not have this carve-out, and the sweep across the
+    /// four other consuming repositories found **9 of 23 sites were exactly this shape** —
+    /// every one of them correct code. A rule wrong two times in five teaches people to
+    /// suppress it, and a suppressed rule protects nothing. That is the same lesson
+    /// `unvaried-parameter` and `non-strict-improvement` each paid for against a corpus.
+    ///
+    /// ## Why it does not extend to `Calendar.current`
+    ///
+    /// Pinning the zone of an ambient calendar fixes half of it. The calendar *system* is
+    /// still the runner's, so the same instant yields a different year under a Japanese or
+    /// Buddhist locale. The carve-out belongs to the initialiser, which is the thing that
+    /// pins the system.
+    ///
+    /// ## Scope, and why it is not dataflow
+    ///
+    /// The assignment must name the same binding and appear in a *later statement of the same
+    /// block* — anywhere in that statement's subtree, so a pin inside an `if let` counts. That
+    /// is a local structural question, the same kind
+    /// ``SemanticTestRules/isUnassertedOptionalUnwrap(_:)`` asks of a `guard` body, and not
+    /// the value-following analysis that got `Date()` dropped from this rule. A calendar
+    /// pinned in a different function, or through a helper, is not recognised and is
+    /// reported; the marker is the answer there.
+    private static func isPinnedByTimeZoneAssignment(_ call: FunctionCallExprSyntax) -> Bool {
+        guard let name = pinnableName(of: call),
+              let item = enclosingCodeBlockItem(of: call),
+              let siblings = item.parent?.as(CodeBlockItemListSyntax.self) else {
+            return false
+        }
+
+        let scan = TimeZonePinScanner(name: name, viewMode: .sourceAccurate)
+        var reachedTheCalendar = false
+        for sibling in siblings {
+            if sibling.id == item.id {
+                reachedTheCalendar = true
+                continue
+            }
+            guard reachedTheCalendar else { continue }
+            scan.walk(sibling)
+            if scan.found { return true }
+        }
+        return false
+    }
+
+    /// The name this calendar is attached to, if it is attached to one.
+    ///
+    /// Two spellings, because the corpus uses both and they ask the same question:
+    ///
+    /// ```swift
+    /// var calendar = Calendar(identifier: .gregorian)          // the name is `calendar`
+    ///
+    /// var components = DateComponents()
+    /// components.calendar = Calendar(identifier: .gregorian)   // the name is `components`
+    /// ```
+    ///
+    /// In the second the calendar never gets a name of its own — it goes straight into a
+    /// `DateComponents`, whose `timeZone` is the thing the author then pins.
+    private static func pinnableName(of call: FunctionCallExprSyntax) -> String? {
+        if let initializer = call.parent?.as(InitializerClauseSyntax.self),
+           let binding = initializer.parent?.as(PatternBindingSyntax.self),
+           let pattern = binding.pattern.as(IdentifierPatternSyntax.self) {
+            return pattern.identifier.text
+        }
+        return assignmentTarget(containing: call)
+    }
+
+    /// The base of `X.<member> = <call>`, for a call that is the right-hand side.
+    private static func assignmentTarget(containing call: FunctionCallExprSyntax) -> String? {
+        guard let sequence = call.parent?.as(ExprListSyntax.self)?
+                .parent?.as(SequenceExprSyntax.self) else {
+            return nil
+        }
+        let elements = Array(sequence.elements)
+        guard elements.count >= 3,
+              elements[1].is(AssignmentExprSyntax.self),
+              elements.last?.id == ExprSyntax(call).id,
+              let member = elements[0].as(MemberAccessExprSyntax.self),
+              let base = member.base?.as(DeclReferenceExprSyntax.self) else {
+            return nil
+        }
+        return base.baseName.text
+    }
+
+    /// The statement a node belongs to, or `nil` if it is not inside one.
+    ///
+    /// Terminates at the root, which every node reaches by following finitely many parents.
+    private static func enclosingCodeBlockItem(of node: some SyntaxProtocol) -> CodeBlockItemSyntax? {
+        var current: Syntax? = Syntax(node)
+        while let candidate = current {
+            if let item = candidate.as(CodeBlockItemSyntax.self) { return item }
+            current = candidate.parent
+        }
+        return nil
+    }
+
+    /// Looks for `<name>.timeZone = …` anywhere in the statements it walks.
+    ///
+    /// The whole subtree of each later statement, not just its top level, because the pin is
+    /// often inside an `if let` — `TimeZone(secondsFromGMT:)` is failable and the projects
+    /// that pin zones are the same ones that refuse to force-unwrap. A conditional pin is
+    /// still evidence the zone was decided, which is the question being asked.
+    private final class TimeZonePinScanner: SyntaxVisitor {
+        let name: String
+        var found = false
+
+        init(name: String, viewMode: SyntaxTreeViewMode) {
+            self.name = name
+            super.init(viewMode: viewMode)
+        }
+
+        override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
+            let elements = Array(node.elements)
+            if elements.count >= 2, elements[1].is(AssignmentExprSyntax.self),
+               targets(elements[0]) {
+                found = true
+            }
+            return .visitChildren
+        }
+
+        override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
+            if node.operator.is(AssignmentExprSyntax.self), targets(node.leftOperand) {
+                found = true
+            }
+            return .visitChildren
+        }
+
+        private func targets(_ expr: ExprSyntax) -> Bool {
+            guard let member = expr.as(MemberAccessExprSyntax.self),
+                  member.declName.baseName.text == "timeZone",
+                  let base = member.base?.as(DeclReferenceExprSyntax.self) else {
+                return false
+            }
+            return base.baseName.text == name
+        }
     }
 
     // MARK: - skipped-test-inventory

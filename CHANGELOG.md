@@ -36,6 +36,26 @@
   and does not occur; the auditor already handles the case, and the workaround markers written
   for it had outlived their cause.
 
+- **`ambient-calendar-in-test` spares a calendar whose time zone is pinned.** The warning
+  release did its job on its first outing: measuring the four other consuming repositories
+  found **9 of 23 ambient sites were correct code** — `var calendar = Calendar(identifier:
+  .gregorian)` followed by `calendar.timeZone = …`, which pins the calendar system in the
+  initialiser and the only remaining ambient part in the next statement. There is no
+  initialiser taking both, so the two-statement form is the idiom rather than a smell. A rule
+  wrong two times in five teaches people to suppress it, and a suppressed rule protects
+  nothing.
+
+  The carve-out follows the pin rather than the spelling, because the corpus writes it three
+  ways: on a plain binding, inside an `if let` (`TimeZone(secondsFromGMT:)` is failable and
+  these projects do not force-unwrap), and on a `DateComponents` the calendar was assigned
+  into. It looks for `<name>.timeZone = …` anywhere in a later statement of the same block —
+  local structure, not the value-following analysis that got `Date()` dropped from this rule.
+
+  **`Calendar.current` gets no such carve-out**, and the boundary is the point: pinning a zone
+  fixes half of an ambient calendar. The calendar *system* is still the runner's, so the same
+  instant yields a different year under a Japanese or Buddhist locale. The carve-out belongs
+  to the initialiser, which is the thing that pins the system.
+
 - **A file-scoped suppression marker, `// TEST-QUALITY-FILE: <rule-id> — <reason>`.** A suite
   whose *subject* is the flagged shape — one that exists to prove behaviour across time zones
   reads the ambient calendar in every test, on purpose — needed either forty copies of a line

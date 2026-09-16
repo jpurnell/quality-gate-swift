@@ -114,6 +114,127 @@ final class AmbientTimeInTestTests: XCTestCase {
         XCTAssertTrue(found.isEmpty)
     }
 
+    func testIgnoresACalendarWhoseZoneIsPinnedOnTheFollowingLine() async throws {
+        // Nine of the twenty-three sites across four consuming repositories are this, and
+        // all nine are correct: `Calendar(identifier:)` pins the calendar *system*, and the
+        // statement after it pins the only ambient part left. Flagging them taught people to
+        // suppress the rule, which is the failure this rule cannot afford.
+        let source = """
+        import Testing
+
+        @Test func dayCount() throws {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+            #expect(calendar.component(.year, from: settlement) == 2024)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty, "system pinned by the initialiser, zone pinned by the next line")
+    }
+
+    func testIgnoresACalendarWhoseZoneIsPinnedFromGMT() async throws {
+        let source = """
+        import Testing
+
+        @Test func dayCount() {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+            #expect(calendar.component(.year, from: settlement) == 2024)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty)
+    }
+
+    func testIgnoresACalendarWhoseZoneIsPinnedInsideABranch() async throws {
+        // `DayCountTimeZoneTests.swift:55`. The pin is real; it is inside an `if let` because
+        // `TimeZone(secondsFromGMT:)` is failable and the author would not force-unwrap it.
+        // Reading only the next sibling statement would call this ambient and be wrong.
+        let source = """
+        import Testing
+
+        @Test func dayCount() {
+            var utc = Calendar(identifier: .gregorian)
+            if let zone = TimeZone(secondsFromGMT: 0) { utc.timeZone = zone }
+            #expect(utc.component(.year, from: settlement) == 2024)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty, "a conditional pin is still evidence the zone was considered")
+    }
+
+    func testIgnoresACalendarPinnedThroughDateComponents() async throws {
+        // `TVMReferenceTests.swift:75`. The calendar is never bound to a name of its own —
+        // it goes straight into a `DateComponents`, and the zone is pinned on that. The
+        // question the rule is asking is the same one: was the zone decided?
+        let source = """
+        import Testing
+
+        @Test func presentValue() {
+            var components = DateComponents()
+            components.calendar = Calendar(identifier: .gregorian)
+            components.timeZone = TimeZone(identifier: "UTC")
+            #expect(components.date != nil)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty)
+    }
+
+    func testStillFlagsACalendarPutIntoComponentsWithNoZone() async throws {
+        let source = """
+        import Testing
+
+        @Test func presentValue() {
+            var components = DateComponents()
+            components.calendar = Calendar(identifier: .gregorian)
+            #expect(components.date != nil)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1, "putting it somewhere is not deciding the zone")
+    }
+
+    func testStillFlagsCalendarCurrentWhenOnlyTheZoneIsPinned() async throws {
+        // `Calendar.current` is not half-fixed by a time zone. The calendar *system* is still
+        // the runner's, so a Japanese or Buddhist locale returns a different year for the
+        // same instant. The carve-out is for the initialiser, which pins the system, and it
+        // does not extend here.
+        let source = """
+        import Testing
+
+        @Test func dayCount() {
+            var calendar = Calendar.current
+            calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+            #expect(calendar.component(.year, from: settlement) == 2024)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1, "pinning the zone does not pin the calendar system")
+    }
+
+    func testStillFlagsACalendarThatPinsAnotherCalendarsZone() async throws {
+        let source = """
+        import Testing
+
+        @Test func dayCount() {
+            var pinned = Calendar(identifier: .iso8601)
+            var drifting = Calendar(identifier: .gregorian)
+            pinned.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+            #expect(pinned.component(.year, from: d) == drifting.component(.year, from: d))
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1, "the assignment names one binding, and spares only it")
+    }
+
     func testIgnoresAnUnrelatedCurrentReading() async throws {
         // The rule claims `Calendar` only. `TimeZone.current` and `Locale.current` are
         // ambient too, and are deliberately out of scope: the corpus evidence is about
