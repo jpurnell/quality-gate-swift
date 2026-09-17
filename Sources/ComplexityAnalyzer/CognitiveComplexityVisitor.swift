@@ -71,6 +71,7 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
             endLine: endLoc.line,
             cognitiveComplexity: scorer.score,
             cognitiveBreakdown: scorer.increments,
+            cyclomaticComplexity: 1 + scorer.decisionPoints,
             estimatedTimeComplexity: bigO.timeComplexity,
             complexityBasis: bigO.basis,
             confidence: bigO.confidence,
@@ -103,6 +104,7 @@ public final class CognitiveComplexityVisitor: SyntaxVisitor {
             endLine: endLoc.line,
             cognitiveComplexity: scorer.score,
             cognitiveBreakdown: scorer.increments,
+            cyclomaticComplexity: 1 + scorer.decisionPoints,
             estimatedTimeComplexity: bigO.timeComplexity,
             complexityBasis: bigO.basis,
             confidence: bigO.confidence,
@@ -119,6 +121,14 @@ private final class FunctionScorer: SyntaxVisitor {
     private let converter: SourceLocationConverter
     var score: Int = 0
     var increments: [CognitiveIncrement] = []
+    /// McCabe decision points counted during the same walk.
+    ///
+    /// Tallied separately from `score` rather than derived from it: the two metrics disagree
+    /// about *which* nodes are decisions. A `switch` is one cognitive increment and zero
+    /// cyclomatic ones — its cases carry the decisions — and a `do` is a cognitive structure
+    /// with no branch at all. Deriving one from the other would silently adopt the wrong
+    /// convention for whichever was derived.
+    var decisionPoints: Int = 0
     private var nestingLevel: Int = 0
 
     init(converter: SourceLocationConverter) {
@@ -130,6 +140,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "if", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         walkConditions(node.conditions)
         nestingLevel += 1
         walkStatements(in: node.body)
@@ -147,6 +158,10 @@ private final class FunctionScorer: SyntaxVisitor {
             switch body {
             case .ifExpr(let elseIf):
                 addIncrement(node: "else if", position: elseIf.positionAfterSkippingLeadingTrivia, in: elseIf)
+                // An `else if` is a new decision; the bare `else` below is not. This chain is
+                // walked here rather than re-entering `visit(_: IfExprSyntax)`, so the tally has
+                // to be made at both sites.
+                decisionPoints += 1
                 walkConditions(elseIf.conditions)
                 nestingLevel += 1
                 walkStatements(in: elseIf.body)
@@ -168,6 +183,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "for", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         nestingLevel += 1
         walkStatements(in: node.body)
         nestingLevel -= 1
@@ -176,6 +192,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: WhileStmtSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "while", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         walkConditions(node.conditions)
         nestingLevel += 1
         walkStatements(in: node.body)
@@ -185,6 +202,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: RepeatStmtSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "repeat", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         nestingLevel += 1
         walkStatements(in: node.body)
         nestingLevel -= 1
@@ -195,6 +213,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "guard", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         walkConditions(node.conditions)
         nestingLevel += 1
         walkStatements(in: node.body)
@@ -206,6 +225,15 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: SwitchExprSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "switch", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        // Cyclomatic charges per case, not for the switch: the cases are where the paths
+        // diverge, and charging both would double-count. `default` is the fall-through path
+        // rather than a decision, so it is excluded.
+        for caseItem in node.cases {
+            if let switchCase = caseItem.as(SwitchCaseSyntax.self),
+               switchCase.label.is(SwitchCaseLabelSyntax.self) {
+                decisionPoints += 1
+            }
+        }
         nestingLevel += 1
         for caseItem in node.cases {
             walk(caseItem)
@@ -226,6 +254,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: CatchClauseSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "catch", position: node.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         nestingLevel += 1
         walkStatements(in: node.body)
         nestingLevel -= 1
@@ -236,6 +265,7 @@ private final class FunctionScorer: SyntaxVisitor {
 
     override func visit(_ node: TernaryExprSyntax) -> SyntaxVisitorContinueKind {
         addIncrement(node: "?:", position: node.questionMark.positionAfterSkippingLeadingTrivia, in: node)
+        decisionPoints += 1
         walk(node.condition)
         walk(node.thenExpression)
         walk(node.elseExpression)
@@ -247,6 +277,7 @@ private final class FunctionScorer: SyntaxVisitor {
             let opText = op.operator.text
             if opText == "??" {
                 addIncrement(node: "??", position: op.positionAfterSkippingLeadingTrivia, in: node)
+                decisionPoints += 1
                 walk(node.leftOperand)
                 walk(node.rightOperand)
                 return .skipChildren
@@ -264,6 +295,11 @@ private final class FunctionScorer: SyntaxVisitor {
     private func scoreLogicalChain(_ topNode: InfixOperatorExprSyntax) {
         var operators: [String] = []
         collectLogicalOps(ExprSyntax(topNode), into: &operators)
+
+        // Cognitive charges once per *run* of one operator — `a && b && c` reads as a single
+        // idea. Cyclomatic charges per operator, because each one is a short-circuit that can
+        // skip the rest. The two counts differ here by design.
+        decisionPoints += operators.count
 
         var lastOp: String?
         for op in operators {
