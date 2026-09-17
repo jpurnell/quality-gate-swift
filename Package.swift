@@ -262,7 +262,7 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.15.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
         .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.3.1"),
-        .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "1.1.2"),
+        .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "4.5.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
     targets: [
