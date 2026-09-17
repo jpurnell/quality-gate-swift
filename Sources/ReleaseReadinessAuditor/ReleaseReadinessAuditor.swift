@@ -103,6 +103,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                         version: latest, tags: tags, pushedRefs: pushedRefs,
                         remoteHasTag: { remoteHasTag($0, in: projectRoot) })
                 }
+            // logging: the error becomes a reported warning diagnostic — translated, not lost
             } catch {
                 diagnostics.append(Diagnostic(
                     severity: .warning,

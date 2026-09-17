@@ -20,6 +20,9 @@ final class LoggingVisitor: SyntaxVisitor {
     let silentTryKeyword: String
     let allowedSilentTryFunctions: Set<String>
     let loggerNames: Set<String>
+    /// Type-or-constructor names whose production counts as handling — see
+    /// ``LoggingAuditorConfig/errorValueTypes``.
+    let errorValueTypes: [String]
     let isCLI: Bool
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
@@ -36,6 +39,7 @@ final class LoggingVisitor: SyntaxVisitor {
         silentTryKeyword: String,
         allowedSilentTryFunctions: Set<String>,
         customLoggerNames: [String],
+        errorValueTypes: [String] = [],
         isCLI: Bool = false
     ) {
         self.fileName = fileName
@@ -43,6 +47,7 @@ final class LoggingVisitor: SyntaxVisitor {
         self.sourceLines = sourceLines
         self.silentTryKeyword = silentTryKeyword
         self.allowedSilentTryFunctions = allowedSilentTryFunctions
+        self.errorValueTypes = errorValueTypes
         self.isCLI = isCLI
 
         // Built-in logger names + custom ones
@@ -259,22 +264,46 @@ final class LoggingVisitor: SyntaxVisitor {
 
     // MARK: - Rule 6: catch-without-logging
 
+    /// Whether a `catch` block lets its error vanish.
+    ///
+    /// ## What was wrong with the old answer
+    ///
+    /// This asked `bodyText.contains(".\(method)(")` and `bodyText.contains(name)` over the
+    /// body's source text. Two consequences, both invisible because a false negative in a
+    /// linter produces no output to review:
+    ///
+    /// - `CellValue.error(_:)` spells the same as `Logger.error(_:)`, so
+    ///   `catch { return .error(.value) }` was accepted as logging. It logs nothing.
+    /// - `loggerNames` contains the bare string `"log"`, so any body mentioning `catalog`,
+    ///   `dialog` or `applyLogic` was accepted too — and that one needs no error-shaped type
+    ///   at all.
+    ///
+    /// Measured across four repositories, **55 of 108 catch blocks in one of them passed this
+    /// rule while logging nothing.** It was found by accident: an unrelated refactor removed a
+    /// `.error(` from a body and six warnings appeared.
+    ///
+    /// Rule 4, ninety lines above, already had the insight — *"a logger call always has a
+    /// receiver"* — and already said why in a comment. Rule 6 never asked.
+    ///
+    /// ## The answer now
+    ///
+    /// Walk the body for real nodes and accept three things: a genuine `throw`, a genuine
+    /// logger call, or — when the project has configured it — an error **translated** into a
+    /// domain value that the caller receives. See ``LoggingAuditorConfig/errorValueTypes`` for
+    /// why the third is not a blanket exemption.
     override func visit(_ node: CatchClauseSyntax) -> SyntaxVisitorContinueKind {
-        let bodyText = node.body.statements.trimmedDescription
+        let scan = CatchBodyScanner(
+            loggerNames: loggerNames,
+            logMethodNames: logMethodNames,
+            viewMode: .sourceAccurate)
+        scan.walk(node.body)
 
-        if bodyText.contains("throw ") {
+        if scan.throwsAnError || scan.logs {
             return .visitChildren
         }
 
-        for name in loggerNames {
-            if bodyText.contains(name) {
-                return .visitChildren
-            }
-        }
-        for method in logMethodNames {
-            if bodyText.contains(".\(method)(") {
-                return .visitChildren
-            }
+        if translatesTheError(node.body) {
+            return .visitChildren
         }
 
         let line = startLine(of: Syntax(node))
@@ -293,6 +322,38 @@ final class LoggingVisitor: SyntaxVisitor {
         ))
 
         return .visitChildren
+    }
+
+    /// Whether every exit from a catch body produces a configured error value.
+    ///
+    /// **Every** exit, not any exit. A block whose one arm returns `.error(.num)` and whose
+    /// other returns `nil` is still reported, because the `nil` path is the one the rule is
+    /// about — and accepting on "any" would make the clause a blanket exemption for anything
+    /// that mentions an error type once.
+    ///
+    /// Returns `false` when nothing is configured, when the body has no exits at all
+    /// (`catch { }` is the shape this rule was written for), or when any exit is a bare
+    /// `return`.
+    private func translatesTheError(_ body: CodeBlockSyntax) -> Bool {
+        guard !errorValueTypes.isEmpty else { return false }
+
+        let scan = ExitScanner(viewMode: .sourceAccurate)
+        scan.walk(body)
+        guard !scan.exits.isEmpty, !scan.hasValuelessExit else { return false }
+
+        return scan.exits.allSatisfy { expr in
+            let text = expr.trimmedDescription
+            return errorValueTypes.contains { named in
+                // A configured "CellValue.error" is written `.error(…)` at the use site as
+                // often as it is spelled in full, so the trailing component has to match too.
+                // `ExcelError` names a type and matches on its own.
+                if text.contains(named) { return true }
+                guard let member = named.split(separator: ".").last, named.contains(".") else {
+                    return false
+                }
+                return text.hasPrefix(".\(member)") || text.contains(".\(member)(")
+            }
+        }
     }
 
     // MARK: - Rule 2: silent-try
@@ -397,4 +458,129 @@ final class LoggingVisitor: SyntaxVisitor {
         }
         return false
     }
+    // MARK: - Catch-body inspection
+
+    /// Looks for a real `throw` and a real logger call inside a catch body.
+    ///
+    /// Replaces the substring search this rule used to do. Both questions are about nodes:
+    /// `throw ` appearing in a comment or a string literal is not a throw, and `.error(…)` with
+    /// no receiver is an enum case or a static factory, not a logger.
+    private final class CatchBodyScanner: SyntaxVisitor {
+        let loggerNames: Set<String>
+        let logMethodNames: Set<String>
+        private(set) var throwsAnError = false
+        private(set) var logs = false
+
+        init(loggerNames: Set<String>, logMethodNames: Set<String>, viewMode: SyntaxTreeViewMode) {
+            self.loggerNames = loggerNames
+            self.logMethodNames = logMethodNames
+            super.init(viewMode: viewMode)
+        }
+
+        override func visit(_ node: ThrowStmtSyntax) -> SyntaxVisitorContinueKind {
+            throwsAnError = true
+            return .skipChildren
+        }
+
+        override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+            // `NSLog("…")` / `os_log("…")` — a bare call with no receiver, matched by name.
+            if let callee = node.calledExpression.as(DeclReferenceExprSyntax.self),
+               callee.baseName.text == "NSLog" || callee.baseName.text == "os_log" {
+                logs = true
+                return .visitChildren
+            }
+
+            guard let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+                  let base = member.base,
+                  logMethodNames.contains(member.declName.baseName.text) else {
+                return .visitChildren
+            }
+
+            // Rule 4 stops at "has a receiver". Rule 6 has to go further: it is deciding
+            // whether logging *happened*, not checking the arguments of something already
+            // known to be a logger. So the receiver must itself be one — which is what
+            // separates `logger.error(…)` from `someValue.log(to: sink)`.
+            if receiverIsALogger(base) {
+                logs = true
+            }
+            return .visitChildren
+        }
+
+        /// Whether an expression denotes a logger.
+        ///
+        /// Handles the four spellings the corpus uses: a stored `logger`, a type reference
+        /// `Logger.shared`, a logger constructed in place
+        /// (`Logger(subsystem:category:).error(…)`), and a logger held in a property named
+        /// something else — `Self.fixLogger.error(…)`.
+        ///
+        /// That last one is why ``namesALogger(_:)`` exists, and it was not anticipated: the
+        /// first version of this scanner reported both `Self.fixLogger` sites in
+        /// `DocGeneratedFix` as unlogged, where `fixLogger` is
+        /// `private static let fixLogger = Logger(…)`. The old substring rule accepted them
+        /// because `"fixLogger"` contains `"Logger"` — a coincidence, pointing the right way
+        /// for once.
+        private func receiverIsALogger(_ expr: ExprSyntax) -> Bool {
+            if let reference = expr.as(DeclReferenceExprSyntax.self) {
+                return namesALogger(reference.baseName.text)
+            }
+            if let call = expr.as(FunctionCallExprSyntax.self),
+               let callee = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+                return namesALogger(callee.baseName.text)
+            }
+            if let member = expr.as(MemberAccessExprSyntax.self) {
+                if namesALogger(member.declName.baseName.text) { return true }
+                if let base = member.base { return receiverIsALogger(base) }
+                return false
+            }
+            return false
+        }
+
+        /// Whether an identifier names a logger.
+        ///
+        /// Exact match against the configured names, plus a case-insensitive `"logger"`
+        /// **suffix** so a project's own `fixLogger`, `docLogger` or `appLogger` is recognised.
+        ///
+        /// The suffix is `"logger"` and deliberately not `"log"`: `catalog` and `dialog` both
+        /// end in `"log"`, and accepting those would rebuild the false-negative this rule was
+        /// just repaired for. A property named `auditLog` is therefore not recognised and needs
+        /// its name in `customLoggerNames` — a narrower gap than the alternative, and a stated
+        /// one.
+        ///
+        /// This is a heuristic on a single identifier, which is a different thing from the
+        /// heuristic it replaced: that one searched an entire body's source text, so any word
+        /// anywhere could satisfy it.
+        private func namesALogger(_ identifier: String) -> Bool {
+            if loggerNames.contains(identifier) { return true }
+            return identifier.lowercased().hasSuffix("logger")
+        }
+    }
+
+    /// Collects the value each exit from a catch body produces.
+    ///
+    /// A bare `return` is recorded separately: it produces nothing, so a body containing one
+    /// cannot be said to translate its error however its other arms are written.
+    private final class ExitScanner: SyntaxVisitor {
+        private(set) var exits: [ExprSyntax] = []
+        private(set) var hasValuelessExit = false
+
+        override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+            if let value = node.expression {
+                exits.append(value)
+            } else {
+                hasValuelessExit = true
+            }
+            return .skipChildren
+        }
+
+        override func visit(_ node: ThrowStmtSyntax) -> SyntaxVisitorContinueKind {
+            exits.append(node.expression)
+            return .skipChildren
+        }
+
+        // A closure inside the body has its own exits; they answer the closure, not the catch.
+        override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
+            .skipChildren
+        }
+    }
+
 }

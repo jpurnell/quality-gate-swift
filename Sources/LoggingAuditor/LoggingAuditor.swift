@@ -201,6 +201,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             silentTryKeyword: config.silentTryKeyword,
             allowedSilentTryFunctions: Set(config.allowedSilentTryFunctions),
             customLoggerNames: config.customLoggerNames,
+            errorValueTypes: config.errorValueTypes,
             isCLI: config.projectType == "cli"
         )
         visitor.walk(tree)

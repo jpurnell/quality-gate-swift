@@ -565,6 +565,30 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
     /// Additional logger type names beyond os.Logger (e.g. project-specific wrappers).
     public var customLoggerNames: [String]
 
+    /// Type-or-constructor names that mean "this error was translated, not swallowed".
+    ///
+    /// `logging.catch-without-logging` exists to find an error that *disappears* —
+    /// `catch { }`, `catch { return nil }`, `catch { return 0 }`. It does not exist to object
+    /// to a domain that models failure as a value: an Excel function that cannot compute
+    /// returns `#NUM!`, and the caller receives it. Nothing was lost.
+    ///
+    /// Naming the types here accepts a `catch` whose **every** exit produces one of them:
+    ///
+    /// ```yaml
+    /// logging:
+    ///   errorValueTypes: ["CellValue.error", "Result.failure", "ExcelError"]
+    /// ```
+    ///
+    /// Every exit, not any exit — a block where one arm returns an error value and another
+    /// returns `nil` is still reported, because the `nil` path is the one the rule is about.
+    ///
+    /// **Defaults to empty**, which is the strict rule: the behaviour the checker has always
+    /// documented, as opposed to the behaviour it had before the detection bug was fixed.
+    /// A heuristic for "looks error-shaped" is deliberately not offered — guessing is how the
+    /// rule acquired a 51% false-negative rate in the first place, and a configured list is a
+    /// sentence a reviewer can disagree with.
+    public var errorValueTypes: [String]
+
     /// Creates a logging auditor configuration with the given options.
     public init(
         projectType: String = "application",
@@ -576,12 +600,14 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
             "removeItem(at", "removeItem(atPath",
             ".close()",
         ],
-        customLoggerNames: [String] = []
+        customLoggerNames: [String] = [],
+        errorValueTypes: [String] = []
     ) {
         self.projectType = projectType
         self.silentTryKeyword = silentTryKeyword
         self.allowedSilentTryFunctions = allowedSilentTryFunctions
         self.customLoggerNames = customLoggerNames
+        self.errorValueTypes = errorValueTypes
     }
 
     /// Default logging auditor configuration.
@@ -591,6 +617,7 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
 extension LoggingAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case projectType, silentTryKeyword, allowedSilentTryFunctions, customLoggerNames
+        case errorValueTypes
     }
 
     /// Creates a logging auditor configuration by decoding from the given decoder.
@@ -601,6 +628,7 @@ extension LoggingAuditorConfig: Codable {
         silentTryKeyword = try container.decodeIfPresent(String.self, forKey: .silentTryKeyword) ?? defaults.silentTryKeyword
         allowedSilentTryFunctions = try container.decodeIfPresent([String].self, forKey: .allowedSilentTryFunctions) ?? defaults.allowedSilentTryFunctions
         customLoggerNames = try container.decodeIfPresent([String].self, forKey: .customLoggerNames) ?? defaults.customLoggerNames
+        errorValueTypes = try container.decodeIfPresent([String].self, forKey: .errorValueTypes) ?? defaults.errorValueTypes
     }
 }
 

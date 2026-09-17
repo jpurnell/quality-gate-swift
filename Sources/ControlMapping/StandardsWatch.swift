@@ -96,6 +96,7 @@ public enum StandardsWatch {
             let fetched: String?
             do {
                 fetched = try await source.fetchUpstream(for: catalog)
+            // logging: the error becomes a .unreachable result the caller reads — translated, not lost
             } catch {
                 results.append(CatalogWatchResult(
                     framework: catalog.framework, state: .unreachable,

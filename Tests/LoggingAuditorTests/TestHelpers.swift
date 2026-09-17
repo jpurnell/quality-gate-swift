@@ -10,13 +10,15 @@ enum TestHelpers {
         projectType: String = "application",
         silentTryKeyword: String = "silent:",
         allowedSilentTryFunctions: [String] = LoggingAuditorConfig.default.allowedSilentTryFunctions,
-        customLoggerNames: [String] = []
+        customLoggerNames: [String] = [],
+        errorValueTypes: [String] = []
     ) async throws -> CheckResult {
         let config = LoggingAuditorConfig(
             projectType: projectType,
             silentTryKeyword: silentTryKeyword,
             allowedSilentTryFunctions: allowedSilentTryFunctions,
-            customLoggerNames: customLoggerNames
+            customLoggerNames: customLoggerNames,
+            errorValueTypes: errorValueTypes
         )
         let auditor = LoggingAuditor(config: config)
         return try await auditor.auditSource(
