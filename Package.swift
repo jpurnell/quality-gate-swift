@@ -199,6 +199,10 @@ let package = Package(
             targets: ["SmellPack"]
         ),
         .library(
+            name: "ShapeMetrics",
+            targets: ["ShapeMetrics"]
+        ),
+        .library(
             name: "KeychainSecretsChecker",
             targets: ["KeychainSecretsChecker"]
         ),
@@ -979,6 +983,19 @@ let package = Package(
         .testTarget(
             name: "SmellPackTests",
             dependencies: ["SmellPack"]
+        ),
+        .target(
+            name: "ShapeMetrics",
+            dependencies: [
+                "ComplexityAnalyzer",
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "ShapeMetricsTests",
+            dependencies: ["ShapeMetrics"]
         ),
         .target(
             name: "KeychainSecretsChecker",
