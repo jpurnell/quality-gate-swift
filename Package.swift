@@ -901,7 +901,6 @@ let package = Package(
             dependencies: [
                 "IJSSensor",
                 "IJSAggregator",
-                "IJSRefiner",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
             ]
         ),
@@ -1214,7 +1213,6 @@ let package = Package(
             dependencies: [
                 "IJSSensor",
                 "IJSAggregator",
-                "IJSRefiner",
                 "IJSPolicyDiscovery",
                 "IJSDashboardCore",
                 .product(name: "SwiftMCPServer", package: "SwiftMCPServer"),

@@ -2,7 +2,6 @@ import Foundation
 import QualityGateTypes
 import IJSSensor
 import IJSAggregator
-import IJSRefiner
 
 /// Compares current gate results against the most recent InstitutionalPulse
 /// to detect institutional inconsistencies.
