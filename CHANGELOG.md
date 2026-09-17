@@ -4,6 +4,23 @@
 
 ### Added
 
+- **`coalesced-assertion` promoted to `error` and reverted the same day.** The promotion was
+  justified on the five repositories named in its proposal, all reporting zero. Five was the
+  wrong denominator: the corpus knows **78 projects** pushing gate telemetry and **75** running
+  `test-quality`, and a query over their newest runs found **113 findings across 19 projects** —
+  `concordance` 20, `SwiftMCPClient` 13, `CoverLetterWriter` 12, `LedgeOS` 11, `SwiftZIP` 11 and
+  fourteen more. `SwiftMCPServer`'s own gate blocked a push within the hour.
+
+  ADR-001 requires measuring per consuming repository; this measured a proposal's list instead.
+  The rule is back at `warning` and re-promotion is gated on a corpus query returning zero rather
+  than on a hand sweep. `ambient-calendar-in-test` stays at `error` — 18 findings in two projects,
+  being cleared separately.
+
+  Worth recording because the correction is cheap and was available all along: the scan that
+  found the 19 projects took about a second against data the corpus already stores. That is the
+  argument for `ijs_query_findings` in
+  `plans/proposals/CorpusQueryMCP_FindingsAndCapabilities.md`.
+
 - **`coalesced-assertion` and `ambient-calendar-in-test` promoted to `error`.** They shipped at
   `warning` on 2026-09-14 and were promoted on 2026-09-16, which is the rollout ADR-001
   prescribes rather than an exception to it. The release measured **54 findings across the five

@@ -92,11 +92,11 @@ final class CoalescedAssertionTests: XCTestCase {
         XCTAssertEqual(found.count, 1)
     }
 
-    func testSeverityIsErrorAfterItsWarningRelease() async throws {
-        // Shipped at `warning` on 2026-09-14 so five repositories could see their own
-        // populations before anything blocked — 54 findings between them. Two working days
-        // later the population was zero, every site repaired rather than suppressed, so the
-        // condition ADR-001 sets for promotion was met.
+    func testSeverityIsWarningUntilTheCorpusIsClear() async throws {
+        // Promoted to `error` on 2026-09-16 and reverted the same day. The five repositories in
+        // its proposal were clear; the corpus knows 75 that run this checker, and 19 of them
+        // held 113 findings. Re-promotion is gated on a corpus query returning zero, not on a
+        // hand sweep of a proposal's list — see the rule table in `TestQualityAuditor`.
         let source = """
         import Testing
 
@@ -106,7 +106,7 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.first?.severity, .error)
+        XCTAssertEqual(found.first?.severity, .warning)
     }
 
     func testSuggestedFixSaysRequireCannotBeInlined() async throws {

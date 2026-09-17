@@ -32,7 +32,7 @@ import SwiftParser
 /// | `unasserted-optional-unwrap` | error | on |
 /// | `self-referential-expectation` | error | on |
 /// | `non-strict-improvement` | warning | on |
-/// | `coalesced-assertion` | error | on |
+/// | `coalesced-assertion` | warning | on |
 /// | `ambient-calendar-in-test` | error | on |
 /// | `skipped-test-inventory` | note | on |
 /// | `unvaried-parameter` | warning | opt-in |
@@ -44,19 +44,25 @@ import SwiftParser
 /// Suppression for these rules must **name** the rule — see
 /// `TestQualityVisitor.scopedOverrideIfExempted(line:ruleId:)`.
 ///
-/// `coalesced-assertion` and `ambient-calendar-in-test` **were warnings for one release and are
-/// now errors**, which is the rollout ADR-001 describes rather than an exception to it. They
-/// shipped 2026-09-14 at `warning` because the gate is shared with five repositories and only
-/// one had been swept; a rule that blocks all five on its first run cannot be evaluated before
-/// it has already cost someone a morning.
+/// `coalesced-assertion` is back at `warning` after a promotion to `error` that was **reverted
+/// the same day**, and the reason is worth more than the rule is.
 ///
-/// The release measured 54 findings across the five. Two working days later the population was
-/// zero, and every repository got there by repair rather than by suppression — 40
-/// `coalesced-assertion` sites became `try #require` bindings and 14 ambient readings became
-/// fixed calendars. The measurement also found the rules themselves wrong 17 and 9 times
-/// respectively, which is the other half of what a warning release buys: both carve-out sets in
-/// `SemanticTestRules` come from it. Promotion here is the recorded end of that process, not a
-/// bet on it.
+/// It shipped 2026-09-14 at `warning`, and two working days later the five repositories named
+/// in its proposal reported zero findings — 54 repaired, not one suppression marker. That looked
+/// like ADR-001's condition satisfied, so it was promoted.
+///
+/// **Five was the wrong denominator.** The corpus knows 78 projects that push gate telemetry and
+/// 75 that run `test-quality`, and a query against their most recent runs found **113 findings
+/// across 19 projects** — a set that includes `SwiftMCPServer`, whose own gate blocked a push
+/// within the hour. ADR-001 says to measure per consuming repository; the promotion measured a
+/// proposal's list instead, which is a different and much smaller thing.
+///
+/// The lesson is not "be more careful." It is that the consumer set is **discoverable** — the
+/// scan that found those 19 projects took about a second against data the corpus already
+/// stores — and a promotion that does not run it is guessing. Re-promotion is gated on that
+/// query returning zero, not on a hand sweep.
+///
+/// `ambient-calendar-in-test` remains at `error`; its population is 18 findings in two projects.
 ///
 /// ## The exact-comparison rule is not implemented here
 ///
@@ -810,7 +816,7 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
         if let site = SemanticTestRules.coalescedLiteral(in: condition) {
             emit(
-                severity: .error,
+                severity: .warning,
                 message: "Assertion falls back to '\(site.fallback)' when the optional is nil, so a missing value is asserted as if it were present.",
                 ruleId: "coalesced-assertion",
                 fix: "Bind the value first — let v = try #require(optional) — and assert on v, so absence is what fails. try #require cannot be inlined into #expect: the macro expands its condition into a non-throwing closure, so the binding must be its own statement and the enclosing function must be marked throws.",

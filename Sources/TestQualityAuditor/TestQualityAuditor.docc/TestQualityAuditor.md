@@ -27,7 +27,7 @@ The rules above are properties of a single assertion's *syntax*: exact, fast, an
 | `unasserted-optional-unwrap` | error | on | `guard let x = f() else { return }` in a `@Test` — when `f()` returns nil the test passes having run no assertions |
 | `self-referential-expectation` | error | on | An expected value that restates the body of the function it is testing, so the assertion holds for whatever that body is |
 | `non-strict-improvement` | warning | on | `#expect(new <= old)` in a test whose name claims *better*, *improve*, *beat*, *exceed* or *outperform* — an unchanged implementation also passes |
-| `coalesced-assertion` | error | on | `#expect(abs((ma[k] ?? 0) - 100.0) < 1e-6)` — the assertion fabricates a literal for a value that may be missing, so absence is no longer what fails |
+| `coalesced-assertion` | warning | on | `#expect(abs((ma[k] ?? 0) - 100.0) < 1e-6)` — the assertion fabricates a literal for a value that may be missing, so absence is no longer what fails |
 | `ambient-calendar-in-test` | error | on | `Calendar.current` or `Calendar(identifier:)` in a test — the result depends on the locale and time zone of whatever machine runs it |
 | `skipped-test-inventory` | note | on | Every test that does not run: `.disabled(…)`, `.enabled(if:)`, `XCTSkip`, or an early return gated on the environment |
 | `unvaried-parameter` | warning | **opt-in** | One call, all-literal arguments, one assertion — cannot detect that a parameter is ignored |
@@ -47,9 +47,13 @@ enabledCheckers:
   - test-quality.tolerance-without-magnitude
 ```
 
-#### Two rules spent one release as warnings, and are now errors
+#### One rule was promoted to error and reverted the same day
 
-`coalesced-assertion` and `ambient-calendar-in-test` shipped 2026-09-14 at `warning` and were promoted to `error` on 2026-09-16. That sequence is ADR-001, not an exception to it: the gate is shared with five repositories and only one had been swept, so a rule that blocks all five on its first run cannot be evaluated before it has already cost someone a morning.
+Both rules shipped 2026-09-14 at `warning`. `ambient-calendar-in-test` is now `error`. `coalesced-assertion` was promoted alongside it on 2026-09-16 and **reverted within the hour**, and the reason is the most useful thing on this page.
+
+Promotion was justified on the five repositories named in the rule's proposal, all of which reported zero. **Five was the wrong denominator.** The corpus knows **78 projects** that push gate telemetry and **75** that run `test-quality`; a query over their most recent runs found **113 findings across 19 projects**, including `SwiftMCPServer` — whose own gate blocked a push within the hour of promotion.
+
+ADR-001 says to measure per consuming repository. The promotion measured a proposal's list, which is a different and much smaller thing. The correction is not "be more careful": the consumer set is **discoverable**, the scan takes about a second against data already in the corpus, and a promotion that does not run it is guessing. Re-promotion is gated on that query returning zero.
 
 What the release bought, in two working days:
 
