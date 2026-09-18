@@ -700,6 +700,20 @@ enum SemanticTestRules {
     /// pinned in a different function, or through a helper, is not recognised and is
     /// reported; the marker is the answer there.
     private static func isPinnedByTimeZoneAssignment(_ call: FunctionCallExprSyntax) -> Bool {
+        // Pinned as a sibling argument of the same call:
+        //
+        //     DateComponents(
+        //         calendar: Calendar(identifier: .gregorian),
+        //         timeZone: TimeZone(identifier: "UTC"),
+        //         year: 2026, month: 6, day: 2)
+        //
+        // This is the *cleanest* form — both halves fixed in one expression, with no window in
+        // which the value exists unpinned — and the first version of this carve-out missed it
+        // entirely, because it only looked for a later statement assigning `.timeZone`. It
+        // reported eleven findings across SwiftZIP's `DOSTimeTests` and `ZIPWriterTests`, every
+        // one of them exemplary code, in a repository the rule had blocked at `error`.
+        if enclosingCallPinsTimeZone(call) { return true }
+
         guard let name = pinnableName(of: call),
               let item = enclosingCodeBlockItem(of: call),
               let siblings = item.parent?.as(CodeBlockItemListSyntax.self) else {
@@ -718,6 +732,19 @@ enum SemanticTestRules {
             if scan.found { return true }
         }
         return false
+    }
+
+    /// Whether the call this calendar is an argument to also carries a `timeZone:`.
+    ///
+    /// `DateComponents(calendar:timeZone:…)` is the shape; the calendar never exists as a value
+    /// whose zone is unset, so there is nothing to catch.
+    private static func enclosingCallPinsTimeZone(_ call: FunctionCallExprSyntax) -> Bool {
+        guard let argument = call.parent?.as(LabeledExprSyntax.self),
+              let list = argument.parent?.as(LabeledExprListSyntax.self),
+              let enclosing = list.parent?.as(FunctionCallExprSyntax.self) else {
+            return false
+        }
+        return enclosing.arguments.contains { $0.label?.text == "timeZone" }
     }
 
     /// The name this calendar is attached to, if it is attached to one.

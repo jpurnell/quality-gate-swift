@@ -150,6 +150,48 @@ final class AmbientTimeInTestTests: XCTestCase {
         XCTAssertTrue(found.isEmpty)
     }
 
+    func testIgnoresACalendarPinnedBySiblingArgument() async throws {
+        // SwiftZIP's `DOSTimeTests` and `ZIPWriterTests`, verbatim in shape. Both halves are
+        // fixed in one expression, so the calendar never exists as a value whose zone is unset —
+        // the cleanest form there is, and the first version of this carve-out flagged all eleven
+        // sites because it only looked for a *later statement* assigning `.timeZone`. The rule
+        // was at `error`, so it blocked that repository on its best-written tests.
+        let source = """
+        import Testing
+
+        @Test func knownDateEncoding() throws {
+            let components = DateComponents(
+                calendar: Calendar(identifier: .gregorian),
+                timeZone: TimeZone(identifier: "UTC"),
+                year: 2026, month: 6, day: 2,
+                hour: 14, minute: 30, second: 0
+            )
+            let date = try #require(components.date)
+            #expect(DOSTime.encode(date).0 == 0x7400)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty, "the zone is pinned in the same call that names the calendar")
+    }
+
+    func testStillFlagsASiblingArgumentWithNoZone() async throws {
+        let source = """
+        import Testing
+
+        @Test func knownDateEncoding() throws {
+            let components = DateComponents(
+                calendar: Calendar(identifier: .gregorian),
+                year: 2026, month: 6, day: 2
+            )
+            #expect(components.date != nil)
+        }
+        """
+
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1, "no timeZone: argument means the zone is still ambient")
+    }
+
     func testIgnoresACalendarWhoseZoneIsPinnedInsideABranch() async throws {
         // `DayCountTimeZoneTests.swift:55`. The pin is real; it is inside an `if let` because
         // `TimeZone(secondsFromGMT:)` is failable and the author would not force-unwrap it.
