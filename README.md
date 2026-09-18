@@ -56,7 +56,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
   and DocC catalogue.
 
 <!-- generated:scale -->
-- **123 targets** — 63 source, 60 test
+- **116 targets** — 59 source, 57 test
 - **45 registered checkers**
 <!-- /generated:scale -->
 
