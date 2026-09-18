@@ -1096,6 +1096,7 @@ let package = Package(
             name: "QualityGateCLI",
             dependencies: [
                 .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
+                "ShapeMetrics",
                 "IndexStoreInfra",
                 "BoundedIOAuditor",
                 "LivenessAuditor",

@@ -124,7 +124,7 @@ public struct ShapeConfig: Sendable, Equatable {
 // MARK: - The report
 
 /// Verbosity and its components, each a fraction of SLOC.
-public struct VerbosityReport: Sendable, Equatable {
+public struct VerbosityReport: Sendable, Equatable, Codable {
     /// `|union of contributing regions ∩ SLOC| / SLOC` — the headline.
     public let verbosity: Double
     /// The idiom rules' share, size rules excluded.
@@ -148,7 +148,7 @@ public struct VerbosityReport: Sendable, Equatable {
 }
 
 /// Erosion and the decomposition that makes it interpretable.
-public struct ErosionReport: Sendable, Equatable {
+public struct ErosionReport: Sendable, Equatable, Codable {
     /// `Σ(f: CC(f) > threshold) mass(f) / Σ(f) mass(f)` — the headline, mass-weighted.
     public let erosion: Double
     /// `|{f: CC(f) > threshold}| / |{f}|` — unweighted.
@@ -170,7 +170,7 @@ public struct ErosionReport: Sendable, Equatable {
 }
 
 /// What the metrics could and could not see.
-public struct ShapeCoverage: Sendable, Equatable {
+public struct ShapeCoverage: Sendable, Equatable, Codable {
     /// Contributing checkers that did not run.
     public let missingCheckers: [String]
     /// Rules that ran but reported no usable span, and so contributed nothing.
@@ -201,7 +201,7 @@ public struct ShapeCoverage: Sendable, Equatable {
 }
 
 /// Both ratios, their components, and what was measured to get them.
-public struct ShapeReport: Sendable, Equatable {
+public struct ShapeReport: Sendable, Equatable, Codable {
     /// Verbosity, or `nil` when a contributing checker did not run.
     ///
     /// Withheld rather than computed over a partial union: a two-of-three union reported as if

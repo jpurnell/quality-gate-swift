@@ -8,6 +8,7 @@ import os
 import QualityGateCore
 import IndexStoreInfra
 import SafetyAuditor
+import ShapeMetrics
 import BuildChecker
 import TestRunner
 import DocLinter
@@ -143,6 +144,9 @@ struct QualityGateCLI: AsyncParsableCommand {
 
     @Option(name: .customLong("summary-output"), help: "Also write a JSON summary to this path (in addition to the primary format)")
     var summaryOutput: String?
+
+    @Option(name: .customLong("shape-output"), help: "Also write the advisory shape metrics (verbosity, erosion) as JSON to this path. Never gates: the metrics are a summary statistic about the codebase, not a finding about it.")
+    var shapeOutput: String?
 
     /// The active Swift toolchain version string, folded into the cache's gate identity so a
     /// compiler change invalidates cached results. Returns "" on failure (still a stable key).
@@ -662,6 +666,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // an artifact write failure is logged, never fails the gate itself.
         writeArtifactReport(format: .sarif, to: sarifOutput, results: allResults)
         writeArtifactReport(format: .json, to: summaryOutput, results: allResults)
+        writeShapeSnapshot(results: allResults)
 
         // One post-run telemetry step for every configured invocation (0.1):
         // full runs and --check subsets both record, tagged with their scope
@@ -749,6 +754,35 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Exit with appropriate code
         if hasFailure && !fix {
             throw ExitCode(1)
+        }
+    }
+
+    /// Computes the advisory shape metrics and writes them to `--shape-output`.
+    ///
+    /// Its own artifact rather than a section of the JSON summary, which the design proposal
+    /// had assumed. `JSONReporter` lives in `QualityGateCore`, and `ShapeMetrics` depends on
+    /// `QualityGateCore` — so teaching the reporter about the snapshot would have pointed the
+    /// dependency both ways. A separate file is also what a survey harness wants: the metrics
+    /// for one package, without a diagnostics blob around them.
+    ///
+    /// Best-effort and advisory, like every other artifact here: a failure to compute or write
+    /// it is reported and never changes the verdict.
+    private func writeShapeSnapshot(results: [CheckResult]) {
+        guard let shapeOutput else { return }
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        guard let snapshot = ShapeMetricsPass.run(
+            results: results,
+            projectRoot: root,
+            projectID: root.lastPathComponent
+        ) else {
+            print("⚠ No Swift source under Sources/ to measure; no shape snapshot written.")
+            return
+        }
+        do {
+            try ShapeMetricsPass.write(snapshot, to: shapeOutput)
+        } catch {
+            Self.logger.warning("Failed to write shape snapshot to \(shapeOutput, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            print("⚠ Could not write shape metrics to \(shapeOutput): \(error.localizedDescription)")
         }
     }
 
