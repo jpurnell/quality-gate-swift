@@ -1,5 +1,5 @@
 {
-  "originHash" : "d899dfe30b78686aba3eb79b217b0e01492e23e641c05c25aa658aaa445f0fa4",
+  "originHash" : "e44881aa4a4b5a063e85d580445a2ac957cb4989c20b58b645c5d0a4b76242ef",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/quality-gate-corpus-kit.git",
       "state" : {
-        "revision" : "33c3a2484cf7490f2fc6a7b22c67c899ee1cc44f",
-        "version" : "1.17.0"
+        "revision" : "8475cd1609868ea0e580ac9f5f234a049438a25f",
+        "version" : "1.19.0"
       }
     },
     {
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/quality-gate-types.git",
       "state" : {
-        "revision" : "b64583562a562cf8f78b9352398fff37633ebf78",
-        "version" : "1.5.0"
+        "revision" : "d191a2a343afb7e615e25516338f98f442008232",
+        "version" : "1.6.0"
       }
     },
     {

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import ComplexityAnalyzer
-@testable import IJSSensor
+import CorpusKit
 @testable import QualityGateCore
 
 @Suite("ComplexityTelemetryEmitter Tests")

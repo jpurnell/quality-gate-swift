@@ -207,7 +207,7 @@ public enum DashboardApp: Sendable {
                 // Rebuilt when the subject or its runs change.
                 if state.currentView == .projectDetail,
                    let projectID = state.detailProjectID ?? state.selectedProjectID {
-                    let results = DashboardLoader.latestStandardResults(of: currentAllRuns[projectID] ?? [])
+                    let results = TimestampedRun.latestStandardResults(of: currentAllRuns[projectID] ?? [])
                     let rows = FindingsInbox.items(fromResults: results).map { item in
                         InboxRow(
                             ruleId: item.ruleId ?? "(no rule id)",

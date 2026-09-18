@@ -182,11 +182,10 @@ let package = Package(
             name: "IdiomAuditor",
             targets: ["IdiomAuditor"]
         ),
-        // Judgment workbench (Phase 3a §7) + trust service core (Phase 3b)
-        .library(
-            name: "JudgmentWorkbench",
-            targets: ["JudgmentWorkbench"]
-        ),
+        // JudgmentWorkbench moved to quality-gate-corpus-kit 1.18.0 and is consumed from
+        // there. It declared QualityGateCore and used nothing from it, which is what had
+        // kept it here and, through it, made quality-gate-dashboard link this whole package.
+        // Trust service core (Phase 3b)
         .library(
             name: "CorpusService",
             targets: ["CorpusService"]
@@ -235,7 +234,7 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
-        .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.4.0"),
+        .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.6.0"),
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.8.1"),
         .package(url: "https://github.com/jpurnell/SwiftDeterminism.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
@@ -244,7 +243,7 @@ let package = Package(
         // touch an SSH remote. With the SSH form this dependency failed on any
         // machine without a GitHub SSH key regardless of how the token was
         // scoped: "Host key verification failed", observed on the runner host.
-        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.17.0"),
+        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.19.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
         // 1.4.0, not 1.3.1. The v1.3.1 tag was moved three times, and SwiftPM keeps a
         // machine-global trust-on-first-use fingerprint per version, so every consumer that had
@@ -902,7 +901,7 @@ let package = Package(
                 .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
-                "JudgmentWorkbench",
+                .product(name: "JudgmentWorkbench", package: "quality-gate-corpus-kit"),
                 "CorpusService",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
@@ -1024,16 +1023,21 @@ let package = Package(
         ),
 
         // MARK: - Judgment workbench (Phase 3a §7)
-        .target(
-            name: "JudgmentWorkbench",
-            dependencies: [
-                "QualityGateCore",
-                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
-            ]
-        ),
+        // The sources live in quality-gate-corpus-kit 1.18.0. What stays is the half of the
+        // suite that can only be proven here: the golden re-audit tests drive IdiomAuditor,
+        // SmellPack and CustomRulesChecker end to end to show that the marker MarkerWriter
+        // writes is the one those auditors actually honour on the next run. Moving them with
+        // the sources would have meant asserting the convention against a copy of itself.
         .testTarget(
             name: "JudgmentWorkbenchTests",
-            dependencies: ["JudgmentWorkbench", "IdiomAuditor", "SmellPack", "GatePlugins"]
+            dependencies: [
+                .product(name: "JudgmentWorkbench", package: "quality-gate-corpus-kit"),
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                "QualityGateCore",
+                "IdiomAuditor",
+                "SmellPack",
+                "GatePlugins",
+            ]
         ),
 
         // MARK: - Trust service core (Phase 3b)

@@ -2,6 +2,58 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`quality-gate-dashboard` no longer depends on this package at all** — the third and fourth
+  steps of `SeparatingTheJudgmentLayer.md`, which also extracted `ijs-mcp-server`.
+
+  The dashboard's manifest carried `branch: "main"` on this package and explained itself as
+  forced: this package pins `indexstore-db` to a branch, SPM forbids a stable-versioned package
+  from carrying branch dependencies, so no `from:` requirement could resolve — leaving the
+  dashboard unversionable by its own consumers and without a reproducible build. That comment
+  named the wrong remedy. Tagging `indexstore-db` was never available (it publishes only
+  `swift-DEVELOPMENT-SNAPSHOT-*`); the remedy was to stop depending on the gate.
+
+  Three things moved, and **each was a dependency that turned out not to be real**:
+
+  | Moved | To | The edge that was not there |
+  |---|---|---|
+  | `JudgmentWorkbench` | corpus-kit 1.18.0 | declared `QualityGateCore`, used nothing from it — `CheckResult`, `Diagnostic`, `DiagnosticOverride` all live in `QualityGateTypes` and reached it via `@_exported import` |
+  | `StringProtocol.lines` | quality-gate-types 1.6.0 | a *general string helper* that had become part of this package's public surface by accident; the dashboard's Markdown renderer stopped compiling the moment the gate dependency went |
+  | `latestStandardResults(of:)` | corpus-kit 1.19.0, onto `TimestampedRun` | the one function the terminal dashboard and the SwiftUI app genuinely shared; it is a corpus reading, not a rendering |
+
+  `DashboardLoader` — everything else in it being presentation — went to the dashboard package
+  with its two test files.
+
+  `ijs-mcp-server` is now its own package at `platforms: [.macOS(.v14)]`, with **zero source
+  changes**: every import it had was already external. That is a deployment fix, not a tidy-up
+  — its host runs macOS 14.8.9, this package requires macOS 15, and the binary built there and
+  then failed at dyld.
+
+### Fixed
+
+- **Five test files imported `IJSSensor`, a module retired in corpus-kit 1.17.0.** They compiled
+  only against a stale `IJSSensor.swiftmodule` left in `.build`; a clean checkout — CI, or any
+  fresh clone — would have failed. Found while moving two of those files, not by a checker.
+  Worth recording as the failure mode a green local build cannot rule out: the artifact outlived
+  the module by a week, and nothing asked whether the name still resolved to anything.
+
+### Testing
+
+- The manifest target-count tripwire moved **116 → 115**. It is asserted rather than computed on
+  purpose — it exists to catch the manifest parser silently disagreeing with `swift package
+  describe` — so it is expected to be edited when the manifest genuinely changes, and it caught
+  this one. The count drops by one rather than two because `JudgmentWorkbenchTests` stays here
+  holding the golden half while its source target leaves.
+- **The `JudgmentWorkbench` suite is split by what each half can prove where.** The unit tests —
+  rule registry, marker text surgery, inbox extraction — moved with the sources to corpus-kit.
+  The **golden re-audit** tests stay here, where they drive `IdiomAuditor`, `SmellPack` and
+  `CustomRulesChecker` end to end to show that the marker `MarkerWriter` writes is the one those
+  auditors actually honour on the next run. Moving them with the sources would have meant
+  asserting the convention against a copy of itself. Their `@testable` is now a plain `import`,
+  which is a small check in itself that the move did not quietly widen anything.
+
+
 ### Added
 
 - **`ambient-calendar-in-test` now has a production counterpart, and it found nine defects here.**

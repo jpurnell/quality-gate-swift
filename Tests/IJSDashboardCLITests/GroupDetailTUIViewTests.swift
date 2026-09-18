@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import IJSDashboardCLI
 @testable import IJSDashboardCore
-@testable import IJSSensor
+import CorpusKit
 import QualityGateTypes
 import SwiftCLIKit
 

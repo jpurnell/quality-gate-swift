@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import IJSRefiner
-@testable import IJSSensor
+import CorpusKit
 @testable import IJSAggregator
 
 @Suite("Complexity Trend Tests")

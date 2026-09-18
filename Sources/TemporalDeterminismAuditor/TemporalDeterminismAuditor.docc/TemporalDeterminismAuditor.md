@@ -22,6 +22,31 @@ flaky. The bug was in production, not the test — so this auditor scans both
 |---|---|---|
 | `temporal-simulated-wall-clock` | A wall-clock read (`ContinuousClock.now`, `Date()`, `DispatchTime.now()`, …) stamped as a timestamp value inside a simulation/synthetic/mock/fake/stub type | warning |
 | `temporal-wall-clock-assertion` | A test assertion comparing *measured elapsed wall-clock time* against a numeric threshold | warning |
+| `temporal-ambient-calendar` | `Calendar.current`, or `Calendar(identifier:)` with no time zone pinned, in production code | warning |
+
+### The calendar, not the clock
+
+The first two rules are about the *clock*. `temporal-ambient-calendar` is about the
+*calendar*, which fails the same way and hides better: a wall-clock read looks like a
+wall-clock read, while `Calendar.current` looks like the obvious way to get a calendar.
+
+`Calendar(identifier:)` is the one that matters more. Pinning the identifier fixes the
+calendar *system* and inherits `TimeZone.current`, so the site reads as diligence and
+survives review while every component it computes still moves with the runner.
+
+Four carve-outs, each earned against real code. A `Calendar(identifier:)` is not ambient
+when its zone is pinned by a later statement in the same block, by a statement inside an
+`if let` (those initialisers are failable), as a sibling argument of the same call
+(`DateComponents(calendar:timeZone:…)`), or — when the calendar is assigned into a receiver
+that already exists — by an *earlier* statement, because the `DateFormatter` idiom writes
+`dateFormat`, `timeZone`, `locale`, `calendar` in that order. `Calendar.current` gets none
+of them: pinning a zone fixes half an ambient calendar, and the system is still the
+runner's, so the same instant yields a different year under a Japanese or Buddhist locale.
+
+Scoped to files outside `Tests/`, so it does not double-report what `test-quality`'s
+`ambient-calendar-in-test` already owns. The suggested fix names
+`Calendar.gregorianUTC` — or `Calendar.iso8601UTC` for week numbers, where the calendar
+system changes the answer — both from SwiftDeterminism.
 
 ### What counts as a timestamp
 
@@ -68,6 +93,7 @@ temporal-determinism:
   timestampLabels: []
   flagSimulatedWallClock: true
   flagWallClockAssertion: true
+  flagAmbientCalendar: true
 ```
 
 ## Topics

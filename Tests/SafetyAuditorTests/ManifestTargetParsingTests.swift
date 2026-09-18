@@ -175,7 +175,7 @@ struct ManifestParsingAgreementTests {
         #expect(map.targetType(forFile: "\(repositoryRoot)/Plugins/QualityGatePlugin/QualityGatePlugin.swift") == .plugin)
     }
 
-    @Test("The target count matches describe's 116")
+    @Test("The target count matches describe's 115")
     func countMatchesDescribe() {
         let map = TargetTypeMap.parsingManifest(packageRoot: repositoryRoot)
         // 127 until 2026-09-05, when IJSDashboardUI, ijs-dashboard-preview,
@@ -183,11 +183,15 @@ struct ManifestParsingAgreementTests {
         // 123 until 2026-09-18, when IJSSensor, IJSAggregator, IJSPolicyDiscovery,
         // IJSDashboardCore and their three test targets moved to
         // quality-gate-corpus-kit — step 1 of the judgment-layer split.
+        // 116 until later the same day, when JudgmentWorkbench followed them — step 3,
+        // which also took DashboardLoader to quality-gate-dashboard. Its test target
+        // stays here and holds the golden re-audit half of the suite, so the count drops
+        // by the one source target rather than by two.
         // The number is asserted rather than computed on purpose: it is a tripwire
         // for the parser silently disagreeing with `swift package describe`, so it
         // is expected to be edited whenever the manifest genuinely changes.
-        #expect(map.targetCount == 116,
-                "describe reported 116 targets on 2026-09-18; parser found \(map.targetCount)")
+        #expect(map.targetCount == 115,
+                "describe reported 115 targets on 2026-09-18; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.
