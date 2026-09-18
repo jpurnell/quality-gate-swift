@@ -236,7 +236,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.4.0"),
-        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.7.0"),
+        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.8.1"),
+        .package(url: "https://github.com/jpurnell/SwiftDeterminism.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
         // HTTPS, not git@ — CI authenticates private dependencies by rewriting
         // `https://github.com/` through a token (`url.insteadOf`), which cannot
@@ -522,7 +523,10 @@ let package = Package(
 
         .target(
             name: "StatusAuditor",
-            dependencies: ["QualityGateCore"],
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
+            ],
             resources: [.copy("StatusAuditor.docc")]
         ),
         .testTarget(
@@ -565,6 +569,7 @@ let package = Package(
                 // detector lives in FloatingPointSafetyAuditor; this checker
                 // reports it at error severity inside assertions.
                 "FloatingPointSafetyAuditor",
+                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
@@ -858,6 +863,7 @@ let package = Package(
         .target(
             name: "IJSRefiner",
             dependencies: [
+                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
                 .product(name: "BusinessMath", package: "BusinessMath"),
@@ -873,6 +879,7 @@ let package = Package(
             name: "ConsistencyChecker",
             dependencies: [
                 "QualityGateCore",
+                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSPolicyDiscovery", package: "quality-gate-corpus-kit"),
@@ -1072,6 +1079,7 @@ let package = Package(
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
+                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 "IndexStoreInfra",
                 "BoundedIOAuditor",
                 "LivenessAuditor",
@@ -1154,6 +1162,7 @@ let package = Package(
         .executableTarget(
             name: "IJSMCPServer",
             dependencies: [
+                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSPolicyDiscovery", package: "quality-gate-corpus-kit"),

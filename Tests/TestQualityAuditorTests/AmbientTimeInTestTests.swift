@@ -427,4 +427,52 @@ final class AmbientTimeInTestTests: XCTestCase {
         XCTAssertEqual(first.map(\.lineNumber), second.map(\.lineNumber))
         XCTAssertEqual(first.map(\.message), second.map(\.message))
     }
+
+    // MARK: - A pin that comes first
+
+    /// A `DateFormatter` whose zone is set two lines above the calendar.
+    ///
+    /// The carve-out originally scanned forward only, which is right for `var calendar =
+    /// Calendar(…)` — nothing above a binding can pin a value that does not exist yet — and
+    /// wrong the moment the calendar is assigned into a receiver that was already there. The
+    /// `DateFormatter` idiom writes `dateFormat`, `timeZone`, `locale`, `calendar` in that
+    /// order, so the pin lands first essentially every time. Three findings in this
+    /// repository's own `Sources/` had exactly this shape, every one of them correct code.
+    func testSparesAPinWrittenBeforeTheCalendar() async throws {
+        let source = """
+        import XCTest
+
+        final class T: XCTestCase {
+            @Test func todayISO() {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                formatter.timeZone = TimeZone(identifier: "UTC")
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.calendar = Calendar(identifier: .gregorian)
+                XCTAssertEqual(formatter.string(from: Date(timeIntervalSince1970: 0)), "1970-01-01")
+            }
+        }
+        """
+        let found = try await diagnostics(source)
+        XCTAssertTrue(found.isEmpty, "a zone pinned before the assignment is still a pin: \(found)")
+    }
+
+    /// Widening the scan must not turn "assigned into a receiver" into the carve-out itself.
+    func testStillFlagsAReceiverThatIsNeverPinned() async throws {
+        let source = """
+        import XCTest
+
+        final class T: XCTestCase {
+            @Test func todayISO() {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.calendar = Calendar(identifier: .gregorian)
+                XCTAssertEqual(formatter.string(from: Date(timeIntervalSince1970: 0)), "1970-01-01")
+            }
+        }
+        """
+        let found = try await diagnostics(source)
+        XCTAssertEqual(found.count, 1)
+    }
 }

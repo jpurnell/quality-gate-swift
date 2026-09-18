@@ -4,6 +4,62 @@
 
 ### Added
 
+- **`ambient-calendar-in-test` now has a production counterpart, and it found nine defects here.**
+  The test rule could only ever see the *mirror* of a defect: three of the four cases that
+  motivated it were found through a test that copied the production call, by a checker that
+  scanned `Tests/` and structurally could not reach the original. `temporal-ambient-calendar`
+  (swift-vigil 0.8.0, scoped to files outside `Tests/`) looks where the defect is.
+
+  Pointed at this repository's own `Sources/`, it reported twelve. Nine were real:
+
+  | Site | What moved |
+  | --- | --- |
+  | `PulseRefiner+Stratification.swift:15` | `daysSinceLastRun` decides a project's **tier**; the same corpus classified differently west of UTC |
+  | `PulseRefiner.swift:44` | the 90-day lookback window's start |
+  | `PulseRefiner.swift:240` | a UTC zone laid over `Calendar.current` — the *system* stayed the runner's, so a Japanese or Buddhist locale bucketed the same instant into a different year |
+  | `TestQualityAuditor.swift:1045` | a parse pinned to UTC feeding an **ambient** diff — the half-fix, which is worse than neither |
+  | `ConsistencyChecker.swift:131` | the 30-day metadata read window |
+  | `StatusValidator.swift:142` | plan staleness, counted in the runner's zone against a UTC parse |
+  | `ListOverridesTool.swift:61` | the `since_days` window an MCP client asks for |
+  | `Calibrate.swift:95` | the calibration window's start |
+  | `Dashboard.swift:105` | `isoWeekLabel` — its **twin** in `PulseRefiner` pinned UTC and this one did not, so two modules feeding one dashboard could label the same instant differently |
+
+  All nine now use `Calendar.gregorianUTC`, or `Calendar.iso8601UTC` for the two that compute
+  week numbers, both from SwiftDeterminism 1.3.0. The gate had been telling every other
+  repository to reach for those names; it is now taking its own advice rather than defining a
+  tenth private copy.
+
+### Fixed
+
+- **`ambient-calendar-in-test` spares a time zone pinned *before* the calendar.** The carve-out
+  scanned forward only from the `Calendar(identifier:)` statement. That is right for a fresh
+  binding — nothing above `var calendar = Calendar(…)` can pin a value that does not exist yet —
+  and wrong the moment the calendar is assigned into a receiver that was already there:
+
+  ```swift
+  formatter.dateFormat = "yyyy-MM-dd"
+  formatter.timeZone = TimeZone(identifier: "UTC")       // the pin
+  formatter.locale = Locale(identifier: "en_US_POSIX")
+  formatter.calendar = Calendar(identifier: .gregorian)  // reported anyway
+  ```
+
+  The order is the `DateFormatter` idiom, not an accident, so the pin lands first nearly every
+  time. Three of the twelve findings above were this shape, against code doing the careful thing
+  — `ControlMappingValidator.todayISO`, `ControlMappingValidator.daysBetween` and
+  `StandardsWatchCommand.todayUTC`, all untouched.
+
+  The distinction is now explicit rather than accidental: a binding keeps the forward-only scan,
+  a pre-existing receiver gets the whole block. A test pins the other direction too — a receiver
+  with no pin anywhere is still reported, so "assigned into a receiver" did not quietly become
+  the carve-out itself. Same fix in swift-vigil 0.8.1, which shares the design.
+
+  This is the second time this rule's carve-outs have been wrong in the direction of false
+  positives, after the sibling-argument gap that reported eleven findings against SwiftZIP. Both
+  were found by running the rule against real code rather than fixtures, which is the only way
+  either was going to surface.
+
+### Added
+
 - **`coalesced-assertion` promoted to `error` and reverted the same day.** The promotion was
   justified on the five repositories named in its proposal, all reporting zero. Five was the
   wrong denominator: the corpus knows **78 projects** pushing gate telemetry and **75** running

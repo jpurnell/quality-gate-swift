@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import SwiftDeterminism
 #if canImport(os)
 import os
 #endif
@@ -70,8 +71,7 @@ struct GeneratePulse: AsyncParsableCommand {
 
         let corpusPaths = projectDirs.map { CorpusPath(basePath: effectiveCorpusPath, projectID: $0) }
 
-        var calendar = Calendar(identifier: .iso8601)
-        calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        let calendar = Calendar.iso8601UTC
 
         let windowEnd = Date()
         guard let windowStart = calendar.date(byAdding: .day, value: -windowDays, to: windowEnd) else {

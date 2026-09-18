@@ -1,4 +1,5 @@
 import Foundation
+import SwiftDeterminism
 import CorpusKit
 #if canImport(os)
 import os
@@ -58,7 +59,7 @@ struct ListOverridesTool: MCPToolHandler, Sendable {
         let writer = DirectCorpusTransport()
 
         let endDate = Date()
-        let startDate = Calendar.current.date(byAdding: .day, value: -sinceDays, to: endDate)
+        let startDate = Calendar.gregorianUTC.date(byAdding: .day, value: -sinceDays, to: endDate)
             ?? endDate
 
         let calibrations: [JudgmentCalibration]

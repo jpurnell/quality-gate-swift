@@ -692,8 +692,11 @@ enum SemanticTestRules {
     ///
     /// ## Scope, and why it is not dataflow
     ///
-    /// The assignment must name the same binding and appear in a *later statement of the same
-    /// block* — anywhere in that statement's subtree, so a pin inside an `if let` counts. That
+    /// The assignment must name the same binding and appear in the *same block* — anywhere in
+    /// that statement's subtree, so a pin inside an `if let` counts. For a fresh binding it must
+    /// come *later*, because nothing above a `var` can pin a value that does not exist yet; for
+    /// a calendar assigned into a receiver that already exists, either side counts, since the
+    /// `DateFormatter` idiom writes `timeZone` before `calendar`. That
     /// is a local structural question, the same kind
     /// ``SemanticTestRules/isUnassertedOptionalUnwrap(_:)`` asks of a `guard` body, and not
     /// the value-following analysis that got `Date()` dropped from this rule. A calendar
@@ -714,20 +717,25 @@ enum SemanticTestRules {
         // one of them exemplary code, in a repository the rule had blocked at `error`.
         if enclosingCallPinsTimeZone(call) { return true }
 
-        guard let name = pinnableName(of: call),
+        guard let pinnable = pinnableName(of: call),
               let item = enclosingCodeBlockItem(of: call),
               let siblings = item.parent?.as(CodeBlockItemListSyntax.self) else {
             return false
         }
 
-        let scan = TimeZonePinScanner(name: name, viewMode: .sourceAccurate)
+        let scan = TimeZonePinScanner(name: pinnable.name, viewMode: .sourceAccurate)
         var reachedTheCalendar = false
         for sibling in siblings {
             if sibling.id == item.id {
                 reachedTheCalendar = true
                 continue
             }
-            guard reachedTheCalendar else { continue }
+            // A fresh `var calendar = Calendar(…)` can only be pinned after it exists, so an
+            // earlier `calendar.timeZone` names something else. A receiver that was already
+            // there has no such constraint, and the `DateFormatter` idiom pins the zone first:
+            // `dateFormat`, `timeZone`, `locale`, `calendar`. Looking forward only reported
+            // three findings against this repository's own `Sources/`, every one correct code.
+            guard reachedTheCalendar || pinnable.receiverPreexists else { continue }
             scan.walk(sibling)
             if scan.found { return true }
         }
@@ -760,13 +768,27 @@ enum SemanticTestRules {
     ///
     /// In the second the calendar never gets a name of its own — it goes straight into a
     /// `DateComponents`, whose `timeZone` is the thing the author then pins.
-    private static func pinnableName(of call: FunctionCallExprSyntax) -> String? {
+    private static func pinnableName(of call: FunctionCallExprSyntax) -> PinnableName? {
         if let initializer = call.parent?.as(InitializerClauseSyntax.self),
            let binding = initializer.parent?.as(PatternBindingSyntax.self),
            let pattern = binding.pattern.as(IdentifierPatternSyntax.self) {
-            return pattern.identifier.text
+            return PinnableName(name: pattern.identifier.text, receiverPreexists: false)
         }
-        return assignmentTarget(containing: call)
+        guard let target = assignmentTarget(containing: call) else { return nil }
+        return PinnableName(name: target, receiverPreexists: true)
+    }
+
+    /// A name a `.timeZone` pin could target, and whether that name predates this statement.
+    ///
+    /// The second half decides which direction the scan may look. A binding is created by the
+    /// statement holding the calendar, so only a later statement can pin it. A receiver already
+    /// exists, so the pin may sit on either side — and in the `DateFormatter` idiom it sits
+    /// before.
+    private struct PinnableName {
+        /// The identifier `<name>.timeZone = …` would have to name.
+        let name: String
+        /// True when the calendar is assigned *into* a value that already existed.
+        let receiverPreexists: Bool
     }
 
     /// The base of `X.<member> = <call>`, for a call that is the right-hand side.

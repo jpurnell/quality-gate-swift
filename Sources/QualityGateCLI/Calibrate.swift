@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import SwiftDeterminism
 #if canImport(os)
 import os
 #endif
@@ -92,7 +93,7 @@ struct Calibrate: AsyncParsableCommand {
         let writer = DirectCorpusTransport()
 
         let now = Date()
-        guard let windowStart = Calendar.current.date(byAdding: .day, value: -windowDays, to: now) else {
+        guard let windowStart = Calendar.gregorianUTC.date(byAdding: .day, value: -windowDays, to: now) else {
             print("[calibrate] Error: Cannot compute window start date")
             throw ExitCode(1)
         }

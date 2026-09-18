@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import SwiftDeterminism
 import ProcessKernel
 #if canImport(os)
 import os
@@ -102,7 +103,9 @@ struct Dashboard: AsyncParsableCommand {
     }
 
     private func isoWeekLabel(for date: Date) -> String {
-        let calendar = Calendar(identifier: .iso8601)
+        // This function's twin in PulseRefiner pinned UTC and this one did not, so the two
+        // could label the same instant differently — the defect that motivated iso8601UTC.
+        let calendar = Calendar.iso8601UTC
         let year = calendar.component(.yearForWeekOfYear, from: date)
         let week = calendar.component(.weekOfYear, from: date)
         let yearStr = "\(year)".padding(toLength: 4, withPad: "0", startingAt: 0)

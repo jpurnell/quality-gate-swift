@@ -1,4 +1,5 @@
 import Foundation
+import SwiftDeterminism
 import QualityGateCore
 import CorpusKit
 import IJSAggregator
@@ -128,7 +129,7 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         }
 
         let now = Date()
-        let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+        let thirtyDaysAgo = Calendar.gregorianUTC.date(byAdding: .day, value: -30, to: now) ?? now
         let recentMetadata = try await writer.readMetadata(
             from: corpus,
             startDate: thirtyDaysAgo,

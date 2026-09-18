@@ -1,4 +1,5 @@
 import Foundation
+import SwiftDeterminism
 import BusinessMath
 import CorpusKit
 import IJSAggregator
@@ -41,7 +42,7 @@ public actor PulseRefiner {
         manifest: CorpusManifest? = nil,
         label: String? = nil
     ) async throws -> InstitutionalPulse {
-        let lookbackStart = Calendar.current.date(
+        let lookbackStart = Calendar.gregorianUTC.date(
             byAdding: .day, value: -lookbackDays, to: windowStart
         ) ?? windowStart
 
@@ -237,9 +238,10 @@ public actor PulseRefiner {
     ) -> [DailySnapshot] {
         guard !metadata.isEmpty else { return [] }
 
-        let calendar = Calendar.current
-        var utcCalendar = calendar
-        utcCalendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        // Pinning the zone onto `Calendar.current` fixed half of this: the calendar *system*
+        // stayed the runner's, so a Japanese or Buddhist locale bucketed the same instant into
+        // a different year. `gregorianUTC` fixes both.
+        let utcCalendar = Calendar.gregorianUTC
 
         let grouped = Dictionary(grouping: metadata) { meta -> DateComponents in
             utcCalendar.dateComponents([.year, .month, .day], from: meta.timestamp)
@@ -554,8 +556,7 @@ public actor PulseRefiner {
     }
 
     private func isoWeekLabel(for date: Date) -> String {
-        var calendar = Calendar(identifier: .iso8601)
-        calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+        let calendar = Calendar.iso8601UTC
         let year = calendar.component(.yearForWeekOfYear, from: date)
         let week = calendar.component(.weekOfYear, from: date)
         let yearStr = "\(year)"

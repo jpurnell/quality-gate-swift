@@ -1,4 +1,5 @@
 import Foundation
+import SwiftDeterminism
 import QualityGateCore
 
 /// Cross-validates documented module status against actual project state.
@@ -139,7 +140,9 @@ public enum StatusValidator {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withFullDate]
             if let docDate = formatter.date(from: lastUpdated.date) {
-                let daysSince = Calendar.current.dateComponents(
+                // The date was parsed by ISO8601DateFormatter, which is UTC; counting the
+                // days back in the runner's zone is the mismatch that shifts a threshold.
+                let daysSince = Calendar.gregorianUTC.dateComponents(
                     [.day], from: docDate, to: now
                 ).day ?? 0
                 if daysSince > configuration.lastUpdatedStaleDays {

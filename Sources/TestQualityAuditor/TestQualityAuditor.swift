@@ -1,4 +1,5 @@
 import Foundation
+import SwiftDeterminism
 import IndexStoreInfra
 #if canImport(os)
 import os
@@ -1042,7 +1043,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
-        let daysBetween = abs(Calendar.current.dateComponents(
+        // The parse above is pinned to UTC; the diff has to be too, or the recency window
+        // this guards moves by a day for every developer west of Greenwich.
+        let daysBetween = abs(Calendar.gregorianUTC.dateComponents(
             [.day], from: parsedDate, to: Date()
         ).day ?? 0)
         guard daysBetween <= 365 else {

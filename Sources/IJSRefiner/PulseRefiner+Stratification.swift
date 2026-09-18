@@ -1,4 +1,5 @@
 import Foundation
+import SwiftDeterminism
 import CorpusKit
 import IJSAggregator
 
@@ -12,7 +13,9 @@ extension PulseRefiner {
         manifest: CorpusManifest? = nil
     ) -> [String: ProjectTier] {
         var tiers: [String: ProjectTier] = [:]
-        let calendar = Calendar.current
+        // Fixed, not ambient: `daysSinceLastRun` decides a project's tier, and a tier computed
+        // on a machine west of UTC would classify the same corpus differently.
+        let calendar = Calendar.gregorianUTC
 
         for (projectID, snapshots) in projectSnapshots {
             if let override = manifest?.projects[projectID]?.tierOverride {

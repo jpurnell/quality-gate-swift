@@ -1,5 +1,5 @@
 {
-  "originHash" : "b30963c2d766e304b70e14c7f71f89bc2ebadd0aa43939019e889fb1dcdae760",
+  "originHash" : "d899dfe30b78686aba3eb79b217b0e01492e23e641c05c25aa658aaa445f0fa4",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -339,8 +339,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-vigil.git",
       "state" : {
-        "revision" : "c35fadccb3f375e1e58325a26ea5e037bfbf0e19",
-        "version" : "0.7.0"
+        "revision" : "228b7b0d6cdcb07e9a1c546ec3bfe09244cfcef9",
+        "version" : "0.8.1"
       }
     },
     {
@@ -350,6 +350,15 @@
       "state" : {
         "revision" : "17a928f79a91345e1900d88e96e5add34b16a36a",
         "version" : "1.4.0"
+      }
+    },
+    {
+      "identity" : "swiftdeterminism",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/SwiftDeterminism.git",
+      "state" : {
+        "revision" : "ff53b5aa728a33fea62c98390b16ff54892070ea",
+        "version" : "1.3.0"
       }
     },
     {
