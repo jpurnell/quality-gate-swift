@@ -1,6 +1,6 @@
 import Foundation
 import IJSDashboardCore
-import IJSSensor
+import CorpusKit
 import SwiftCLIKit
 
 /// Renders pulse data sections as box-row formatted lines for the portfolio TUI view.

@@ -1,6 +1,6 @@
 import Foundation
 import IJSDashboardCore
-import IJSSensor
+import CorpusKit
 
 /// Generates a self-contained HTML report from portfolio and pulse data.
 ///

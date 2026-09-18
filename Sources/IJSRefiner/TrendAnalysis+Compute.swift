@@ -1,6 +1,6 @@
 import Foundation
 import BusinessMath
-import IJSSensor
+import CorpusKit
 
 extension TrendAnalysis {
     /// Computes a TrendAnalysis from an array of daily metric values.

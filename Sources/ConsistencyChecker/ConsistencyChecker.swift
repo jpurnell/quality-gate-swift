@@ -1,6 +1,6 @@
 import Foundation
 import QualityGateCore
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 import IJSPolicyDiscovery
 

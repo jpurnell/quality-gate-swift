@@ -1,6 +1,7 @@
 
 import ArgumentParser
 import Foundation
+import ProcessKernel
 #if canImport(os)
 import os
 #endif
@@ -49,7 +50,7 @@ import DuplicationAuditor
 import KeychainSecretsChecker
 import PrivacyManifestChecker
 import ControlMapping
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 
 /// A text output stream that writes to stdout.
@@ -148,7 +149,11 @@ struct QualityGateCLI: AsyncParsableCommand {
     private static func toolchainVersion() -> String {
         // SAFETY: subprocess with hardcoded `/usr/bin/env swift --version`
         do {
-            let result = try ProcessRunner.run("/usr/bin/env", arguments: ["swift", "--version"])
+            // `ProcessKernel.ProcessRunner`, qualified: CorpusKit 1.16.0 added a public type of the
+            // same name, and this file sees both. The ambiguity was invisible while `IJSSensor`
+            // re-exported CorpusKit — the compiler silently picked one. Naming the module is the
+            // fix; the import is explicit now, so the conflict is too.
+            let result = try ProcessKernel.ProcessRunner.run("/usr/bin/env", arguments: ["swift", "--version"])
             guard result.exitCode == 0 else { return "" }
             return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {

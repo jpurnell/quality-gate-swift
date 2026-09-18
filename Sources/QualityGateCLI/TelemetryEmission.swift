@@ -4,7 +4,7 @@ import os
 #endif
 import ComplexityAnalyzer
 import GateCI
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 import LegibilityAnalyzer
 import QualityGateCore

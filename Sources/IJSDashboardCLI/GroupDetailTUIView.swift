@@ -1,7 +1,7 @@
 import Foundation
 import IJSAggregator
 import IJSDashboardCore
-import IJSSensor
+import CorpusKit
 import SwiftCLIKit
 
 /// Renders the group detail view: group summary, member table, group trend, and

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
-@testable import IJSDashboardCore
+@testable import IJSDashboardCLI
+import IJSDashboardCore
 @testable import IJSSensor
 import CorpusKit
 import QualityGateTypes

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 import QualityGateTypes
 @testable import IJSRefiner
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 
 @Suite("PulseStatisticalMaturityIntegration")

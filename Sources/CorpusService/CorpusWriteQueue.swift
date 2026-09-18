@@ -1,5 +1,6 @@
 import CorpusKit
 import Foundation
+import ProcessKernel
 #if canImport(os)
 import os
 #endif
@@ -248,7 +249,11 @@ public actor CorpusWriteQueue {
         // Through the kernel. Draining before waiting fixed the pipe-buffer deadlock and left
         // the other one: EOF needs every inherited write end closed, so a git subcommand that
         // leaves a helper holding the pipe hung this queue with no deadline to stop it.
-        let result = try ProcessRunner.run(
+        // `ProcessKernel.ProcessRunner`, qualified: CorpusKit 1.16.0 added a public type of the
+        // same name, and this file sees both. The ambiguity was invisible while `IJSSensor`
+        // re-exported CorpusKit — the compiler silently picked one. Naming the module is the
+        // fix; the import is explicit now, so the conflict is too.
+        let result = try ProcessKernel.ProcessRunner.run(
             "/usr/bin/git",
             arguments: arguments,
             currentDirectory: workingClone,

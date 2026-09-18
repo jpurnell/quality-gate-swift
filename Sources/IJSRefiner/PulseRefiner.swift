@@ -1,6 +1,6 @@
 import Foundation
 import BusinessMath
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 #if canImport(os)
 import os
@@ -334,7 +334,7 @@ public actor PulseRefiner {
 
                 guard absZ >= threshold else { continue }
 
-                let severity: IJSSensor.AnomalySeverity
+                let severity: CorpusKit.AnomalySeverity
                 if absZ >= 3.0 {
                     severity = .extreme
                 } else if absZ >= 1.96 {

@@ -170,20 +170,8 @@ let package = Package(
         ),
         // IJS modules
         .library(
-            name: "IJSSensor",
-            targets: ["IJSSensor"]
-        ),
-        .library(
-            name: "IJSAggregator",
-            targets: ["IJSAggregator"]
-        ),
-        .library(
             name: "IJSRefiner",
             targets: ["IJSRefiner"]
-        ),
-        .library(
-            name: "IJSPolicyDiscovery",
-            targets: ["IJSPolicyDiscovery"]
         ),
         .library(
             name: "ConsistencyChecker",
@@ -224,10 +212,6 @@ let package = Package(
             targets: ["ControlMapping"]
         ),
         // Dashboard
-        .library(
-            name: "IJSDashboardCore",
-            targets: ["IJSDashboardCore"]
-        ),
         // CLI executable
         .executable(
             name: "quality-gate",
@@ -259,9 +243,15 @@ let package = Package(
         // touch an SSH remote. With the SSH form this dependency failed on any
         // machine without a GitHub SSH key regardless of how the token was
         // scoped: "Host key verification failed", observed on the runner host.
-        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.15.0"),
+        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.17.0"),
 		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
-        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.3.1"),
+        // 1.4.0, not 1.3.1. The v1.3.1 tag was moved three times, and SwiftPM keeps a
+        // machine-global trust-on-first-use fingerprint per version, so every consumer that had
+        // ever resolved 1.3.1 was refused on every machine — this package could not resolve from
+        // a clean checkout at all, with warm caches the only thing hiding it. SwiftCLIKit
+        // published 1.4.0 rather than move the tag a fourth time; a published version tag is
+        // immutable, and correcting a release means publishing the next one.
+        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.4.0"),
         .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "4.5.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
@@ -780,7 +770,7 @@ let package = Package(
             name: "ComplexityAnalyzer",
             dependencies: [
                 "QualityGateCore",
-                // CorpusKit, not IJSSensor: a checker depends on the corpus's
+                // CorpusKit directly: a checker depends on the corpus's
                 // shared types, never on the IJS modules that write the corpus.
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 "IndexStoreInfra",
@@ -792,13 +782,13 @@ let package = Package(
         ),
         .testTarget(
             name: "ComplexityAnalyzerTests",
-            dependencies: ["ComplexityAnalyzer", "IJSSensor"]
+            dependencies: ["ComplexityAnalyzer", .product(name: "CorpusKit", package: "quality-gate-corpus-kit")]
         ),
         .target(
             name: "LegibilityAnalyzer",
             dependencies: [
                 "QualityGateCore",
-                // CorpusKit, not IJSSensor — see ComplexityAnalyzer above.
+                // CorpusKit directly — see ComplexityAnalyzer above.
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -809,7 +799,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LegibilityAnalyzerTests",
-            dependencies: ["LegibilityAnalyzer", "IJSSensor"]
+            dependencies: ["LegibilityAnalyzer", .product(name: "CorpusKit", package: "quality-gate-corpus-kit")]
         ),
 
         .target(
@@ -863,31 +853,13 @@ let package = Package(
         ),
 
         // MARK: - IJS Modules
-        .target(
-            name: "IJSSensor",
-            dependencies: [
-                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
-            ]
-        ),
 
-        .target(
-            name: "IJSAggregator",
-            dependencies: [
-                "IJSSensor",
-                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
-                .product(name: "Yams", package: "Yams"),
-            ]
-        ),
-        .testTarget(
-            name: "IJSAggregatorTests",
-            dependencies: ["IJSAggregator"]
-        ),
 
         .target(
             name: "IJSRefiner",
             dependencies: [
-                "IJSSensor",
-                "IJSAggregator",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
                 .product(name: "BusinessMath", package: "BusinessMath"),
             ]
         ),
@@ -896,62 +868,33 @@ let package = Package(
             dependencies: ["IJSRefiner"]
         ),
 
-        .target(
-            name: "IJSPolicyDiscovery",
-            dependencies: [
-                "IJSSensor",
-                "IJSAggregator",
-                .product(name: "QualityGateTypes", package: "quality-gate-types"),
-            ]
-        ),
-        .testTarget(
-            name: "IJSPolicyDiscoveryTests",
-            dependencies: ["IJSPolicyDiscovery"]
-        ),
 
         .target(
             name: "ConsistencyChecker",
             dependencies: [
                 "QualityGateCore",
-                "IJSSensor",
-                "IJSAggregator",
-                "IJSPolicyDiscovery",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSPolicyDiscovery", package: "quality-gate-corpus-kit"),
             ]
         ),
         .testTarget(
             name: "ConsistencyCheckerTests",
             dependencies: [
                 "ConsistencyChecker",
-                "IJSSensor",
-                "IJSAggregator",
-                "IJSPolicyDiscovery",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSPolicyDiscovery", package: "quality-gate-corpus-kit"),
             ]
         ),
 
         // MARK: - Dashboard
         .target(
-            name: "IJSDashboardCore",
-            dependencies: [
-                "IJSSensor",
-                "IJSAggregator",
-                "JudgmentWorkbench",
-            ]
-        ),
-        .testTarget(
-            name: "IJSDashboardCoreTests",
-            dependencies: [
-                "IJSDashboardCore",
-                "IJSAggregator",
-                "IJSSensor",
-                .product(name: "QualityGateTypes", package: "quality-gate-types"),
-            ]
-        ),
-        .target(
             name: "IJSDashboardCLI",
             dependencies: [
-                "IJSDashboardCore",
-                "IJSSensor",
-                "IJSAggregator",
+                .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
                 "JudgmentWorkbench",
                 "CorpusService",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
@@ -963,8 +906,8 @@ let package = Package(
             name: "IJSDashboardCLITests",
             dependencies: [
                 "IJSDashboardCLI",
-                "IJSDashboardCore",
-                "IJSSensor",
+                .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
                 .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
             ]
@@ -1178,10 +1121,10 @@ let package = Package(
                 "XcodeBuildChecker",
                 "AppIntentsAuditor",
                 "ConsistencyChecker",
-                "IJSSensor",
-                "IJSAggregator",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
                 "IJSRefiner",
-                "IJSDashboardCore",
+                .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
                 "IJSDashboardCLI",
                 // IJSDashboardUI is deliberately absent. It moved to the
                 // quality-gate-dashboard package on 2026-09-05 — linking it here
@@ -1211,10 +1154,10 @@ let package = Package(
         .executableTarget(
             name: "IJSMCPServer",
             dependencies: [
-                "IJSSensor",
-                "IJSAggregator",
-                "IJSPolicyDiscovery",
-                "IJSDashboardCore",
+                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSPolicyDiscovery", package: "quality-gate-corpus-kit"),
+                .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
                 .product(name: "SwiftMCPServer", package: "SwiftMCPServer"),
             ]
         ),

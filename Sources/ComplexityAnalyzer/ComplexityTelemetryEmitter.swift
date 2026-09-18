@@ -1,8 +1,7 @@
 import Foundation
-// CorpusKit directly, not via IJSSensor. IJSSensor is a shim whose whole body is
-// `@_exported import CorpusKit`, so importing it here made a checker depend on an
-// IJS module to reach shared corpus DTOs. A checker may depend on the types the
-// corpus is written in; it must not depend on the system that writes it.
+// CorpusKit directly. IJSSensor was a one-line `@_exported import CorpusKit` shim; it
+// was retired on 2026-09-18 because the re-export leaked CorpusKit's namespace into
+// every importer, colliding with swift-process-kernel over `ProcessRunner`.
 import CorpusKit
 
 /// Converts per-function complexity records into a corpus-ready ComplexityReport.

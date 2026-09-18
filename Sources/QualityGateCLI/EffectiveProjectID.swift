@@ -1,5 +1,5 @@
 import Foundation
-import IJSSensor
+import CorpusKit
 import QualityGateCore
 
 /// Resolves the corpus projectID for this run (Phase 0.4).

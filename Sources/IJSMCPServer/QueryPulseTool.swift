@@ -1,7 +1,7 @@
 import Foundation
+import CorpusKit
 import SwiftMCPServer
 import IJSDashboardCore
-import IJSSensor
 
 struct QueryPulseTool: MCPToolHandler, Sendable {
     let corpusPath: String
@@ -24,6 +24,11 @@ struct QueryPulseTool: MCPToolHandler, Sendable {
 
         let pulse: InstitutionalPulse?
         if let weekLabel = arguments?.getStringOptional("week_label") {
+            // `loadPulse(label:)` returns nil for a non-component label, which reads as "no
+            // such pulse". Saying so here distinguishes a bad label from a missing one.
+            guard CorpusPath.isSingleComponent(weekLabel) else {
+                return .error(message: "week_label '\(weekLabel)' is not a pulse label.")
+            }
             pulse = reader.loadPulse(weekLabel: weekLabel)
         } else {
             pulse = reader.loadLatestPulse()

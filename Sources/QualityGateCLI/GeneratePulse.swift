@@ -4,7 +4,7 @@ import Foundation
 import os
 #endif
 import QualityGateCore
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 import IJSRefiner
 import IJSDashboardCore

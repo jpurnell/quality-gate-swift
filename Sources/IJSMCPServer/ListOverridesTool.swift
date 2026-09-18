@@ -1,9 +1,10 @@
 import Foundation
+import CorpusKit
 #if canImport(os)
 import os
 #endif
 import SwiftMCPServer
-import IJSSensor
+
 import IJSAggregator
 
 private let logger = Logger(subsystem: "com.quality-gate.ijs-mcp", category: "ListOverridesTool")
@@ -43,6 +44,12 @@ struct ListOverridesTool: MCPToolHandler, Sendable {
         }
 
         let projectID = try args.getString("project_id")
+        // Refused at the boundary as well as in the reader. The reader throws, which is the
+        // backstop; refusing here turns "nothing found for '../../x'" — indistinguishable from
+        // an empty project — into a message naming the actual problem.
+        guard CorpusPath.isSingleComponent(projectID) else {
+            return .error(message: "project_id '\(projectID)' is not a project identifier.")
+        }
         let limit = args.getIntOptional("limit") ?? 10
         let riskTierMin = args.getIntOptional("risk_tier_min")
         let sinceDays = args.getIntOptional("since_days") ?? 90

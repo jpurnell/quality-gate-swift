@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import ConsistencyChecker
 import QualityGateCore
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 import IJSPolicyDiscovery
 

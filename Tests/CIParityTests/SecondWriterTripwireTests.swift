@@ -1,4 +1,5 @@
 import Foundation
+import ProcessKernel
 import QualityGateCore
 import Testing
 import CorpusKit
@@ -68,7 +69,11 @@ struct SecondWriterTripwireTests {
     private func runGate(cwd: URL) throws -> String {
         // The bounded runner, not a hand-rolled Process: this spawns the gate, whose output
         // exceeds the pipe buffer, and the old wait-then-read ordering could deadlock.
-        let result = try ProcessRunner.run(
+        // `ProcessKernel.ProcessRunner`, qualified: CorpusKit 1.16.0 added a public type of the
+        // same name, and this file sees both. The ambiguity was invisible while `IJSSensor`
+        // re-exported CorpusKit — the compiler silently picked one. Naming the module is the
+        // fix; the import is explicit now, so the conflict is too.
+        let result = try ProcessKernel.ProcessRunner.run(
             try Self.gateBinary().path,
             arguments: ["--check", "legibility", "--no-index-build"],
             currentDirectory: cwd.path,

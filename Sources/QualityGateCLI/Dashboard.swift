@@ -1,10 +1,11 @@
 import ArgumentParser
 import Foundation
+import ProcessKernel
 #if canImport(os)
 import os
 #endif
 import QualityGateCore
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 import IJSDashboardCore
 import IJSDashboardCLI
@@ -45,8 +46,16 @@ struct Dashboard: AsyncParsableCommand {
         let gitDir = "\(corpusPath)/.git"
         guard FileManager.default.fileExists(atPath: gitDir) else { return } // SAFETY: read-only existence check on configured path
 
-        func git(_ arguments: [String]) throws -> ProcessRunner.Output {
-            try ProcessRunner.run(
+        // `ProcessKernel.ProcessRunner`, qualified: CorpusKit 1.16.0 added a public type of the
+
+        // same name, and this file sees both. The ambiguity was invisible while `IJSSensor`
+
+        // re-exported CorpusKit — the compiler silently picked one. Naming the module is the
+
+        // fix; the import is explicit now, so the conflict is too.
+
+        func git(_ arguments: [String]) throws -> ProcessKernel.ProcessRunner.Output {
+            try ProcessKernel.ProcessRunner.run(
                 "/usr/bin/git", // SAFETY: hardcoded system path
                 arguments: arguments,
                 currentDirectory: corpusPath

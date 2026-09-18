@@ -1,7 +1,7 @@
 import Foundation
 import IJSAggregator
 import IJSDashboardCore
-import IJSSensor
+import CorpusKit
 import JudgmentWorkbench
 #if canImport(os)
 import os

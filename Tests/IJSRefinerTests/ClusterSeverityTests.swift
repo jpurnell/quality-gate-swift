@@ -1,6 +1,6 @@
 import Foundation
 import IJSAggregator
-import IJSSensor
+import CorpusKit
 import QualityGateTypes
 import Testing
 @testable import IJSRefiner

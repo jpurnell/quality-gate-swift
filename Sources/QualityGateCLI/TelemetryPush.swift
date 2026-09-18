@@ -4,7 +4,7 @@ import Foundation
 import os
 #endif
 import QualityGateCore
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 
 struct TelemetryPush: AsyncParsableCommand {

@@ -1,5 +1,5 @@
 import Foundation
-import IJSSensor
+import CorpusKit
 import QualityGateCore
 
 /// One place the CLI resolves layered configuration (Phase 1).

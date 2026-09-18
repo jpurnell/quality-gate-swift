@@ -1,5 +1,5 @@
 import Foundation
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 
 extension PulseRefiner {

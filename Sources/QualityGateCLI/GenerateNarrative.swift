@@ -8,7 +8,7 @@ import FoundationModels
 #endif
 import QualityGateCore
 import NarrativeCore
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 import IJSDashboardCore
 

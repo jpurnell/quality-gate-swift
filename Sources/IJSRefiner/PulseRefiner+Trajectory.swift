@@ -1,6 +1,6 @@
 import Foundation
 import BusinessMath
-import IJSSensor
+import CorpusKit
 import IJSAggregator
 #if canImport(os)
 import os

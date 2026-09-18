@@ -1,6 +1,7 @@
 import Testing
 import Foundation
-@testable import IJSDashboardCore
+@testable import IJSDashboardCLI
+import IJSDashboardCore
 
 /// The corpus change-signature backs the GUI's auto-refresh: it must advance
 /// when a file under the corpus changes and stay put otherwise, so an idle poll

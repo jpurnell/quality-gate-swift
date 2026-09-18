@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 @testable import IJSRefiner
-import IJSSensor
+import CorpusKit
 
 @Suite("ViolationCluster")
 struct ViolationClusterTests {

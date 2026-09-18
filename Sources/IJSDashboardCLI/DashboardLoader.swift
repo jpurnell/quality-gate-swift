@@ -10,7 +10,8 @@ import Foundation
 import os
 #endif
 import IJSAggregator
-import IJSSensor
+import CorpusKit
+import IJSDashboardCore
 import JudgmentWorkbench
 import QualityGateTypes
 

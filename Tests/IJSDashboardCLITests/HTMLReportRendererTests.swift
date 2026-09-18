@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import IJSDashboardCLI
 @testable import IJSDashboardCore
-import IJSSensor
+import CorpusKit
 import QualityGateTypes
 
 @Suite("HTMLReportRenderer")

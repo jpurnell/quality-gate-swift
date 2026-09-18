@@ -3,7 +3,7 @@ import Foundation
 #if canImport(os)
 import os
 #endif
-import IJSSensor
+import CorpusKit
 import QualityGateCore
 
 /// Propose (and optionally apply) manifest aliases mapping this project's

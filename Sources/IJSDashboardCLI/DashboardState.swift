@@ -1,6 +1,6 @@
 import CorpusService
 import Foundation
-import IJSSensor
+import CorpusKit
 
 /// A visible row in the portfolio list, either a group header or a project.
 public enum PortfolioRow: Sendable, Equatable {

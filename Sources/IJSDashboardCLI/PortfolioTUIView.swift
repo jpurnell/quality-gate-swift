@@ -1,7 +1,7 @@
 import Foundation
 import IJSAggregator
 import IJSDashboardCore
-import IJSSensor
+import CorpusKit
 import SwiftCLIKit
 
 /// Renders the portfolio overview as a box-drawn terminal frame.

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import LegibilityAnalyzer
-import IJSSensor
+import CorpusKit
 
 @Suite("LegibilityAnalyzer.orientationCards")
 struct OrientationCardsTests {

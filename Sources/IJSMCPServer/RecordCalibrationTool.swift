@@ -1,6 +1,7 @@
 import Foundation
+import CorpusKit
 import SwiftMCPServer
-import IJSSensor
+
 import IJSAggregator
 
 struct RecordCalibrationTool: MCPToolHandler, Sendable {
@@ -67,6 +68,12 @@ struct RecordCalibrationTool: MCPToolHandler, Sendable {
         }
 
         let projectID = try args.getString("project_id")
+        // Refused at the boundary as well as in the reader. The reader throws, which is the
+        // backstop; refusing here turns "nothing found for '../../x'" — indistinguishable from
+        // an empty project — into a message naming the actual problem.
+        guard CorpusPath.isSingleComponent(projectID) else {
+            return .error(message: "project_id '\(projectID)' is not a project identifier.")
+        }
         let ruleID = try args.getString("rule_id")
         let rationale = try args.getString("override_rationale")
         let riskTierRaw = try args.getInt("risk_tier")

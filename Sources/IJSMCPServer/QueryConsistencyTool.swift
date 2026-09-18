@@ -1,7 +1,8 @@
 import Foundation
+import CorpusKit
 import SwiftMCPServer
 import IJSDashboardCore
-import IJSSensor
+
 import IJSPolicyDiscovery
 import IJSAggregator
 
@@ -36,6 +37,12 @@ struct QueryConsistencyTool: MCPToolHandler, Sendable {
         }
 
         let projectID = try args.getString("project_id")
+        // Refused at the boundary as well as in the reader. The reader throws, which is the
+        // backstop; refusing here turns "nothing found for '../../x'" — indistinguishable from
+        // an empty project — into a message naming the actual problem.
+        guard CorpusPath.isSingleComponent(projectID) else {
+            return .error(message: "project_id '\(projectID)' is not a project identifier.")
+        }
         let threshold = args.getDoubleOptional("threshold") ?? 0.75
         let maxFindings = args.getIntOptional("max_findings") ?? 20
 
