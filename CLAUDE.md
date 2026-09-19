@@ -127,11 +127,27 @@ Fix all build errors before proceeding to the next change.
 
 ## Architecture
 
-61 SPM targets. Key module groups:
-- **QualityGateCore**: Diagnostic models, CheckResult, Configuration, Reporters
+**114 targets — 57 source, 57 test** (v3.2.0, 2026-09-19). Don't take that number from here: it
+is generated into `master_plan.md`'s `scale` region from `Package.swift`, and this copy is the one
+that can go stale. It said "61 SPM targets" for long enough to be wrong by two different
+reckonings at once — 61 was the *source* count, not the target count, and by the time anyone
+checked it was 60.
+
+Key module groups:
+- **QualityGateCore**: Diagnostic models, CheckResult, Configuration, Reporters. It
+  `@_exported import`s `QualityGateTypes`, `ProcessKernel` and `VigilKit` — so a symbol you reach
+  through it may belong to a package you never named. That has hidden a package boundary twice
+  (`IJSSensor`, `JudgmentWorkbench`); when moving a module, check what it *uses*, not what it
+  *imports*.
 - **QualityGateCLI**: ArgumentParser entry point, checker orchestration
 - **Auditors**: SafetyAuditor, ConcurrencyAuditor, RecursionAuditor, etc.
-- **IJS modules**: IJSSensor, IJSAggregator, IJSRefiner, IJSPolicyDiscovery, ConsistencyChecker
+- **IJS modules here**: IJSRefiner, ConsistencyChecker
+- **IJS modules in `quality-gate-corpus-kit`**: CorpusKit, IJSAggregator, IJSPolicyDiscovery,
+  IJSDashboardCore, JudgmentWorkbench. `IJSSensor` is retired — it was a one-line
+  `@_exported import CorpusKit` shim. Import `CorpusKit` directly.
+- **Not here any more**: `IJSMCPServer` (own package, `jpurnell/ijs-mcp-server`, macOS 14 so it
+  can run on roseclub) and the dashboard GUI tier (`quality-gate-dashboard`, which as of
+  2026-09-18 depends on corpus-kit rather than on this package).
 
 ## References
 

@@ -216,11 +216,6 @@ let package = Package(
             name: "quality-gate",
             targets: ["QualityGateCLI"]
         ),
-        // IJS MCP Server
-        .executable(
-            name: "ijs-mcp-server",
-            targets: ["IJSMCPServer"]
-        ),
         // SPM Command Plugin
         .plugin(
             name: "QualityGatePlugin",
@@ -1162,18 +1157,14 @@ let package = Package(
             dependencies: ["QualityGateCLI", "QualityGateCore"]
         ),
 
-        // MARK: - IJS MCP Server
-        .executableTarget(
-            name: "IJSMCPServer",
-            dependencies: [
-                .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
-                .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
-                .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
-                .product(name: "IJSPolicyDiscovery", package: "quality-gate-corpus-kit"),
-                .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
-                .product(name: "SwiftMCPServer", package: "SwiftMCPServer"),
-            ]
-        ),
+        // The IJS MCP server moved to its own package, `jpurnell/ijs-mcp-server`, on
+        // 2026-09-18 (SeparatingTheJudgmentLayer.md §3.3). It had to: roseclub runs macOS
+        // 14.8.9 and this package's floor is macOS 15, so the binary built there and then
+        // dyld-failed. Nothing in its six files needed macOS 15.
+        //
+        // It was first *copied* rather than moved, and the two halves diverged within the day —
+        // the copy left here kept a defect the new one had fixed. Deleting this target is what
+        // the extraction actually was; the duplicate is the whole reason to say so here.
 
         // MARK: - Plugins
         .plugin(

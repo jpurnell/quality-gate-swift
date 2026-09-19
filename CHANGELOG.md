@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-09-19
+
+The first release since 3.1.2 on 2026-09-03, which is the point: 24 entries had accumulated,
+including whole new rules, while the binary went on reporting `3.1.2`. **Nothing depends on this
+package by version any more** — step 3 of the judgment split removed the last SPM consumer — so
+this release exists to stop a version naming rules it does not contain. That gap is also why
+`minimumGateVersion` is a *date* in every config.
+
+### Removed
+- **`IJSMCPServer` leaves this package** for `jpurnell/ijs-mcp-server` at `macOS(.v14)`. It had
+  to: roseclub runs **macOS 14.8.9**, this package's floor is macOS 15, and the binary built
+  there and then failed at dyld. Nothing in its six files needed macOS 15.
+
+  It was **copied on 2026-09-18 and not removed**, and the two halves diverged the same day — the
+  copy left here kept the port-as-corpus-path defect the new one had fixed. So a session that
+  spent two commits arguing against "two implementations free to drift" produced one. The
+  deployed binary was always the fixed one; the repository was what was wrong.
+
+  Worth stating because of what did *not* catch it: the manifest, the status roster and the
+  target-count tripwire all agreed with each other throughout, because all three derive from the
+  manifest and the manifest was the thing that was wrong. **Three derived numbers cannot catch a
+  wrong source.** `114 targets`, down from 116 across steps 3 and 4.
+
+
 ### Fixed
 
 - **`dep-hallucinated-import` could not recognise a hyphenated target's own module.** SwiftPM
@@ -1981,7 +2005,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.0.0...v3.1.0
