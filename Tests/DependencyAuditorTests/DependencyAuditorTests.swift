@@ -473,6 +473,50 @@ struct HallucinatedImportTests {
         #expect(diagnostics[0].message.contains("NonExistentModule"))
     }
 
+    @Test("A hyphenated target satisfies its own mangled import")
+    func hyphenatedTargetIsNotHallucinated() {
+        // SwiftPM compiles a target declared `ijs-mcp-server` as the module `ijs_mcp_server`,
+        // so its own test target's `@testable import ijs_mcp_server` was reported as
+        // hallucinated in the very package that declares it. Executable targets carry hyphens
+        // routinely — the target name is usually the binary name — so this was not an edge case.
+        #expect(DependencyAuditor.moduleSpellings(of: "ijs-mcp-server")
+            == ["ijs-mcp-server", "ijs_mcp_server"])
+
+        var known: Set<String> = []
+        DependencyAuditor.addModuleNames(["ijs-mcp-server"], into: &known)
+        let diagnostics = DependencyAuditor.checkHallucinatedImports(
+            sourceFiles: [("Tests/T/F.swift", "@testable import ijs_mcp_server\n")],
+            knownModules: known
+        )
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("Both spellings are registered, because real source uses both")
+    func bothSpellingsAreKnown() {
+        // The manifest's own `dependencies: ["ijs-mcp-server"]` names the declared spelling and
+        // a consumer's `import ijs_mcp_server` names the mangled one. Registering only the
+        // mangled name would trade this false positive for a different one.
+        var known: Set<String> = []
+        DependencyAuditor.addModuleNames(["ijs-mcp-server"], into: &known)
+        #expect(known == ["ijs-mcp-server", "ijs_mcp_server"])
+    }
+
+    @Test("A name needing no mangling is registered once")
+    func plainNameIsNotDuplicated() {
+        #expect(DependencyAuditor.moduleSpellings(of: "QualityGateCore") == ["QualityGateCore"])
+    }
+
+    @Test("Every character outside a Swift identifier is mangled, not just the hyphen")
+    func manglesEveryInvalidCharacter() {
+        // SwiftPM's rule is about valid identifiers, not about hyphens specifically; a rule
+        // written as `replacingOccurrences(of: "-")` would pass the case above and still miss
+        // a dotted or spaced target name.
+        #expect(DependencyAuditor.moduleSpellings(of: "my.target name")
+            == ["my.target name", "my_target_name"])
+        // Underscores and digits are already valid, so they survive untouched.
+        #expect(DependencyAuditor.moduleSpellings(of: "tool_v2") == ["tool_v2"])
+    }
+
     @Test("Allows system framework imports")
     func allowsSystemFrameworks() {
         let sourceFiles: [(path: String, content: String)] = [

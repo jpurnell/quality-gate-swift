@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`dep-hallucinated-import` could not recognise a hyphenated target's own module.** SwiftPM
+  mangles a target name that is not a valid Swift identifier — every character outside
+  `[A-Za-z0-9_]` becomes `_` — so a target declared `ijs-mcp-server` compiles as the module
+  `ijs_mcp_server`. The checker compared imports against the *declared* spelling only, which
+  meant **a hyphenated target could never satisfy its own import**: `@testable import
+  ijs_mcp_server` was reported as hallucinated in the very package that declares it.
+
+  Not an edge case. Executable targets carry hyphens as a matter of course, because the target
+  name is usually the binary name, so this was one warning waiting in every such package.
+
+  Both spellings are now registered rather than only the mangled one — the manifest's own
+  `dependencies: ["ijs-mcp-server"]` uses the declared name and a consumer's `import` uses the
+  mangled one, so registering one would have traded this false positive for another. The
+  mangling follows SwiftPM's actual rule (any invalid identifier character) rather than
+  special-casing the hyphen, and a test covers a dotted-and-spaced name that a
+  hyphen-only fix would still have missed.
+
+  Found by gating a new repository for the first time, which is the only way it could have
+  been: every existing repository here has identifier-safe target names.
+
+
 ### Changed
 
 - **`quality-gate-dashboard` no longer depends on this package at all** — the third and fourth

@@ -390,9 +390,9 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
         // Parse root manifest once via AST
         let rootInfo = ManifestParser.parse(source: packageSwiftContent)
-        knownModules.formUnion(rootInfo.targetNames)
-        knownModules.formUnion(rootInfo.productNames)
-        knownModules.formUnion(rootInfo.declaredNames)
+        addModuleNames(rootInfo.targetNames, into: &knownModules)
+        addModuleNames(rootInfo.productNames, into: &knownModules)
+        addModuleNames(rootInfo.declaredNames, into: &knownModules)
         addURLDerivedNames(from: rootInfo.packageURLs, into: &knownModules)
 
         // Parse all discovered sub-manifests once each (monorepo support)
@@ -408,9 +408,9 @@ public struct DependencyAuditor: QualityChecker, Sendable {
             }
             let info = ManifestParser.parse(source: content)
             manifestInfos.append((path: manifestPath, info: info))
-            knownModules.formUnion(info.targetNames)
-            knownModules.formUnion(info.productNames)
-            knownModules.formUnion(info.declaredNames)
+            addModuleNames(info.targetNames, into: &knownModules)
+            addModuleNames(info.productNames, into: &knownModules)
+            addModuleNames(info.declaredNames, into: &knownModules)
             addURLDerivedNames(from: info.packageURLs, into: &knownModules)
         }
 
@@ -660,6 +660,33 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         "DeviceActivity", "FamilyControls", "ManagedSettings",
         "Accessibility", "SwiftUICore",
     ]
+
+    /// A target or product name, plus the module name SwiftPM actually compiles it under.
+    ///
+    /// SwiftPM mangles a name that is not a valid Swift identifier: every character outside
+    /// `[A-Za-z0-9_]` becomes `_`. So a target declared `ijs-mcp-server` is imported as
+    /// `ijs_mcp_server`, and **a hyphenated target could never satisfy its own import** —
+    /// `@testable import ijs_mcp_server` was reported as hallucinated in the package that
+    /// declares it. Executable targets carry hyphens as a matter of course, because the target
+    /// name is usually the binary name, so this was not an edge case.
+    ///
+    /// Both spellings are registered rather than only the mangled one: the manifest's own
+    /// `dependencies: ["ijs-mcp-server"]` uses the declared name, and a consumer writing
+    /// `import ijs_mcp_server` uses the mangled one. Neither is wrong and both appear in
+    /// real source.
+    static func moduleSpellings(of declaredName: String) -> [String] {
+        let mangled = String(declaredName.map { character in
+            character.isLetter || character.isNumber || character == "_" ? character : "_"
+        })
+        return mangled == declaredName ? [declaredName] : [declaredName, mangled]
+    }
+
+    /// Registers every name in `names` under both the declared and the SwiftPM-mangled spelling.
+    static func addModuleNames(_ names: [String], into knownModules: inout Set<String>) {
+        for name in names {
+            knownModules.formUnion(moduleSpellings(of: name))
+        }
+    }
 
     /// Extracts target names from a `Package.swift` content string via AST.
     public static func extractTargetNames(from content: String) -> [String] {
