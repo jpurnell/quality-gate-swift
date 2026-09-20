@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two DocC guides carried fenced examples that could not compile**, and only a stale `.build`
+  was hiding it. Both trace to one cause: v3.2.0 removed `IJSMCPServer`, and with it the last
+  target consuming the `SwiftMCPServer` product. `SwiftMCPServer` and its transitive `Logging`
+  (`swift-mcp-sdk` → `swift-log`) stopped being built — but both modules stayed in `.build`, so
+  `doc-code` went on typechecking fences against modules this package no longer builds. **The
+  release shipped green on a cache.**
+
+  - `MCPReadinessAuditorGuide.md` — its four fences are counter-examples of *the reader's* code
+    (`// ERROR: mcp-arg-not-in-schema`), importing a module this package deliberately does not
+    depend on; the auditor scans source text for `import SwiftMCPServer` and never links it. Each
+    is now marked `<!-- docs:illustrative -->`. All four, not the one that failed: the article
+    compiles as a single concatenated program, so exempting only the first fence moves the
+    barrier to the second and reports the same count of nothing.
+  - `ConcurrencyAuditorGuide.md` — no opt-out needed, so none was taken. The fence contrasts a
+    flagged first-party `@preconcurrency import` against an accepted third-party one, and the
+    third-party example was `Logging`. `SwiftSyntax` is a genuine third-party dependency of that
+    target, so the example now compiles *and* the ✅ line asserts something true here.
+
+  What did not catch it: the gate, on every commit and push through the release. A green local
+  build cannot rule out a module that exists only in `.build`, and nothing asks whether an import
+  still resolves to something the manifest still builds. That is the same failure v3.2.0 recorded
+  for five test files and `IJSSensor` — **one week later, in a different place, the cache outlived
+  the manifest again.** The only reason it surfaced is that the cache was wiped deliberately
+  before judging anything, after an OS update.
+
+### Known
+
+- **`SwiftMCPServer` is declared in `Package.swift` with no target consuming its product**, left
+  orphaned by the same v3.2.0 removal. It still resolves — dragging `swift-mcp-sdk`, `swift-log`
+  and a NIO/certificates tree into `Package.resolved` — while building nothing. `dependency-audit`
+  does not currently ask this question of *package* dependencies, only of imports. Recorded rather
+  than removed: dropping it is a manifest change that deserves its own commit.
+
 ## [3.2.0] - 2026-09-19
 
 The first release since 3.1.2 on 2026-09-03, which is the point: 24 entries had accumulated,

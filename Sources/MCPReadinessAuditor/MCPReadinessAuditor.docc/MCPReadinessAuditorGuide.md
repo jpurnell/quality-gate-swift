@@ -11,6 +11,7 @@ The MCP Readiness Auditor cross-references your MCP tool schemas against their `
 
 When `execute()` accesses an argument not defined in the schema, LLMs can't know to pass it:
 
+<!-- docs:illustrative -->
 ```swift
 import SwiftMCPServer
 
@@ -38,6 +39,7 @@ struct ExportTool: MCPToolHandler, Sendable {
 
 When a throwing getter is used but the key isn't in `required`, the LLM may omit it:
 
+<!-- docs:illustrative -->
 ```swift
 // WARNING: mcp-required-mismatch — "limit" uses throwing getter but not in required
 struct SearchTool: MCPToolHandler, Sendable {
@@ -67,6 +69,7 @@ Fix: add `"limit"` to `required` or use `getIntOptional("limit")`.
 
 When the getter type doesn't match the schema type:
 
+<!-- docs:illustrative -->
 ```swift
 // ERROR: mcp-type-mismatch — getDouble("count") but schema says "string"
 struct CountTool: MCPToolHandler, Sendable {
@@ -91,6 +94,7 @@ struct CountTool: MCPToolHandler, Sendable {
 
 LLMs choose tools and construct arguments based on descriptions. Missing ones cause wrong tool selection or garbage inputs:
 
+<!-- docs:illustrative -->
 ```swift
 struct UndescribedTool: MCPToolHandler, Sendable {
     let tool = MCPTool(

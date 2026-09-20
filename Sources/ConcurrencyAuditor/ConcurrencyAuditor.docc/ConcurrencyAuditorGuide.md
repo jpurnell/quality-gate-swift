@@ -203,8 +203,8 @@ The recommended fix is to introduce an explicit isolated cleanup method that run
 // ❌ flagged (QualityGateCore is a target in this project's Package.swift)
 @preconcurrency import QualityGateCore
 
-// ✅ accepted (swift-log is a third-party dependency)
-@preconcurrency import Logging
+// ✅ accepted (swift-syntax is a third-party dependency)
+@preconcurrency import SwiftSyntax
 ```
 
 The CLI determines which modules are first-party by parsing `Package.swift` and collecting all `.target(name:)` literals. You can allowlist specific first-party modules during a transition via `allowPreconcurrencyImports:`.
