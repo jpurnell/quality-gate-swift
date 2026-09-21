@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-09-21
+
+### Fixed
+
+- **`release-readiness` could not see a pre-release version, and reported every one as
+  untagged.** The CHANGELOG and README readers matched `v?(\d+\.\d+(?:\.\d+)?)`, which
+  captures `1.0.0` out of `1.0.0-alpha.1`, while the tag side normalised `v1.0.0-alpha.1` to
+  `1.0.0-alpha.1` by stripping only the `v`. **The two sides disagreed about the same
+  release**, so the tag set never contained what the CHANGELOG asked for and the rule fired no
+  matter how the release was tagged.
+
+  Found in two projects at once: SwiftExcelFunctions could not cut `1.0.0-alpha.1`, and
+  BusinessMath — already published at `3.0.0-alpha.7` — fails the identical check today, which
+  means its alpha tags reached the remote around this gate rather than through it.
+
+  The suffix deliberately stops at whitespace, so `## [1.0.0] - 2026-09-21` still reads `1.0.0`
+  and not the date beside it. `ReleasePreflight`'s `version:` reader was widened to match, since
+  the three readers must agree about what a version string is or they disagree about the same
+  release.
+
+  **Not changed:** `exact: "…"` as a labelled argument is still unmatched — only the
+  `.exact("…")` call form is read, and BusinessMath's README uses the former and goes
+  unchecked. Teaching the reader that spelling would newly check READMEs across every
+  repository at once, which is a behaviour change nobody has measured and is separate from the
+  identifier this fix is about.
+
+
 ### Fixed
 
 - **Two DocC guides carried fenced examples that could not compile**, and only a stale `.build`
@@ -2040,7 +2067,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.1...v3.1.2
 [3.1.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.0...v3.1.1

@@ -344,6 +344,17 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// - Parameter raw: A version or tag string such as `"IconquerApp@v0.1.0"`,
     ///   `"v1.2.0"`, or `" 1.0.0 "`.
     /// - Returns: The bare semver string, e.g. `"1.2.0"`.
+    /// A SemVer version with its optional pre-release identifier.
+    ///
+    /// `1.0.0`, `1.0.0-alpha.1`, `3.0.0-rc.2`. The suffix is `-` followed by dot-separated
+    /// alphanumerics, and it deliberately does **not** cross whitespace: a CHANGELOG heading
+    /// reads `## [1.0.0] - 2026-09-21`, and a looser pattern reads the date as the version.
+    /// Computed rather than stored: `Regex` is not `Sendable`, and a shared static of one
+    /// is a global with mutable state as far as strict concurrency is concerned.
+    static var semverWithPreRelease: Regex<(Substring, Substring)> {
+        #/v?(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?)/#
+    }
+
     static func normalizeVersion(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // Drop a monorepo scope prefix like `Project@` (keep only what follows the last `@`).
@@ -365,7 +376,15 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     ///   `Unreleased` section (or no version heading) is present.
     public static func parseLatestChangelogVersion(content: String) -> String? {
         let headingPattern = #/^\s*#{1,6}\s+(.*)$/#
-        let semverPattern = #/v?(\d+\.\d+(?:\.\d+)?)/#
+        // **The pre-release identifier is part of the version.** Dropping it here while the
+        // tag side keeps it made the two disagree about the same release: `## [1.0.0-alpha.1]`
+        // read as `1.0.0`, the tag `v1.0.0-alpha.1` normalised to `1.0.0-alpha.1`, and the tag
+        // set never contained what the CHANGELOG asked for — so a documented pre-release was
+        // reported untagged however it was tagged. Two projects hit it at once.
+        //
+        // The suffix stops at whitespace, which is what keeps `## [1.0.0] - 2026-09-21` from
+        // reading the date as part of the version.
+        let semverPattern = Self.semverWithPreRelease
         for line in content.lines {
             guard let heading = line.firstMatch(of: headingPattern) else { continue }
             let text = String(heading.1)
@@ -385,8 +404,9 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// - Parameter content: The full text of the README.
     /// - Returns: The advertised version strings (normalized, de-duplicated, order-preserving).
     static func parseReadmeDependencyVersions(content: String) -> [String] {
-        let fromPattern = #/from:\s*"(\d+\.\d+(?:\.\d+)?)"/#
-        let exactPattern = #/\.exact\(\s*"(\d+\.\d+(?:\.\d+)?)"\s*\)/#
+        // Quoted, so the suffix cannot run past the closing quote — see `semverWithPreRelease`.
+        let fromPattern = #/from:\s*"(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?)"/#
+        let exactPattern = #/\.exact\(\s*"(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?)"\s*\)/#
         var found: [String] = []
         var seen: Set<String> = []
         func collect(_ version: Substring) {

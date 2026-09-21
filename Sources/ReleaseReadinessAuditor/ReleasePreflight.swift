@@ -190,7 +190,9 @@ public enum ReleasePreflight {
         let sources = (root as NSString).appendingPathComponent("Sources")
         guard let enumerator = FileManager.default.enumerator(atPath: sources) else { return nil }
 
-        let pattern = #/version\s*[:=]\s*"(\d+\.\d+(?:\.\d+)?)"/#
+        // Keeps a pre-release identifier, as the CHANGELOG and README readers do — the three
+        // must agree about what a version string is or they disagree about the same release.
+        let pattern = #/version\s*[:=]\s*"(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?)"/#
 
         while let relative = enumerator.nextObject() as? String {
             guard relative.hasSuffix(".swift") else { continue }

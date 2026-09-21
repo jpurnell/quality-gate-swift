@@ -436,6 +436,83 @@ struct NormalizeVersionTests {
 
 // MARK: - Latest Changelog Version Parsing
 
+@Suite("ReleaseReadinessAuditor: pre-release versions")
+struct ReleaseReadinessPreReleaseTests {
+
+    /// **A pre-release identifier is part of the version**, and dropping it here while the
+    /// tag side keeps it made the two sides disagree about the same release.
+    ///
+    /// `## [1.0.0-alpha.1]` was read as `1.0.0`, while the tag `v1.0.0-alpha.1` normalised to
+    /// `1.0.0-alpha.1` — so the tag set never contained what the CHANGELOG was looking for,
+    /// and the auditor reported a documented release as untagged no matter how it was tagged.
+    /// Measured in two projects at once: SwiftExcelFunctions could not cut `1.0.0-alpha.1`,
+    /// and BusinessMath, already published at `3.0.0-alpha.7`, fails the same check today.
+    @Test("a CHANGELOG heading keeps its pre-release identifier")
+    func changelogKeepsPreRelease() {
+        let content = """
+        # Changelog
+
+        ## [Unreleased]
+
+        ## [1.0.0-alpha.1] - 2026-09-21
+
+        ## [0.11.0] - 2026-09-18
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content)
+                == "1.0.0-alpha.1")
+    }
+
+    @Test("and an ordinary release still reads as it did")
+    func changelogWithoutPreRelease() {
+        let content = """
+        ## [Unreleased]
+
+        ## [2.0.1] - 2026-01-01
+        """
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(content: content) == "2.0.1")
+    }
+
+    /// Several identifiers, and the build-metadata form beside it.
+    @Test("the whole suffix is kept, not just the first word")
+    func changelogKeepsTheWholeSuffix() {
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(
+            content: "## [3.0.0-alpha.7] - 2026-09-20") == "3.0.0-alpha.7")
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(
+            content: "## [1.2.0-rc.1] - 2026-09-20") == "1.2.0-rc.1")
+    }
+
+    /// **The date must not be read as part of the version.** `2026-09-21` follows the heading
+    /// and starts with a digit, so a suffix pattern that is too greedy swallows it.
+    @Test("the release date is not part of the version")
+    func theDateIsNotTheVersion() {
+        #expect(ReleaseReadinessAuditor.parseLatestChangelogVersion(
+            content: "## [1.0.0] - 2026-09-21") == "1.0.0")
+    }
+
+    /// **The `.exact("…")` call form**, which is what this reader recognises.
+    ///
+    /// SwiftPM also spells it `exact: "3.0.0-alpha.7"` as a labelled argument, and that form
+    /// is **not** matched — BusinessMath's README uses it and goes unchecked. Left alone
+    /// deliberately: teaching the reader that spelling would newly check READMEs across every
+    /// repository at once, which is a behaviour change nobody has measured, and it is separate
+    /// from the pre-release identifier this suite is about.
+    @Test("a README advertising a pre-release keeps it too")
+    func readmeKeepsPreRelease() {
+        let content = """
+        .package(url: "https://example.com/p.git", .exact("3.0.0-alpha.7"))
+        """
+        #expect(ReleaseReadinessAuditor.parseReadmeDependencyVersions(content: content)
+                == ["3.0.0-alpha.7"])
+    }
+
+    @Test("and a from: clause the same way")
+    func readmeFromClause() {
+        let content = #".package(url: "u", from: "1.0.0-alpha.1")"#
+        #expect(ReleaseReadinessAuditor.parseReadmeDependencyVersions(content: content)
+                == ["1.0.0-alpha.1"])
+    }
+}
+
 @Suite("ReleaseReadinessAuditor: parseLatestChangelogVersion")
 struct ParseLatestChangelogVersionTests {
 
