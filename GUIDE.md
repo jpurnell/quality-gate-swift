@@ -253,6 +253,8 @@ These checkers find bugs that compile but crash or produce wrong results at runt
 
 **FloatingPointSafetyAuditor** (`fp-safety`) — Detects `==` and `!=` comparisons on floating-point values (which fail due to representation error) and division operations without zero guards.
 
+**FallbackAuditor** (`fallback`) — Flags `Int(x)` on a floating-point `x` that nothing has shown to be representable. `Int(.nan)`, `Int(.infinity)` and `Int(1e300)` all trap. Accepts a magnitude bound asserted by a `guard`, a bound plus `isFinite`, or `Int(exactly:)`; `isFinite` alone is not enough.
+
 **MemoryLifecycleGuard** (`memory-lifecycle`) — Finds stored `Task` properties without corresponding cancellation in `deinit`, and strong `delegate` references that should be `weak`.
 
 **UnreachableCodeAuditor** (`unreachable`) — Combines SwiftSyntax analysis (dead statements after `return`, constant `if` conditions, `switch` cases after unconditional patterns) with IndexStore cross-referencing to find truly unused symbols.

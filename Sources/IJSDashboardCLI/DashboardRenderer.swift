@@ -231,8 +231,7 @@ public enum DashboardRenderer: Sendable {
     // MARK: - Private Helpers
 
     private static func formatPercent(_ value: Double) -> String {
-        let pct = Int((value * 100).rounded())
-        return "\(pct)%"
+        WholePercent.text(of: value)
     }
 
     private static func renderSparkline(_ values: [Double]) -> String {

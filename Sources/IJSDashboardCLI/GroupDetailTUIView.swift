@@ -252,7 +252,6 @@ public enum GroupDetailTUIView: Sendable {
     }
 
     private static func formatPercent(_ value: Double) -> String {
-        let pct = Int((value * 100).rounded())
-        return "\(pct)%"
+        WholePercent.text(of: value)
     }
 }

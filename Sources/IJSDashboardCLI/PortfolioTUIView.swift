@@ -234,7 +234,8 @@ public enum PortfolioTUIView: Sendable {
     }
 
     private static func healthColor(_ rate: Double) -> String {
-        let pct = Int((rate * 100).rounded())
+        // An unknown rate is neither healthy nor unhealthy, so it gets neither colour.
+        guard let pct = WholePercent.value(of: rate) else { return ANSICodes.dim }
         if pct >= 90 {
             return ANSICodes.fg(.green)
         } else if pct >= 75 {
@@ -343,7 +344,6 @@ public enum PortfolioTUIView: Sendable {
     }
 
     private static func formatPercent(_ value: Double) -> String {
-        let pct = Int((value * 100).rounded())
-        return "\(pct)%"
+        WholePercent.text(of: value)
     }
 }

@@ -234,7 +234,11 @@ public enum ProjectDetailTUIView: Sendable {
     }
 
     private static func renderPassFailGauge(rate: Double, width: Int) -> String {
-        let passCount = Int((rate * Double(width)).rounded())
+        // An unknown rate fills the gauge with neither colour: red would say every
+        // run failed, and nothing has said that.
+        guard let passCount = WholePercent.cells(of: rate, width: width) else {
+            return ANSICodes.dim + String(repeating: "\u{2591}", count: max(0, width)) + ANSICodes.reset
+        }
         let failCount = width - passCount
         var gauge = ""
         if failCount > 0 {
@@ -370,7 +374,6 @@ public enum ProjectDetailTUIView: Sendable {
     }
 
     private static func formatPercent(_ value: Double) -> String {
-        let pct = Int((value * 100).rounded())
-        return "\(pct)%"
+        WholePercent.text(of: value)
     }
 }

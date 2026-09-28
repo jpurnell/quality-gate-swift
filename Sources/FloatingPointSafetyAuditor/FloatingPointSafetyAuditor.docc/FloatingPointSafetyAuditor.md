@@ -58,6 +58,10 @@ Whole-file suppression works by placing `// fp-safety:disable` on a line by itse
 
 Suppressed findings are recorded in the `overrides` array of the `CheckResult` rather than discarded, so a marker that is doing nothing can be found.
 
+### A second checker in this module
+
+``FallbackAuditor`` (`--check fallback`) lives here because it needs the same kind of type evidence, and asks a different question: not whether a divisor is guarded, but what becomes of a value that is not a number. Its one rule so far, `fallback.int-conversion-unguarded`, is an error — `Int(.nan)` stops the process. See <doc:FallbackAuditorGuide>.
+
 ### Out of scope
 
 - Cross-file type inference (would require IndexStore or the type checker)
@@ -84,7 +88,9 @@ fp-safety:
 
 - ``FloatingPointSafetyAuditor/check(configuration:)``
 - ``FloatingPointSafetyAuditor/auditSource(_:fileName:configuration:)``
+- ``FallbackAuditor``
 
 ### Guides
 
 - <doc:FloatingPointSafetyAuditorGuide>
+- <doc:FallbackAuditorGuide>

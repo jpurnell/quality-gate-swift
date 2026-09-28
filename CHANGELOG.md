@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`fallback`, a new checker, with one rule: `fallback.int-conversion-unguarded` (error).**
+  `Int(x)` on a floating-point `x` has no failure path. `Int(.nan)`, `Int(.infinity)` and
+  `Int(1e300)` all trap, and the trap takes the process with it. A defect-hunting campaign in
+  BusinessMath found two such crashes that none of the existing checkers could see, because
+  there is nothing wrong with the code until the value arrives.
+
+  A conversion is accepted when the enclosing function, before it, bounds the value's magnitude
+  in the conditions of a `guard` — which a NaN cannot pass — or bounds it anywhere and also
+  tests `isFinite`. `Int(exactly:)` is always accepted. **`isFinite` alone is not**: `1e300` is
+  finite.
+
+  Types are read from syntax, in one file: parameters, locals, generic parameters constrained
+  to `Real` / `BinaryFloatingPoint` / `FloatingPoint`, and members whose every declaration in
+  the file agrees. Anything else is skipped, not guessed, and the coverage note reports how
+  many conversions were examined so that a clean result can be read against that number.
+
+  **Measured before shipping**, because as an error it turns a repository red the day the gate
+  is upgraded:
+
+  | | files | findings |
+  | --- | --- | --- |
+  | BusinessMath, before the campaign (`464cf939`) | 684 | 35 |
+  | BusinessMath, after it (`917127b5`) | 685 | 34 |
+  | SwiftExcelFunctions | 119 | 88 |
+  | this repository | 323 | 7 |
+
+  The campaign's own fixes do not clear the rule, and should not. `DiscountCurve.bootstrap`
+  now filters on `isFinite` and still calls `Int(entry.tenor)`, so a tenor of `1e300` still
+  stops the process.
+
+  The first draft flagged `guard shape > 0, shape <= 1_000_000 else { return nil }`, which is
+  correct code. It required `isFinite` beside every bound; the measurement is what showed that
+  a bound asserted by a guard needs no such thing.
+
+  The checker lives in the `FloatingPointSafetyAuditor` target, with its own `--check` id.
+  Design: `plans/proposals/AFallbackIsAnAnswer.md` in the companion. Three further rules in
+  that proposal are not implemented.
+
+### Fixed
+
+- **Seven conversions in this repository that the new rule found**, six of them in the
+  dashboard. Four views each carried a private `Int((value * 100).rounded())`, and each would
+  have stopped the dashboard on a NaN pass rate. They now share `WholePercent`, which returns
+  no value for a rate that is not a number. An unknown pass rate is shown as `—` and drawn in
+  neither colour, not as `0%` in red: a project whose rate is unknown has not failed
+  everything. The gauge is also clamped to its width, which a rate above 1 used to overflow.
+
 ## [3.2.1] - 2026-09-21
 
 ### Fixed

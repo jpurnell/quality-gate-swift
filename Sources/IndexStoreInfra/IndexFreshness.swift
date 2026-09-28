@@ -221,7 +221,7 @@ extension IndexFreshness {
 
     /// Renders a non-negative duration in the largest unit that keeps it readable.
     private static func duration(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded())
+        guard let total = Int(exactly: seconds.rounded()) else { return "an unmeasurable interval" }
         if total < 60 { return "\(total)s" }
         if total < 3_600 { return "\(total / 60)m" }
         if total < 86_400 { return "\(total / 3_600)h" }

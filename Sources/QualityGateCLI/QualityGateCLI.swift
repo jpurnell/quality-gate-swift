@@ -209,6 +209,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             SubmoduleAuditor(),
             ReleaseReadinessAuditor(pushedRefs: pushedRefs),
             FloatingPointSafetyAuditor(),
+            FallbackAuditor(),
             StochasticDeterminismAuditor(),
             TemporalDeterminismAuditor(),
             GPUSafetyAuditor(),

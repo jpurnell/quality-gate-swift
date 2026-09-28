@@ -2,7 +2,7 @@
 
 **Your documentation is a build artifact. This compiles it, runs it, and checks whether it is telling the truth.**
 
-A code sample in a DocC article is just a string. It can call a function you deleted two releases ago and nothing anywhere goes red. quality-gate-swift closes that with a three-rung ladder, then brings 45 checkers for correctness, safety, concurrency, and security — with structured output for CI and GitHub Code Scanning.
+A code sample in a DocC article is just a string. It can call a function you deleted two releases ago and nothing anywhere goes red. quality-gate-swift closes that with a three-rung ladder, then brings 46 checkers for correctness, safety, concurrency, and security — with structured output for CI and GitHub Code Scanning.
 
 ## The documentation ladder
 
@@ -57,7 +57,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 
 <!-- generated:scale -->
 - **114 targets** — 57 source, 57 test
-- **45 registered checkers**
+- **46 registered checkers**
 <!-- /generated:scale -->
 
 - **Structured output** — terminal, JSON, SARIF 2.1.0 for GitHub Code Scanning, and Xcode Build Phase format
@@ -137,6 +137,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `concurrency` | ConcurrencyAuditor | Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation, cancellation checkpoints after `for await` loops |
 | `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
 | `fp-safety` | FloatingPointSafetyAuditor | Floating-point exact equality, unguarded division |
+| `fallback` | FloatingPointSafetyAuditor | Integer conversion of a floating-point value that nothing has shown to be representable |
 | `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis |
 | `process-safety` | ProcessSafetyAuditor | Pipe-buffer deadlock: waitUntilExit() before reading pipe output |
 | `liveness` | LivenessAuditor | Blocking waits that declined an available deadline |
