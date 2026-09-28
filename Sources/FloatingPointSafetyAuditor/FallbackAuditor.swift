@@ -12,9 +12,15 @@ import QualityGateCore
 /// every comparison with it quietly answers *no*.
 ///
 /// Detected rules:
-/// - `fallback.int-conversion-unguarded` — `Int(x)` on a floating-point `x` with
-///   nothing before it that shows `x` is representable. `Int(.nan)`,
+/// - `fallback.int-conversion-unguarded` (error) — `Int(x)` on a floating-point
+///   `x` with nothing before it that shows `x` is representable. `Int(.nan)`,
 ///   `Int(.infinity)` and `Int(1e300)` all stop the process.
+/// - `fallback.clamp-absorbs-nan` (warning) — `max(a, min(b, x))`, which returns
+///   `b` for a NaN. `Swift.min` and `Swift.max` return their first argument when
+///   either is one.
+/// - `fallback.classification-omits-nan` (warning) — an `if` / `else if` chain
+///   that sorts a value by comparison. A NaN passes no comparison, so it takes
+///   the trailing `else`, or no arm at all.
 ///
 /// The conversion is accepted when the enclosing function bounds the value's
 /// magnitude in the conditions of a `guard` — `guard abs(x) < limit`,
@@ -43,7 +49,7 @@ public struct FallbackAuditor: QualityChecker, Sendable {
     public let name = "Fallback Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Integer conversion of a floating-point value that nothing has shown to be representable"
+    public let summary = "A NaN that traps an integer conversion, is clamped to a bound, or is sorted into the last arm"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness
@@ -75,7 +81,8 @@ public struct FallbackAuditor: QualityChecker, Sendable {
     ///
     /// - Parameter configuration: Project-specific configuration.
     /// - Returns: A `CheckResult` with status `.failed` if an unguarded
-    ///   conversion was found, `.passed` otherwise.
+    ///   conversion was found, `.warning` if only a clamp or a classification
+    ///   was, `.passed` otherwise.
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
         let root = configuration.resolvedProjectRoot
@@ -85,6 +92,8 @@ public struct FallbackAuditor: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
         var conversionsExamined = 0
+        var clampsExamined = 0
+        var classificationsExamined = 0
         var filesExamined = 0
 
         for fullPath in scan.files {
@@ -102,6 +111,8 @@ public struct FallbackAuditor: QualityChecker, Sendable {
                 diagnostics.append(contentsOf: result.diagnostics)
                 overrides.append(contentsOf: result.overrides)
                 conversionsExamined += result.conversionsExamined
+                clampsExamined += result.clampsExamined
+                classificationsExamined += result.classificationsExamined
                 filesExamined += 1
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -109,13 +120,19 @@ public struct FallbackAuditor: QualityChecker, Sendable {
             }
         }
 
-        let unguarded = diagnostics.count
+        func found(_ ruleId: String) -> Int {
+            diagnostics.filter { $0.ruleId == ruleId }.count
+        }
         // Emitted pass or fail — examined-nothing must not look like found-nothing.
         diagnostics.append(Diagnostic(
             severity: .note,
             message: "fallback examined \(Self.counted(filesExamined, "file")) · "
                 + "\(Self.counted(conversionsExamined, "integer conversion")) of a floating-point value, "
-                + "\(unguarded) unguarded"
+                + "\(found(FallbackRuleID.intConversionUnguarded)) unguarded · "
+                + "\(Self.counted(clampsExamined, "clamp")), "
+                + "\(found(FallbackRuleID.clampAbsorbsNaN)) absorbing a NaN · "
+                + "\(Self.counted(classificationsExamined, "classification")), "
+                + "\(found(FallbackRuleID.classificationOmitsNaN)) with no arm for one"
                 + (scan.exclusionClause.map { " · \($0)" } ?? ""),
             ruleId: FallbackRuleID.coverage))
 

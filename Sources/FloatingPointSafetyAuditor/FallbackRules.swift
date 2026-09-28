@@ -13,6 +13,13 @@ public enum FallbackRuleID {
     /// `Int(x)` on a floating-point `x` that nothing has shown to be representable.
     public static let intConversionUnguarded = "fallback.int-conversion-unguarded"
 
+    /// `max(a, min(b, x))` on a floating-point `x`, which returns a bound for a NaN.
+    public static let clampAbsorbsNaN = "fallback.clamp-absorbs-nan"
+
+    /// An `if` / `else if` chain that sorts a floating-point value by comparison
+    /// and never asks whether it is a number.
+    public static let classificationOmitsNaN = "fallback.classification-omits-nan"
+
     /// The note every run emits, pass or fail, saying what was examined.
     public static let coverage = "fallback.coverage"
 }
@@ -32,8 +39,20 @@ public struct FallbackAuditResult: Sendable {
     /// differently from a clean run over a file with forty.
     public var conversionsExamined: Int
 
+    /// How many nested `min` / `max` clamps of a floating-point value were examined.
+    public var clampsExamined: Int
+
+    /// How many `if` / `else if` chains sorting one floating-point value were examined.
+    public var classificationsExamined: Int
+
     /// A result with nothing in it.
-    public static let empty = FallbackAuditResult(diagnostics: [], overrides: [], conversionsExamined: 0)
+    public static let empty = FallbackAuditResult(
+        diagnostics: [],
+        overrides: [],
+        conversionsExamined: 0,
+        clampsExamined: 0,
+        classificationsExamined: 0
+    )
 }
 
 // MARK: - Entry point
@@ -41,8 +60,9 @@ public struct FallbackAuditResult: Sendable {
 /// The single implementation of the `fallback` rules.
 ///
 /// `fp-safety` asks whether a divisor is guarded. These rules ask what happens
-/// to a value that is *not a number at all*: a conversion that traps on it, and
-/// (in later rules) a guard that answers for it.
+/// to a value that is *not a number at all*: a conversion that traps on it, a
+/// clamp that reports a bound for it, and a chain of comparisons that sorts it
+/// into whichever arm is last.
 public enum FallbackRules {
 
     /// Runs the `fallback` rules over one source file.
@@ -77,7 +97,9 @@ public enum FallbackRules {
         return FallbackAuditResult(
             diagnostics: visitor.diagnostics,
             overrides: [],
-            conversionsExamined: visitor.conversionsExamined
+            conversionsExamined: visitor.conversionsExamined,
+            clampsExamined: visitor.clampsExamined,
+            classificationsExamined: visitor.classificationsExamined
         )
     }
 

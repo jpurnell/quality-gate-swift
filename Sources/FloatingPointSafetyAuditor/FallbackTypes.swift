@@ -10,8 +10,15 @@ import SwiftSyntax
 /// shadow an outer `periods: Double`. A name with no declaration in reach has no
 /// kind at all, and is skipped.
 enum FallbackTypeKind: Sendable, Equatable {
-    /// A single floating-point value.
+    /// A single floating-point value, which may be a NaN.
     case floatingPoint
+    /// A single floating-point value that cannot be a NaN: a constant, or a
+    /// `let` computed from integers and literals without dividing.
+    ///
+    /// Floating-point is a type; able-to-be-NaN is a fact about where a value
+    /// came from. `let n = Double(count)` is the first and not the second, and a
+    /// rule that cannot tell them apart reports every `Int(n * 0.95)`.
+    case finiteFloatingPoint
     /// A collection whose elements are floating-point values.
     case floatingPointCollection
     /// Declared, and not floating-point.
@@ -337,7 +344,12 @@ final class FallbackDeclarationCollector: SyntaxVisitor {
             let name = pattern.identifier.text
 
             if FallbackTypes.isLiteralConstant(binding, in: node) {
-                recordMember(name, kind: .other)
+                let annotated = binding.typeAnnotation.map {
+                    FallbackTypes.kind(ofTypeText: $0.type.trimmedDescription, genericNames: genericNames)
+                }
+                let isFloatingPoint = annotated == .floatingPoint
+                    || binding.initializer?.value.is(FloatLiteralExprSyntax.self) == true
+                recordMember(name, kind: isFloatingPoint ? .finiteFloatingPoint : .other)
             } else if let annotation = binding.typeAnnotation {
                 let kind = FallbackTypes.kind(
                     ofTypeText: annotation.type.trimmedDescription,

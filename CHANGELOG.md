@@ -4,52 +4,73 @@
 
 ### Added
 
-- **`fallback`, a new checker, with one rule: `fallback.int-conversion-unguarded` (error).**
-  `Int(x)` on a floating-point `x` has no failure path. `Int(.nan)`, `Int(.infinity)` and
-  `Int(1e300)` all trap, and the trap takes the process with it. A defect-hunting campaign in
-  BusinessMath found two such crashes that none of the existing checkers could see, because
-  there is nothing wrong with the code until the value arrives.
+- **`fallback`, a new checker: the places where a value that is not a number gets an answer.**
+  A NaN is never raised. It is carried, and every comparison with it answers *no*. Three rules,
+  each from a class of defect a campaign in BusinessMath found and no existing checker could
+  see, because nothing is wrong with the code until the value arrives.
 
-  A conversion is accepted when the enclosing function, before it, bounds the value's magnitude
-  in the conditions of a `guard` — which a NaN cannot pass — or bounds it anywhere and also
-  tests `isFinite`. `Int(exactly:)` is always accepted. **`isFinite` alone is not**: `1e300` is
+  | rule | severity | what it finds |
+  | --- | --- | --- |
+  | `fallback.int-conversion-unguarded` | error | `Int(x)` traps on `.nan`, `.infinity` and `1e300` |
+  | `fallback.clamp-absorbs-nan` | warning | `max(a, min(b, x))` returns `b` for a NaN |
+  | `fallback.classification-omits-nan` | warning | `if x > 0 … else if x < 0 …` sorts a NaN into the last arm, or none |
+
+  **The conversion** is accepted when the enclosing function, before it, bounds the value's
+  magnitude in the conditions of a `guard` — which a NaN cannot pass — or bounds it anywhere and
+  also tests `isFinite`. `Int(exactly:)` is always accepted. `isFinite` alone is not: `1e300` is
   finite.
 
-  Types are read from syntax, in one file: parameters, locals, generic parameters constrained
-  to `Real` / `BinaryFloatingPoint` / `FloatingPoint`, and members whose every declaration in
-  the file agrees. Anything else is skipped, not guessed, and the coverage note reports how
-  many conversions were examined so that a clean result can be read against that number.
+  **The clamp** depends on argument order, which was measured rather than assumed.
+  `Swift.min` and `Swift.max` return their first argument when either is a NaN, so six of the
+  eight ways of writing a clamp return a bound and two propagate. The two are accepted.
 
-  **Measured before shipping**, because as an error it turns a repository red the day the gate
-  is upgraded:
+  **The classification** covers a chain with no trailing `else` as well as one with. The
+  proposal specified only the second; two of its three named defects are the first.
 
-  | | files | findings |
-  | --- | --- | --- |
-  | BusinessMath, before the campaign (`464cf939`) | 684 | 35 |
-  | BusinessMath, after it (`917127b5`) | 685 | 34 |
-  | SwiftExcelFunctions | 119 | 88 |
-  | this repository | 323 | 7 |
+  Types are read from syntax, in one file, and the rules keep *floating-point* apart from *able
+  to be NaN*: `let n = Double(count)` is the first and not the second.
 
-  The campaign's own fixes do not clear the rule, and should not. `DiscountCurve.bootstrap`
-  now filters on `isFinite` and still calls `Int(entry.tenor)`, so a tenor of `1e300` still
-  stops the process.
+  **Measured against real code three times, and wrong the first two.**
 
-  The first draft flagged `guard shape > 0, shape <= 1_000_000 else { return nil }`, which is
-  correct code. It required `isFinite` beside every bound; the measurement is what showed that
-  a bound asserted by a guard needs no such thing.
+  | | conversions | clamps | classifications |
+  | --- | --- | --- | --- |
+  | BusinessMath before the campaign (`464cf939`) | 45 | 17 | 18 |
+  | BusinessMath after it (`917127b5`) | 44 | 11 | 15 |
+  | SwiftExcelFunctions | 92 | 0 | 0 |
+  | this repository | 8 | 0 | 0 |
+
+  Every site the proposal names is found at `464cf939`: 14 of 14.
+
+  - The first draft required `isFinite` beside every bound and flagged
+    `guard shape > 0, shape <= 1_000_000 else { return nil }`, which is correct.
+  - The clamp and classification rules passed all 31 of their first tests and **found none of
+    the sites they were named after.** The fixtures had been written from the description of
+    each defect. The real code starts an accumulator with `var s = T(0)`, sums with
+    `reduce(0.0)`, and takes its value out of `enumerated()`.
+  - The second draft read `values.count` as floating-point because the file declared its own
+    `count: Double`, treated a quotient with an already-tested divisor as a new source of NaN,
+    and called `values.max() ?? 1.0` finite because it ignored the operand it knew nothing
+    about.
+
+  The campaign's own crash fixes do not clear the conversion rule, and should not.
+  `DiscountCurve.bootstrap` now filters on `isFinite` and still calls `Int(entry.tenor)`.
 
   The checker lives in the `FloatingPointSafetyAuditor` target, with its own `--check` id.
-  Design: `plans/proposals/AFallbackIsAnAnswer.md` in the companion. Three further rules in
-  that proposal are not implemented.
+  Design: `plans/proposals/AFallbackIsAnAnswer.md` in the companion. The proposal's fourth
+  rule, an advisory on guards that return a value, is not implemented.
 
 ### Fixed
 
-- **Seven conversions in this repository that the new rule found**, six of them in the
+- **Eight conversions in this repository that the new rule found**, seven of them in the
   dashboard. Four views each carried a private `Int((value * 100).rounded())`, and each would
   have stopped the dashboard on a NaN pass rate. They now share `WholePercent`, which returns
   no value for a rate that is not a number. An unknown pass rate is shown as `—` and drawn in
   neither colour, not as `0%` in red: a project whose rate is unknown has not failed
   everything. The gauge is also clamped to its width, which a rate above 1 used to overflow.
+
+  The eighth is the sparkline, which took its extremes with `max()` and `min()` over a series
+  that might hold a NaN — where the result is whichever element the comparison left standing —
+  and then converted a quotient of them. A point that is not a number is now drawn as a gap.
 
 ## [3.2.1] - 2026-09-21
 

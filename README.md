@@ -137,7 +137,7 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 | `concurrency` | ConcurrencyAuditor | Swift 6 strict concurrency: `@unchecked Sendable` justifications, mutable Sendable classes, actor isolation, cancellation checkpoints after `for await` loops |
 | `pointer-escape` | PointerEscapeAuditor | Unsafe pointer escapes from `withUnsafe*` blocks |
 | `fp-safety` | FloatingPointSafetyAuditor | Floating-point exact equality, unguarded division |
-| `fallback` | FloatingPointSafetyAuditor | Integer conversion of a floating-point value that nothing has shown to be representable |
+| `fallback` | FloatingPointSafetyAuditor | A NaN that traps an integer conversion, is clamped to a bound, or is sorted into the last arm |
 | `memory-lifecycle` | MemoryLifecycleGuard | Stored Tasks without cancellation, strong delegate references, cross-file lifecycle analysis |
 | `process-safety` | ProcessSafetyAuditor | Pipe-buffer deadlock: waitUntilExit() before reading pipe output |
 | `liveness` | LivenessAuditor | Blocking waits that declined an available deadline |

@@ -253,7 +253,7 @@ These checkers find bugs that compile but crash or produce wrong results at runt
 
 **FloatingPointSafetyAuditor** (`fp-safety`) — Detects `==` and `!=` comparisons on floating-point values (which fail due to representation error) and division operations without zero guards.
 
-**FallbackAuditor** (`fallback`) — Flags `Int(x)` on a floating-point `x` that nothing has shown to be representable. `Int(.nan)`, `Int(.infinity)` and `Int(1e300)` all trap. Accepts a magnitude bound asserted by a `guard`, a bound plus `isFinite`, or `Int(exactly:)`; `isFinite` alone is not enough.
+**FallbackAuditor** (`fallback`) — Finds the places where a NaN gets an answer. `Int(x)` on a floating-point `x` that nothing has shown to be representable traps (error). `max(a, min(b, x))` returns `b` for a NaN, because `Swift.min` and `Swift.max` return their first argument when either is one (warning). An `if x > 0 … else if x < 0 …` chain sorts a NaN into its trailing `else`, or into no arm at all (warning).
 
 **MemoryLifecycleGuard** (`memory-lifecycle`) — Finds stored `Task` properties without corresponding cancellation in `deinit`, and strong `delegate` references that should be `weak`.
 

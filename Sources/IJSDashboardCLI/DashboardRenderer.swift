@@ -237,16 +237,23 @@ public enum DashboardRenderer: Sendable {
     private static func renderSparkline(_ values: [Double]) -> String {
         let blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
         guard !values.isEmpty else { return "" }
-        let maxVal = values.max() ?? 1.0
-        let minVal = values.min() ?? 0.0
+        // The extremes are taken over the values that are numbers. `max()` over a
+        // series holding a NaN is whichever element the comparison happened to
+        // leave standing.
+        let numbers = values.filter(\.isFinite)
+        let maxVal = numbers.max() ?? 1.0
+        let minVal = numbers.min() ?? 0.0
         let range = maxVal - minVal
         return values.map { v in
+            // A point that is not a number is drawn as a gap, not as a height.
+            guard v.isFinite else { return " " }
             if range < 1e-9 {
                 return blocks[blocks.count / 2]
             }
-            let normalized = (v - minVal) / range
-            let idx = min(Int(normalized * Double(blocks.count - 1)), blocks.count - 1)
-            return blocks[idx]
+            guard let cell = SparklineCell.index(of: v, minimum: minVal, range: range, cells: blocks.count) else {
+                return " "
+            }
+            return blocks[cell]
         }.joined()
     }
 }

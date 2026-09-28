@@ -26,7 +26,7 @@ enum FallbackSubjectKey {
         if let reference = expr.as(DeclReferenceExprSyntax.self) {
             return reference.baseName.text
         }
-        if expr.is(MemberAccessExprSyntax.self) {
+        if expr.is(MemberAccessExprSyntax.self) || expr.is(SubscriptCallExprSyntax.self) {
             return normalised(expr.trimmedDescription)
         }
         if let chained = expr.as(OptionalChainingExprSyntax.self) {
@@ -73,12 +73,17 @@ struct FallbackGuardFacts: Sendable {
     enum Kind: Sendable, Hashable {
         /// `x.isFinite`
         case finite
+        /// `x.isNaN`, tested in either sense. That the question was asked is
+        /// what is recorded, not which way it was answered.
+        case notNaN
         /// `x > a`, `x >= a`
         case lowerBound
         /// `x < b`, `x <= b`
         case upperBound
         /// `abs(x) < b`, `x.magnitude < b`
         case magnitudeBound
+        /// `x != 0`, `x > e`, `abs(x) > e`, `!x.isZero` — enough to divide by.
+        case nonZero
     }
 
     /// One check, on one value, at one place.
@@ -206,13 +211,27 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         .skipChildren
     }
 
-    // MARK: isFinite
+    // MARK: !x.isZero
+
+    override func visit(_ node: PrefixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
+        if node.operator.text == "!",
+           let member = node.expression.as(MemberAccessExprSyntax.self),
+           member.declName.baseName.text == "isZero",
+           let base = member.base,
+           let subject = key(of: base) {
+            record(subject, .nonZero, at: node)
+        }
+        return .visitChildren
+    }
+
+    // MARK: isFinite, isNaN
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-        if node.declName.baseName.text == "isFinite",
+        let name = node.declName.baseName.text
+        if name == "isFinite" || name == "isNaN",
            let base = node.base,
            let subject = key(of: base) {
-            record(subject, .finite, at: node)
+            record(subject, name == "isFinite" ? .finite : .notNaN, at: node)
         }
         return .visitChildren
     }
@@ -224,13 +243,16 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         for (index, element) in elements.enumerated() {
             guard let op = element.as(BinaryOperatorExprSyntax.self) else { continue }
             let text = op.operator.text
+            let lhs = operand(in: elements, at: index - 1, neighbour: index - 2)
+            let rhs = operand(in: elements, at: index + 1, neighbour: index + 2, conditional: true)
+            recordNonZero(operator: text, lhs: lhs, rhs: rhs, at: node)
             guard Self.comparisonOperators.contains(text) else { continue }
 
             let lessThan = text == "<" || text == "<="
-            if let lhs = operand(in: elements, at: index - 1, neighbour: index - 2) {
+            if let lhs {
                 recordBound(on: lhs, isUpper: lessThan, at: node)
             }
-            if let rhs = operand(in: elements, at: index + 1, neighbour: index + 2) {
+            if let rhs {
                 recordBound(on: rhs, isUpper: !lessThan, at: node)
             }
         }
@@ -238,8 +260,11 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: InfixOperatorExprSyntax) -> SyntaxVisitorContinueKind {
-        guard let op = node.operator.as(BinaryOperatorExprSyntax.self),
-              Self.comparisonOperators.contains(op.operator.text) else {
+        guard let op = node.operator.as(BinaryOperatorExprSyntax.self) else {
+            return .visitChildren
+        }
+        recordNonZero(operator: op.operator.text, lhs: node.leftOperand, rhs: node.rightOperand, at: node)
+        guard Self.comparisonOperators.contains(op.operator.text) else {
             return .visitChildren
         }
         let lessThan = op.operator.text == "<" || op.operator.text == "<="
@@ -256,15 +281,44 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
     /// In an unfolded sequence `a + b < c`, the element left of `<` is `b`, but
     /// what is being compared is `a + b`. The operand is taken only when the
     /// element beyond it is the edge of the sequence or a logical operator.
-    private func operand(in elements: [ExprSyntax], at index: Int, neighbour: Int) -> ExprSyntax? {
+    ///
+    /// - Parameter conditional: Also accept a `?` beyond it, so that the
+    ///   condition of `x > 0 ? a / x : 0` is read as a condition.
+    private func operand(
+        in elements: [ExprSyntax],
+        at index: Int,
+        neighbour: Int,
+        conditional: Bool = false
+    ) -> ExprSyntax? {
         guard index >= 0, index < elements.count else { return nil }
         if neighbour >= 0, neighbour < elements.count {
+            if conditional, elements[neighbour].is(UnresolvedTernaryExprSyntax.self) {
+                return elements[index]
+            }
             guard let op = elements[neighbour].as(BinaryOperatorExprSyntax.self),
                   Self.logicalOperators.contains(op.operator.text) else {
                 return nil
             }
         }
         return elements[index]
+    }
+
+    /// Records a test that leaves its subject safe to divide by.
+    ///
+    /// `x != 0`, and `x > e` or `abs(x) > e` for any `e` — a threshold below
+    /// zero would make the last two say nothing, and nobody writes one.
+    private func recordNonZero(operator text: String, lhs: ExprSyntax?, rhs: ExprSyntax?, at node: some SyntaxProtocol) {
+        let tested: ExprSyntax?
+        switch text {
+        case "!=", ">": tested = lhs
+        case "<": tested = rhs
+        default: tested = nil
+        }
+        guard let tested else { return }
+        let value = magnitudeArgument(of: tested) ?? tested
+        if let subject = key(of: value) {
+            record(subject, .nonZero, at: node)
+        }
     }
 
     private func recordBound(on expr: ExprSyntax, isUpper: Bool, at node: some SyntaxProtocol) {
