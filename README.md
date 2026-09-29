@@ -10,6 +10,13 @@
 
 - **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
 - **Swift 6.2+** — the manifest is `swift-tools-version: 6.2`; earlier toolchains cannot parse it.
+- **macOS only, today.** Linux is not supported and not tested. `indexstore-db`'s
+  `Concurrency-Mac.cpp` includes `<dispatch/dispatch.h>` with no platform guard, so a Linux
+  build fails there; `IndexStoreInfra` is depended on too widely to exclude, so there is no
+  Linux subset to fall back to. The Swift sources guard every `import os` behind
+  `canImport(os)`, so the intent is there — but those paths have never been compiled, and
+  saying "should work" about code nothing has built would be the kind of claim this tool
+  exists to catch.
 
 ## Install
 

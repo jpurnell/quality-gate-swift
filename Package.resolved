@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-cli-kit.git",
       "state" : {
-        "revision" : "e9d31494ead294c1367727fa01412a0bb6371914",
-        "version" : "1.4.1"
+        "revision" : "8dcaeafe8aab20e798d804f0829b87e94bb1e1f5",
+        "version" : "1.4.2"
       }
     },
     {
