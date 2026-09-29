@@ -117,11 +117,16 @@
 
 ### Changed
 
-- **The reusable workflow installs Swift 6.4** rather than 6.2, matching the toolchain the fleet
-  develops against. Paired with the resolution fix above: bumping the installed version alone
-  would have moved the build from 6.2.1 to 6.4 and left the auditors on Xcode's 6.3.3, which is
-  the same divergence with different numbers. The cache key names the toolchain, so a 6.2-built
-  gate binary is not served to a 6.4 job.
+- **The reusable workflow no longer installs a second toolchain.** Xcode's own compiler builds
+  and audits, so there is only one in the job. It had pinned Swift 6.2 onto `PATH` while Xcode
+  supplied 6.3.3 — the divergence the fix above is about.
+
+  6.4 was tried first, to match what the fleet develops against, and is not installable:
+  `swift-actions/setup-swift` answers `Version "6.4" is not available`. Pinning 6.3.3 explicitly
+  would work today and rot the moment the runner image moves, which is exactly how the 6.2 pin
+  outlived its own correctness. Taking the toolchain from Xcode leaves no version string here to
+  drift: `xcode-version: latest-stable` decides it in one place, and both halves use whatever it
+  decides. The cache key no longer names a Swift version for the same reason.
 
 ## [3.2.1] - 2026-09-21
 
