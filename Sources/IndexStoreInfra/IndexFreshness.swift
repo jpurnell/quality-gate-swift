@@ -212,6 +212,9 @@ extension IndexFreshness {
     ///   - checkerId: The checker's id, used to scope the rule identifier.
     ///   - subject: What the checker would have determined, as a noun phrase.
     ///   - storeURL: The store that was built without tests, named so the reader can inspect it.
+    ///   - buildFailure: Why the test-inclusive index build was abandoned, when that is known.
+    ///     Folded into the diagnostic's sentence rather than logged, so a reader is not told the
+    ///     index lacks tests and then handed a command the gate already ran for them.
     /// - Returns: An error-severity diagnostic naming the gap and how to close it.
     public func testCoverageBarrier(
         checkerId: String, subject: String, storeURL: URL, buildFailure: String? = nil
