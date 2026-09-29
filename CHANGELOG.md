@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-29
+
 ### Added
 
 - **`unreachable` refuses to answer against an index built without the test targets.** A plain
@@ -2245,7 +2247,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...HEAD
+[3.3.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...v3.2.0
 [3.1.2]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.1...v3.1.2
