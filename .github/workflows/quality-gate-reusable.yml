@@ -118,20 +118,26 @@ jobs:
 
       # --- GitHub-hosted setup. A self-hosted runner brings its own toolchain,
       # --- and must not have CI install one over it.
-      # 6.4 to match the toolchain every project in the fleet develops against, and
-      # deliberately a *version this action installs onto PATH* rather than whatever Xcode
-      # happens to ship. Both halves matter, because until 2026-09-28 they disagreed:
-      # `swift build` resolved 6.2.1 from PATH while `xcrun -f swiftc` answered with Xcode
-      # 26.6's 6.3.3, so the doc auditors typechecked against a compiler that could not load
-      # the module `swift build` had just written. That arrives as `no such module '<Module>'`
-      # — a tooling fact wearing the costume of a documentation defect, which is the failure
-      # mode this repo exists to refuse. `Toolchain.swiftcOnPath` now resolves the compiler
-      # from PATH for the same reason, so the two cannot drift apart again silently.
-      - name: Install Swift 6.4
-        if: ${{ !inputs.self-hosted }}
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
-        with:
-          swift-version: '6.4'
+      # No separate toolchain install: Xcode's own compiler builds AND audits.
+      #
+      # Until 2026-09-28 this step installed Swift 6.2 onto PATH while Xcode supplied 6.3.3,
+      # and the two disagreed inside a single job — `swift build` resolved 6.2.1 from PATH,
+      # `xcrun -f swiftc` answered with Xcode's 6.3.3, and the doc auditors then typechecked
+      # against a compiler that could not load the module the build had just written. That
+      # arrives as `no such module '<Module>'`: a tooling fact wearing the costume of a
+      # documentation defect, which is the failure this repo exists to refuse.
+      #
+      # 6.4 was tried first, to match what the fleet develops against, and is not installable:
+      # `swift-actions/setup-swift` reports `Version "6.4" is not available`. Pinning 6.3.3
+      # explicitly would work today and rot the moment the runner image moves, which is how the
+      # 6.2 pin outlived its own correctness. Taking the toolchain from Xcode means there is no
+      # version string here to drift — `xcode-version: latest-stable` above already decides it,
+      # in one place, and whatever it decides is what both halves use.
+      #
+      # `Toolchain.swiftcOnPath` is the other half of the same guarantee: it resolves the
+      # compiler from PATH so the auditors follow the build rather than Xcode, and rejects
+      # `/usr/bin/swiftc` as the shim it is. Either mechanism alone leaves a gap; both together
+      # mean the build and the audit cannot silently disagree again.
 
       - name: Cache quality-gate binary
         if: ${{ !inputs.self-hosted }}
@@ -139,7 +145,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /usr/local/bin/quality-gate
-          key: quality-gate-swift64-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+          key: quality-gate-xcodeswift-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
       - name: Configure git auth for private dependencies
         # Hosted only. This rewrites GLOBAL git config to inject a token; on a
