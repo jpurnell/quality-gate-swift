@@ -74,10 +74,28 @@ public struct TerminalReporter: Reporter, Sendable {
 
         // Summary
         output.write("==========================================\n")
-        if allPassed {
-            output.write("✅ Quality Gate: PASSED\n")
+        // Truncation is asked about FIRST, and deliberately. `allPassed` is computed over
+        // the checkers that *ran*, so a truncated run whose executed subset is green used
+        // to satisfy it and print a tick over an unexamined majority. That is reachable in
+        // any repository holding a baseline ledger: the runner stops at a checker that
+        // genuinely failed, then `BaselineLedger.apply` turns that checker's errors into
+        // notes and recomputes its verdict to `.passed`, leaving every result green and
+        // the truncation still recorded. The honest verdict for "some checkers never ran"
+        // is neither pass nor fail — it is that the question was not answered.
+        if let truncation, allPassed {
+            // Truncated, yet everything that ran is green — reachable in any repository
+            // holding a baseline ledger. The runner stops at a checker that genuinely
+            // failed, then `BaselineLedger.apply` turns that checker's errors into notes
+            // and recomputes its verdict to `.passed`, leaving every result green with the
+            // truncation still recorded. Neither pass nor fail is true here: the run did
+            // not answer the question, and saying so is the only honest verdict.
+            output.write(
+                "⚠️  Quality Gate: INCOMPLETE (run stopped at [\(truncation.stoppedAt)]"
+                + ", \(truncation.unreached.count) checker(s) never ran)\n")
         } else if let truncation {
             output.write("❌ Quality Gate: FAILED (run stopped at [\(truncation.stoppedAt)])\n")
+        } else if allPassed {
+            output.write("✅ Quality Gate: PASSED\n")
         } else {
             output.write("❌ Quality Gate: FAILED\n")
         }

@@ -73,6 +73,34 @@ struct ReporterTests {
         #expect(!output.contains("37 not selected"))
     }
 
+    @Test("A truncated run is never PASSED, even when every checker that ran passed")
+    func terminalReporterTruncatedButExecutedSubsetPassed() throws {
+        // The shape a baseline ledger produces, and the reason this went unnoticed:
+        // the runner stops at a checker that genuinely failed and records the
+        // truncation, then `BaselineLedger.apply` converts that checker's errors into
+        // notes and recomputes its verdict to `.passed`. Every result the reporter is
+        // handed has passed, while 22 checkers never ran at all.
+        let reporter = TerminalReporter(
+            rosterSize: 46,
+            truncation: RunTruncation(
+                stoppedAt: "fallback",
+                unreached: (0..<22).map { "checker-\($0)" }))
+        var output = ""
+        let results = [
+            CheckResult(checkerId: "build", status: .passed, diagnostics: [], duration: .zero),
+            CheckResult(checkerId: "fallback", status: .passed, diagnostics: [], duration: .zero),
+        ]
+
+        try reporter.report(results, to: &output)
+
+        // A green tick over an unexamined majority is the one verdict this tool must
+        // never print: 24 of 46 ran, and nothing was learned about the other 22.
+        #expect(!output.contains("Quality Gate: PASSED"))
+        #expect(output.contains("INCOMPLETE"))
+        #expect(output.contains("fallback"))
+        #expect(output.contains("22 NOT REACHED"))
+    }
+
     @Test("A complete narrowed run still reads as a selection, not a truncation")
     func terminalReporterNarrowedRun() throws {
         let reporter = TerminalReporter(rosterSize: 45)

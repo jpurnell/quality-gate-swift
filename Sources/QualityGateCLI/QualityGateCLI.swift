@@ -574,7 +574,13 @@ struct QualityGateCLI: AsyncParsableCommand {
             allResults = AdvisoryDowngrade.apply(to: allResults)
             print("ℹ️  Trial mode (--advisory-all): findings reported as notes; nothing gates this run.")
         }
-        let hasFailure = allResults.contains { result in
+        // A truncated run cannot exit 0. `allResults` is post-baseline, so a repository
+        // with a ledger can present every executed checker as green while the runner
+        // stopped early and never reached the rest — see TerminalReporter's INCOMPLETE
+        // branch. Exiting 0 there would tell a CI job that a run which examined half the
+        // roster had passed, which is the one answer this tool must never give.
+        let runIncomplete = runOutcome.truncation != nil
+        let hasFailure = runIncomplete || allResults.contains { result in
             if result.status == .failed { return true }
             if strict && result.status == .warning { return true }
             return false
