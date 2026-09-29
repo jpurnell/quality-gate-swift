@@ -1,9 +1,7 @@
 import Foundation
 import QualityGateCore
 import IndexStoreDB
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 // Justification: IndexStoreDB is immutable after init; all queries are read-only.
 extension IndexStoreDB: @retroactive @unchecked Sendable {}

@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Detects target platforms from Package.swift and source file conditionals.
 public struct PlatformDetector: Sendable {

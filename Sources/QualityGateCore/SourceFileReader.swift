@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Reads a source file a checker was asked to examine, reporting files it could not read.
 ///

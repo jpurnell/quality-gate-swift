@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Output format for the compliance coverage report.
 public enum ComplianceReportFormat: String, Sendable, CaseIterable {

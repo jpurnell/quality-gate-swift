@@ -1,8 +1,6 @@
 import ArgumentParser
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import GateCI
 import QualityGateCore
 

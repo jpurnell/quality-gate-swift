@@ -1,9 +1,7 @@
 import ArgumentParser
 import ControlMapping
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// `quality-gate standards-watch` — detect upstream drift in the compliance
 /// control catalogs (RegulatoryControlMapping Phase 3).

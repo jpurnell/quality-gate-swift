@@ -1,9 +1,7 @@
 import Crypto
 import Foundation
 import Security
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// A token's public record — what `corpusd token list` shows.
 ///

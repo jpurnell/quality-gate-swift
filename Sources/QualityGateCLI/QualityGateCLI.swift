@@ -2,9 +2,7 @@
 import ArgumentParser
 import Foundation
 import ProcessKernel
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import IndexStoreInfra
 import SafetyAuditor

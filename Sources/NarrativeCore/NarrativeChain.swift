@@ -1,8 +1,6 @@
 import Foundation
 import CorpusKit
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The narrative produced by the chain, tagged with the rung that spoke.
 public struct NarrativeResult: Sendable, Equatable {

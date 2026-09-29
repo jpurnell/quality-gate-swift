@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Loads the control-mapping reference data bundled with the tool: the curated
 /// rule-ID registry, the framework catalogs (`*.catalog.json`), and the

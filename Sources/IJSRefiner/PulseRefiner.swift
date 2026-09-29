@@ -3,9 +3,7 @@ import SwiftDeterminism
 import BusinessMath
 import CorpusKit
 import IJSAggregator
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Orchestrates Pulse generation from corpus telemetry with statistical analysis.
 ///

@@ -229,7 +229,7 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
-        .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.6.0"),
+        .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.7.0"),
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.8.1"),
         .package(url: "https://github.com/jpurnell/SwiftDeterminism.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
@@ -254,6 +254,7 @@ let package = Package(
         .target(
             name: "QualityGateCore",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
                 .product(name: "ProcessKernel", package: "swift-process-kernel"),
@@ -271,6 +272,7 @@ let package = Package(
         .target(
             name: "SafetyAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -286,7 +288,7 @@ let package = Package(
 
         .target(
             name: "BuildChecker",
-            dependencies: ["QualityGateCore", "IndexStoreInfra"],
+            dependencies: ["QualityGateCore", "IndexStoreInfra", .product(name: "QualityGateLogging", package: "quality-gate-types")],
             resources: [.copy("BuildChecker.docc")]
         ),
         .testTarget(
@@ -302,6 +304,7 @@ let package = Package(
         .target(
             name: "TestRunner",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -317,6 +320,7 @@ let package = Package(
         .target(
             name: "DocLinter",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -338,6 +342,7 @@ let package = Package(
         .target(
             name: "DocCodeAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -352,6 +357,7 @@ let package = Package(
         .target(
             name: "DocGeneratedAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -366,6 +372,7 @@ let package = Package(
         .target(
             name: "DocCoverageChecker",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -380,7 +387,7 @@ let package = Package(
 
         .target(
             name: "DiskCleaner",
-            dependencies: ["QualityGateCore"],
+            dependencies: ["QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types")],
             resources: [.copy("DiskCleaner.docc")]
         ),
         .testTarget(
@@ -391,6 +398,7 @@ let package = Package(
         .target(
             name: "UnreachableCodeAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -408,6 +416,7 @@ let package = Package(
         .target(
             name: "RecursionAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -423,6 +432,7 @@ let package = Package(
         .target(
             name: "ConcurrencyAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -438,6 +448,7 @@ let package = Package(
         .target(
             name: "PointerEscapeAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -454,6 +465,7 @@ let package = Package(
         .target(
             name: "MemoryBuilder",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "Yams", package: "Yams"),
             ],
@@ -497,6 +509,7 @@ let package = Package(
         .target(
             name: "AccessibilityAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "AccessibilityCore",
                 "AccessibilitySwiftUI",
@@ -517,6 +530,7 @@ let package = Package(
         .target(
             name: "StatusAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
             ],
@@ -529,7 +543,7 @@ let package = Package(
 
         .target(
             name: "SwiftVersionChecker",
-            dependencies: ["QualityGateCore"],
+            dependencies: ["QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types")],
             resources: [.copy("SwiftVersionChecker.docc")]
         ),
         .testTarget(
@@ -540,6 +554,7 @@ let package = Package(
         .target(
             name: "LoggingAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -556,6 +571,7 @@ let package = Package(
         .target(
             name: "TestQualityAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 // exact-double-equality and fp-equality are one rule. The
@@ -576,6 +592,7 @@ let package = Package(
         .target(
             name: "ContextAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -592,6 +609,7 @@ let package = Package(
         .target(
             name: "DependencyAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -608,6 +626,7 @@ let package = Package(
         .target(
             name: "SubmoduleAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra","QualityGateCore"]
         ),
         .testTarget(
@@ -618,7 +637,7 @@ let package = Package(
 
         .target(
             name: "ReleaseReadinessAuditor",
-            dependencies: ["QualityGateCore"],
+            dependencies: ["QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types")],
             resources: [.copy("ReleaseReadinessAuditor.docc")]
         ),
         .testTarget(
@@ -629,6 +648,7 @@ let package = Package(
         .target(
             name: "FloatingPointSafetyAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -645,6 +665,7 @@ let package = Package(
         .target(
             name: "MCPReadinessAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -661,6 +682,7 @@ let package = Package(
         .target(
             name: "StochasticDeterminismAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -739,6 +761,7 @@ let package = Package(
         .target(
             name: "MemoryLifecycleGuard",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -767,6 +790,7 @@ let package = Package(
         .target(
             name: "ComplexityAnalyzer",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 // CorpusKit directly: a checker depends on the corpus's
                 // shared types, never on the IJS modules that write the corpus.
@@ -785,6 +809,7 @@ let package = Package(
         .target(
             name: "LegibilityAnalyzer",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 // CorpusKit directly — see ComplexityAnalyzer above.
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
@@ -803,6 +828,7 @@ let package = Package(
         .target(
             name: "HIGAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -816,13 +842,14 @@ let package = Package(
 
         .target(
             name: "XcodeBuildChecker",
-            dependencies: ["QualityGateCore", "BuildChecker", "IndexStoreInfra"]
+            dependencies: ["QualityGateCore", "BuildChecker", "IndexStoreInfra", .product(name: "QualityGateLogging", package: "quality-gate-types")]
         ),
 
         // MARK: - IndexStoreInfra
         .target(
             name: "IndexStoreInfra",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
             ],
@@ -837,6 +864,7 @@ let package = Package(
         .target(
             name: "AppIntentsAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -856,6 +884,7 @@ let package = Package(
         .target(
             name: "IJSRefiner",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
@@ -892,6 +921,7 @@ let package = Package(
         .target(
             name: "IJSDashboardCLI",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),
@@ -931,7 +961,7 @@ let package = Package(
         // MARK: - Plugin overlay (Phase 4b)
         .target(
             name: "GatePlugins",
-            dependencies: ["QualityGateCore"]
+            dependencies: ["QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types")]
         ),
         .testTarget(
             name: "GatePluginsTests",
@@ -942,6 +972,7 @@ let package = Package(
         .target(
             name: "IdiomAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -955,6 +986,7 @@ let package = Package(
         .target(
             name: "DuplicationAuditor",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -996,6 +1028,7 @@ let package = Package(
         .target(
             name: "PrivacyManifestChecker",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra","QualityGateCore"]
         ),
         .testTarget(
@@ -1006,6 +1039,7 @@ let package = Package(
         .target(
             name: "ControlMapping",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
@@ -1038,6 +1072,7 @@ let package = Package(
         .target(
             name: "CorpusService",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "Crypto", package: "swift-crypto"),
@@ -1065,6 +1100,7 @@ let package = Package(
         .target(
             name: "NarrativeCore",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
             ]
         ),
@@ -1077,6 +1113,7 @@ let package = Package(
         .executableTarget(
             name: "QualityGateCLI",
             dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 .product(name: "SwiftDeterminism", package: "SwiftDeterminism"),
                 "IndexStoreInfra",
                 "BoundedIOAuditor",

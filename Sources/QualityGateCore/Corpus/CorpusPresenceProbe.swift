@@ -1,9 +1,7 @@
 import Foundation
-#if canImport(os)
-import os
+import QualityGateLogging
 
 private let logger = Logger(subsystem: "com.quality-gate.core", category: "CorpusPresenceProbe")
-#endif
 
 /// Answers whether a project has ever written telemetry to the corpus.
 ///

@@ -1,9 +1,7 @@
 import Foundation
 import IndexStoreDB
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Cross-module dead-code analysis backed by IndexStoreDB (v3).

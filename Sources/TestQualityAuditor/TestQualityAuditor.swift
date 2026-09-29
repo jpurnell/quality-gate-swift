@@ -1,9 +1,7 @@
 import Foundation
 import SwiftDeterminism
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import FloatingPointSafetyAuditor
 import QualityGateCore
 import SwiftSyntax

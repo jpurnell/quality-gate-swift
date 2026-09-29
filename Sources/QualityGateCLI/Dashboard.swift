@@ -2,9 +2,7 @@ import ArgumentParser
 import Foundation
 import SwiftDeterminism
 import ProcessKernel
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import CorpusKit
 import IJSAggregator

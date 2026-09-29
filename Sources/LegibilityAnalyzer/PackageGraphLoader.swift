@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Parses a `Package.swift` manifest into a first-party module dependency graph.
 ///

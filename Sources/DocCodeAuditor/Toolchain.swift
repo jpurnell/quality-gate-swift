@@ -1,8 +1,6 @@
 import Foundation
 import QualityGateCore
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The flags the active toolchain needs in order to typecheck a documentation block the
 /// same way the package's own build would.

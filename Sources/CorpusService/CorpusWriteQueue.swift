@@ -1,9 +1,7 @@
 import CorpusKit
 import Foundation
 import ProcessKernel
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// One validated write bound for the corpus (Phase 3b §1).

@@ -2,9 +2,7 @@ import Foundation
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 extension TargetTypeMap {
 

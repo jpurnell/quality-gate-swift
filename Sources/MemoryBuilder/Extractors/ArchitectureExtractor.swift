@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Extracts module architecture from Package.swift dependency graph.
 public struct ArchitectureExtractor: MemoryExtractor, Sendable {

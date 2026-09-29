@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import IndexStoreInfra
 // CorpusKit directly, not via IJSSensor — this reaches OrientationReport and

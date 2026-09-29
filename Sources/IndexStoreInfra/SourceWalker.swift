@@ -1,8 +1,6 @@
 import Foundation
 import QualityGateCore
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Recursively enumerates `.swift` files under a project root, skipping
 /// build outputs, dependency directories, and Xcode container packages.

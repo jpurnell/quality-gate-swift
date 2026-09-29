@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// A proposed rule on the Federal Register that touches a watched regulation —
 /// an early warning that a standard may change before the eCFR text does.

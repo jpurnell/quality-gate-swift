@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Runs quality checkers concurrently with bounded parallelism, preserving order.
 ///

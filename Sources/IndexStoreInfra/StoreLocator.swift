@@ -4,9 +4,7 @@ import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Locates and ensures freshness of compiler index stores for Swift projects.

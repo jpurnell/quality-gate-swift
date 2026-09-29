@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Captures the causal provenance behind a gate run: git commits, `CHANGELOG`
 /// delta, and the newest session summary.

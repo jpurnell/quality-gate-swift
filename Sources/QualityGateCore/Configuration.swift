@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import Yams
 
 /// Configurable scorer weights for the consistency scoring algorithm.

@@ -1,8 +1,6 @@
 import ArgumentParser
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// `quality-gate adopt` — the decaying baseline's front door (Phase 4c §3).

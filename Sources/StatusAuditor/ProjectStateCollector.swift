@@ -1,8 +1,6 @@
 import Foundation
 import QualityGateCore
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Actual state of a module from the file system.
 public struct ActualModuleState: Sendable, Equatable {

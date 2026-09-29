@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import Yams
 
 /// Extracts ADR summary from the architecture decisions log.

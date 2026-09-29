@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import ComplexityAnalyzer
 import GateCI
 import CorpusKit

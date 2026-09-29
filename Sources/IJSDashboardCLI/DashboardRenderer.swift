@@ -2,9 +2,7 @@ import Foundation
 import IJSAggregator
 import IJSDashboardCore
 import CorpusKit
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Renders dashboard summaries as formatted text or JSON.
 public enum DashboardRenderer: Sendable {

@@ -3,9 +3,7 @@ import IJSAggregator
 import IJSDashboardCore
 import CorpusKit
 import JudgmentWorkbench
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import SwiftCLIKit
 import Synchronization
 

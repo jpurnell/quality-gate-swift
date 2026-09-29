@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The outcome of submitting a governed override (Phase 3b §3).
 public enum ReviewDisposition: Sendable, Equatable {

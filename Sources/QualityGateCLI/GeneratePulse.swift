@@ -1,9 +1,7 @@
 import ArgumentParser
 import Foundation
 import SwiftDeterminism
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import CorpusKit
 import IJSAggregator
