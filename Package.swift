@@ -246,8 +246,7 @@ let package = Package(
         // a clean checkout at all, with warm caches the only thing hiding it. SwiftCLIKit
         // published 1.4.0 rather than move the tag a fourth time; a published version tag is
         // immutable, and correcting a release means publishing the next one.
-        .package(url: "https://github.com/jpurnell/SwiftCLIKit.git", from: "1.4.0"),
-        .package(url: "https://github.com/jpurnell/SwiftMCPServer.git", from: "4.5.0"),
+        .package(url: "https://github.com/jpurnell/swift-cli-kit.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
     targets: [
@@ -899,7 +898,7 @@ let package = Package(
                 .product(name: "JudgmentWorkbench", package: "quality-gate-corpus-kit"),
                 "CorpusService",
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
-                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+                .product(name: "SwiftCLIKit", package: "swift-cli-kit"),
                 .product(name: "Yams", package: "Yams"),
             ]
         ),
@@ -910,7 +909,7 @@ let package = Package(
                 .product(name: "IJSDashboardCore", package: "quality-gate-corpus-kit"),
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "QualityGateTypes", package: "quality-gate-types"),
-                .product(name: "SwiftCLIKit", package: "SwiftCLIKit"),
+                .product(name: "SwiftCLIKit", package: "swift-cli-kit"),
             ]
         ),
         // IJSDashboardUI, ijs-dashboard-preview, IJSDashboardApp and
