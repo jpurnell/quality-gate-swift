@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The doc auditors typechecked against a compiler that could not load the module they
+  imported, and reported it as a documentation defect.** `Toolchain.probe()` resolved the
+  compiler with `xcrun -f swiftc`, which answers with *Xcode's* toolchain. On a CI job that
+  installs its own, `swift build` resolves a different compiler from `PATH` — so the module was
+  written by one and read by another. The diagnostic for that is `no such module '<Module>'`,
+  which is indistinguishable from a missing dependency in the documentation, and the natural
+  response is to mark the block illustrative: a false clean, manufactured by the gate.
+
+  Found on SwiftXLSX, whose CI reported 21 errors across `doc-code` and `doc-comment-code`
+  while the same commit passed 45 of 45 locally. The runner had two compilers — 6.2.1 installed
+  onto `PATH`, 6.3.3 inside Xcode 26.6 — and `xcrun --toolchain "swift 6.2.1"` silently
+  answered with 6.3.3, because that is not a toolchain identifier.
+
+  `Toolchain.swiftcOnPath` now resolves `swiftc` from `PATH` first, so the flags come from
+  whichever compiler `swift build` itself ran. **`PATH` order alone is not the rule**:
+  `/usr/bin/swiftc` is a shim present on every Mac and first on `PATH`, and the directory two
+  levels above it is `/usr`, holding neither the testing plugins nor `ManifestAPI`. Accepting it
+  would have dropped `-plugin-path` and `-I <ManifestAPI>` from every compile and failed every
+  documented `@Test` block on `no such module 'Testing'` — the same bug pointed the other way.
+  So candidates are scanned until one is a real toolchain root, and a `PATH` offering only shims
+  resolves to `nil`, leaving `xcrun` to answer as before. That is why this is a no-op on a
+  developer's Mac and a fix on CI.
+
+### Changed
+
+- **The reusable workflow installs Swift 6.4** rather than 6.2, matching the toolchain the fleet
+  develops against. Paired with the resolution fix above: bumping the installed version alone
+  would have moved the build from 6.2.1 to 6.4 and left the auditors on Xcode's 6.3.3, which is
+  the same divergence with different numbers. The cache key names the toolchain, so a 6.2-built
+  gate binary is not served to a 6.4 job.
+
 ## [3.2.1] - 2026-09-21
 
 ### Fixed

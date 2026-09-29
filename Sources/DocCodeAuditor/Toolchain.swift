@@ -56,7 +56,13 @@ public enum Toolchain {
             }
         }
 
-        if let swiftc = run(["-f", "swiftc"]) {
+        // SAFETY: CLI tool probes PATH for the compiler the build itself resolves
+        let onPath = swiftcOnPath(
+            path: ProcessInfo.processInfo.environment["PATH"],
+            isExecutable: { FileManager.default.isExecutableFile(atPath: $0) },
+            isToolchainRoot: { hasToolchainLayout(usr: $0) })
+
+        if let swiftc = onPath ?? run(["-f", "swiftc"]) {
             let usr = URL(fileURLWithPath: swiftc)
                 .deletingLastPathComponent()          // …/usr/bin
                 .deletingLastPathComponent()          // …/usr
@@ -80,6 +86,70 @@ public enum Toolchain {
         }
 
         return flags
+    }
+
+    /// The `swiftc` on `PATH`, or `nil` when there is none.
+    ///
+    /// Preferred over `xcrun -f swiftc`, because those two can be *different compilers*.
+    /// `xcrun` answers with Xcode's toolchain; a CI job that installs its own puts that one on
+    /// `PATH` and leaves Xcode's where `xcrun` finds it. The module this checker imports is
+    /// whatever `swift build` produced, and `swift build` resolves through `PATH` — so the
+    /// plugin and manifest directories have to be read from the same place, or a block is
+    /// typechecked by a compiler that cannot load the module it imports. That failure arrives
+    /// as `no such module`, indistinguishable from a documentation defect.
+    ///
+    /// `xcrun` remains the fallback: a `PATH` without `swiftc` is the normal shape on a machine
+    /// where only Xcode provides one.
+    ///
+    /// Being executable is not enough: `/usr/bin/swiftc` is a shim present on every Mac and
+    /// first on `PATH`, and the directory two levels above it is `/usr`, which holds neither
+    /// the testing plugins nor `ManifestAPI`. Accepting it would drop `-plugin-path` and
+    /// `-I <ManifestAPI>` from every compile, so a documented `@Test` block would fail on
+    /// `no such module 'Testing'` — the same class of tooling-as-defect this function exists
+    /// to remove. Candidates are therefore scanned until one is a real toolchain root, and a
+    /// `PATH` offering only shims resolves to `nil` so `xcrun` still answers.
+    ///
+    /// - Parameters:
+    ///   - path: A colon-separated `PATH`, or `nil` when the variable is unset.
+    ///   - isExecutable: Answers whether a candidate path is an executable file.
+    ///   - isToolchainRoot: Answers whether a candidate's `usr` directory is a toolchain,
+    ///     holding the plugin or manifest directories this checker came for.
+    /// - Returns: The first `swiftc` on `path` that is both executable and a real toolchain,
+    ///   or `nil` when there is none.
+    static func swiftcOnPath(
+        path: String?,
+        isExecutable: (String) -> Bool,
+        isToolchainRoot: (String) -> Bool
+    ) -> String? {
+        guard let path else { return nil }
+
+        // Empty entries are dropped rather than probed: a bare `:` in PATH means the current
+        // directory to a shell, and resolving it here would offer `/swiftc` to `isExecutable`.
+        for entry in path.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(entry))
+                .appendingPathComponent("swiftc")
+            guard isExecutable(candidate.path) else { continue }
+
+            let usr = candidate
+                .deletingLastPathComponent()          // …/usr/bin
+                .deletingLastPathComponent()          // …/usr
+            if isToolchainRoot(usr.path) { return candidate.path }
+        }
+        return nil
+    }
+
+    /// Whether `usr` holds either directory this checker derives from a toolchain.
+    ///
+    /// An `or` rather than an `and`: a toolchain without `ManifestAPI` still supplies the
+    /// testing plugins, and requiring both would reject it for the half it does have.
+    private static func hasToolchainLayout(usr: String) -> Bool {
+        let base = URL(fileURLWithPath: usr)
+        // SAFETY: CLI tool probes a candidate toolchain's own directories
+        return FileManager.default.fileExists(
+            atPath: base.appendingPathComponent("lib/swift/host/plugins/testing").path)
+            // SAFETY: CLI tool probes a candidate toolchain's own directories
+            || FileManager.default.fileExists(
+                atPath: base.appendingPathComponent("lib/swift/pm/ManifestAPI").path)
     }
 
     /// Runs `xcrun` with `arguments`, returning its trimmed output.
