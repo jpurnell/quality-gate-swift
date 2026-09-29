@@ -92,6 +92,21 @@
 
 ### Fixed
 
+- **`doc-code` and `doc-comment-code` reported `no such module '<Module>'` against the
+  documentation when the module was built in the `Modules/` layout.** `ArticleDiscovery`
+  searches two SwiftPM layouts — `.build/debug/<Module>.swiftmodule` and
+  `.build/debug/Modules/<Module>.swiftmodule` — and returned `base` for both, so a module found
+  one level down got `-I .build/debug` and could not be imported. The compiler's answer for that
+  is `no such module`, which is indistinguishable from a missing dependency in the prose, and 21
+  such errors were filed against SwiftXLSX's documentation on CI while the same commit passed 45
+  of 45 locally.
+
+  The two-layout search exists precisely to stop this, and returning the wrong one of the two
+  defeated it. Invisible on any machine whose build system writes the flat layout — which is
+  every machine this was developed on, and why it survived to be found by a hosted runner.
+
+  The existing "no built module, so nothing was examined" warning did not fire and was right not
+  to: the module *was* found. That guard covers absence; this was misdirection.
 - **The doc auditors typechecked against a compiler that could not load the module they
   imported, and reported it as a documentation defect.** `Toolchain.probe()` resolved the
   compiler with `xcrun -f swiftc`, which answers with *Xcode's* toolchain. On a CI job that

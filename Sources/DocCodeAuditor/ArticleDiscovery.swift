@@ -92,7 +92,13 @@ public enum ArticleDiscovery {
     /// The directory holding the built modules, or `nil` when nothing has been built.
     ///
     /// Both SwiftPM layouts are accepted: `.build/debug/<Module>.swiftmodule` and the older
-    /// `.build/debug/Modules/<Module>.swiftmodule`.
+    /// `.build/debug/Modules/<Module>.swiftmodule`, and the path returned is the directory the
+    /// module was **found** in rather than the one the search began at. Answering with `base`
+    /// after matching in `Modules` was the same bug the two-layout search exists to prevent:
+    /// `-I` pointed one level above the module, the compiler reported
+    /// `no such module '<Module>'`, and the finding was filed against the documentation. It was
+    /// invisible wherever the flat layout is in use — which is every machine whose build system
+    /// writes it that way, including the one this was written on.
     ///
     /// - Returns: The search path to pass to `swiftc -I`, or `nil` when the module is
     ///   absent — which the checker reports as a skip rather than as a wall of `no such
@@ -109,7 +115,7 @@ public enum ArticleDiscovery {
                 let candidate = directory.appendingPathComponent("\(moduleName).\(suffix)")
                 // SAFETY: CLI tool looks for the project's own built module
                 if manager.fileExists(atPath: candidate.path) {
-                    return base.path
+                    return directory.path
                 }
             }
         }
