@@ -200,6 +200,44 @@ extension IndexFreshness {
         )
     }
 
+    /// The barrier for an index that is current but was built without the test targets.
+    ///
+    /// A sibling of ``staleBarrier(checkerId:subject:storeURL:)`` and the same shape of refusal:
+    /// the question could not be answered, so nothing is claimed about it. The distinction is
+    /// which way the gap points. A stale index reports symbols at lines that have moved; an
+    /// index without test units reports every symbol only a test calls as unreachable, which is
+    /// a false positive whose remedy is deleting live code.
+    ///
+    /// - Parameters:
+    ///   - checkerId: The checker's id, used to scope the rule identifier.
+    ///   - subject: What the checker would have determined, as a noun phrase.
+    ///   - storeURL: The store that was built without tests, named so the reader can inspect it.
+    /// - Returns: An error-severity diagnostic naming the gap and how to close it.
+    public func testCoverageBarrier(
+        checkerId: String, subject: String, storeURL: URL, buildFailure: String? = nil
+    ) -> Diagnostic {
+        // The reason belongs in the sentence, not in a log. Without it the reader is told the
+        // index lacks tests and given a command that the gate already ran on their behalf —
+        // advice that reads as wrong to anyone who checks.
+        let because = buildFailure.map {
+            " The test-inclusive index build was abandoned because: \($0)"
+        } ?? ""
+        return Diagnostic(
+            severity: .error,
+            message: """
+                The index holds no unit from any test source, so \(subject) could not be \
+                determined: a symbol only a test suite calls has no references in this store and \
+                would be reported as unreachable. \(unitCount) units at \(storeURL.path).\(because)
+                """,
+            ruleId: "\(checkerId).index.no-test-units",
+            suggestedFix: """
+                Build the tests before this checker — `swift build --build-tests` — and re-run. \
+                A plain `swift build` compiles the library alone, so the test targets never \
+                reach the index and this checker cannot see the callers that live there.
+                """
+        )
+    }
+
     /// The provenance note a checker emits on every index-backed run, including a clean one.
     ///
     /// A reader should be able to tell a fresh analysis from a stale one without knowing that

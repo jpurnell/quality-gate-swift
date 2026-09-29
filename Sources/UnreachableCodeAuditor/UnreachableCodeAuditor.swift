@@ -168,7 +168,17 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             // This was a `.note` that let the run pass. A note is advice, and the reader
             // who scrolls past it is the reader who deletes live public API on a stale
             // index's authority — which is what all but happened.
-            let provenance = Self.indexProvenance(located: located2)
+            // Asked only of a SwiftPM package: a `Tests/` tree is that layout's convention, and
+            // an Xcode project's test files are wherever its scheme says they are. Answering
+            // `false` for a layout this cannot read would refuse a run for a gap it invented.
+            let testUnits: Bool?
+            if case .swiftPM(let pkgRoot) = kind {
+                testUnits = IndexTestCoverage.includesTestUnits(
+                    store: located2.url, packageRoot: pkgRoot)
+            } else {
+                testUnits = nil
+            }
+            let provenance = Self.indexProvenance(located: located2, includesTestUnits: testUnits)
             diagnostics.append(contentsOf: provenance.diagnostics)
             guard provenance.shouldRun else { throw SkipMarker.skipped }
             let dylib = try Self.locateLibIndexStore()
@@ -223,10 +233,15 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     /// noise, which is precisely what would have happened in the case that produced this
     /// rule: three plausible dead symbols and one advisory line about timestamps.
     ///
-    /// - Parameter located: The located store, carrying its measurement when it has one.
+    /// - Parameters:
+    ///   - located: The located store, carrying its measurement when it has one.
+    ///   - includesTestUnits: Whether the store holds units from the package's test sources.
+    ///     `nil` leaves the reachability run alone: a question nobody could answer must not
+    ///     become a barrier, or a project without tests would be refused for lacking them.
     /// - Returns: The diagnostics to emit, and whether the index may be read.
     static func indexProvenance(
-        located: StoreLocator.LocatedStore
+        located: StoreLocator.LocatedStore,
+        includesTestUnits: Bool? = nil
     ) -> (diagnostics: [Diagnostic], shouldRun: Bool) {
         guard let measurement = located.measurement else {
             // An asserted store from the legacy initializer: nothing was measured, so there is
@@ -241,6 +256,17 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 checkerId: checkerId,
                 subject: "reachability",
                 storeURL: located.url
+            )], false)
+
+        // Ordered after staleness deliberately: a stale index is the larger fact, and a store
+        // can be both. Reporting the narrower gap first would send a reader to rebuild the
+        // tests when the timestamps were the problem.
+        case .measured(let freshness) where includesTestUnits == false:
+            return ([freshness.testCoverageBarrier(
+                checkerId: checkerId,
+                subject: "reachability",
+                storeURL: located.url,
+                buildFailure: StoreLocator.lastTestBuildFailure.value
             )], false)
 
         case .measured(let freshness):

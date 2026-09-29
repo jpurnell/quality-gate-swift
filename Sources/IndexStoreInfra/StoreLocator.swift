@@ -662,6 +662,37 @@ public enum StoreLocator {
         return arguments
     }
 
+    /// Why the most recent test-inclusive index build was abandoned, when one was.
+    ///
+    /// Process-wide because the build it describes is: one index store per run, written by
+    /// whichever checker reached it first, and read by every index-backed checker after.
+    /// Guarded by a lock rather than declared `nonisolated(unsafe)`, because a checker run is
+    /// concurrent and a torn read here would be a wrong explanation rather than a missing one.
+    // Justification: the one mutable property is reached only under `lock`, never directly
+    public final class TestBuildFailureBox: @unchecked Sendable {
+        private var reason: String?
+        private let lock = NSLock()
+
+        func record(_ value: String) {
+            lock.lock(); defer { lock.unlock() }
+            reason = value
+        }
+
+        func clear() {
+            lock.lock(); defer { lock.unlock() }
+            reason = nil
+        }
+
+        /// The recorded reason, or `nil` when the last index build included its tests.
+        public var value: String? {
+            lock.lock(); defer { lock.unlock() }
+            return reason
+        }
+    }
+
+    /// The reason the last test-inclusive index build was abandoned, for checkers to report.
+    public static let lastTestBuildFailure = TestBuildFailureBox()
+
     private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
         // Index the tests when they compile; fall back to sources alone when they do not.
         // A package whose test target is broken must not lose its *entire* index over it —
@@ -669,8 +700,15 @@ public enum StoreLocator {
         // behaviour this replaces.
         do {
             try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: true)
+            lastTestBuildFailure.clear()
         } catch {
+            // Recorded, not only logged. This fallback is the reason a symbol only a test calls
+            // can read as unreachable, and for as long as the reason lived in `logger.info` it
+            // reached no report: on a CI runner the index came out at 182 units where a local
+            // one had 453, and nothing anywhere said why. A checker that degrades silently is
+            // indistinguishable from one that found nothing.
             logger.info("index build with --build-tests failed; retrying without test targets")
+            lastTestBuildFailure.record(error.localizedDescription)
             try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: false)
         }
     }

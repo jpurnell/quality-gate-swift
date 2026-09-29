@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`unreachable` refuses to answer against an index built without the test targets.** A plain
+  `swift build` compiles the library alone, so a symbol only a test suite calls has no references
+  in the store and reads as `unreachable from any entry point` — a false positive whose suggested
+  remedy is deleting live code, and one indistinguishable in form from a true finding.
+
+  SwiftXLSX's CI reported exactly that for `SharedStringsParser.parse(data:)`, which six tests
+  call, against a 182-unit index; the same commit passed locally against a 453-unit one. It is a
+  barrier rather than a downgrade, for the reason the stale-index barrier already is: findings and
+  an advisory line together invite the reader to act on the findings.
+
+  The index build already fell back to sources-only when the test build failed, and recorded the
+  reason with `logger.info` — which reaches no report. The reason is now carried into the barrier,
+  so the run says why its own index is partial instead of recommending a command the gate had
+  already run.
+
+  A package with no test sources, or a store whose units cannot be read, leaves the question
+  unanswered and changes nothing: a barrier must not be raised over a question nobody asked.
+
 - **`fallback`, a new checker: the places where a value that is not a number gets an answer.**
   A NaN is never raised. It is carried, and every comparison with it answers *no*. Three rules
   and one question, each from a class of defect a campaign in BusinessMath found and no existing checker could

@@ -135,4 +135,41 @@ struct IndexBarrierTests {
         #expect(outcome.shouldRun)
         #expect(outcome.diagnostics.isEmpty)
     }
+
+    @Test("An index without test units yields a barrier instead of findings")
+    func partialIndexYieldsBarrier() {
+        let outcome = UnreachableCodeAuditor.indexProvenance(
+            located: located(.measured(freshFreshness)), includesTestUnits: false)
+
+        #expect(outcome.shouldRun == false)
+        #expect(outcome.diagnostics.count == 1)
+        #expect(outcome.diagnostics.first?.severity == .error)
+        #expect(outcome.diagnostics.first?.message.contains("test") == true)
+    }
+
+    @Test("An index with test units runs, and says so in the coverage note")
+    func completeIndexRuns() {
+        let outcome = UnreachableCodeAuditor.indexProvenance(
+            located: located(.measured(freshFreshness)), includesTestUnits: true)
+
+        #expect(outcome.shouldRun == true)
+        #expect(outcome.diagnostics.first?.severity == .note)
+    }
+
+    @Test("An unanswered test-coverage question does not create a barrier")
+    func unknownCoverageRuns() {
+        let outcome = UnreachableCodeAuditor.indexProvenance(
+            located: located(.measured(freshFreshness)), includesTestUnits: nil)
+
+        #expect(outcome.shouldRun == true)
+    }
+
+    /// An index newer than the sources, so staleness cannot be what a barrier is about.
+    private var freshFreshness: IndexFreshness {
+        IndexFreshness(
+            newestSource: Self.indexBuilt,
+            newestIndexUnit: Self.sourceEdited,
+            unitCount: 182
+        )
+    }
 }
