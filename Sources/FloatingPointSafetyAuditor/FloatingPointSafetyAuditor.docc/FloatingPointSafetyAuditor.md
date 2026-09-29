@@ -60,7 +60,7 @@ Suppressed findings are recorded in the `overrides` array of the `CheckResult` r
 
 ### A second checker in this module
 
-``FallbackAuditor`` (`--check fallback`) lives here because it needs the same kind of type evidence, and asks a different question: not whether a divisor is guarded, but what becomes of a value that is not a number. It reports an integer conversion that traps on one, a clamp that returns a bound for one, and a chain of comparisons that sorts one into its last arm. See <doc:FallbackAuditorGuide>.
+``FallbackAuditor`` (`--check fallback`) lives here because it needs the same kind of type evidence, and asks a different question: not whether a divisor is guarded, but what becomes of a value that is not a number. It reports an integer conversion that traps on one, a clamp that returns a bound for one, and a chain of comparisons that sorts one into its last arm; and it asks, without failing the run, about a guard that answers for one. See <doc:FallbackAuditorGuide>.
 
 ### Out of scope
 

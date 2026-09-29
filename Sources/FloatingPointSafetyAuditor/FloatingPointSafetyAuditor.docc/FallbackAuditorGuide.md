@@ -43,6 +43,10 @@ func direction(of slope: Double) -> String {
 | `fallback.int-conversion-unguarded` | `Int(x)` — or any fixed-width integer type — on a floating-point `x` that nothing before it has shown to be representable | error |
 | `fallback.clamp-absorbs-nan` | A nested `min` / `max` that returns one of its bounds for a NaN | warning |
 | `fallback.classification-omits-nan` | An `if` / `else if` chain that sorts one value by comparison and has no arm for a NaN | warning |
+| `fallback.guard-returns-a-value` | A guard against zero that a NaN fails, answering with a value nothing documents | note |
+| `fallback.justification-empty` | `// fallback-justified:` with no reason after it | warning |
+
+The first three are findings. The fourth is a question, and never fails a run.
 
 ## An integer conversion
 
@@ -145,6 +149,48 @@ func presentValues(of cashFlows: [Double]) -> (inflows: Double, outflows: Double
 
 An arm that tests `isNaN` or `isFinite` answers it, as does a test above the chain. One comparison with an `else` is a test and not a classification, and is not reported. Nor is a chain whose arms test different values.
 
+## A guard that answers
+
+```swift
+func excessKurtosis(fourthMoment: Double, deviation: Double) -> Double {
+    guard deviation > 0 else { return 0 }
+    return fourthMoment / (deviation * deviation * deviation * deviation) - 3
+}
+```
+
+The guard is correct about zero. It is also what runs for a NaN, which is not greater than anything — and then `0` is reported as the excess kurtosis of data that was never measured, which reads as *exactly normal-tailed*.
+
+Whether `0` is the right answer is not something a checker can know. In one function of the campaign that prompted this rule, two guards four lines apart read the same; zero assets really is distress, and zero liabilities is the safest balance sheet there is. So this is reported at `note`, as a question, and it is answered once, in one of three ways.
+
+**Say so where the caller reads it.** A `- Returns:` clause that names the value as what is returned in some case is a contract, and the finding goes away:
+
+```swift
+/// The share of a total.
+///
+/// - Returns: The proportion, or 0 if there is no total.
+func share(of part: Double, in total: Double) -> Double {
+    guard total > 0 else { return 0 }
+    return part / total
+}
+```
+
+The clause has to hold the value as a word of its own — `0`, `0.0` and `zero` are one value — *and* a word that makes the sentence conditional: `if`, `when`, `whenever`, `unless`, `otherwise`. "A proportion from 0 to 1" has the first and not the second; it describes a range. A property has no Returns clause, so its whole comment is read.
+
+**Refuse.** `nil`, `throw`, `.nan` and `.infinity` are not answers, and a guard that returns one is not reported. Nor is a guard that returns something computed.
+
+**Record the decision.** `// fallback-justified: <reason>` on the line directly above the guard. The finding is recorded as an override rather than dropped, so the justifications in a package can be read as a list, and the coverage note counts them. The reason is required.
+
+A justification is the weakest of the three, because it is addressed to the checker and the caller never sees it. A comment that is true about zero and silent about NaN is also exactly what this rule exists to find.
+
+### What is read as this shape
+
+- The guard compares against zero, or a threshold written in its place: `0`, `T(0)`, `.zero`, `.ulpOfOne`. `guard x >= lower, x <= upper` states a domain and is not reported.
+- The comparison is ordered. `guard total != 0` lets a NaN through, since a NaN is unequal to everything, so its fallback is not given for one.
+- The value compared could be a NaN. An integer, or a `let` converted from one, could not.
+- Nothing above the guard has already refused a NaN.
+
+A name with no type of its own takes one from what it is compared with: `s > T(0)` does not compile unless `s` is a `T`. A bare `0` is no such evidence.
+
 ## Where the type comes from
 
 SwiftSyntax gives syntax and not types, so the checker reads what is written, in one file, and does not guess:
@@ -175,7 +221,7 @@ Test code is not audited. A test that feeds a NaN to a conversion to watch it tr
 Every run prints what it examined:
 
 ```
-fallback examined 685 files · 49 integer conversions of a floating-point value, 44 unguarded · 37 clamps, 11 absorbing a NaN · 19 classifications, 15 with no arm for one
+fallback examined 685 files · 49 integer conversions of a floating-point value, 44 unguarded · 38 clamps, 11 absorbing a NaN · 19 classifications, 15 with no arm for one · 152 guards answering with a value, 110 undeclared, 0 justified
 ```
 
 The first number of each pair is the one to read a pass against. A clean run that examined nothing has said nothing about a package whose values are members declared in other files.

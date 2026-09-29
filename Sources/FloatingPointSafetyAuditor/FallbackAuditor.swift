@@ -21,6 +21,12 @@ import QualityGateCore
 /// - `fallback.classification-omits-nan` (warning) — an `if` / `else if` chain
 ///   that sorts a value by comparison. A NaN passes no comparison, so it takes
 ///   the trailing `else`, or no arm at all.
+/// - `fallback.guard-returns-a-value` (note) — `guard x > 0 else { return 0 }`,
+///   which a NaN fails. Advisory and never gating: whether `0` is the right
+///   answer is not something a checker can know. It is answered by naming the
+///   fallback in the documentation's `- Returns:` clause, by refusing (`nil`,
+///   `throw`, `.nan`), or by `// fallback-justified: <reason>` on the line above.
+/// - `fallback.justification-empty` (warning) — that marker with no reason.
 ///
 /// The conversion is accepted when the enclosing function bounds the value's
 /// magnitude in the conditions of a `guard` — `guard abs(x) < limit`,
@@ -49,7 +55,7 @@ public struct FallbackAuditor: QualityChecker, Sendable {
     public let name = "Fallback Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "A NaN that traps an integer conversion, is clamped to a bound, or is sorted into the last arm"
+    public let summary = "A NaN that traps an integer conversion, is clamped to a bound, is sorted into the last arm, or is answered for by a guard"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.correctness
@@ -94,6 +100,7 @@ public struct FallbackAuditor: QualityChecker, Sendable {
         var conversionsExamined = 0
         var clampsExamined = 0
         var classificationsExamined = 0
+        var guardsExamined = 0
         var filesExamined = 0
 
         for fullPath in scan.files {
@@ -113,6 +120,7 @@ public struct FallbackAuditor: QualityChecker, Sendable {
                 conversionsExamined += result.conversionsExamined
                 clampsExamined += result.clampsExamined
                 classificationsExamined += result.classificationsExamined
+                guardsExamined += result.guardsExamined
                 filesExamined += 1
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -132,7 +140,10 @@ public struct FallbackAuditor: QualityChecker, Sendable {
                 + "\(Self.counted(clampsExamined, "clamp")), "
                 + "\(found(FallbackRuleID.clampAbsorbsNaN)) absorbing a NaN · "
                 + "\(Self.counted(classificationsExamined, "classification")), "
-                + "\(found(FallbackRuleID.classificationOmitsNaN)) with no arm for one"
+                + "\(found(FallbackRuleID.classificationOmitsNaN)) with no arm for one · "
+                + "\(Self.counted(guardsExamined, "guard")) answering with a value, "
+                + "\(found(FallbackRuleID.guardReturnsAValue)) undeclared, "
+                + "\(overrides.count) justified"
                 + (scan.exclusionClause.map { " · \($0)" } ?? ""),
             ruleId: FallbackRuleID.coverage))
 

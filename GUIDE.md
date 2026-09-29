@@ -253,7 +253,7 @@ These checkers find bugs that compile but crash or produce wrong results at runt
 
 **FloatingPointSafetyAuditor** (`fp-safety`) — Detects `==` and `!=` comparisons on floating-point values (which fail due to representation error) and division operations without zero guards.
 
-**FallbackAuditor** (`fallback`) — Finds the places where a NaN gets an answer. `Int(x)` on a floating-point `x` that nothing has shown to be representable traps (error). `max(a, min(b, x))` returns `b` for a NaN, because `Swift.min` and `Swift.max` return their first argument when either is one (warning). An `if x > 0 … else if x < 0 …` chain sorts a NaN into its trailing `else`, or into no arm at all (warning).
+**FallbackAuditor** (`fallback`) — Finds the places where a NaN gets an answer. `Int(x)` on a floating-point `x` that nothing has shown to be representable traps (error). `max(a, min(b, x))` returns `b` for a NaN, because `Swift.min` and `Swift.max` return their first argument when either is one (warning). An `if x > 0 … else if x < 0 …` chain sorts a NaN into its trailing `else`, or into no arm at all (warning). A guard against zero that a NaN fails and that answers with an undocumented value — `guard stdDev > 0 else { return 0 }` — is raised as a question at `note`, and never fails a run: whether `0` is right is not something a checker can know.
 
 **MemoryLifecycleGuard** (`memory-lifecycle`) — Finds stored `Task` properties without corresponding cancellation in `deinit`, and strong `delegate` references that should be `weak`.
 

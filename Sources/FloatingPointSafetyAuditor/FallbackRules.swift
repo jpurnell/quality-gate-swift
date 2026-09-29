@@ -20,6 +20,13 @@ public enum FallbackRuleID {
     /// and never asks whether it is a number.
     public static let classificationOmitsNaN = "fallback.classification-omits-nan"
 
+    /// A guard that a NaN fails, answering with a value nothing documents.
+    /// Advisory: the checker cannot know whether the value is right.
+    public static let guardReturnsAValue = "fallback.guard-returns-a-value"
+
+    /// A `// fallback-justified:` marker with no reason after it.
+    public static let justificationEmpty = "fallback.justification-empty"
+
     /// The note every run emits, pass or fail, saying what was examined.
     public static let coverage = "fallback.coverage"
 }
@@ -45,13 +52,18 @@ public struct FallbackAuditResult: Sendable {
     /// How many `if` / `else if` chains sorting one floating-point value were examined.
     public var classificationsExamined: Int
 
+    /// How many guards that a NaN fails, and that answer with a value, were
+    /// examined — documented, justified or neither.
+    public var guardsExamined: Int
+
     /// A result with nothing in it.
     public static let empty = FallbackAuditResult(
         diagnostics: [],
         overrides: [],
         conversionsExamined: 0,
         clampsExamined: 0,
-        classificationsExamined: 0
+        classificationsExamined: 0,
+        guardsExamined: 0
     )
 }
 
@@ -61,8 +73,8 @@ public struct FallbackAuditResult: Sendable {
 ///
 /// `fp-safety` asks whether a divisor is guarded. These rules ask what happens
 /// to a value that is *not a number at all*: a conversion that traps on it, a
-/// clamp that reports a bound for it, and a chain of comparisons that sorts it
-/// into whichever arm is last.
+/// clamp that reports a bound for it, a chain of comparisons that sorts it into
+/// whichever arm is last, and a guard that answers for it.
 public enum FallbackRules {
 
     /// Runs the `fallback` rules over one source file.
@@ -96,10 +108,11 @@ public enum FallbackRules {
         visitor.walk(tree)
         return FallbackAuditResult(
             diagnostics: visitor.diagnostics,
-            overrides: [],
+            overrides: visitor.overrides,
             conversionsExamined: visitor.conversionsExamined,
             clampsExamined: visitor.clampsExamined,
-            classificationsExamined: visitor.classificationsExamined
+            classificationsExamined: visitor.classificationsExamined,
+            guardsExamined: visitor.guardsExamined
         )
     }
 

@@ -5,8 +5,8 @@
 ### Added
 
 - **`fallback`, a new checker: the places where a value that is not a number gets an answer.**
-  A NaN is never raised. It is carried, and every comparison with it answers *no*. Three rules,
-  each from a class of defect a campaign in BusinessMath found and no existing checker could
+  A NaN is never raised. It is carried, and every comparison with it answers *no*. Three rules
+  and one question, each from a class of defect a campaign in BusinessMath found and no existing checker could
   see, because nothing is wrong with the code until the value arrives.
 
   | rule | severity | what it finds |
@@ -14,6 +14,8 @@
   | `fallback.int-conversion-unguarded` | error | `Int(x)` traps on `.nan`, `.infinity` and `1e300` |
   | `fallback.clamp-absorbs-nan` | warning | `max(a, min(b, x))` returns `b` for a NaN |
   | `fallback.classification-omits-nan` | warning | `if x > 0 … else if x < 0 …` sorts a NaN into the last arm, or none |
+  | `fallback.guard-returns-a-value` | note | `guard stdDev > 0 else { return 0 }` answers for a NaN |
+  | `fallback.justification-empty` | warning | `// fallback-justified:` with no reason |
 
   **The conversion** is accepted when the enclosing function, before it, bounds the value's
   magnitude in the conditions of a `guard` — which a NaN cannot pass — or bounds it anywhere and
@@ -27,17 +29,29 @@
   **The classification** covers a chain with no trailing `else` as well as one with. The
   proposal specified only the second; two of its three named defects are the first.
 
+  **The guard** is a question and not a verdict, and it never fails a run. Whether `0` is the
+  right answer is domain knowledge: the campaign's hardest case was two textually identical
+  guards four lines apart, one correct and one maximally wrong. It is answered by naming the
+  fallback in the documentation's `- Returns:` clause, by refusing (`nil`, `throw`, `.nan`), or
+  by `// fallback-justified: <reason>` on the line above — recorded as an override, not dropped.
+
+  **Its precision is below the bar its proposal set, and that is not yet resolved.** The
+  proposal asked for 25% or better. The triage that would measure it was never committed, so
+  the only evidence is indirect: of the 132 guards reported before the campaign, the campaign
+  changed 22. That is a floor of 17%, not a measurement. 110 remain, 51 of them in
+  `Simulation`, where most are densities that are zero outside their support.
+
   Types are read from syntax, in one file, and the rules keep *floating-point* apart from *able
   to be NaN*: `let n = Double(count)` is the first and not the second.
 
   **Measured against real code three times, and wrong the first two.**
 
-  | | conversions | clamps | classifications |
-  | --- | --- | --- | --- |
-  | BusinessMath before the campaign (`464cf939`) | 45 | 17 | 18 |
-  | BusinessMath after it (`917127b5`) | 44 | 11 | 15 |
-  | SwiftExcelFunctions | 92 | 0 | 0 |
-  | this repository | 8 | 0 | 0 |
+  | | conversions | clamps | classifications | guards (note) |
+  | --- | --- | --- | --- | --- |
+  | BusinessMath before the campaign (`464cf939`) | 45 | 18 | 18 | 132 |
+  | BusinessMath after it (`917127b5`) | 44 | 11 | 15 | 110 |
+  | SwiftExcelFunctions | 92 | 0 | 0 | 1 |
+  | this repository | 8 | 0 | 2 | 0 |
 
   Every site the proposal names is found at `464cf939`: 14 of 14.
 
@@ -56,13 +70,13 @@
   `DiscountCurve.bootstrap` now filters on `isFinite` and still calls `Int(entry.tenor)`.
 
   The checker lives in the `FloatingPointSafetyAuditor` target, with its own `--check` id.
-  Design: `plans/proposals/AFallbackIsAnAnswer.md` in the companion. The proposal's fourth
-  rule, an advisory on guards that return a value, is not implemented.
+  Design: `plans/proposals/AFallbackIsAnAnswer.md` in the companion. `FallbackConfig`, which
+  the proposal names, is not built: no rule turned out to need configuring.
 
 ### Fixed
 
-- **Eight conversions in this repository that the new rule found**, seven of them in the
-  dashboard. Four views each carried a private `Int((value * 100).rounded())`, and each would
+- **Ten sites in this repository that the new rules found**, nine of them in the dashboard.
+  Eight are conversions. Four views each carried a private `Int((value * 100).rounded())`, and each would
   have stopped the dashboard on a NaN pass rate. They now share `WholePercent`, which returns
   no value for a rate that is not a number. An unknown pass rate is shown as `—` and drawn in
   neither colour, not as `0%` in red: a project whose rate is unknown has not failed
@@ -71,6 +85,10 @@
   The eighth is the sparkline, which took its extremes with `max()` and `min()` over a series
   that might hold a NaN — where the result is whichever element the comparison left standing —
   and then converted a quotient of them. A point that is not a number is now drawn as a gap.
+
+  The other two are one chain written twice: `if z > 2.576 … else if z >= 1.96 … else`, which
+  drew an anomaly whose z-score could not be computed in the colour of the mildest kind. Both
+  views now share `ZScoreSeverity`, which has a case for it.
 
 ## [3.2.1] - 2026-09-21
 

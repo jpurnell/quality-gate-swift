@@ -171,15 +171,11 @@ extension FallbackVisitor {
             return nil
         }
 
-        for operand in operands {
-            let value = Self.magnitudeArgument(of: operand) ?? operand
-            guard FallbackSubjectKey.key(of: value, genericNames: genericNames) != nil,
-                  let subject = subjects(of: value).first else {
-                continue
-            }
-            return .compares(subject)
+        guard operands.count == 2,
+              let subject = comparedSubject(operands[0], operands[1]) else {
+            return nil
         }
-        return nil
+        return .compares(subject)
     }
 
     /// `x.isNaN`, `x.isFinite`, or either negated.
@@ -194,7 +190,7 @@ extension FallbackVisitor {
     }
 
     /// `x` from `abs(x)` or `x.magnitude`.
-    private static func magnitudeArgument(of expr: ExprSyntax) -> ExprSyntax? {
+    static func magnitudeArgument(of expr: ExprSyntax) -> ExprSyntax? {
         if let call = expr.as(FunctionCallExprSyntax.self),
            let callee = call.calledExpression.as(DeclReferenceExprSyntax.self),
            callee.baseName.text == "abs",

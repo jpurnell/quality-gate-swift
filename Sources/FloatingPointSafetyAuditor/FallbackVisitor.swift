@@ -30,6 +30,14 @@ final class FallbackVisitor: SyntaxVisitor {
     /// `if` / `else if` chains that sort one floating-point value seen.
     var classificationsExamined = 0
 
+    /// Guards that a NaN fails and that answer with a value seen, documented
+    /// or not.
+    var guardsExamined = 0
+
+    /// Findings a justification silenced. Recorded rather than dropped, so that
+    /// the justifications can be read as a list.
+    var overrides: [DiagnosticOverride] = []
+
     /// Integer conversions of a floating-point value seen, guarded or not.
     private(set) var conversionsExamined = 0
 
@@ -41,6 +49,8 @@ final class FallbackVisitor: SyntaxVisitor {
         var genericNames: Set<String> = []
         /// The checks this body makes. Nil for a scope that is not a body.
         var facts: FallbackGuardFacts?
+        /// What documents the value this scope returns.
+        var documentation = FallbackDocumentation.inherited
     }
 
     /// The scope stack, innermost last. The first element is the file itself.
@@ -99,9 +109,14 @@ final class FallbackVisitor: SyntaxVisitor {
         scopes.reduce(into: Set<String>()) { $0.formUnion($1.genericNames) }
     }
 
-    private func pushScope(genericNames: Set<String> = [], body: Syntax? = nil) {
+    private func pushScope(
+        genericNames: Set<String> = [],
+        body: Syntax? = nil,
+        documentation: FallbackDocumentation = .inherited
+    ) {
         var scope = Scope()
         scope.genericNames = genericNames
+        scope.documentation = documentation
         if let body {
             scope.facts = FallbackGuardFactCollector.collect(
                 from: body,
@@ -109,6 +124,22 @@ final class FallbackVisitor: SyntaxVisitor {
             )
         }
         scopes.append(scope)
+    }
+
+    /// The text documenting what a `return` here returns, or nil if nothing does.
+    ///
+    /// Read from the innermost scope that returns on its own behalf: a closure's
+    /// `return` is the closure's, and the enclosing function's documentation
+    /// does not describe it.
+    func returnDocumentation() -> String? {
+        for scope in scopes.reversed() {
+            switch scope.documentation {
+            case .inherited: continue
+            case .undocumented: return nil
+            case .text(let text): return text
+            }
+        }
+        return nil
     }
 
     /// Leaves the innermost scope. The file scope is never popped.
@@ -224,7 +255,8 @@ final class FallbackVisitor: SyntaxVisitor {
         pushScope(
             genericNames: FallbackTypes.genericFloatingPointNames(
                 parameters: node.genericParameterClause, whereClause: node.genericWhereClause),
-            body: node.body.map(Syntax.init)
+            body: node.body.map(Syntax.init),
+            documentation: Self.returnsClause(in: node.leadingTrivia).map { .text($0) } ?? .undocumented
         )
         bind(parameters: node.signature.parameterClause.parameters)
         return .visitChildren
@@ -236,7 +268,8 @@ final class FallbackVisitor: SyntaxVisitor {
         pushScope(
             genericNames: FallbackTypes.genericFloatingPointNames(
                 parameters: node.genericParameterClause, whereClause: node.genericWhereClause),
-            body: node.body.map(Syntax.init)
+            body: node.body.map(Syntax.init),
+            documentation: .undocumented
         )
         bind(parameters: node.signature.parameterClause.parameters)
         return .visitChildren
@@ -253,7 +286,14 @@ final class FallbackVisitor: SyntaxVisitor {
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
         if let accessorBlock = node.accessorBlock {
-            pushScope(body: Syntax(accessorBlock))
+            // A property has no Returns clause. Its whole comment is about what
+            // it returns.
+            let declaration = node.parent?.parent?.as(VariableDeclSyntax.self)
+            let lines = declaration.map { Self.documentationLines(in: $0.leadingTrivia) } ?? []
+            pushScope(
+                body: Syntax(accessorBlock),
+                documentation: lines.isEmpty ? .undocumented : .text(lines.joined(separator: " "))
+            )
         }
         return .visitChildren
     }
@@ -265,7 +305,7 @@ final class FallbackVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
-        pushScope(body: Syntax(node.statements))
+        pushScope(body: Syntax(node.statements), documentation: .undocumented)
         guard let parameterClause = node.signature?.parameterClause else { return .visitChildren }
 
         switch parameterClause {
@@ -397,6 +437,16 @@ final class FallbackVisitor: SyntaxVisitor {
 
     override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
         checkClassification(node)
+        return .visitChildren
+    }
+
+    override func visit(_ node: GuardStmtSyntax) -> SyntaxVisitorContinueKind {
+        checkGuard(node)
+        return .visitChildren
+    }
+
+    override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
+        learnFromComparisons(in: node)
         return .visitChildren
     }
 

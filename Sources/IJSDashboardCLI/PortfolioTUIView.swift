@@ -321,13 +321,7 @@ public enum PortfolioTUIView: Sendable {
                 icon = ANSICodes.fg(.green) + "\u{2713}" + ANSICodes.reset
             } else {
                 let z = abs(top.zScore)
-                let color: String = if z > 2.576 {
-                    ANSICodes.fg(.red)
-                } else if z >= 1.96 {
-                    ANSICodes.fg(.yellow)
-                } else {
-                    ANSICodes.fg(.cyan)
-                }
+                let color = ZScoreSeverity(magnitude: z).colour
                 icon = color + "\u{26A0}" + ANSICodes.reset
             }
             let metricShort: String = switch top.metric {
