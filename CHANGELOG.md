@@ -2,7 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`gate-ref` input**, so a gate change can be verified on real CI before it reaches every
+  repository. The build step cloned this repo's default branch unconditionally, which meant
+  pointing a caller at `...@some-branch` swapped only the workflow YAML while the *binary* still
+  came from `main`. A checker fix was therefore untestable until after it shipped — and an
+  attempt to test one returns a confident verdict about code that was never in the run. That
+  happened twice while fixing the search-path bug below, in both directions: a correct fix read
+  as disproved, and a stale cached binary read as a pass.
+
 ### Fixed
+
+- **The cached gate binary was never invalidated by a change to this repo.** The key hashed
+  `.github/workflows/*.yml` in the **caller's** checkout, so a consumer could keep restoring a
+  months-old binary and report green against a gate that had since changed. It is now keyed to
+  the gate revision, resolved with `git ls-remote` before the cache is consulted.
 
 - **`doc-code` and `doc-comment-code` reported `no such module '<Module>'` against the
   documentation when the module was built in the `Modules/` layout.** `ArticleDiscovery`

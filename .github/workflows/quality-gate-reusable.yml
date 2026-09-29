@@ -87,6 +87,17 @@ on:
         type: boolean
         required: false
         default: false
+      # Until 2026-09-29 the build step cloned this repo's default branch unconditionally, so
+      # pointing a caller at `...@some-branch` changed only which YAML ran — the *binary* was
+      # still built from `main`. A change to a checker therefore could not be tested before it
+      # landed on `main` and reached every repo at once, and worse, an attempt to test one
+      # produced a confident result about code that was never in the run. Both happened while
+      # fixing the search-path bug in this release, and the wrong conclusion was drawn twice.
+      gate-ref:
+        description: "Branch, tag or SHA of quality-gate-swift to build the gate from. Defaults to main; set it to verify a gate change before merging."
+        type: string
+        required: false
+        default: main
     secrets:
       corpus-deploy-key:
         description: "SSH private key with write access to the corpus repo (preferred transport)"
@@ -139,13 +150,31 @@ jobs:
       # `/usr/bin/swiftc` as the shim it is. Either mechanism alone leaves a gap; both together
       # mean the build and the audit cannot silently disagree again.
 
+      # The cache key has to name the gate's own source, and until 2026-09-29 it did not:
+      # `hashFiles('.github/workflows/*.yml')` hashes the *caller's* workflow files, so no change
+      # to this repo ever invalidated a consumer's cached binary. A repo could run a months-old
+      # gate and report green, and a verification run reused a binary built before the very fix
+      # it was meant to test — which is how a fix that had never executed was recorded as
+      # disproved. Resolving the ref to a SHA makes the key move when the gate moves.
+      - name: Resolve the gate revision
+        if: ${{ !inputs.self-hosted }}
+        id: qg-rev
+        env:
+          GATE_REF: ${{ inputs.gate-ref }}
+        run: |
+          SHA=$(git ls-remote https://github.com/jpurnell/quality-gate-swift.git "$GATE_REF" | cut -f1)
+          # A SHA passed as the ref has nothing to resolve, so fall back to the ref itself.
+          if [ -z "$SHA" ]; then SHA="$GATE_REF"; fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "gate source: $GATE_REF -> $SHA"
+
       - name: Cache quality-gate binary
         if: ${{ !inputs.self-hosted }}
         id: qg-cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /usr/local/bin/quality-gate
-          key: quality-gate-xcodeswift-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+          key: quality-gate-${{ steps.qg-rev.outputs.sha }}-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
       - name: Configure git auth for private dependencies
         # Hosted only. This rewrites GLOBAL git config to inject a token; on a
@@ -197,15 +226,16 @@ jobs:
           echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/qg_corpus -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
           echo "CORPUS_TRANSPORT=ssh" >> "$GITHUB_ENV"
 
-      - name: Build quality-gate from latest main
+      - name: Build quality-gate from ${{ inputs.gate-ref }}
         # Installs to /usr/local/bin, which is why it is hosted-only: that path
         # needs privileges a self-hosted runner should not be exercising.
         if: ${{ !inputs.self-hosted && steps.qg-cache.outputs.cache-hit != 'true' }}
         timeout-minutes: 25
         env:
           GIT_SUBMODULE_STRATEGY: none
+          GATE_REF: ${{ inputs.gate-ref }}
         run: |
-          git clone --depth 1 --no-recurse-submodules https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
+          git clone --depth 1 --no-recurse-submodules --branch "$GATE_REF" https://github.com/jpurnell/quality-gate-swift.git /tmp/quality-gate-swift
           cd /tmp/quality-gate-swift
           swift build -c release 2>&1 | tee /tmp/qg-build.log | tail -20
           BUILD_EXIT=${PIPESTATUS[0]}
