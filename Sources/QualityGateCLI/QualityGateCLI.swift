@@ -148,6 +148,9 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .customLong("shape-output"), help: "Also write the advisory shape metrics (verbosity, erosion) as JSON to this path. Never gates: the metrics are a summary statistic about the codebase, not a finding about it.")
     var shapeOutput: String?
 
+    @Option(name: .customLong("shape-cc-threshold"), help: "Cyclomatic complexity above which a function counts as eroded (default 10). Exposed so the metric's sensitivity to its own threshold can be measured rather than assumed.")
+    var shapeCCThreshold: Int = 10
+
     /// The active Swift toolchain version string, folded into the cache's gate identity so a
     /// compiler change invalidates cached results. Returns "" on failure (still a stable key).
     private static func toolchainVersion() -> String {
@@ -773,7 +776,8 @@ struct QualityGateCLI: AsyncParsableCommand {
         guard let snapshot = ShapeMetricsPass.run(
             results: results,
             projectRoot: root,
-            projectID: root.lastPathComponent
+            projectID: root.lastPathComponent,
+            threshold: shapeCCThreshold
         ) else {
             print("⚠ No Swift source under Sources/ to measure; no shape snapshot written.")
             return

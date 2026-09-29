@@ -91,6 +91,33 @@ struct ShapeMetricsPassTests {
         #expect(abs(erosion.erosion) < 1e-9)
     }
 
+    @Test("The pass applies the threshold it is given, not the default")
+    func passHonoursItsThreshold() throws {
+        // The fixture's one function is cyclomatic 2. At the default threshold of 10 it is not
+        // eroded; at 1 it is. This is what `--shape-cc-threshold` reaches, and the wiring is
+        // asserted here rather than at the parser, which has no test target of its own.
+        let root = try fixturePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Sources/Fixture/Fixture.swift").path
+
+        let lenient = try #require(ShapeMetricsPass.run(
+            results: allContributorsRan(file: file),
+            projectRoot: root, projectID: "fixture", threshold: 10))
+        let strict = try #require(ShapeMetricsPass.run(
+            results: allContributorsRan(file: file),
+            projectRoot: root, projectID: "fixture", threshold: 1))
+
+        let lenientErosion = try #require(lenient.report.erosion)
+        let strictErosion = try #require(strict.report.erosion)
+
+        #expect(lenientErosion.functionsOverThreshold == 0)
+        #expect(strictErosion.functionsOverThreshold == 1)
+        #expect(lenientErosion.threshold == 10)
+        #expect(strictErosion.threshold == 1)
+        // The same tree measured two ways: only the threshold differs, and the answer does too.
+        #expect(strictErosion.erosion > lenientErosion.erosion)
+    }
+
     @Test("A checker that did not run is named, and the headline is withheld")
     func missingContributorIsNamed() throws {
         let root = try fixturePackage()

@@ -249,6 +249,55 @@ struct ShapeMetricsTests {
         #expect(ShapeMetrics.erosion(functions: [], threshold: 10) == nil)
     }
 
+    // MARK: - The threshold is a parameter, and §4.5 sweeps it
+
+    @Test("The cyclomatic threshold decides which functions erode, and moving it moves the ratio")
+    func thresholdChangesWhatErodes() {
+        // Three equal-length functions straddling the sweep §4.5 asks for: 8, 10, 12.
+        // Equal length means mass differs only by complexity, so the arithmetic stays checkable
+        // by hand — the point is which functions are *selected*, not how they are weighted.
+        let functions = [function(cc: 9, lines: 20),
+                         function(cc: 11, lines: 20),
+                         function(cc: 13, lines: 20)]
+
+        guard let at8 = ShapeMetrics.erosion(functions: functions, threshold: 8),
+              let at10 = ShapeMetrics.erosion(functions: functions, threshold: 10),
+              let at12 = ShapeMetrics.erosion(functions: functions, threshold: 12) else {
+            Issue.record("expected an erosion report at each threshold")
+            return
+        }
+
+        // 8 catches all three, 10 catches two, 12 catches one.
+        #expect(at8.functionsOverThreshold == 3)
+        #expect(at10.functionsOverThreshold == 2)
+        #expect(at12.functionsOverThreshold == 1)
+
+        // And the headline moves with them, strictly. A threshold the metric ignored would
+        // make these three equal, which is the failure this test exists to catch: §4.5's
+        // sweep cannot measure sensitivity to a knob that does nothing.
+        #expect(at8.erosion > at10.erosion)
+        #expect(at10.erosion > at12.erosion)
+
+        // At 8 every function is over, so the mass-weighted ratio is exactly one.
+        #expect(abs(at8.erosion - 1.0) < 1e-9)
+        // At 12 only the CC-13 function is over: mass 13√20 of (9 + 11 + 13)√20.
+        #expect(abs(at12.erosion - 13.0 / 33.0) < 1e-9)
+    }
+
+    @Test("A report carries the threshold that produced it")
+    func reportRecordsItsOwnThreshold() {
+        // A sweep writes one snapshot per threshold. Without this the outputs are
+        // indistinguishable after the fact, and a stability result cannot say what it varied.
+        for threshold in [8, 10, 12] {
+            guard let report = ShapeMetrics.erosion(
+                functions: [function(cc: 11, lines: 20)], threshold: threshold) else {
+                Issue.record("expected an erosion report at threshold \(threshold)")
+                return
+            }
+            #expect(report.threshold == threshold)
+        }
+    }
+
     @Test("A package with no source lines has no verbosity, not zero verbosity")
     func noSourceMeansNoMetric() {
         #expect(ShapeMetrics.verbosity(regions: [], sloc: [:], config: ShapeConfig()) == nil)
