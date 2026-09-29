@@ -9,10 +9,16 @@
   in the store and reads as `unreachable from any entry point` — a false positive whose suggested
   remedy is deleting live code, and one indistinguishable in form from a true finding.
 
-  SwiftXLSX's CI reported exactly that for `SharedStringsParser.parse(data:)`, which six tests
-  call, against a 182-unit index; the same commit passed locally against a 453-unit one. It is a
-  barrier rather than a downgrade, for the reason the stale-index barrier already is: findings and
-  an advisory line together invite the reader to act on the findings.
+  **It is insurance, not a diagnosis.** It was written after SwiftXLSX's CI reported
+  `SharedStringsParser.parse(data:)` — which six tests call — as unreachable, on the theory that
+  the index there lacked its test units. That theory is wrong: the detection added here returns
+  *true* on that same runner, so the checker runs and this barrier never fires. Whatever produced
+  that finding is still unexplained, and it has not recurred in four runs. What remains true
+  independently is that an index without test units cannot answer the question, and nothing
+  previously said so.
+
+  A barrier rather than a downgrade, for the reason the stale-index barrier already is: findings
+  and an advisory line together invite the reader to act on the findings.
 
   The index build already fell back to sources-only when the test build failed, and recorded the
   reason with `logger.info` — which reaches no report. The reason is now carried into the barrier,
