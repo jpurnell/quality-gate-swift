@@ -1,0 +1,68 @@
+name: Linux (port in progress)
+
+# This package has never built on Linux, and this job exists to make that
+# statement falsifiable rather than remembered.
+#
+# Why it exists at all: a Linux user pointed a Swift 6.2 toolchain at the
+# package on 2026-09-29 and got two failures in a row that nothing here could
+# have predicted, because macOS compiles neither of the paths involved. The
+# README now says "macOS only, today" — this job is what would let that
+# sentence change, and what would stop it silently becoming false again.
+#
+# Trigger is workflow_dispatch ONLY, deliberately, and stays that way until the
+# job is green. A red X on every push to a public repository whose subject is
+# code quality is worse than no signal: it trains the reader to ignore the tick.
+# Flip to `push` in the same commit that turns this green — not before, and not
+# as a separate tidy-up nobody schedules.
+#
+# Billing: ubuntu-latest is 1× and free for public repositories, so unlike
+# hosted macOS (10× on private, the reason quality-gate.yml is self-hosted)
+# there is no economic argument against running this on every push once it
+# passes.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: swift build (Linux, Swift ${{ matrix.swift }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 6.2 is the manifest's swift-tools-version and what the reporting
+        # user runs. Nothing below it can parse Package.swift at all.
+        swift: ["6.2"]
+    container:
+      image: swift:${{ matrix.swift }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain identity
+        run: |
+          swift --version
+          echo "libdispatch headers:"
+          ls -la /usr/lib/swift/dispatch/dispatch.h /usr/lib/swift/Block.h || true
+
+      # indexstore-db's Concurrency-Mac.cpp includes <dispatch/dispatch.h> and
+      # <Block.h> with no platform guard and is not excluded on non-Apple
+      # platforms, so it compiles here and fails unless clang is told where the
+      # toolchain keeps them. SwiftPM does not add the Swift toolchain's include
+      # paths to C++ targets on its own. This is an upstream gap, not a local
+      # misconfiguration: the same two flags are what got a real Linux box past
+      # it. If indexstore-db ever guards that file, these flags become inert
+      # rather than wrong.
+      - name: Build
+        run: |
+          swift build -c release \
+            -Xcxx -I/usr/lib/swift \
+            -Xcxx -I/usr/lib/swift/Block
+
+      - name: Test
+        run: |
+          swift test \
+            -Xcxx -I/usr/lib/swift \
+            -Xcxx -I/usr/lib/swift/Block
