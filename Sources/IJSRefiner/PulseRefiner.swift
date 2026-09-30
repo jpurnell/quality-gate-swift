@@ -11,7 +11,11 @@ import QualityGateLogging
 /// and produces model objects. It performs no file I/O directly.
 public actor PulseRefiner {
 
-    static let logger = Logger(subsystem: "com.quality-gate", category: "PulseRefiner")
+    // Qualified: this file imports BusinessMath and QualityGateLogging, and on Linux both
+    // export a public `Logger` — BusinessMath aliases its fallback, QualityGateLogging
+    // aliases QGLogger — so the bare name is ambiguous there and resolves fine on Darwin.
+    // A name two packages both supply needs saying which one is meant.
+    static let logger = QualityGateLogging.Logger(subsystem: "com.quality-gate", category: "PulseRefiner")
     static let minimumConsecutiveAppearances = 3
     static let minimumAffectedProjectsForRecurring = 2
 
