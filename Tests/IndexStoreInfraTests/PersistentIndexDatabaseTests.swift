@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import IndexStoreInfra
 
+/// Runs `body` inside an autorelease pool where one exists.
+///
+/// These tests drain the pool deliberately: the point of each is that `IndexStoreDB` has
+/// released its handle before the next assertion reads the directory, and on Darwin the
+/// pool is what makes that true at a known moment. Linux has no Objective-C runtime and so
+/// nothing to drain, and the call becomes the identity function rather than a shim that
+/// would claim a guarantee it cannot give.
+/// - Parameter body: The work to perform.
+/// - Returns: Whatever `body` returns.
+private func withAutoreleasePoolIfAvailable<T>(_ body: () throws -> T) rethrows -> T {
+    #if canImport(ObjectiveC)
+    return try autoreleasepool(invoking: body)
+    #else
+    return try body()
+    #endif
+}
+
 /// The IndexStoreDB database must outlive the run that built it.
 ///
 /// `IngestionIsNotAnalysis.md`: a profile of `--check recursion --no-cache` put the
@@ -67,7 +84,7 @@ struct PersistentIndexDatabaseTests {
         }
         let dbDir = IndexStoreSession.databaseDirectory(for: store)
 
-        try autoreleasepool {
+        try withAutoreleasePoolIfAvailable {
             let first = try IndexStoreSession(storePath: store, libPath: lib)
             _ = first.db.symbols(inFilePath: "/nonexistent.swift")
         }
@@ -101,7 +118,7 @@ struct PersistentIndexDatabaseTests {
             try? FileManager.default.removeItem(at: privateDir)
         }
 
-        try autoreleasepool {
+        try withAutoreleasePoolIfAvailable {
             _ = try IndexStoreSession(storePath: store, libPath: lib, databaseDirectory: privateDir)
         }
 
