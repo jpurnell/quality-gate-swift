@@ -2,9 +2,7 @@ import Foundation
 import BusinessMath
 import CorpusKit
 import IJSAggregator
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 extension PulseRefiner {
     /// Computes per-project trajectories using OLS regression on weighted quality scores.
