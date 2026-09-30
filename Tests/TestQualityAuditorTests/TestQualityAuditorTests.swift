@@ -24,9 +24,8 @@ struct TestQualityAuditorTests {
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         #expect(result.status == .failed)
 
-        let diag = result.diagnostics.first { $0.ruleId == "exact-double-equality" }
-        #expect(diag != nil)
-        #expect(diag?.severity == .error)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "exact-double-equality" })
+        #expect(diag.severity == .error)
     }
 
     @Test
@@ -77,9 +76,8 @@ struct TestQualityAuditorTests {
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         #expect(result.status == .failed)
 
-        let diag = result.diagnostics.first { $0.ruleId == "force-try-in-test" }
-        #expect(diag != nil)
-        #expect(diag?.severity == .error)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "force-try-in-test" })
+        #expect(diag.severity == .error)
     }
 
     @Test
@@ -112,9 +110,8 @@ struct TestQualityAuditorTests {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = result.diagnostics.first { $0.ruleId == "unseeded-random" }
-        #expect(diag != nil)
-        #expect(diag?.severity == .warning)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "unseeded-random" })
+        #expect(diag.severity == .warning)
     }
 
     @Test
@@ -183,8 +180,8 @@ struct TestQualityAuditorTests {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = result.diagnostics.first { $0.ruleId == "unseeded-random" }
-        #expect(diag != nil, ".random() method call should still be flagged")
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "unseeded-random" }, ".random() method call should still be flagged")
+        #expect(diag.ruleId == "unseeded-random")
     }
 
     @Test
@@ -218,9 +215,8 @@ struct TestQualityAuditorTests {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = result.diagnostics.first { $0.ruleId == "missing-assertion" }
-        #expect(diag != nil)
-        #expect(diag?.severity == .warning)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "missing-assertion" })
+        #expect(diag.severity == .warning)
     }
 
     @Test
@@ -366,9 +362,8 @@ struct TestQualityAuditorTests {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = result.diagnostics.first { $0.ruleId == "hardcoded-date" }
-        #expect(diag != nil)
-        #expect(diag?.severity == .warning)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "hardcoded-date" })
+        #expect(diag.severity == .warning)
     }
 
     @Test
