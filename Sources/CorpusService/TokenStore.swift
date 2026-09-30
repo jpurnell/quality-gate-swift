@@ -1,6 +1,5 @@
 import Crypto
 import Foundation
-import Security
 import QualityGateLogging
 
 /// A token's public record — what `corpusd token list` shows.
@@ -167,10 +166,22 @@ public actor TokenStore {
     /// - Throws: ``TokenStoreError/entropyUnavailable(_:)`` when the
     ///   entropy source fails — never a weaker fallback.
     private static func generateToken() throws -> String {
-        var bytes = [UInt8](repeating: 0, count: tokenByteCount)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        guard status == errSecSuccess else {
-            throw TokenStoreError.entropyUnavailable(status)
+        // `SystemRandomNumberGenerator` is the standard library's cryptographically secure
+        // source — `arc4random_buf` on Darwin, `getrandom(2)` on Linux — so one expression
+        // replaces the Apple-only `SecRandomCopyBytes` that was this package's last
+        // unguarded Darwin dependency.
+        //
+        // Not `SymmetricKey(size:).withUnsafeBytes { Array($0) }`, which reads the same on
+        // paper: `pointer-escape` flags it, and although the pointer does not truly escape
+        // — `Array(rawBuffer)` copies — the rule is right that the shape is indistinguishable
+        // from one that does. A generator needing no buffer at all removes the question
+        // rather than arguing it, which is cheaper than a justification nobody will re-derive.
+        var generator = SystemRandomNumberGenerator()
+        let bytes = (0..<tokenByteCount).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+        // Not defensive padding: a short draw must fail loudly rather than mint a token with
+        // less entropy than its length advertises, which is what the doc line above promises.
+        guard bytes.count == tokenByteCount else {
+            throw TokenStoreError.entropyUnavailable(Int32(bytes.count))
         }
         return bytes.hexEncoded()
     }

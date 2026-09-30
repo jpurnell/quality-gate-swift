@@ -1,6 +1,12 @@
 import ArgumentParser
 import ControlMapping
 import Foundation
+#if canImport(FoundationNetworking)
+// URLSession, URLRequest and URLResponse live in a separate module on Linux, where
+// Foundation is split. Importing it unconditionally fails on Darwin, where no such
+// module exists — hence the canImport rather than an os() check.
+import FoundationNetworking
+#endif
 import QualityGateLogging
 
 /// `quality-gate standards-watch` — detect upstream drift in the compliance
