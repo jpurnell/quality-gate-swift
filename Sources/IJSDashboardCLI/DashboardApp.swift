@@ -13,6 +13,21 @@ import Darwin
 import Glibc
 #endif
 
+/// Runs `body` inside an autorelease pool where one exists.
+///
+/// Objective-C's runtime is a Darwin facility; on Linux there is no pool to drain and the
+/// call is the identity function. Written as one helper rather than a `#if` at each call
+/// site so the loop below reads the same on both platforms.
+/// - Parameter body: The work to perform.
+@inline(__always)
+private func withAutoreleasePoolIfAvailable(_ body: () -> Void) {
+    #if canImport(ObjectiveC)
+    autoreleasepool(invoking: body)
+    #else
+    body()
+    #endif
+}
+
 private let dashboardShouldExit = Atomic<Bool>(false)
 
 /// Interactive TUI event loop for the IJS dashboard.
@@ -55,7 +70,11 @@ public enum DashboardApp: Sendable {
             }
         }
 
-        setvbuf(stdout, nil, _IONBF, 0)
+        // No `setvbuf(stdout, …)`. It configured a stdio buffer this module never writes
+        // through — every frame goes out via `write(1, …)` below, and there is not one
+        // `print` in the target — so it was dead configuration. It is also unbuildable on
+        // Linux, where Glibc declares `stdout` as a mutable global and naming it from a
+        // concurrency-checked context is an error.
         dashboardShouldExit.store(false, ordering: .relaxed)
 
         signal(SIGINT) { _ in
@@ -82,7 +101,12 @@ public enum DashboardApp: Sendable {
         var eofReached = false
 
         while !dashboardShouldExit.load(ordering: .acquiring) && !state.shouldQuit && !eofReached {
-            autoreleasepool {
+            // `autoreleasepool` needs the Objective-C runtime, which Linux has no version
+            // of. The pool matters on Darwin: this loop redraws a frame per iteration and
+            // the framework objects behind `TerminalSize.current()` accumulate without it.
+            // Where there is no such runtime there is nothing to drain, so the body runs
+            // directly rather than through a shim that would only pretend to.
+            withAutoreleasePoolIfAvailable {
                 let size = TerminalSize.current()
                 let cols = max(size.columns, 20)
                 let rows = size.rows
