@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateTestKit
 import ProcessKernel
 import QualityGateCore
 import Testing
@@ -10,20 +11,19 @@ import CorpusKit
 @Suite("Second-writer tripwire acceptance", .serialized)
 struct SecondWriterTripwireTests {
 
-    private final class BundleToken {}
 
     private enum TripwireError: Error {
         case binaryNotFound
     }
 
     private static func gateBinary() throws -> URL {
-        let productsDirectory = Bundle(for: BundleToken.self).bundleURL
-            .deletingLastPathComponent()
-        let candidate = productsDirectory.appendingPathComponent("quality-gate")
-        guard FileManager.default.fileExists(atPath: candidate.path) else {
+        guard let binary = BuiltProducts.gateBinary else {
+
             throw TripwireError.binaryNotFound
+
         }
-        return candidate
+
+        return binary
     }
 
     private func makeFixture(corpus: URL) throws -> URL {

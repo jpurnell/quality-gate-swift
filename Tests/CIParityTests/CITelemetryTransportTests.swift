@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateTestKit
 import QualityGateCore
 import Testing
 
@@ -9,7 +10,6 @@ import Testing
 @Suite("CI telemetry transport acceptance", .serialized)
 struct CITelemetryTransportTests {
 
-    private final class BundleToken {}
 
     private enum TransportAcceptanceError: Error {
         case binaryNotFound
@@ -17,13 +17,13 @@ struct CITelemetryTransportTests {
     }
 
     private static func gateBinary() throws -> URL {
-        let productsDirectory = Bundle(for: BundleToken.self).bundleURL
-            .deletingLastPathComponent()
-        let candidate = productsDirectory.appendingPathComponent("quality-gate")
-        guard FileManager.default.fileExists(atPath: candidate.path) else {
+        guard let binary = BuiltProducts.gateBinary else {
+
             throw TransportAcceptanceError.binaryNotFound
+
         }
-        return candidate
+
+        return binary
     }
 
     private func git(_ arguments: [String], cwd: URL) throws {

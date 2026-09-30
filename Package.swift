@@ -1188,13 +1188,13 @@ let package = Package(
         // against fixture upstream repos (foreign mode's read-only promise).
         .testTarget(
             name: "ForeignModeAcceptanceTests",
-            dependencies: ["QualityGateCLI", "QualityGateCore"]
+            dependencies: ["QualityGateCLI", "QualityGateCore", "QualityGateTestKit"]
         ),
         // Phase 2 acceptance: local run and `ci` run of the same fixture
         // must produce byte-identical diagnostics (the parity guarantee).
         .testTarget(
             name: "CIParityTests",
-            dependencies: ["QualityGateCLI", "QualityGateCore"]
+            dependencies: ["QualityGateCLI", "QualityGateCore", "QualityGateTestKit"]
         ),
 
         // The IJS MCP server moved to its own package, `jpurnell/ijs-mcp-server`, on

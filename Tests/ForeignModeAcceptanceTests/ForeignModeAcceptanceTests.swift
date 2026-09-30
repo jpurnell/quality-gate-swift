@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateTestKit
 import QualityGateCore
 import Testing
 
@@ -16,20 +17,18 @@ struct ForeignModeAcceptanceTests {
 
     // MARK: - Harness
 
-    /// Anchor for locating the test bundle (`Bundle(for:)` needs a class).
-    private final class BundleToken {}
 
     /// The built `quality-gate` binary next to the test bundle.
     private static func gateBinary() throws -> URL {
         // The test bundle lives in the products directory; the executable
         // product is its sibling.
-        let productsDirectory = Bundle(for: BundleToken.self).bundleURL
-            .deletingLastPathComponent()
-        let candidate = productsDirectory.appendingPathComponent("quality-gate")
-        guard FileManager.default.fileExists(atPath: candidate.path) else {
+        guard let binary = BuiltProducts.gateBinary else {
+
             throw AcceptanceError.binaryNotFound
+
         }
-        return candidate
+
+        return binary
     }
 
     private enum AcceptanceError: Error {
