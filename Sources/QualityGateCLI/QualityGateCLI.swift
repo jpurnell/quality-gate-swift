@@ -481,6 +481,25 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Unset → the default (active processor count).
         let benchConcurrency = ProcessInfo.processInfo.environment["QG_BENCH_CONCURRENCY"].flatMap(Int.init)
         let runner = benchConcurrency.map(CheckerRunner.init(maxConcurrency:)) ?? CheckerRunner()
+
+        // Loaded *before* the run, because the transform below needs it. A ledger read failure
+        // is loud and then proceeds without coverage — the same behaviour as before, moved
+        // earlier. One `now` for the whole run, so a long run cannot expire a debt halfway
+        // through and report two different dispositions for the same record.
+        let baselinePath = ".quality-gate-baseline.json"
+        let baselineNow = Date()
+        // Bound once rather than assigned into: the transform below is `@Sendable`, and a
+        // captured `var` is not.
+        let baselineLedger: BaselineLedger? = {
+            guard FileManager.default.fileExists(atPath: baselinePath) else { return nil } // SAFETY: read-only check at repo root
+            do {
+                return try BaselineLedger.load(from: baselinePath)
+            } catch {
+                Self.logger.error("Baseline ledger unreadable at \(baselinePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                print("⚠ Baseline ledger unreadable (\(error.localizedDescription)) — running WITHOUT baseline coverage.")
+                return nil
+            }
+        }()
         let runOutcome = await runner.run(
             checkers: checkersToRun,
             configuration: configuration,
@@ -491,7 +510,19 @@ struct QualityGateCLI: AsyncParsableCommand {
             useCache: !noCache,
             digests: digestCache,
             includeNonHermetic: includeNonHermetic,
-            transform: { overrideProcessor.apply(to: $0) },
+            // The baseline goes through the same hook as overrides, and for the same reason:
+            // this is applied *before* the early-exit decision. Applying it after the run (as
+            // this did until the ledger was split into a per-result transform) meant the
+            // checker holding baselined debt still failed during the run and truncated it —
+            // every checker ordered after it never ran — and the ledger then rewrote that
+            // checker's verdict to `.passed`, so the run reported success over an unexamined
+            // majority. `adopt` promised a green gate on day one and charged the rest of the
+            // run for it.
+            transform: { result in
+                let afterOverrides = overrideProcessor.apply(to: result)
+                guard let ledger = baselineLedger else { return afterOverrides }
+                return ledger.applying(to: afterOverrides, now: baselineNow)
+            },
             onError: { checkerID, error in
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
             }
@@ -547,22 +578,19 @@ struct QualityGateCLI: AsyncParsableCommand {
         // their expiry visible; expired debts return as re-verify warnings;
         // new findings gate. Applied before trial mode so both transforms
         // see honest inputs. A ledger read failure is loud, never silent.
-        let baselinePath = ".quality-gate-baseline.json"
+        // The ledger was already applied, per result, inside the run — see the `transform`
+        // above. What is left here is only reading the counts back off the transformed
+        // results. Derived rather than accumulated: the transform runs in a `@Sendable`
+        // closure, and counting across results there would need a lock around numbers that
+        // are recoverable from the output.
         var baselineSnapshot: BaselineSnapshot?
-        if FileManager.default.fileExists(atPath: baselinePath) { // SAFETY: read-only check at repo root
-            do {
-                let ledger = try BaselineLedger.load(from: baselinePath)
-                let applied = BaselineLedger.apply(ledger: ledger, to: allResults, now: Date())
-                allResults = applied.results
-                baselineSnapshot = BaselineSnapshot(
-                    baselined: applied.summary.baselined,
-                    expired: applied.summary.expired,
-                    newFindings: applied.summary.newFindings)
-                print("ℹ️  Baseline: \(applied.summary.baselined) debt(s) covered, \(applied.summary.expired) EXPIRED (re-verify), \(applied.summary.newFindings) new finding(s) gating.")
-            } catch {
-                Self.logger.error("Baseline ledger unreadable at \(baselinePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                print("⚠ Baseline ledger unreadable (\(error.localizedDescription)) — running WITHOUT baseline coverage.")
-            }
+        if baselineLedger != nil {
+            let summary = BaselineLedger.summarise(allResults)
+            baselineSnapshot = BaselineSnapshot(
+                baselined: summary.baselined,
+                expired: summary.expired,
+                newFindings: summary.newFindings)
+            print("ℹ️  Baseline: \(summary.baselined) debt(s) covered, \(summary.expired) EXPIRED (re-verify), \(summary.newFindings) new finding(s) gating.")
         }
 
         // Trial mode (Phase 4 §3): the survey transform — findings visible,

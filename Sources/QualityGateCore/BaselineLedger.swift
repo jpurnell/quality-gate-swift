@@ -162,60 +162,111 @@ public struct BaselineLedger: Sendable, Equatable {
         public init() {}
     }
 
-    /// Applies the ledger to a run's results.
+    /// The origin every baselined or expired diagnostic carries, and the thing
+    /// ``summarise(_:)`` counts. One spelling, so the writer and the reader cannot drift.
+    public static let origin = "baseline"
+
+    /// Applies the ledger to **one** result.
     ///
-    /// Baselined findings become origin-tagged notes with their expiry
-    /// visible; expired debts become re-verify warnings; new findings pass
-    /// through untouched. Each result's verdict recomputes from what
-    /// remains: errors → failed, warnings → warning, else passed.
-    public static func apply(
-        ledger: BaselineLedger,
-        to results: [CheckResult],
-        now: Date
-    ) -> (results: [CheckResult], summary: Summary) {
-        var summary = Summary()
+    /// This is the whole of the transform, and it is per-result on purpose: ``CheckerRunner``
+    /// applies it through its `transform` hook, which runs *before* the early-exit decision.
+    /// Applying the ledger after the run instead — which is what happened until this was
+    /// split out — meant the checker holding baselined debt still failed *during* the run and
+    /// truncated it, so every checker ordered after it never ran. The ledger then rewrote that
+    /// checker's verdict to `.passed`, and the run reported success over an unexamined
+    /// majority. Overrides already went through that hook; the ledger does the same kind of
+    /// thing and now goes through it too.
+    ///
+    /// Baselined findings become origin-tagged notes with their expiry visible; expired debts
+    /// become re-verify warnings; new findings pass through untouched. The verdict recomputes
+    /// from what remains: errors → failed, warnings → warning, else passed.
+    ///
+    /// - Parameters:
+    ///   - result: The result to transform.
+    ///   - now: The instant expiry is judged against.
+    /// - Returns: The result with baselined diagnostics downgraded and its verdict recomputed.
+    public func applying(to result: CheckResult, now: Date) -> CheckResult {
+        guard result.status == .failed || result.status == .warning else { return result }
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         dateFormatter.timeZone = TimeZone(identifier: "UTC")
 
-        let transformed = results.map { result -> CheckResult in
-            guard result.status == .failed || result.status == .warning else { return result }
-            let diagnostics = result.diagnostics.map { diagnostic -> Diagnostic in
-                guard diagnostic.severity != .note else { return diagnostic }
-                switch ledger.disposition(of: diagnostic, now: now) {
-                case .baselined(let expiresAt):
-                    summary.baselined += 1
-                    return replace(
-                        diagnostic, severity: .note,
-                        message: "\(diagnostic.message) (baselined until \(dateFormatter.string(from: expiresAt)))")
-                case .reVerify(let expiredAt):
-                    summary.expired += 1
-                    return replace(
-                        diagnostic, severity: .warning,
-                        message: "\(diagnostic.message) — baseline EXPIRED \(dateFormatter.string(from: expiredAt)); re-verify: extend consciously (re-adopt) or fix")
-                case .new:
-                    summary.newFindings += 1
-                    return diagnostic
-                }
+        let diagnostics = result.diagnostics.map { diagnostic -> Diagnostic in
+            guard diagnostic.severity != .note else { return diagnostic }
+            switch disposition(of: diagnostic, now: now) {
+            case .baselined(let expiresAt):
+                return Self.replace(
+                    diagnostic, severity: .note,
+                    message: "\(diagnostic.message) (baselined until \(dateFormatter.string(from: expiresAt)))")
+            case .reVerify(let expiredAt):
+                return Self.replace(
+                    diagnostic, severity: .warning,
+                    message: "\(diagnostic.message) — baseline EXPIRED \(dateFormatter.string(from: expiredAt)); re-verify: extend consciously (re-adopt) or fix")
+            case .new:
+                return diagnostic
             }
-            let status: CheckResult.Status
-            if diagnostics.contains(where: { $0.severity == .error }) {
-                status = .failed
-            } else if diagnostics.contains(where: { $0.severity == .warning }) {
-                status = .warning
-            } else {
-                status = .passed
-            }
-            return CheckResult(
-                checkerId: result.checkerId,
-                status: status,
-                diagnostics: diagnostics,
-                overrides: result.overrides,
-                complianceRecords: result.complianceRecords,
-                duration: result.duration)
         }
-        return (transformed, summary)
+
+        let status: CheckResult.Status
+        if diagnostics.contains(where: { $0.severity == .error }) {
+            status = .failed
+        } else if diagnostics.contains(where: { $0.severity == .warning }) {
+            status = .warning
+        } else {
+            status = .passed
+        }
+        return CheckResult(
+            checkerId: result.checkerId,
+            status: status,
+            diagnostics: diagnostics,
+            overrides: result.overrides,
+            complianceRecords: result.complianceRecords,
+            duration: result.duration)
+    }
+
+    /// The counts a run reports, read back off results the ledger has already transformed.
+    ///
+    /// Derived rather than accumulated, because a per-result transform runs inside a
+    /// `@Sendable` closure and counting across results there would need a lock around numbers
+    /// that are already recoverable from the output. A lock for a derived number is the kind of
+    /// thing that later reads as load-bearing and is not.
+    ///
+    /// What each count reads: a **baselined** debt is a note carrying ``origin``; an **expired**
+    /// one is a warning carrying it; a **new finding** is anything still gating — not a note,
+    /// and not ours.
+    ///
+    /// - Parameter results: Results already passed through ``applying(to:now:)``.
+    /// - Returns: The summary for this run.
+    public static func summarise(_ results: [CheckResult]) -> Summary {
+        var summary = Summary()
+        for diagnostic in results.flatMap(\.diagnostics) {
+            let isOurs = diagnostic.origin == Self.origin
+            switch (isOurs, diagnostic.severity) {
+            case (true, .note):     summary.baselined += 1
+            case (true, .warning):  summary.expired += 1
+            case (false, .note):    break
+            default:                summary.newFindings += 1
+            }
+        }
+        return summary
+    }
+
+    /// Applies the ledger to a run's results.
+    ///
+    /// Retained for callers that hold every result already — `adopt`, the SARIF writer, the
+    /// tests. The gate itself no longer uses it: it applies ``applying(to:now:)`` through the
+    /// runner's transform so the early-exit decision sees the baseline, then calls
+    /// ``summarise(_:)``. Both paths are the same two functions in the same order, so they
+    /// cannot disagree.
+    public static func apply(
+        ledger: BaselineLedger,
+        to results: [CheckResult],
+        now: Date
+    ) -> (results: [CheckResult], summary: Summary) {
+        let transformed = results.map { ledger.applying(to: $0, now: now) }
+        return (transformed, summarise(transformed))
     }
 
     /// Rebuilds a diagnostic with baseline severity/message and provenance.
