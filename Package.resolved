@@ -1,13 +1,13 @@
 {
-  "originHash" : "073627ab42118179666ddda6a75a9901c7b2135f5668dbd4fa996e40e9e72459",
+  "originHash" : "dc02d597dbd6b608a5e9da4f6dd3b08365e0c8cb083d26a005593b085d16737b",
   "pins" : [
     {
       "identity" : "businessmath",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/BusinessMath",
       "state" : {
-        "revision" : "f8f350e40ff7c188629d71a6d2cc84f60534e461",
-        "version" : "3.0.0-alpha.8"
+        "revision" : "e63b142aec2c025382749062d57239c70499142a",
+        "version" : "3.0.0-alpha.9"
       }
     },
     {

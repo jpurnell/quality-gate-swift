@@ -243,7 +243,7 @@ let package = Package(
 		// BusinessMath's main and has the same defect, so no 2.x version can reach it; the
 		// major bump was measured rather than assumed — IJSRefiner builds and all 3411 tests
 		// pass against it, so the API break this line guards against does not touch us.
-		.package(url: "https://github.com/jpurnell/BusinessMath", from: "3.0.0-alpha.8"),
+		.package(url: "https://github.com/jpurnell/BusinessMath", from: "3.0.0-alpha.9"),
         // 1.4.0, not 1.3.1. The v1.3.1 tag was moved three times, and SwiftPM keeps a
         // machine-global trust-on-first-use fingerprint per version, so every consumer that had
         // ever resolved 1.3.1 was refused on every machine — this package could not resolve from
