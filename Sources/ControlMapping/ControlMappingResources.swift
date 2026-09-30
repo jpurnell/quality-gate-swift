@@ -43,8 +43,19 @@ public enum ControlMappingResources {
     /// Bundled `.json` resource URLs whose file name ends with `suffix`
     /// (e.g. `.catalog.json`), sorted for deterministic order.
     private static func jsonResources(suffix: String) -> [URL] {
-        let all = Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? []
-        return all.filter { $0.lastPathComponent.hasSuffix(suffix) }
+        // Enumerated through `contentsOfDirectory(at:)` rather than
+        // `urls(forResourcesWithExtension:subdirectory:)`. The latter is one of the places
+        // corelibs-foundation and Darwin's Foundation genuinely differ: on Linux it answers
+        // `[NSURL]`, whose `lastPathComponent` is `String?`, so the same three lines that
+        // compile here fail there three ways at once. `contentsOfDirectory` answers `[URL]`
+        // on both, and this directory is flat, which is all `subdirectory: nil` asked for.
+        guard let root = Bundle.module.resourceURL,
+              let contents = try? FileManager.default.contentsOfDirectory(
+                  at: root, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return contents
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasSuffix(suffix) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
