@@ -1,13 +1,13 @@
 {
-  "originHash" : "4b39249e8552abcd1cd87857e7219e7f6300c0defb30c72a1709a1bfc65efd76",
+  "originHash" : "073627ab42118179666ddda6a75a9901c7b2135f5668dbd4fa996e40e9e72459",
   "pins" : [
     {
       "identity" : "businessmath",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/BusinessMath",
       "state" : {
-        "revision" : "fa84cd05fc90047fb4b9599cac6cc219be944e5a",
-        "version" : "2.3.1"
+        "revision" : "f8f350e40ff7c188629d71a6d2cc84f60534e461",
+        "version" : "3.0.0-alpha.8"
       }
     },
     {
@@ -186,8 +186,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-vigil.git",
       "state" : {
-        "revision" : "228b7b0d6cdcb07e9a1c546ec3bfe09244cfcef9",
-        "version" : "0.8.1"
+        "revision" : "dc586b5ba3d78a33fcdb0df10890263d8096294a",
+        "version" : "0.9.0"
       }
     },
     {

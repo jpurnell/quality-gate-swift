@@ -230,7 +230,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.7.0"),
-        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.8.1"),
+        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.9.0"),
         .package(url: "https://github.com/jpurnell/SwiftDeterminism.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
         // HTTPS, not git@ — CI authenticates private dependencies by rewriting
@@ -239,7 +239,11 @@ let package = Package(
         // machine without a GitHub SSH key regardless of how the token was
         // scoped: "Host key verification failed", observed on the runner host.
         .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.19.0"),
-		.package(url: "https://github.com/jpurnell/BusinessMath", from: "2.3.1"),
+		// 3.0.0-alpha.8 carries the Linux fallback-logger fix. The 2.x line is divergent from
+		// BusinessMath's main and has the same defect, so no 2.x version can reach it; the
+		// major bump was measured rather than assumed — IJSRefiner builds and all 3411 tests
+		// pass against it, so the API break this line guards against does not touch us.
+		.package(url: "https://github.com/jpurnell/BusinessMath", from: "3.0.0-alpha.8"),
         // 1.4.0, not 1.3.1. The v1.3.1 tag was moved three times, and SwiftPM keeps a
         // machine-global trust-on-first-use fingerprint per version, so every consumer that had
         // ever resolved 1.3.1 was refused on every machine — this package could not resolve from
