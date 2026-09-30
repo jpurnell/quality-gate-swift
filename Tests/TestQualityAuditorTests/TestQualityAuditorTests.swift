@@ -1,15 +1,17 @@
-import XCTest
+import Testing
 import TestQualityAuditor
 import QualityGateCore
 
-final class TestQualityAuditorTests: XCTestCase {
+@Suite
+struct TestQualityAuditorTests {
 
     private let auditor = TestQualityAuditor()
     private let config = Configuration()
 
     // MARK: - Exact Double Equality
 
-    func testDetectsExactDoubleEquality() async throws {
+    @Test
+    func detectsExactDoubleEquality() async throws {
         let source = """
         import Testing
 
@@ -20,14 +22,15 @@ final class TestQualityAuditorTests: XCTestCase {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        XCTAssertEqual(result.status, .failed)
+        #expect(result.status == .failed)
 
         let diag = result.diagnostics.first { $0.ruleId == "exact-double-equality" }
-        XCTAssertNotNil(diag)
-        XCTAssertEqual(diag?.severity, .error)
+        #expect(diag != nil)
+        #expect(diag?.severity == .error)
     }
 
-    func testAllowsToleranceComparison() async throws {
+    @Test
+    func allowsToleranceComparison() async throws {
         let source = """
         import Testing
 
@@ -39,10 +42,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let exactEqualityDiags = result.diagnostics.filter { $0.ruleId == "exact-double-equality" }
-        XCTAssertTrue(exactEqualityDiags.isEmpty)
+        #expect(exactEqualityDiags.isEmpty)
     }
 
-    func testAllowsExactIntegerEquality() async throws {
+    @Test
+    func allowsExactIntegerEquality() async throws {
         let source = """
         import Testing
 
@@ -54,12 +58,13 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let exactEqualityDiags = result.diagnostics.filter { $0.ruleId == "exact-double-equality" }
-        XCTAssertTrue(exactEqualityDiags.isEmpty)
+        #expect(exactEqualityDiags.isEmpty)
     }
 
     // MARK: - Force Try
 
-    func testDetectsForceTryInTest() async throws {
+    @Test
+    func detectsForceTryInTest() async throws {
         let source = """
         import Testing
 
@@ -70,14 +75,15 @@ final class TestQualityAuditorTests: XCTestCase {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        XCTAssertEqual(result.status, .failed)
+        #expect(result.status == .failed)
 
         let diag = result.diagnostics.first { $0.ruleId == "force-try-in-test" }
-        XCTAssertNotNil(diag)
-        XCTAssertEqual(diag?.severity, .error)
+        #expect(diag != nil)
+        #expect(diag?.severity == .error)
     }
 
-    func testAllowsRegularTry() async throws {
+    @Test
+    func allowsRegularTry() async throws {
         let source = """
         import Testing
 
@@ -89,12 +95,13 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let forceTryDiags = result.diagnostics.filter { $0.ruleId == "force-try-in-test" }
-        XCTAssertTrue(forceTryDiags.isEmpty)
+        #expect(forceTryDiags.isEmpty)
     }
 
     // MARK: - Unseeded Randomness
 
-    func testDetectsUnseededRandom() async throws {
+    @Test
+    func detectsUnseededRandom() async throws {
         let source = """
         import Testing
 
@@ -106,11 +113,12 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diag = result.diagnostics.first { $0.ruleId == "unseeded-random" }
-        XCTAssertNotNil(diag)
-        XCTAssertEqual(diag?.severity, .warning)
+        #expect(diag != nil)
+        #expect(diag?.severity == .warning)
     }
 
-    func testDetectsSystemRandomNumberGenerator() async throws {
+    @Test
+    func detectsSystemRandomNumberGenerator() async throws {
         let source = """
         import Testing
 
@@ -124,10 +132,11 @@ final class TestQualityAuditorTests: XCTestCase {
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
         // SystemRandomNumberGenerator reference flagged; .random(using:) is not flagged
-        XCTAssertGreaterThanOrEqual(diags.count, 1)
+        #expect(diags.count >= 1)
     }
 
-    func testAllowsSeededGenerator() async throws {
+    @Test
+    func allowsSeededGenerator() async throws {
         let source = """
         import Testing
 
@@ -141,10 +150,11 @@ final class TestQualityAuditorTests: XCTestCase {
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         // .random(using: &rng) is seeded, so no unseeded-random diagnostics at all.
         let randomDiags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
-        XCTAssertTrue(randomDiags.isEmpty, ".random(using:) with seeded generator should not be flagged")
+        #expect(randomDiags.isEmpty, ".random(using:) with seeded generator should not be flagged")
     }
 
-    func testAllowsEnumCaseNamedRandom() async throws {
+    @Test
+    func allowsEnumCaseNamedRandom() async throws {
         let source = """
         import Testing
 
@@ -158,10 +168,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let randomDiags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
-        XCTAssertTrue(randomDiags.isEmpty, "Enum case .random should not be flagged as unseeded randomness")
+        #expect(randomDiags.isEmpty, "Enum case .random should not be flagged as unseeded randomness")
     }
 
-    func testStillDetectsRandomMethodCall() async throws {
+    @Test
+    func stillDetectsRandomMethodCall() async throws {
         let source = """
         import Testing
 
@@ -173,10 +184,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diag = result.diagnostics.first { $0.ruleId == "unseeded-random" }
-        XCTAssertNotNil(diag, ".random() method call should still be flagged")
+        #expect(diag != nil, ".random() method call should still be flagged")
     }
 
-    func testAllowsRandomWithUsingParameter() async throws {
+    @Test
+    func allowsRandomWithUsingParameter() async throws {
         let source = """
         import Testing
 
@@ -189,12 +201,13 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let randomDiags = result.diagnostics.filter { $0.ruleId == "unseeded-random" }
-        XCTAssertTrue(randomDiags.isEmpty, ".random(using: &rng) with seeded generator should not be flagged")
+        #expect(randomDiags.isEmpty, ".random(using: &rng) with seeded generator should not be flagged")
     }
 
     // MARK: - Missing Assertions
 
-    func testDetectsMissingAssertions() async throws {
+    @Test
+    func detectsMissingAssertions() async throws {
         let source = """
         import Testing
 
@@ -206,11 +219,12 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diag = result.diagnostics.first { $0.ruleId == "missing-assertion" }
-        XCTAssertNotNil(diag)
-        XCTAssertEqual(diag?.severity, .warning)
+        #expect(diag != nil)
+        #expect(diag?.severity == .warning)
     }
 
-    func testNoFalsePositiveForExpect() async throws {
+    @Test
+    func noFalsePositiveForExpect() async throws {
         let source = """
         import Testing
 
@@ -222,10 +236,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diag = result.diagnostics.first { $0.ruleId == "missing-assertion" }
-        XCTAssertNil(diag)
+        #expect(diag == nil)
     }
 
-    func testNoFalsePositiveForRequire() async throws {
+    @Test
+    func noFalsePositiveForRequire() async throws {
         let source = """
         import Testing
 
@@ -237,12 +252,13 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diag = result.diagnostics.first { $0.ruleId == "missing-assertion" }
-        XCTAssertNil(diag)
+        #expect(diag == nil)
     }
 
     // MARK: - Weak Assertions
 
-    func testDetectsWeakAssertionNotEqualZero() async throws {
+    @Test
+    func detectsWeakAssertionNotEqualZero() async throws {
         // Build source with a weak `!= 0` assertion for the auditor to flag
         let weakLine = "#expect(result != 0)"
         let source = """
@@ -255,11 +271,12 @@ final class TestQualityAuditorTests: XCTestCase {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = try XCTUnwrap(result.diagnostics.first { $0.ruleId == "weak-assertion" })
-        XCTAssertEqual(diag.severity, .warning)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "weak-assertion" })
+        #expect(diag.severity == .warning)
     }
 
-    func testDetectsWeakAssertionNotEqualNil() async throws {
+    @Test
+    func detectsWeakAssertionNotEqualNil() async throws {
         // Build source with a weak `!= nil` assertion for the auditor to flag
         let weakLine = "#expect(result != nil)"
         let source = """
@@ -272,11 +289,12 @@ final class TestQualityAuditorTests: XCTestCase {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        let diag = try XCTUnwrap(result.diagnostics.first { $0.ruleId == "weak-assertion" })
-        XCTAssertEqual(diag.severity, .warning)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "weak-assertion" })
+        #expect(diag.severity == .warning)
     }
 
-    func testAllowsStrongAssertion() async throws {
+    @Test
+    func allowsStrongAssertion() async throws {
         let source = """
         import Testing
 
@@ -288,12 +306,13 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let weakDiags = result.diagnostics.filter { $0.ruleId == "weak-assertion" }
-        XCTAssertTrue(weakDiags.isEmpty)
+        #expect(weakDiags.isEmpty)
     }
 
     // MARK: - Exemptions
 
-    func testExemptionWithSafetyComment() async throws {
+    @Test
+    func exemptionWithSafetyComment() async throws {
         let source = """
         import Testing
 
@@ -306,10 +325,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let exactEqualityDiags = result.diagnostics.filter { $0.ruleId == "exact-double-equality" }
-        XCTAssertTrue(exactEqualityDiags.isEmpty)
+        #expect(exactEqualityDiags.isEmpty)
     }
 
-    func testExemptionWithTestQualityComment() async throws {
+    @Test
+    func exemptionWithTestQualityComment() async throws {
         // Build source with a weak assertion preceded by a TEST-QUALITY exemption comment
         let weakLine = "#expect(result != nil)"
         let source = """
@@ -324,12 +344,13 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let weakDiags = result.diagnostics.filter { $0.ruleId == "weak-assertion" }
-        XCTAssertEqual(weakDiags.count, 0, "Expected TEST-QUALITY comment to exempt the weak assertion")
+        #expect(weakDiags.count == 0, "Expected TEST-QUALITY comment to exempt the weak assertion")
     }
 
     // MARK: - Hardcoded Date Detection
 
-    func testDetectsHardcodedDateInNilCoalescing() async throws {
+    @Test
+    func detectsHardcodedDateInNilCoalescing() async throws {
         let source = """
         import Testing
 
@@ -346,11 +367,12 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diag = result.diagnostics.first { $0.ruleId == "hardcoded-date" }
-        XCTAssertNotNil(diag)
-        XCTAssertEqual(diag?.severity, .warning)
+        #expect(diag != nil)
+        #expect(diag?.severity == .warning)
     }
 
-    func testAllowsHardcodedDateInDirectAssignment() async throws {
+    @Test
+    func allowsHardcodedDateInDirectAssignment() async throws {
         let source = """
         import Testing
 
@@ -362,10 +384,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
-        XCTAssertTrue(diags.isEmpty)
+        #expect(diags.isEmpty)
     }
 
-    func testAllowsDistantPastDateInNilCoalescing() async throws {
+    @Test
+    func allowsDistantPastDateInNilCoalescing() async throws {
         let source = """
         import Testing
 
@@ -381,10 +404,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
-        XCTAssertTrue(diags.isEmpty)
+        #expect(diags.isEmpty)
     }
 
-    func testAllowsNonDateString() async throws {
+    @Test
+    func allowsNonDateString() async throws {
         let source = """
         import Testing
 
@@ -396,10 +420,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
-        XCTAssertTrue(diags.isEmpty)
+        #expect(diags.isEmpty)
     }
 
-    func testHardcodedDateExemption() async throws {
+    @Test
+    func hardcodedDateExemption() async throws {
         let source = """
         import Testing
 
@@ -416,10 +441,11 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
-        XCTAssertTrue(diags.isEmpty)
+        #expect(diags.isEmpty)
     }
 
-    func testAllowsWeekLabelString() async throws {
+    @Test
+    func allowsWeekLabelString() async throws {
         let source = """
         import Testing
 
@@ -431,19 +457,21 @@ final class TestQualityAuditorTests: XCTestCase {
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
         let diags = result.diagnostics.filter { $0.ruleId == "hardcoded-date" }
-        XCTAssertTrue(diags.isEmpty)
+        #expect(diags.isEmpty)
     }
 
     // MARK: - Checker Identity
 
-    func testCheckerIdAndName() {
-        XCTAssertEqual(auditor.id, "test-quality")
-        XCTAssertEqual(auditor.name, "Test Quality Auditor")
+    @Test
+    func checkerIdAndName() {
+        #expect(auditor.id == "test-quality")
+        #expect(auditor.name == "Test Quality Auditor")
     }
 
     // MARK: - Clean File Passes
 
-    func testCleanFilePasses() async throws {
+    @Test
+    func cleanFilePasses() async throws {
         let source = """
         import Testing
 
@@ -455,17 +483,18 @@ final class TestQualityAuditorTests: XCTestCase {
         """
 
         let result = try await auditor.auditSource(source, fileName: "test.swift", configuration: config)
-        XCTAssertEqual(result.status, .passed)
-        XCTAssertTrue(result.diagnostics.isEmpty)
+        #expect(result.status == .passed)
+        #expect(result.diagnostics.isEmpty)
     }
 
-    func testEmptyFilePasses() async throws {
+    @Test
+    func emptyFilePasses() async throws {
         let source = """
         import Foundation
         // No tests here
         """
 
         let result = try await auditor.auditSource(source, fileName: "helper.swift", configuration: config)
-        XCTAssertEqual(result.status, .passed)
+        #expect(result.status == .passed)
     }
 }

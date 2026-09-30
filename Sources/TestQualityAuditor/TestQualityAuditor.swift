@@ -481,7 +481,53 @@ private final class TestQualityVisitor: SyntaxVisitor {
         if moduleName == "Testing" {
             importsTestingFramework = true
         }
+        if moduleName == "XCTest" {
+            reportXCTestImport(node)
+        }
         return .visitChildren
+    }
+
+    /// Whether this file is test code, judged by where it lives and what it is called.
+    ///
+    /// The auditor is normally pointed at a test directory, so the question rarely arises —
+    /// but `xctest-import` is the one rule that would be actively wrong outside one. A helper
+    /// target that links XCTest on purpose is not this rule's business, and flagging it is how
+    /// a rule teaches people to switch it off.
+    private var isTestCode: Bool {
+        let name = (fileName as NSString).lastPathComponent
+        return fileName.contains("/Tests/")
+            || name.hasSuffix("Tests.swift")
+            || name.hasSuffix("Test.swift")
+    }
+
+    /// `xctest-import` — a test file reaching for the framework this project left behind.
+    ///
+    /// Swift Testing is the convention, and it held at better than 99% by habit alone: 3602
+    /// `@Test` and 6338 `#expect` against six files that still imported XCTest. Nothing
+    /// checked, so the exception survived — in this auditor's own test suite, which is the
+    /// one place a rule about test quality should not have to be discovered by reading.
+    ///
+    /// Reported at the import rather than at each `XCTAssert`: the import is the decision,
+    /// and one diagnostic per file is what makes the migration a task rather than a list.
+    private func reportXCTestImport(_ node: ImportDeclSyntax) {
+        guard isTestCode else { return }
+        let location = node.startLocation(converter: converter)
+        let line = location.line
+
+        if let override = overrideIfExempted(line: line, ruleId: "xctest-import") {
+            overrides.append(override)
+            return
+        }
+
+        diagnostics.append(Diagnostic(
+            severity: .error,
+            message: "Test file imports XCTest. This project's tests are written with Swift Testing.",
+            filePath: fileName,
+            lineNumber: line,
+            columnNumber: location.column,
+            ruleId: "xctest-import",
+            suggestedFix: "Replace `import XCTest` with `import Testing`; `XCTestCase` subclass with a `@Suite` struct; `func testX()` with `@Test func x()`; and `XCTAssertEqual(a, b)` with `#expect(a == b)`."
+        ))
     }
 
     // MARK: - @Test Function Tracking

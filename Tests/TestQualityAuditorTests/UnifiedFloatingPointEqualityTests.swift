@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import FloatingPointSafetyAuditor
 import QualityGateCore
 import TestQualityAuditor
@@ -10,7 +10,8 @@ import TestQualityAuditor
 /// severities. These tests pin the shared behaviour: identical detection,
 /// identical suppression, and a diagnostic that presents the three claims
 /// `==` can be making rather than asserting one.
-final class UnifiedFloatingPointEqualityTests: XCTestCase {
+@Suite
+struct UnifiedFloatingPointEqualityTests {
 
     private let fpSafety = FloatingPointSafetyAuditor()
     private let testQuality = TestQualityAuditor()
@@ -44,7 +45,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
     // MARK: - Must fail: a many-digit literal
 
-    func testManyDigitLiteralIsFlaggedInAssertion() async throws {
+    @Test
+    func manyDigitLiteralIsFlaggedInAssertion() async throws {
         let source = """
         import Testing
 
@@ -56,11 +58,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(tq.count, 1)
-        XCTAssertEqual(fp.count, 1)
+        #expect(tq.count == 1)
+        #expect(fp.count == 1)
     }
 
-    func testManyDigitLiteralIsFlaggedOutsideAnAssertion() async throws {
+    @Test
+    func manyDigitLiteralIsFlaggedOutsideAnAssertion() async throws {
         let source = """
         func classify() -> Bool {
             let result = compute()
@@ -71,8 +74,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
         // fp-safety owns non-assertion sites; test-quality deliberately does not.
-        XCTAssertEqual(fp.count, 1)
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 1)
+        #expect(tq.count == 0)
     }
 
     // MARK: - Must fail: two computed Doubles, no literal anywhere
@@ -80,7 +83,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
     /// The coverage hole in `TestQualityAuditor`'s private copy: it required a
     /// `FloatLiteralExprSyntax` on one side, so a comparison of two computed
     /// `Double`s was invisible to it.
-    func testTwoComputedDoublesWithNoLiteralAreFlaggedInAssertion() async throws {
+    @Test
+    func twoComputedDoublesWithNoLiteralAreFlaggedInAssertion() async throws {
         let source = """
         import Testing
 
@@ -93,14 +97,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(
-            tq.count, 1,
-            "A literal-free comparison of two computed Doubles must be caught"
-        )
-        XCTAssertEqual(fp.count, 1)
+        #expect(tq.count == 1, "A literal-free comparison of two computed Doubles must be caught")
+        #expect(fp.count == 1)
     }
 
-    func testTwoComputedDoublesWithNoLiteralAreFlaggedOutsideAnAssertion() async throws {
+    @Test
+    func twoComputedDoublesWithNoLiteralAreFlaggedOutsideAnAssertion() async throws {
         let source = """
         func agrees() -> Bool {
             let expected: Double = referenceImplementation()
@@ -110,12 +112,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 1)
+        #expect(fp.count == 1)
     }
 
     // MARK: - Must pass: the three unambiguous forms
 
-    func testToleranceComparisonIsNotFlagged() async throws {
+    @Test
+    func toleranceComparisonIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -128,11 +131,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(tq.count, 0)
-        XCTAssertEqual(fp.count, 0)
+        #expect(tq.count == 0)
+        #expect(fp.count == 0)
     }
 
-    func testBitPatternComparisonIsNotFlagged() async throws {
+    @Test
+    func bitPatternComparisonIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -145,14 +149,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(
-            tq.count, 0,
-            "bitPattern comparison is the unambiguous bit-identity form; do not flag it"
-        )
-        XCTAssertEqual(fp.count, 0)
+        #expect(tq.count == 0, "bitPattern comparison is the unambiguous bit-identity form; do not flag it")
+        #expect(fp.count == 0)
     }
 
-    func testNamedIEEEEqualityIsNotFlagged() async throws {
+    @Test
+    func namedIEEEEqualityIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -165,11 +167,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(tq.count, 0)
-        XCTAssertEqual(fp.count, 0)
+        #expect(tq.count == 0)
+        #expect(fp.count == 0)
     }
 
-    func testIntegerComparisonInvolvingADoubleTypedVariableIsNotFlagged() async throws {
+    @Test
+    func integerComparisonInvolvingADoubleTypedVariableIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -181,14 +184,15 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(tq.count, 0)
-        XCTAssertEqual(fp.count, 0)
+        #expect(tq.count == 0)
+        #expect(fp.count == 0)
     }
 
     /// `sqrt(-2 * log(1))` is `-0.0`; `==` against `0.0` is the correct
     /// comparison there and a bit-pattern check would fail. Both checkers
     /// exempt the zero sentinel.
-    func testComparisonAgainstZeroSentinelIsNotFlagged() async throws {
+    @Test
+    func comparisonAgainstZeroSentinelIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -201,8 +205,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tq = try await exactEquality(source)
         let fp = try await fpEquality(source)
-        XCTAssertEqual(tq.count, 0)
-        XCTAssertEqual(fp.count, 0)
+        #expect(tq.count == 0)
+        #expect(fp.count == 0)
     }
 
     // MARK: - Regression: one marker, honoured by both checkers
@@ -210,7 +214,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
     /// The bug this change fixes. A developer reads the failing diagnostic,
     /// applies the marker it names, re-runs, and the *other* checker still
     /// fails on the same line. Both checkers must honour `// fp-safety:disable`.
-    func testCanonicalMarkerSuppressesInBothCheckers() async throws {
+    @Test
+    func canonicalMarkerSuppressesInBothCheckers() async throws {
         let source = """
         import Testing
 
@@ -224,15 +229,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         let tq = try await exactEquality(source)
         let overrides = try await exactEqualityOverrides(source)
 
-        XCTAssertEqual(fp.count, 0, "fp-safety must honour its own marker")
-        XCTAssertEqual(tq.count, 0, "test-quality must honour the same marker — this is the defect")
-        XCTAssertEqual(
-            overrides.count, 1,
-            "A suppressed finding must still be recorded as an override, not vanish"
-        )
+        #expect(fp.count == 0, "fp-safety must honour its own marker")
+        #expect(tq.count == 0, "test-quality must honour the same marker — this is the defect")
+        #expect(overrides.count == 1, "A suppressed finding must still be recorded as an override, not vanish")
     }
 
-    func testCanonicalMarkerOnTheCommentLineAboveSuppressesInBothCheckers() async throws {
+    @Test
+    func canonicalMarkerOnTheCommentLineAboveSuppressesInBothCheckers() async throws {
         let source = """
         import Testing
 
@@ -245,13 +248,14 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0)
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0)
+        #expect(tq.count == 0)
     }
 
     /// The legacy marker must keep working or every existing suppression in
     /// consumer projects breaks at once.
-    func testLegacyTestQualityMarkerStillSuppresses() async throws {
+    @Test
+    func legacyTestQualityMarkerStillSuppresses() async throws {
         let source = """
         import Testing
 
@@ -265,19 +269,17 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         let overrides = try await exactEqualityOverrides(source)
         let fp = try await fpEquality(source)
 
-        XCTAssertEqual(tq.count, 0)
-        XCTAssertEqual(overrides.count, 1)
-        XCTAssertEqual(
-            fp.count, 0,
-            "The two markers are one marker set; neither checker may ignore the other's"
-        )
+        #expect(tq.count == 0)
+        #expect(overrides.count == 1)
+        #expect(fp.count == 0, "The two markers are one marker set; neither checker may ignore the other's")
     }
 
     /// An inline marker must not leak onto the following line. 300 sites in
     /// BusinessMath carry a trailing `// fp-safety:disable`; if "the line
     /// above" matched those, every one of them would silently suppress its
     /// neighbour.
-    func testInlineMarkerDoesNotSuppressTheFollowingLine() async throws {
+    @Test
+    func inlineMarkerDoesNotSuppressTheFollowingLine() async throws {
         let source = """
         func classify() -> Bool {
             let a: Double = fastPath()
@@ -289,12 +291,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 1, "Only the marked line is suppressed")
+        #expect(fp.count == 1, "Only the marked line is suppressed")
     }
 
     // MARK: - The diagnostic names all three claims
 
-    func testDiagnosticPresentsTheThreeClaimsRatherThanAssertingOne() async throws {
+    @Test
+    func diagnosticPresentsTheThreeClaimsRatherThanAssertingOne() async throws {
         let source = """
         import Testing
 
@@ -306,32 +309,30 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let tqDiags = try await exactEquality(source)
         let fpDiags = try await fpEquality(source)
-        let tqDiag = try XCTUnwrap(tqDiags.first)
-        let fpDiag = try XCTUnwrap(fpDiags.first)
+        let tqDiag = try #require(tqDiags.first)
+        let fpDiag = try #require(fpDiags.first)
 
         for diagnostic in [tqDiag, fpDiag] {
             let text = diagnostic.message + " " + (diagnostic.suggestedFix ?? "")
-            XCTAssertTrue(text.contains("abs(a - b) < epsilon"), "names the tolerance form")
-            XCTAssertTrue(text.contains("a.isEqual(to: b)"), "names the IEEE-equality form")
-            XCTAssertTrue(text.contains("a.bitPattern == b.bitPattern"), "names the bit-identity form")
-            XCTAssertFalse(
-                diagnostic.message.contains("Use tolerance: abs(a - b) < epsilon."),
-                "the old single-answer advice must be gone"
-            )
+            #expect(text.contains("abs(a - b) < epsilon"), "names the tolerance form")
+            #expect(text.contains("a.isEqual(to: b)"), "names the IEEE-equality form")
+            #expect(text.contains("a.bitPattern == b.bitPattern"), "names the bit-identity form")
+            #expect(!(diagnostic.message.contains("Use tolerance: abs(a - b) < epsilon.")), "the old single-answer advice must be gone")
         }
 
         // Same rule, different severities: a configuration difference, not two rules.
-        XCTAssertEqual(tqDiag.severity, .error)
-        XCTAssertEqual(fpDiag.severity, .warning)
-        XCTAssertEqual(tqDiag.message, fpDiag.message)
-        XCTAssertEqual(tqDiag.suggestedFix, fpDiag.suggestedFix)
+        #expect(tqDiag.severity == .error)
+        #expect(fpDiag.severity == .warning)
+        #expect(tqDiag.message == fpDiag.message)
+        #expect(tqDiag.suggestedFix == fpDiag.suggestedFix)
     }
 
     // MARK: - Negative control
 
     /// A harness that reports the same count for known-good and known-bad
     /// input is measuring nothing. Assert the counts differ, in both checkers.
-    func testNegativeControlKnownGoodAndKnownBadDiffer() async throws {
+    @Test
+    func negativeControlKnownGoodAndKnownBadDiffer() async throws {
         let knownBad = """
         import Testing
 
@@ -359,17 +360,18 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         let badFP = try await fpEquality(knownBad).count
         let goodFP = try await fpEquality(knownGood).count
 
-        XCTAssertEqual(badTQ, 2)
-        XCTAssertEqual(goodTQ, 0)
-        XCTAssertEqual(badFP, 2)
-        XCTAssertEqual(goodFP, 0)
-        XCTAssertNotEqual(badTQ, goodTQ, "negative control: the checker must distinguish the two inputs")
-        XCTAssertNotEqual(badFP, goodFP, "negative control: the checker must distinguish the two inputs")
+        #expect(badTQ == 2)
+        #expect(goodTQ == 0)
+        #expect(badFP == 2)
+        #expect(goodFP == 0)
+        #expect(badTQ != goodTQ, "negative control: the checker must distinguish the two inputs")
+        #expect(badFP != goodFP, "negative control: the checker must distinguish the two inputs")
     }
 
     // MARK: - Whole-file disable is honoured by both
 
-    func testWholeFileDisableIsHonouredByBothCheckers() async throws {
+    @Test
+    func wholeFileDisableIsHonouredByBothCheckers() async throws {
         let source = """
         // fp-safety:disable
         import Testing
@@ -383,8 +385,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0)
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0)
+        #expect(tq.count == 0)
     }
 
     // MARK: - Defect 1: a static member on a float type is not automatically a float
@@ -393,7 +395,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
     /// conformance, not from `Double`'s own storage. The rule used to treat
     /// *any* member access on a `Double` base as floating-point, so this was
     /// flagged three times in BusinessMath.
-    func testStaticMemberOfUnknownTypeOnAFloatTypeIsNotFlagged() async throws {
+    @Test
+    func staticMemberOfUnknownTypeOnAFloatTypeIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -404,11 +407,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0, "Double.dimension is an Int; the type of a static member is not known from syntax")
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0, "Double.dimension is an Int; the type of a static member is not known from syntax")
+        #expect(tq.count == 0)
     }
 
-    func testUnknownStaticMemberOnAFloatTypeIsNotFlaggedOnEitherSide() async throws {
+    @Test
+    func unknownStaticMemberOnAFloatTypeIsNotFlaggedOnEitherSide() async throws {
         let source = """
         import Testing
 
@@ -420,14 +424,15 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0)
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0)
+        #expect(tq.count == 0)
     }
 
     /// The allowlisted static members really are the type, so they still make
     /// the operand floating-point — and they are sentinels, so the comparison
     /// stays exempt. Both lists must agree about them.
-    func testAllowlistedStaticMembersRemainSentinelExempt() async throws {
+    @Test
+    func allowlistedStaticMembersRemainSentinelExempt() async throws {
         let source = """
         import Testing
 
@@ -442,13 +447,14 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0)
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0)
+        #expect(tq.count == 0)
     }
 
     /// `x == nil` asks whether an optional is populated. It is not a
     /// floating-point comparison at all, whatever `x` wraps.
-    func testComparisonAgainstNilIsNotFlagged() async throws {
+    @Test
+    func comparisonAgainstNilIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -461,12 +467,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0, "`== nil` is an optional-presence test, not a float comparison")
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0, "`== nil` is an optional-presence test, not a float comparison")
+        #expect(tq.count == 0)
     }
 
     /// An optional float still compares like a float when the other side is one.
-    func testOptionalFloatComparedToAFloatIsStillFlagged() async throws {
+    @Test
+    func optionalFloatComparedToAFloatIsStillFlagged() async throws {
         let source = """
         import Testing
 
@@ -478,7 +485,7 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 1)
+        #expect(fp.count == 1)
     }
 
     // MARK: - Defect 2: a name binding does not escape the scope that introduced it
@@ -486,7 +493,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
     /// The `AdvancedStatisticsTests` shape. `combination` returns an `Int`, but
     /// an unrelated test earlier in the same file declares `let result: Double`,
     /// and the name map was file-wide.
-    func testAnIntNamedResultIsNotFlaggedBecauseAnotherFunctionDeclaresADoubleResult() async throws {
+    @Test
+    func anIntNamedResultIsNotFlaggedBecauseAnotherFunctionDeclaresADoubleResult() async throws {
         let source = """
         import Testing
 
@@ -503,11 +511,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0, "`result` in testCombination is a different binding entirely")
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0, "`result` in testCombination is a different binding entirely")
+        #expect(tq.count == 0)
     }
 
-    func testABindingInsideAClosureDoesNotEscapeIt() async throws {
+    @Test
+    func aBindingInsideAClosureDoesNotEscapeIt() async throws {
         let source = """
         import Testing
 
@@ -523,13 +532,14 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0)
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0)
+        #expect(tq.count == 0)
     }
 
     /// Scoping must not blind the rule: a binding is still visible to the
     /// comparison that follows it in the *same* scope.
-    func testABindingIsStillVisibleWithinItsOwnScope() async throws {
+    @Test
+    func aBindingIsStillVisibleWithinItsOwnScope() async throws {
         let source = """
         import Testing
 
@@ -541,7 +551,7 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 1)
+        #expect(fp.count == 1)
     }
 
     // MARK: - Defect 3: collections, and the return types that reveal them
@@ -549,7 +559,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
     /// The `DistributionSeedDeterminismTests` shape: `[Double] == [Double]`
     /// with no annotation anywhere, resolvable only through the file-local
     /// helper's declared return type.
-    func testIntraFileReturnTypePropagationFindsTheArrayComparison() async throws {
+    @Test
+    func intraFileReturnTypePropagationFindsTheArrayComparison() async throws {
         let source = """
         import Testing
 
@@ -570,12 +581,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 2, "both the same-seed and the different-seed claim must be seen")
-        XCTAssertEqual(tq.count, 2)
+        #expect(fp.count == 2, "both the same-seed and the different-seed claim must be seen")
+        #expect(tq.count == 2)
     }
 
     /// `try` in front of the call must not hide the return type.
-    func testReturnTypePropagationSeesThroughTry() async throws {
+    @Test
+    func returnTypePropagationSeesThroughTry() async throws {
         let source = """
         import Testing
 
@@ -590,10 +602,11 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 1)
+        #expect(fp.count == 1)
     }
 
-    func testExplicitArrayOfDoubleAnnotationIsFlagged() async throws {
+    @Test
+    func explicitArrayOfDoubleAnnotationIsFlagged() async throws {
         let source = """
         import Testing
 
@@ -608,11 +621,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 2)
-        XCTAssertEqual(tq.count, 2)
+        #expect(fp.count == 2)
+        #expect(tq.count == 2)
     }
 
-    func testArrayLiteralOfFloatLiteralsIsFlagged() async throws {
+    @Test
+    func arrayLiteralOfFloatLiteralsIsFlagged() async throws {
         let source = """
         import Testing
 
@@ -624,11 +638,12 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 1)
-        XCTAssertEqual(tq.count, 1)
+        #expect(fp.count == 1)
+        #expect(tq.count == 1)
     }
 
-    func testArrayOfIntegerLiteralsIsNotFlagged() async throws {
+    @Test
+    func arrayOfIntegerLiteralsIsNotFlagged() async throws {
         let source = """
         import Testing
 
@@ -639,13 +654,14 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 0)
+        #expect(fp.count == 0)
     }
 
     /// A collection comparison is elementwise, so the fix has to be elementwise
     /// too — a scalar `bitPattern` comparison does not typecheck against `[Double]`,
     /// and a caller who follows scalar advice writes something that cannot compile.
-    func testCollectionDiagnosticStatesTheComparisonIsElementwise() async throws {
+    @Test
+    func collectionDiagnosticStatesTheComparisonIsElementwise() async throws {
         let source = """
         import Testing
 
@@ -657,21 +673,16 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let found = try await fpEquality(source)
-        let diagnostic = try XCTUnwrap(found.first)
+        let diagnostic = try #require(found.first)
         let text = diagnostic.message + " " + (diagnostic.suggestedFix ?? "")
-        XCTAssertTrue(text.lowercased().contains("elementwise"), "the diagnostic must say the comparison is elementwise")
-        XCTAssertTrue(
-            text.contains("zip(a, b).allSatisfy { $0.bitPattern == $1.bitPattern }"),
-            "the bit-identity fix must be spelled elementwise"
-        )
-        XCTAssertTrue(text.contains("a.count == b.count"), "a count check is part of the elementwise claim")
-        XCTAssertFalse(
-            text.contains("a.bitPattern == b.bitPattern"),
-            "the scalar form is wrong advice here — it does not typecheck against a collection"
-        )
+        #expect(text.lowercased().contains("elementwise"), "the diagnostic must say the comparison is elementwise")
+        #expect(text.contains("zip(a, b).allSatisfy { $0.bitPattern == $1.bitPattern }"), "the bit-identity fix must be spelled elementwise")
+        #expect(text.contains("a.count == b.count"), "a count check is part of the elementwise claim")
+        #expect(!(text.contains("a.bitPattern == b.bitPattern")), "the scalar form is wrong advice here — it does not typecheck against a collection")
     }
 
-    func testCollectionDiagnosticForInequalityIsAlsoElementwise() async throws {
+    @Test
+    func collectionDiagnosticForInequalityIsAlsoElementwise() async throws {
         let source = """
         import Testing
 
@@ -683,14 +694,15 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let found = try await fpEquality(source)
-        let diagnostic = try XCTUnwrap(found.first)
+        let diagnostic = try #require(found.first)
         let text = diagnostic.message + " " + (diagnostic.suggestedFix ?? "")
-        XCTAssertTrue(text.lowercased().contains("elementwise"))
-        XCTAssertTrue(text.contains("a.count != b.count"))
+        #expect(text.lowercased().contains("elementwise"))
+        #expect(text.contains("a.count != b.count"))
     }
 
     /// Scalars keep the scalar advice — the elementwise wording must not leak.
-    func testScalarDiagnosticIsUnchanged() async throws {
+    @Test
+    func scalarDiagnosticIsUnchanged() async throws {
         let source = """
         import Testing
 
@@ -702,17 +714,18 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let found = try await fpEquality(source)
-        let diagnostic = try XCTUnwrap(found.first)
+        let diagnostic = try #require(found.first)
         let text = diagnostic.message + " " + (diagnostic.suggestedFix ?? "")
-        XCTAssertTrue(text.contains("a.bitPattern == b.bitPattern"))
-        XCTAssertFalse(text.lowercased().contains("elementwise"))
+        #expect(text.contains("a.bitPattern == b.bitPattern"))
+        #expect(!(text.lowercased().contains("elementwise")))
     }
 
     // MARK: - Defect 3: the conservative limits
 
     /// Two declarations of one name that disagree about the return type. The
     /// rule has no overload resolution, so it must decline rather than guess.
-    func testOverloadedLocalFunctionIsNotResolved() async throws {
+    @Test
+    func overloadedLocalFunctionIsNotResolved() async throws {
         let source = """
         import Testing
 
@@ -728,13 +741,14 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0, "an overloaded name has no unambiguous return type; do not guess")
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0, "an overloaded name has no unambiguous return type; do not guess")
+        #expect(tq.count == 0)
     }
 
     /// A function with no explicit return clause is also not resolvable, and it
     /// makes the name ambiguous for any sibling that does declare one.
-    func testInferredReturnTypeIsNotResolved() async throws {
+    @Test
+    func inferredReturnTypeIsNotResolved() async throws {
         let source = """
         import Testing
 
@@ -749,12 +763,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 0)
+        #expect(fp.count == 0)
     }
 
     /// The call target is declared somewhere else entirely. There is no
     /// cross-file resolution, so there is nothing to know.
-    func testCallToAFunctionDeclaredInAnotherFileIsNotResolved() async throws {
+    @Test
+    func callToAFunctionDeclaredInAnotherFileIsNotResolved() async throws {
         let source = """
         import Testing
 
@@ -767,13 +782,14 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
 
         let fp = try await fpEquality(source)
         let tq = try await exactEquality(source)
-        XCTAssertEqual(fp.count, 0, "no cross-file resolution: the return type of referenceStream is unknown")
-        XCTAssertEqual(tq.count, 0)
+        #expect(fp.count == 0, "no cross-file resolution: the return type of referenceStream is unknown")
+        #expect(tq.count == 0)
     }
 
     /// A method call qualified by a receiver is not a bare file-local call, and
     /// the receiver's type is unknown from syntax.
-    func testQualifiedMethodCallIsNotResolved() async throws {
+    @Test
+    func qualifiedMethodCallIsNotResolved() async throws {
         let source = """
         import Testing
 
@@ -787,14 +803,15 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 0)
+        #expect(fp.count == 0)
     }
 
     /// Two declarations that agree on the return type are not a guess: whichever
     /// overload the compiler picks, the answer is the same. This is the shape
     /// `DistributionSeedDeterminismTests` actually has — two nested `draw`
     /// helpers, both `-> [Double]`.
-    func testOverloadsThatAgreeOnTheReturnTypeAreResolved() async throws {
+    @Test
+    func overloadsThatAgreeOnTheReturnTypeAreResolved() async throws {
         let source = """
         import Testing
 
@@ -814,7 +831,7 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 2)
+        #expect(fp.count == 2)
     }
 
     // MARK: - The division rule keeps the evidence it had
@@ -826,7 +843,8 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
     /// direct evidence (an annotation, a literal, a conversion at the site) and
     /// does not follow inference chains. Widening it was a side effect of
     /// teaching the equality rule to see collections, not a decision.
-    func testDivisionRuleDoesNotFollowInferredOperandTypes() async throws {
+    @Test
+    func divisionRuleDoesNotFollowInferredOperandTypes() async throws {
         let source = """
         func scale(_ x: Int) -> Double { Double(x) }
 
@@ -838,10 +856,11 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let divisions = try await fpDivision(source)
-        XCTAssertEqual(divisions.count, 0, "an inferred type is not enough to demand a zero guard")
+        #expect(divisions.count == 0, "an inferred type is not enough to demand a zero guard")
     }
 
-    func testDivisionRuleStillFiresOnADeclaredFloatDivisor() async throws {
+    @Test
+    func divisionRuleStillFiresOnADeclaredFloatDivisor() async throws {
         let source = """
         func average(_ total: Double, _ count: Double) -> Double {
             let n: Double = count
@@ -850,12 +869,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let divisions = try await fpDivision(source)
-        XCTAssertEqual(divisions.count, 1, "an annotated divisor is direct evidence and still counts")
+        #expect(divisions.count == 1, "an annotated divisor is direct evidence and still counts")
     }
 
     /// …but the equality rule *does* follow them: that is the whole point of
     /// defect 3.
-    func testEqualityRuleDoesFollowInferredOperandTypes() async throws {
+    @Test
+    func equalityRuleDoesFollowInferredOperandTypes() async throws {
         let source = """
         func scale(_ x: Int) -> Double { Double(x) }
 
@@ -867,12 +887,13 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         """
 
         let fp = try await fpEquality(source)
-        XCTAssertEqual(fp.count, 1)
+        #expect(fp.count == 1)
     }
 
     // MARK: - Negative control for the collection rule
 
-    func testNegativeControlCollectionsKnownGoodAndKnownBadDiffer() async throws {
+    @Test
+    func negativeControlCollectionsKnownGoodAndKnownBadDiffer() async throws {
         let knownBad = """
         import Testing
 
@@ -910,11 +931,11 @@ final class UnifiedFloatingPointEqualityTests: XCTestCase {
         let badTQ = try await exactEquality(knownBad).count
         let goodTQ = try await exactEquality(knownGood).count
 
-        XCTAssertEqual(badFP, 2)
-        XCTAssertEqual(goodFP, 0)
-        XCTAssertEqual(badTQ, 2)
-        XCTAssertEqual(goodTQ, 0)
-        XCTAssertNotEqual(badFP, goodFP, "negative control: the checker must distinguish the two inputs")
-        XCTAssertNotEqual(badTQ, goodTQ, "negative control: the checker must distinguish the two inputs")
+        #expect(badFP == 2)
+        #expect(goodFP == 0)
+        #expect(badTQ == 2)
+        #expect(goodTQ == 0)
+        #expect(badFP != goodFP, "negative control: the checker must distinguish the two inputs")
+        #expect(badTQ != goodTQ, "negative control: the checker must distinguish the two inputs")
     }
 }
