@@ -176,7 +176,10 @@ public actor TokenStore {
         // — `Array(rawBuffer)` copies — the rule is right that the shape is indistinguishable
         // from one that does. A generator needing no buffer at all removes the question
         // rather than arguing it, which is cheaper than a justification nobody will re-derive.
-        var generator = SystemRandomNumberGenerator()
+        // The rule's remedy — accepting `inout some RandomNumberGenerator` — is exactly the
+        // seam that would let a caller or a careless test make these tokens predictable.
+        // A bearer token is the one place injectable randomness is a defect, not a feature.
+        var generator = SystemRandomNumberGenerator() // stochastic:exempt a bearer token must not draw from an injectable generator
         let bytes = (0..<tokenByteCount).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
         // Not defensive padding: a short draw must fail loudly rather than mint a token with
         // less entropy than its length advertises, which is what the doc line above promises.
