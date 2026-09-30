@@ -169,7 +169,13 @@ struct BaselineBeforeStopDecisionTests {
             transform: { ledger.applying(to: $0, now: now) })
 
         #expect(later.ran.didRun == false, "a real failure must still stop the run")
-        #expect(outcome.truncation != nil)
+
+        // Not merely "it truncated": name the checker that stopped it and the one that
+        // never ran. A `!= nil` here would also pass if the runner stopped at the wrong
+        // checker, which is the failure this control exists to catch.
+        let truncation = try #require(outcome.truncation)
+        #expect(truncation.stoppedAt == "safety")
+        #expect(truncation.unreached == ["complexity"])
     }
 
     @Test("summarise reads back exactly what apply counted")
