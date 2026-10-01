@@ -251,4 +251,16 @@ struct PathTraversalPrecisionTests {
             """)
         #expect(count(result, "security.path-containment-by-prefix") == 0)
     }
+
+    /// A UUID or a process identifier cannot contain a separator; a temp path built from one is
+    /// not a join anyone else chose. Two corpus-kit fixtures were reported for it.
+    @Test("A generated identifier is not a chosen segment", arguments: [
+        "try fm.removeItem(atPath: \"/tmp/fixture-\\(UUID().uuidString)\")",
+        "try fm.createDirectory(atPath: root + \"/run-\" + UUID().uuidString, withIntermediateDirectories: true)",
+        "try fm.removeItem(atPath: \"\\(root)/\\(ProcessInfo.processInfo.globallyUniqueString)\")",
+    ])
+    func generatedIdentifierIsSafe(body: String) async throws {
+        #expect(count(try await audit("    " + body), "security.path-traversal") == 0, "\(body)")
+    }
 }
+

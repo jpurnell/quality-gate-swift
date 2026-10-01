@@ -60,10 +60,13 @@
   relative path. IconquerAI had it four times (fixed), VaultMCP and SwiftGraphStore have it, and
   two of the comments beside it read *"CWE-22 prefix guard"*. A separator added through a local
   (`let prefix = root.hasSuffix("/") ? root : root + "/"`), a loop over literal prefixes, and a
-  name that merely contains a path word (`base64SentinelPrefix`) are not reported — each was a
+  name that merely contains a path word (`base64SentinelPrefix`) are not reported, nor is a
+  segment that is a generated identifier (`UUID().uuidString`, a process's unique string) — each was a
   false positive in the portfolio measurement before release. Measured across 80 repositories
   with this release: **29 findings in 10 repositories**, every one read and every one the
-  pattern.
+  pattern — and every one fixed in its repository before release, along with the security
+  findings that `// SAFETY:` had been answering. A comparison of this gate against 3.3.0 across
+  80 repositories then reports **no new security finding anywhere**.
 
 ### Changed
 

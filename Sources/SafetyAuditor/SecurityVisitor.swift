@@ -818,6 +818,13 @@ final class SecurityVisitor: SyntaxVisitor {
     /// from a directory — `contentsOfDirectory` never returns a name with `/` in it, or `..`.
     private static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
         if isLiteralSegment(expression) { return false }
+        // A generated identifier — `UUID().uuidString`, a process's unique string — contains no
+        // separator and nobody outside this code chose it.
+        let text = expression.trimmedDescription
+        if text.hasPrefix("UUID()") || text.hasSuffix(".globallyUniqueString")
+            || text.hasSuffix(".processIdentifier") {
+            return false
+        }
         guard let name = expression.as(DeclReferenceExprSyntax.self)?.baseName.text else { return true }
         var current = node.parent
         while let candidate = current {
