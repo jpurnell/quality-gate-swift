@@ -73,6 +73,26 @@
   accepts `// SECURITY:` only. Two existing tests asserted the old behaviour and now assert the
   new one.
 
+- **`SecurityRule` carries a CWE list and three OWASP columns.** `cwe: String` became `cwes:
+  [String]` (primary first; `cwe` remains as the primary), and `owaspCategory` — documented as
+  the Mobile list — became `owaspMobile`, beside new `owaspTop10` and `owaspAPI`. Every one of
+  the 22 security proposals dated 2026-10-01 had to work around the old shape: server rules have
+  no honest Mobile category, and some rules are more than one weakness. The ten shipped rules'
+  Top 10 categories are taken from MITRE's OWASP Top Ten 2021 view, not assigned.
+  `security.tls-disabled` gains CWE-298 (*Improper Validation of Certificate Expiration*) for its
+  `allowsExpired…` forms. The Mobile M4 title is now spelled as OWASP spells it. The Semgrep
+  export emits every CWE and column. `owaspCategory` is deprecated, not removed.
+- **The CWE catalogue lists the whole problem, not the first draft of it.** It held 88 ids and
+  reported 48 gaps. It now holds 177 — every weakness `CWEApplicabilitySweep.md` classifies as
+  statically checkable and every CWE the 22 proposals map a rule to — and reports **137 gaps**,
+  39 covered, 1 out of reach. Titles and mapping status come from MITRE's catalogue (4.20), and
+  `cwe-4.20.snapshot.json` is committed beside it so a test holds every title to MITRE's and
+  refuses any id MITRE discourages or prohibits for mapping (CWE-1426 and CWE-114 were excluded
+  on that ground). CWE-307 moves from out-of-reach to gap: a rule for it is now proposed.
+- **`logging.missing-privacy` suggests `.private` first.** It read *"Add privacy: .public or
+  privacy: .private"*, and the portfolio took the first word: 758 `.public` against 10
+  `.private`.
+
 - **`security.weak-crypto` is CWE-328, not 327.** The rule matches MD5 and SHA-1 and nothing
   else; 328 is *Use of Weak Hash*, 327 is its parent class. The diagnostic's message changes
   accordingly.

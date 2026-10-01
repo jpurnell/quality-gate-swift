@@ -745,7 +745,7 @@ struct SecurityVisitorTests {
     func manifestRulesHaveCWE() {
         for rule in SecurityRuleManifest.rules {
             #expect(rule.cwe.hasPrefix("CWE-"))
-            #expect(rule.owaspCategory.hasPrefix("M"))
+            #expect(rule.owaspMobile.hasPrefix("M"))
         }
     }
 

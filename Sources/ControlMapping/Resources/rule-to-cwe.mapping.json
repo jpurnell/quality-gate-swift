@@ -465,7 +465,8 @@
   {
     "ruleId": "security.tls-disabled",
     "satisfies": [
-      "cwe/CWE-295"
+      "cwe/CWE-295",
+      "cwe/CWE-298"
     ],
     "posture": "partial"
   },

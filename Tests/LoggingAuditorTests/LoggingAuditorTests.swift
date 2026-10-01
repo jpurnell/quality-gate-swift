@@ -382,6 +382,23 @@ struct MissingPrivacyTests {
         #expect(result.diagnostics.contains { $0.ruleId == ruleId })
     }
 
+    /// The suggestion leads with `.private`. It used to read ".public or .private", and the
+    /// corpus took the first word: 758 `.public` against 10 `.private`, measured 2026-10-01.
+    @Test("The suggested fix leads with .private")
+    func suggestionLeadsWithPrivate() async throws {
+        let code = """
+        import os
+        let logger = Logger(subsystem: "com.app", category: "Test")
+        logger.info("Token: \\(token)")
+        """
+        let result = try await TestHelpers.audit(code)
+        let diagnostic = try #require(result.diagnostics.first { $0.ruleId == ruleId })
+        let fix = try #require(diagnostic.suggestedFix)
+        let privateAt = try #require(fix.range(of: ".private"))
+        let publicAt = try #require(fix.range(of: ".public"))
+        #expect(privateAt.lowerBound < publicAt.lowerBound)
+    }
+
     @Test("Does not flag an implicit member named like a log level")
     func ignoresImplicitMemberNamedError() async throws {
         // `.error(message:)` here is a static factory on the contextual result type, not a

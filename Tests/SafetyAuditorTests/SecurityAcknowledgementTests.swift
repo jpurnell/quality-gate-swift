@@ -66,13 +66,16 @@ struct SecurityAcknowledgementTests {
 
     @Test("A reasoned acknowledgement is recorded, not reported", arguments: ruleIds)
     func reasonedAcknowledgementIsRecorded(rule: String) async throws {
-        let result = try await audit(marked(try fixture(rule), with: Self.validReason))
+        let code = marked(try fixture(rule), with: Self.validReason)
+        let result = try await audit(code)
+        // The finding is on the fixture's last line, which the marker pushed down by one.
+        let findingLine = code.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
 
         #expect(!result.diagnostics.contains { $0.ruleId == rule })
         let override = try #require(result.overrides.first { $0.ruleId == rule },
                                     "\(rule) was silenced with no record of it")
         #expect(override.filePath == "test.swift")
-        #expect(override.lineNumber != nil)
+        #expect(override.lineNumber == findingLine)
         #expect(override.justification.contains("compile-time constant"))
         #expect(!override.justification.contains("// SECURITY:"), "the marker is not the reason")
     }

@@ -2,9 +2,15 @@ import Foundation
 
 /// Metadata for a single security scanning rule.
 ///
-/// Each rule maps to a CWE identifier and an OWASP Mobile Top 10 (2024) category.
-/// The `lastReviewedDate` field is used by CI staleness checks to ensure rules
-/// are periodically reviewed against current Apple SDK APIs.
+/// Each rule maps to one or more CWE identifiers and to the OWASP lists that fit it: the Mobile
+/// Top 10 (2024), the Top 10 (2021), and the API Security Top 10 (2023). The `lastReviewedDate`
+/// field is used by CI staleness checks to ensure rules are periodically reviewed against
+/// current Apple SDK APIs.
+///
+/// One CWE and one OWASP column used to be all a rule could say, and the column was the Mobile
+/// list. A server rule has no honest Mobile category, and some rules are more than one
+/// weakness — `security.tls-disabled` is improper validation (295) and, for its two
+/// `allowsExpired…` forms, improper validation of expiration (298).
 ///
 /// ## Usage
 /// ```swift
@@ -17,11 +23,20 @@ public struct SecurityRule: Sendable, Codable, Equatable {
     /// Machine-readable rule identifier (e.g. "security.hardcoded-secret").
     public let ruleId: String
 
-    /// CWE identifier (e.g. "CWE-798").
-    public let cwe: String
+    /// CWE identifiers, primary first (e.g. `["CWE-295", "CWE-298"]`). Never empty.
+    public let cwes: [String]
 
     /// OWASP Mobile Top 10 (2024) category (e.g. "M1 Improper Credential Usage").
-    public let owaspCategory: String
+    public let owaspMobile: String
+
+    /// OWASP Top 10 (2021) category, when one fits (e.g. "A03:2021 Injection").
+    ///
+    /// Taken from MITRE's OWASP Top Ten 2021 view, not assigned by judgement. Written without
+    /// parentheses: the staleness workflow reads each `SecurityRule(…)` up to its first `)`.
+    public let owaspTop10: String?
+
+    /// OWASP API Security Top 10 (2023) category, when one fits.
+    public let owaspAPI: String?
 
     /// Human-readable description of what the rule detects.
     public let description: String
@@ -35,19 +50,30 @@ public struct SecurityRule: Sendable, Codable, Equatable {
     /// Semgrep-compatible severity level.
     public let severity: String
 
+    /// The primary CWE — the first of ``cwes``.
+    public var cwe: String { cwes.first ?? "" }
+
+    /// The Mobile category, under its old name.
+    @available(*, deprecated, renamed: "owaspMobile")
+    public var owaspCategory: String { owaspMobile }
+
     /// Creates a new security rule definition.
     public init(
         ruleId: String,
-        cwe: String,
-        owaspCategory: String,
+        cwes: [String],
+        owaspMobile: String,
+        owaspTop10: String? = nil,
+        owaspAPI: String? = nil,
         description: String,
         severity: String,
         lastReviewedDate: String,
         staleAfterDays: Int = 365
     ) {
         self.ruleId = ruleId
-        self.cwe = cwe
-        self.owaspCategory = owaspCategory
+        self.cwes = cwes
+        self.owaspMobile = owaspMobile
+        self.owaspTop10 = owaspTop10
+        self.owaspAPI = owaspAPI
         self.description = description
         self.severity = severity
         self.lastReviewedDate = lastReviewedDate
@@ -66,16 +92,18 @@ public enum SecurityRuleManifest {
     public static let rules: [SecurityRule] = [
         SecurityRule(
             ruleId: "security.hardcoded-secret",
-            cwe: "CWE-798",
-            owaspCategory: "M1 Improper Credential Usage",
+            cwes: ["CWE-798"],
+            owaspMobile: "M1 Improper Credential Usage",
+            owaspTop10: "A07:2021 Identification and Authentication Failures",
             description: "Variable named like a secret assigned a string literal",
             severity: "WARNING",
             lastReviewedDate: "2026-04-14"
         ),
         SecurityRule(
             ruleId: "security.command-injection",
-            cwe: "CWE-78",
-            owaspCategory: "M4 Insufficient I/O Validation",
+            cwes: ["CWE-78"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A03:2021 Injection",
             description: "Shell invoked with -c and a command string assembled at runtime",
             severity: "ERROR",
             lastReviewedDate: "2026-08-18"
@@ -84,32 +112,36 @@ public enum SecurityRuleManifest {
             ruleId: "security.weak-crypto",
             // 328 (Use of Weak Hash), not its parent 327: the rule matches MD5 and SHA-1 and
             // nothing else. 327 is for a cipher rule, when there is one.
-            cwe: "CWE-328",
-            owaspCategory: "M10 Insufficient Cryptography",
+            cwes: ["CWE-328"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
             description: "Use of weak cryptographic hash (MD5/SHA1)",
             severity: "WARNING",
             lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
             ruleId: "security.insecure-transport",
-            cwe: "CWE-319",
-            owaspCategory: "M5 Insecure Communication",
+            cwes: ["CWE-319"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A02:2021 Cryptographic Failures",
             description: "Insecure HTTP URL detected (use HTTPS)",
             severity: "WARNING",
             lastReviewedDate: "2026-04-14"
         ),
         SecurityRule(
             ruleId: "security.eval-js",
-            cwe: "CWE-95",
-            owaspCategory: "M4 Insufficient I/O Validation",
+            cwes: ["CWE-95"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A03:2021 Injection",
             description: "WKWebView evaluateJavaScript with dynamic input",
             severity: "ERROR",
             lastReviewedDate: "2026-04-14"
         ),
         SecurityRule(
             ruleId: "security.sql-injection",
-            cwe: "CWE-89",
-            owaspCategory: "M4 Insufficient I/O Validation",
+            cwes: ["CWE-89"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A03:2021 Injection",
             description: "String interpolation passed to SQL-executing function",
             severity: "ERROR",
             lastReviewedDate: "2026-04-14"
@@ -119,32 +151,36 @@ public enum SecurityRuleManifest {
             // 922 (Insecure Storage of Sensitive Information). It was 311, "missing
             // encryption", which MITRE marks discouraged for mapping and which is not the
             // defect: the item is encrypted, and readable while the device is locked.
-            cwe: "CWE-922",
-            owaspCategory: "M9 Insecure Data Storage",
+            cwes: ["CWE-922"],
+            owaspMobile: "M9 Insecure Data Storage",
+            owaspTop10: "A01:2021 Broken Access Control",
             description: "Deprecated insecure Keychain accessibility level",
             severity: "WARNING",
             lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
             ruleId: "security.tls-disabled",
-            cwe: "CWE-295",
-            owaspCategory: "M5 Insecure Communication",
+            cwes: ["CWE-295", "CWE-298"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A07:2021 Identification and Authentication Failures",
             description: "TLS certificate validation disabled or weakened",
             severity: "ERROR",
             lastReviewedDate: "2026-04-14"
         ),
         SecurityRule(
             ruleId: "security.path-traversal",
-            cwe: "CWE-22",
-            owaspCategory: "M4 Insufficient I/O Validation",
+            cwes: ["CWE-22"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A01:2021 Broken Access Control",
             description: "FileManager operation with dynamic unsanitized path",
             severity: "WARNING",
             lastReviewedDate: "2026-04-14"
         ),
         SecurityRule(
             ruleId: "security.ssrf",
-            cwe: "CWE-918",
-            owaspCategory: "M5 Insecure Communication",
+            cwes: ["CWE-918"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A10:2021 Server-Side Request Forgery",
             description: "URL constructed from dynamic input",
             severity: "WARNING",
             lastReviewedDate: "2026-04-14"
@@ -192,19 +228,22 @@ public enum SecurityRuleManifest {
         var output = "rules:\n"
 
         for rule in rules {
-            output += """
-              - id: \(rule.ruleId)
-                message: "\(rule.description) [\(rule.cwe)]"
-                severity: \(rule.severity)
-                languages: [swift]
-                metadata:
-                  cwe: \(rule.cwe)
-                  owasp: "\(rule.owaspCategory)"
-                  last-reviewed: \(rule.lastReviewedDate)
-                patterns:
-                  - pattern: "..." # See SecurityVisitor for SwiftSyntax implementation
+            var metadata = [
+                "cwe: [\(rule.cwes.joined(separator: ", "))]",
+                "owasp-mobile: \"\(rule.owaspMobile)\"",
+            ]
+            if let top10 = rule.owaspTop10 { metadata.append("owasp-top10: \"\(top10)\"") }
+            if let api = rule.owaspAPI { metadata.append("owasp-api: \"\(api)\"") }
+            metadata.append("last-reviewed: \(rule.lastReviewedDate)")
 
-            """
+            output += "  - id: \(rule.ruleId)\n"
+            output += "    message: \"\(rule.description) [\(rule.cwes.joined(separator: ", "))]\"\n"
+            output += "    severity: \(rule.severity)\n"
+            output += "    languages: [swift]\n"
+            output += "    metadata:\n"
+            output += metadata.map { "      \($0)\n" }.joined()
+            output += "    patterns:\n"
+            output += "      - pattern: \"...\" # See SecurityVisitor for SwiftSyntax implementation\n\n"
         }
 
         return output

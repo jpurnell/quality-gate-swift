@@ -53,6 +53,41 @@ struct WeaknessMappingTests {
         }
     }
 
+    /// MITRE's own record of each catalogued id, committed so a test can hold the catalogue to
+    /// it without the network: the title MITRE gives, and whether MITRE allows mapping to it.
+    private struct Snapshot: Decodable {
+        struct Entry: Decodable { let title: String; let usage: String? }
+        let version: String
+        let entries: [String: Entry]
+    }
+
+    private func snapshot() throws -> Snapshot {
+        let url = try #require(Bundle.module.url(forResource: "cwe-4.20.snapshot", withExtension: "json"))
+        return try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: url))
+    }
+
+    /// The catalogue was written from MITRE's data; this keeps it that way.
+    @Test("every catalogue title is MITRE's title for that id")
+    func titlesMatchMITRE() throws {
+        let snapshot = try snapshot()
+        for control in try cweCatalog().controls {
+            let entry = try #require(snapshot.entries[control.id], "\(control.id) is not in the MITRE snapshot")
+            #expect(control.title == entry.title, "\(control.id): '\(control.title)' is not MITRE's title")
+        }
+    }
+
+    /// A finding should never carry an id MITRE says not to map to — CWE-20, 200, 400, 834 and
+    /// the rest. Listing one in the catalogue would invite a rule to claim it.
+    @Test("no catalogue id is one MITRE discourages or prohibits for mapping")
+    func onlyMappableIds() throws {
+        let snapshot = try snapshot()
+        for control in try cweCatalog().controls {
+            let usage = snapshot.entries[control.id]?.usage
+            #expect(usage == "Allowed" || usage == "Allowed-with-Review",
+                    "\(control.id) has mapping usage \(usage ?? "unknown")")
+        }
+    }
+
     // MARK: - The mapping
 
     @Test("rules outside the security.* family are mapped")
@@ -73,9 +108,9 @@ struct WeaknessMappingTests {
             let mapping = try #require(
                 mappings.first { $0.ruleId == rule.ruleId },
                 "\(rule.ruleId) is in the manifest and has no CWE mapping")
-            let mappedIds = mapping.satisfies.filter { $0.framework == "cwe" }.map(\.controlId)
-            #expect(mappedIds.contains(rule.cwe),
-                    "\(rule.ruleId): manifest says \(rule.cwe), mapping says \(mappedIds)")
+            let mappedIds = Set(mapping.satisfies.filter { $0.framework == "cwe" }.map(\.controlId))
+            #expect(mappedIds == Set(rule.cwes),
+                    "\(rule.ruleId): manifest says \(rule.cwes), mapping says \(mappedIds.sorted())")
         }
     }
 
@@ -114,5 +149,19 @@ struct WeaknessMappingTests {
         let rows = matrix()
         #expect(rows.contains { $0.state == .enforced })
         #expect(rows.contains { $0.state == .gap })
+    }
+
+    /// Every weakness the CWE sweep and the 22 security proposals name is listed, so the report
+    /// shows the size of the problem and not the subset first written down. It was 48 gaps; with
+    /// the sweep's (d) and (e) rows and the proposals' mappings it is 137. The number will fall as
+    /// rules land; it should not fall because ids were removed.
+    @Test("the catalogue lists the sweep's and the proposals' weaknesses")
+    func catalogueIsTheWholeList() throws {
+        let ids = Set(try cweCatalog().controls.map(\.id))
+        for id in ["CWE-917", "CWE-1427", "CWE-639", "CWE-1327", "CWE-88", "CWE-248", "CWE-187",
+                   "CWE-606", "CWE-789", "CWE-1284", "CWE-611", "CWE-502", "CWE-1395"] {
+            #expect(ids.contains(id), "\(id) is not catalogued")
+        }
+        #expect(matrix().filter { $0.state == .gap }.count >= 130)
     }
 }

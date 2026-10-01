@@ -212,7 +212,9 @@ final class LoggingVisitor: SyntaxVisitor {
                     filePath: fileName,
                     lineNumber: line,
                     ruleId: "logging.missing-privacy",
-                    suggestedFix: "Add privacy: .public or privacy: .private to each interpolated value"
+                    // Leads with `.private`. ".public or .private" was followed to the first word: 758 to 10.
+                    suggestedFix: "Add privacy: .private to each interpolated value — or .public, only if "
+                        + "the value is safe for anyone with a sysdiagnose to read"
                 ))
                 return
             }
