@@ -200,7 +200,7 @@ public enum StoreLocator {
         /// Returns default xcodebuild options using a `.build/xcode-derived` subdirectory under `rootURL`.
         public static func defaults(rootURL: URL) -> XcodebuildOptions {
             XcodebuildOptions(
-                derivedDataPath: rootURL.appendingPathComponent(".build/xcode-derived")
+                derivedDataPath: rootURL.appendingPathComponentUnstatted(".build/xcode-derived")
             )
         }
     }
@@ -238,7 +238,7 @@ public enum StoreLocator {
             throw Error.buildFailed("xcodebuild build exited \(result.exitCode): \(tail)")
         }
 
-        let store = options.derivedDataPath.appendingPathComponent("Index.noindex/DataStore")
+        let store = options.derivedDataPath.appendingPathComponentUnstatted("Index.noindex/DataStore")
         guard FileManager.default.fileExists(atPath: store.path) else { // SAFETY: CLI tool checks local index store path
             throw Error.buildFailed("xcodebuild succeeded but no index store at \(store.path)")
         }
@@ -282,8 +282,8 @@ public enum StoreLocator {
             let prefix = String(entry[..<dash])
             guard prefix == sanitized else { continue }
 
-            let entryDir = derivedDataRoot.appendingPathComponent(entry)
-            let store = entryDir.appendingPathComponent("Index.noindex/DataStore")
+            let entryDir = derivedDataRoot.appendingPathComponentUnstatted(entry)
+            let store = entryDir.appendingPathComponentUnstatted("Index.noindex/DataStore")
             guard fm.fileExists(atPath: store.path) else { continue } // SAFETY: CLI tool checks local index store path
 
             let infoPlist = entryDir.appendingPathComponent("info.plist")
@@ -332,7 +332,7 @@ public enum StoreLocator {
     /// Returns the standard Xcode DerivedData directory for the current user.
     public static func defaultDerivedDataRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Developer/Xcode/DerivedData")
+            .appendingPathComponentUnstatted("Library/Developer/Xcode/DerivedData")
     }
 
     // MARK: - Where the store lives
@@ -345,7 +345,7 @@ public enum StoreLocator {
     /// has ever written to, and so reported "none found" against a store holding 2,572
     /// units that three checkers were querying in the same run.
     public static func indexBuildDirectory(packageRoot: URL) -> URL {
-        packageRoot.appendingPathComponent(".build/index-build")
+        packageRoot.appendingPathComponentUnstatted(".build/index-build")
     }
 
     /// The unit records inside an index store.
@@ -360,7 +360,7 @@ public enum StoreLocator {
 
     /// The index store the gate builds and owns for `packageRoot`.
     public static func managedStore(packageRoot: URL) -> URL {
-        indexBuildDirectory(packageRoot: packageRoot).appendingPathComponent("index-store")
+        indexBuildDirectory(packageRoot: packageRoot).appendingPathComponentUnstatted("index-store")
     }
 
     /// The store an index-backed checker would query right now, or `nil` if there is none.
@@ -545,7 +545,7 @@ public enum StoreLocator {
     /// store's records), so the caller falls back to the dedicated index build.
     /// Where swiftbuild index-while-builds during an ordinary build.
     static func swiftbuildStorePath(packageRoot: URL) -> URL {
-        packageRoot.appendingPathComponent(".build/out")
+        packageRoot.appendingPathComponentUnstatted(".build/out")
     }
 
     static func freshSwiftbuildStore(packageRoot: URL) -> URL? {

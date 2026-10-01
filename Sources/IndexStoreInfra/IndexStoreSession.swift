@@ -135,7 +135,7 @@ public final class IndexStoreSession: Sendable {
         }
     }
 
-    /// Locates `libIndexStore.dylib`, preferring the **active** toolchain.
+    /// Locates the platform's index-store library, preferring the **active** toolchain.
     ///
     /// The library must match the toolchain that produced the index store, or
     /// cross-module lookups silently return nothing. Earlier this method returned
@@ -149,20 +149,101 @@ public final class IndexStoreSession: Sendable {
         if let active = activeToolchainLibIndexStore() { return active }
         // 2. Active toolchain via `xcrun --find swift`.
         if let viaXcrun = xcrunLibIndexStore() { return viaXcrun }
-        // 3. Last-resort hardcoded fallbacks.
-        let fallbacks = [
+        // 3. The toolchain holding `swift` on PATH, then the platform's known locations.
+        //    This is the only branch Linux can take: the two above are Darwin tools, and
+        //    before this existed the method answered `nil` there — whereupon `unreachable`
+        //    reported *passed* with no findings instead of reporting that it had no store to
+        //    consult. A checker that cannot look is not a checker that found nothing.
+        return resolveLibIndexStore(
+            toolchainBinary: swiftOnPath(),
+            fallbacks: fallbackLibraryPaths,
+            libraryFileName: libraryFileName,
+            // SAFETY: CLI tool checks candidate toolchain library paths
+            exists: { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    /// The index-store library's file name on this platform.
+    ///
+    /// Darwin ships `libIndexStore.dylib`; Linux ships `libIndexStore.so`, which the official
+    /// `swift:6.2` container puts at `/usr/lib`. The name was written in as `.dylib` at every
+    /// site, so the Linux library was never looked for even though it was installed.
+    static var libraryFileName: String {
+        #if canImport(Darwin)
+        "libIndexStore.dylib"
+        #else
+        "libIndexStore.so"
+        #endif
+    }
+
+    /// Known locations for the library, after the active toolchain has been tried.
+    static var fallbackLibraryPaths: [String] {
+        #if canImport(Darwin)
+        [
             "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libIndexStore.dylib",
             "/Library/Developer/CommandLineTools/usr/lib/libIndexStore.dylib",
         ]
-        for path in fallbacks where FileManager.default.fileExists(atPath: path) { // SAFETY: CLI tool checks hardcoded toolchain library paths
-            return URL(fileURLWithPath: path)
+        #else
+        ["/usr/lib/libIndexStore.so", "/usr/lib/swift/linux/libIndexStore.so"]
+        #endif
+    }
+
+    /// Resolves the index-store library from a toolchain's binary, then from `fallbacks`.
+    ///
+    /// The toolchain is preferred for the reason ``findLibIndexStore()`` documents: the
+    /// library must match the toolchain that produced the store, or cross-module lookups
+    /// return nothing at all — and nothing is indistinguishable from a clean result.
+    ///
+    /// - Parameters:
+    ///   - toolchainBinary: A `swift` or `swiftc` in some `usr/bin`, or `nil` when none was
+    ///     found. The library is looked for at `usr/lib/<libraryFileName>` beside it.
+    ///   - fallbacks: Full paths to try, in order, after the toolchain.
+    ///   - libraryFileName: The platform's library name.
+    ///   - exists: Answers whether a candidate path is present.
+    /// - Returns: The first candidate that exists, or `nil` when none does.
+    static func resolveLibIndexStore(
+        toolchainBinary: String?,
+        fallbacks: [String],
+        libraryFileName: String,
+        exists: (String) -> Bool
+    ) -> URL? {
+        var candidates: [String] = []
+        if let toolchainBinary {
+            let usr = URL(fileURLWithPath: toolchainBinary)
+                .deletingLastPathComponent()      // …/usr/bin
+                .deletingLastPathComponent()      // …/usr
+            candidates.append(usr.appendingPathComponent("lib/\(libraryFileName)").path)
+        }
+        candidates += fallbacks
+
+        for candidate in candidates where exists(candidate) {
+            return URL(fileURLWithPath: candidate)
+        }
+        return nil
+    }
+
+    /// The `swift` on `PATH`, or `nil` when there is none.
+    ///
+    /// Resolved from `PATH` rather than from `xcrun`, which does not exist off Darwin, and
+    /// which can in any case answer with a different toolchain than the one `swift build`
+    /// used — the mismatch that makes a cross-module lookup come back empty.
+    static func swiftOnPath() -> String? {
+        guard let path = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+        for entry in path.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(entry))
+                .appendingPathComponent("swift")
+            // SAFETY: CLI tool probes PATH for the compiler the build itself resolves
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate.path
+            }
         }
         return nil
     }
 
     /// Resolves `libIndexStore.dylib` from the active developer dir (`xcode-select -p`).
     private static func activeToolchainLibIndexStore() -> URL? {
-        guard let developerDir = captureStdout("/usr/bin/xcode-select", ["-p"]) else { return nil }
+        // SAFETY: CLI tool probes for Darwin's own developer-tools shim
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/xcode-select"),
+              let developerDir = captureStdout("/usr/bin/xcode-select", ["-p"]) else { return nil }
         let lib = URL(fileURLWithPath: developerDir)
             .appendingPathComponent("Toolchains/XcodeDefault.xctoolchain/usr/lib/libIndexStore.dylib")
         // SAFETY: CLI tool checks local toolchain library path
@@ -170,7 +251,9 @@ public final class IndexStoreSession: Sendable {
     }
 
     private static func xcrunLibIndexStore() -> URL? {
-        guard let swiftPath = captureStdout("/usr/bin/xcrun", ["--find", "swift"]) else { return nil }
+        // SAFETY: CLI tool probes for Darwin's own developer-tools shim
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/xcrun"),
+              let swiftPath = captureStdout("/usr/bin/xcrun", ["--find", "swift"]) else { return nil }
         let toolchainLib = URL(fileURLWithPath: swiftPath)
             .deletingLastPathComponent() // .../usr/bin
             .deletingLastPathComponent() // .../usr

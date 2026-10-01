@@ -123,6 +123,20 @@ jobs:
           echo "--- is xcrun present at all"
           command -v xcrun || echo "  no xcrun, as expected"
 
+      # The last unexplained failure. `legibility` reported
+      #     multi-writer activity detected ... writers [jpurnell, local]
+      # in a container that has never heard of `jpurnell` — so one party resolved ownership
+      # from the repository's `.quality-gate.yml` (`decisionOwner: "jpurnell"`) while the
+      # other fell through to `USER ?? "local"`. `Configuration.resolvedOwner` carries a
+      # comment saying every consumer must resolve through it, and the test reimplements it.
+      # Printed rather than reasoned about: which of the two is which decides the fix.
+      - name: Diagnose — whose identity does this container resolve?
+        run: |
+          echo "USER=${USER:-<unset>}  LOGNAME=${LOGNAME:-<unset>}  HOME=${HOME:-<unset>}"
+          echo "whoami=$(whoami 2>/dev/null || echo '<failed>')"
+          echo "--- decisionOwner visible from the repo root"
+          grep -n 'decisionOwner' .quality-gate.yml || echo "  none"
+
       - name: Test
         run: |
           swift test \

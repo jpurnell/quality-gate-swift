@@ -107,18 +107,52 @@ struct DocCommentCodeTests {
     func fenceCarryingItsOwnImportPasses() throws {
         // The other half of the same measurement, and the reason the ungenerous preamble is
         // the right answer: the working repair is a line the reader needs too.
+        //
+        // The module has to be one the preamble does not inject, or the fence would compile
+        // with its import line deleted and this would assert a pass it never earned. The
+        // preamble injects exactly `Foundation`, so the only way to demonstrate a *carried*
+        // import is to empty the preamble and carry `Foundation` — which is why `imports` is
+        // overridden here and nowhere else in the file.
+        //
+        // It demonstrated `os.Logger` until the Linux port. There is no `os` module on Linux,
+        // so the fence could not compile there at all and the test asserted a pass the
+        // platform cannot give: a Darwin-only fixture, in the one file whose whole subject is
+        // documentation that must actually compile. Replacing it with `FoundationNetworking`
+        // merely moved the hole — `URLSession` is in Darwin's `Foundation`, so that version
+        // was vacuous on macOS instead. `UUID` with no preamble is meaningful on both.
         let verdicts = try audit("""
-        /// Logs things.
+        /// Identifies things.
         ///
         /// ```swift
-        /// import os
+        /// import Foundation
         ///
-        /// let logger = Logger(subsystem: "com.example", category: "demo")
-        /// logger.info("ready")
+        /// let id = UUID()
+        /// print(id.uuidString)
         /// ```
-        public struct Logging {}
-        """)
+        public struct Identifying {}
+        """, imports: [])
         #expect(verdicts.first?.passed == true)
+    }
+
+    /// The same fence without its import line, to prove the test above is not vacuous.
+    ///
+    /// Written because the first two attempts at that test both were: each picked a module
+    /// one platform's `Foundation` already supplied, so the fence compiled whether or not it
+    /// carried the import. A pass that survives deleting the thing under test measures
+    /// nothing, and this is the cheapest way to keep that from recurring silently.
+    @Test("Without the carried import, the same fence fails")
+    func sameFenceWithoutImportFails() throws {
+        let verdicts = try audit("""
+        /// Identifies things.
+        ///
+        /// ```swift
+        /// let id = UUID()
+        /// print(id.uuidString)
+        /// ```
+        public struct Identifying {}
+        """, imports: [])
+        #expect(verdicts.first?.passed == false)
+        #expect(verdicts.first?.compileErrors.contains { $0.message.contains("UUID") } == true)
     }
 
     @Test("A fence importing a module the target cannot reach reports a barrier")

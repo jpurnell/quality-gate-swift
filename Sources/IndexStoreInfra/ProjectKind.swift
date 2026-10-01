@@ -33,10 +33,12 @@ public enum ProjectKind: Sendable {
             return .plain(root: root)
         }
         for entry in entries.sorted() where entry.hasSuffix(".xcworkspace") {
-            return .xcworkspace(workspaceFile: root.appendingPathComponent(entry), root: root)
+            return .xcworkspace(
+                workspaceFile: root.appendingPathComponentUnstatted(entry), root: root)
         }
         for entry in entries.sorted() where entry.hasSuffix(".xcodeproj") {
-            return .xcode(projectFile: root.appendingPathComponent(entry), root: root)
+            return .xcode(
+                projectFile: root.appendingPathComponentUnstatted(entry), root: root)
         }
         return .plain(root: root)
     }
