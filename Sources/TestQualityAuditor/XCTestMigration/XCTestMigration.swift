@@ -84,12 +84,14 @@ enum XCTestMigration {
         guard !findings.isEmpty else { return source }
 
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
+        let optionalFunctions = OptionalReturningFunctions(viewMode: .sourceAccurate).names(in: tree)
         var edits: [(range: Range<Int>, text: String)] = []
         for finding in findings {
             guard let line = finding.lineNumber, let column = finding.columnNumber else { continue }
             let position = converter.position(ofLine: line, column: column)
             guard let edit = NamedComparison.edit(
-                at: position, in: tree, elementwise: finding.message.contains("collections"))
+                at: position, in: tree, elementwise: finding.message.contains("collections"),
+                optionalFunctions: optionalFunctions)
             else { continue }
             if !edits.contains(where: { $0.range.overlaps(edit.range) }) {
                 edits.append(edit)
@@ -100,6 +102,25 @@ enum XCTestMigration {
             bytes.replaceSubrange(edit.range, with: Array(edit.text.utf8))
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+}
+
+/// Functions this file declares as returning an optional, by base name.
+private final class OptionalReturningFunctions: SyntaxVisitor {
+    private var found: Set<String> = []
+
+    func names(in tree: SourceFileSyntax) -> Set<String> {
+        found = []
+        walk(tree)
+        return found
+    }
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        if let returned = node.signature.returnClause?.type,
+           returned.is(OptionalTypeSyntax.self) || returned.is(ImplicitlyUnwrappedOptionalTypeSyntax.self) {
+            found.insert(node.name.text)
+        }
+        return .visitChildren
     }
 }
 

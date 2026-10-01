@@ -18,46 +18,82 @@ enum NamedComparison {
     /// - Returns: A UTF-8 byte range in the file and the text to put there, or `nil` when the
     ///   condition has any other shape. That case is left for the gate to report.
     static func edit(
-        at position: AbsolutePosition, in tree: SourceFileSyntax, elementwise: Bool
+        at position: AbsolutePosition, in tree: SourceFileSyntax, elementwise: Bool,
+        optionalFunctions: Set<String>
     ) -> (range: Range<Int>, text: String)? {
         guard let token = tree.token(at: position),
               let expectation = enclosingExpectation(of: Syntax(token)),
-              let condition = expectation.arguments.first?.expression
+              let whole = expectation.arguments.first?.expression
         else { return nil }
 
-        var effects: [String] = []
-        var core = condition
-        while true {
-            if let tryExpr = core.as(TryExprSyntax.self) {
-                effects.append(tryExpr.tryKeyword.text + (tryExpr.questionOrExclamationMark?.text ?? ""))
-                core = tryExpr.expression
-            } else if let awaitExpr = core.as(AwaitExprSyntax.self) {
-                effects.append("await")
-                core = awaitExpr.expression
-            } else {
-                break
-            }
-        }
-
-        guard let sequence = core.as(SequenceExprSyntax.self),
+        let condition = Operand.strip(whole)
+        guard let sequence = condition.expression.as(SequenceExprSyntax.self),
               sequence.elements.count == 3
         else { return nil }
         let elements = Array(sequence.elements)
         guard let op = elements[1].as(BinaryOperatorExprSyntax.self)?.operator.text,
               op == "==" || op == "!="
         else { return nil }
+        // The parser attaches a leading `try` to the first operand, not the comparison:
+        // `try a == b` is `[try a, ==, b]`. Each side's effects move to the front, so the
+        // `try` still covers both once the comparison is a method call.
+        let lhs = Operand.strip(elements[0])
+        let rhsOperand = Operand.strip(elements[2])
+        let prefix = Operand.prefix(condition.effects, lhs.effects, rhsOperand.effects)
 
-        let lhs = Operand.receiver(elements[0])
-        let rhs = elements[2].trimmedDescription
-        let named = elementwise
-            ? "\(lhs).elementsEqual(\(rhs), by: { $0.isEqual(to: $1) })"
-            : "\(lhs).isEqual(to: \(rhs))"
-        let prefix = effects.isEmpty ? "" : effects.joined(separator: " ") + " "
+        let rhs = rhsOperand.expression.trimmedDescription
+        let method = elementwise
+            ? "elementsEqual(\(rhs), by: { $0.isEqual(to: $1) })"
+            : "isEqual(to: \(rhs))"
+        let named: String
+        switch optionality(of: lhs.expression, optionalFunctions: optionalFunctions) {
+        case .chained:
+            named = "(\(lhs.expression.trimmedDescription))?.\(method) == true"
+        case .returned:
+            named = "\(Operand.receiver(lhs.expression))?.\(method) == true"
+        case .notKnownOptional:
+            named = "\(Operand.receiver(lhs.expression)).\(method)"
+        }
         let text = prefix + (op == "!=" ? "!" + named : named)
 
-        let start = condition.positionAfterSkippingLeadingTrivia.utf8Offset
-        let end = condition.endPositionBeforeTrailingTrivia.utf8Offset
+        let start = whole.positionAfterSkippingLeadingTrivia.utf8Offset
+        let end = whole.endPositionBeforeTrailingTrivia.utf8Offset
         return (start..<end, text)
+    }
+
+    /// How the left operand is known to be optional, as far as syntax can tell.
+    private enum Optionality {
+        /// An optional chain, `a?.b`: one optional, however many `?` it passes through.
+        case chained
+        /// A call to a function this file declares as returning an optional.
+        case returned
+        /// Neither. A value optional for another reason still fails to compile, at a line
+        /// the compiler names.
+        case notKnownOptional
+    }
+
+    /// `XCTAssertEqual` accepted `[Double]?` against `[Double]`, because `Optional` is
+    /// `Equatable`. `isEqual(to:)` does not, so an optional operand compares through `?.` and
+    /// `== true`: still exact, and `nil` still fails.
+    private static func optionality(of expression: ExprSyntax, optionalFunctions: Set<String>) -> Optionality {
+        var spine: ExprSyntax? = expression
+        while let node = spine {
+            if node.is(OptionalChainingExprSyntax.self) { return .chained }
+            if node.is(ForceUnwrapExprSyntax.self) { return .notKnownOptional }
+            if let member = node.as(MemberAccessExprSyntax.self) {
+                spine = member.base
+            } else if let call = node.as(FunctionCallExprSyntax.self) {
+                if let callee = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+                    return optionalFunctions.contains(callee.baseName.text) ? .returned : .notKnownOptional
+                }
+                spine = call.calledExpression
+            } else if let subscriptCall = node.as(SubscriptCallExprSyntax.self) {
+                spine = subscriptCall.calledExpression
+            } else {
+                return .notKnownOptional
+            }
+        }
+        return .notKnownOptional
     }
 
     /// The nearest `#expect` around `node`.

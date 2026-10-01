@@ -6,12 +6,13 @@ Catches test-quality anti-patterns that compile cleanly but undermine confidence
 
 TestQualityAuditor uses SwiftSyntax to walk Swift test files and apply two families of rule, both targeting the ways a test silently stops proving anything. It scans every `.swift` file under `Tests/`, detects `import Testing` and `@Test` attributes, and flags patterns that produce green results without actually validating behavior.
 
-This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`). It does not analyze XCTest-based files.
+This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`). It does not analyze the assertions in XCTest-based files: it reports their import as `xctest-import`, and `--fix` converts them. See <doc:MigratingToSwiftTesting>.
 
 ### Detected rules
 
 | Rule ID | Severity | What it catches |
 |---------|----------|-----------------|
+| `xctest-import` | error | `import XCTest` in test code. Fixable: `--fix` converts the file to Swift Testing |
 | `exact-double-equality` | error | `#expect(a == 0.3989)` — exact `==`/`!=` on floating-point operands inside an assertion. Same rule as `fp-safety`'s `fp-equality`, at error severity. |
 | `force-try-in-test` | error | `try!` anywhere in test code |
 | `unseeded-random` | warning | `.random` or `SystemRandomNumberGenerator` producing non-deterministic test data |
@@ -169,3 +170,4 @@ Suppressed violations appear in the `overrides` array of the `CheckResult`, not 
 ### Guides
 
 - <doc:TestQualityAuditorGuide>
+- <doc:MigratingToSwiftTesting>

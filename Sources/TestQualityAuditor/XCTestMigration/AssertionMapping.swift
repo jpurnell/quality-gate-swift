@@ -99,6 +99,13 @@ enum AssertionMapping {
                 let within = negatedTolerance ? ">" : "<="
                 return "#expect(\(prefix)abs(\(left) - \(right)) \(within) \(bound)\(message(at: 2))\(location))"
             }
+            if lhs.core.is(ArrayExprSyntax.self), op == "==" || op == "!=" {
+                // `XCTAssertEqual<T>` fixed `T` from both sides; `#expect` splits `==` into its
+                // own overloads, where two untyped array literals are ambiguous. `elementsEqual`
+                // makes the same claim (same count, same elements, in order) with one meaning.
+                let negation = op == "!=" ? "!" : ""
+                return "#expect(\(prefix)\(negation)\(lhs.text).elementsEqual(\(rhs.text))\(message(at: 2))\(location))"
+            }
             return "#expect(\(prefix)\(left) \(op) \(right)\(message(at: 2))\(location))"
         }
 

@@ -26,6 +26,7 @@ final class MigrationAnalysis: SyntaxVisitor {
 
     let fileName: String
     private let converter: SourceLocationConverter
+    private let inventory: SuiteInventory
 
     /// `XCTestCase` subclasses, and what each becomes.
     private(set) var suites: [SyntaxIdentifier: SuiteKind] = [:]
@@ -35,17 +36,22 @@ final class MigrationAnalysis: SyntaxVisitor {
     private(set) var lifecycles: [SyntaxIdentifier: Lifecycle] = [:]
     /// Statements removed outright: `super.setUp()` and its relatives.
     private(set) var removedStatements: Set<SyntaxIdentifier> = []
+    /// Assertions left exactly as written, because converting them would be wrong.
+    private(set) var keptCalls: Set<SyntaxIdentifier> = []
     /// Functions this file declares `throws`, by base name.
     private(set) var throwingFunctions: Set<String> = []
     /// What was left for a person.
     private(set) var residue: [Diagnostic] = []
+    /// Names already given to converted tests, per suite.
+    private var givenNames: [String: Set<String>] = [:]
 
-    /// The `func test*()` methods found, which the conversion must account for one-for-one.
-    var testMethodCount: Int { testNames.count }
+    /// Test methods counted independently of the conversion, which it must match one-for-one.
+    var testMethodCount: Int { inventory.independentTestCount }
 
     init(tree: SourceFileSyntax, fileName: String) {
         self.fileName = fileName
         self.converter = SourceLocationConverter(fileName: fileName, tree: tree)
+        self.inventory = SuiteInventory(tree)
         super.init(viewMode: .sourceAccurate)
         walk(tree)
     }
@@ -73,7 +79,16 @@ final class MigrationAnalysis: SyntaxVisitor {
         }
         let kind: SuiteKind = hasLifecycle || Self.hasMutableStoredState(members) ? .finalClass : .structure
         suites[node.id] = kind
-        nameTests(in: members)
+        nameTests(in: members, suite: node.name.text)
+        return .visitChildren
+    }
+
+    /// An extension of a suite in this file holds tests XCTest ran, and they convert too.
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        let suite = node.extendedType.trimmedDescription
+        if inventory.suiteNames.contains(suite) {
+            nameTests(in: node.memberBlock.members.map(\.decl), suite: suite)
+        }
         return .visitChildren
     }
 
@@ -82,6 +97,41 @@ final class MigrationAnalysis: SyntaxVisitor {
             removedStatements.insert(node.id)
         }
         return .visitChildren
+    }
+
+    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        let callee = node.calledExpression.trimmedDescription
+        if callee == "XCTAssertNil" || callee == "XCTAssertNotNil",
+           let subject = node.arguments.first?.expression.as(DeclReferenceExprSyntax.self),
+           Self.isDeclaredNonOptional(subject) {
+            keptCalls.insert(node.id)
+            report("\(callee)(\(subject.baseName.text)): `\(subject.baseName.text)` is declared non-optional, so this can never fail. XCTest took `Any?`, which is why it compiled. State what the test means, or delete it. (As `#expect(x != nil)` it is a compiler warning, and on an existential it crashed swift-frontend 6.4.)",
+                   at: Syntax(node))
+        }
+        return .visitChildren
+    }
+
+    /// Whether `reference` names a local binding written with a non-optional type annotation,
+    /// declared before it in an enclosing block.
+    private static func isDeclaredNonOptional(_ reference: DeclReferenceExprSyntax) -> Bool {
+        let name = reference.baseName.text
+        var current = Syntax(reference).parent
+        while let node = current {
+            if let items = node.as(CodeBlockItemListSyntax.self) {
+                for item in items where item.position < reference.position {
+                    guard let variable = item.item.as(VariableDeclSyntax.self) else { continue }
+                    for binding in variable.bindings {
+                        guard binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text == name,
+                              let type = binding.typeAnnotation?.type
+                        else { continue }
+                        return !(type.is(OptionalTypeSyntax.self) || type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self))
+                    }
+                }
+            }
+            if node.is(FunctionDeclSyntax.self) || node.is(ClosureExprSyntax.self) { return false }
+            current = node.parent
+        }
+        return false
     }
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
@@ -158,6 +208,8 @@ final class MigrationAnalysis: SyntaxVisitor {
     }
 
     private static func containsUnhandledTry(_ node: Syntax) -> Bool {
+        // `try super.tearDownWithError()` is removed by the conversion, so it does not count.
+        if let item = node.as(CodeBlockItemSyntax.self), isSuperLifecycleCall(item.item) { return false }
         if let tryExpr = node.as(TryExprSyntax.self), tryExpr.questionOrExclamationMark == nil {
             return true
         }
@@ -167,41 +219,21 @@ final class MigrationAnalysis: SyntaxVisitor {
 
     // MARK: - Names
 
-    private func nameTests(in members: [DeclSyntax]) {
-        let functions = members.compactMap { $0.as(FunctionDeclSyntax.self) }
-        let tests = functions.filter(Self.isTestMethod)
-        var taken = Set(members.flatMap(Self.declaredNames))
-        taken.subtract(tests.map(\.name.text))
-
+    /// Names each test in `members`, avoiding every name the suite declares anywhere in the
+    /// file and every name already given.
+    private func nameTests(in members: [DeclSyntax], suite: String) {
+        let tests = members.compactMap { $0.as(FunctionDeclSyntax.self) }.filter(SuiteInventory.isTestMethod)
         for test in tests {
             let original = test.name.text
+            let taken = (inventory.memberNames[suite] ?? []).union(givenNames[suite] ?? [])
             let lowered = TestNameLowering.lowered(original)
             let name = lowered.flatMap { taken.contains($0) ? nil : $0 } ?? original
-            taken.insert(name)
+            givenNames[suite, default: []].insert(name)
             testNames[test.id] = name
         }
     }
 
-    /// `func test…()` with no parameters, which is what XCTest would have run.
-    private static func isTestMethod(_ function: FunctionDeclSyntax) -> Bool {
-        let name = function.name.text
-        guard name.hasPrefix("test"), name.count > 4,
-              function.signature.parameterClause.parameters.isEmpty,
-              !function.modifiers.contains(where: {
-                  $0.name.tokenKind == .keyword(.static) || $0.name.tokenKind == .keyword(.private)
-              })
-        else { return false }
-        let next = name[name.index(name.startIndex, offsetBy: 4)]
-        return next.isUppercase || next.isNumber || next == "_"
-    }
 
-    private static func declaredNames(_ member: DeclSyntax) -> [String] {
-        if let function = member.as(FunctionDeclSyntax.self) { return [function.name.text] }
-        if let variable = member.as(VariableDeclSyntax.self) {
-            return variable.bindings.compactMap { $0.pattern.as(IdentifierPatternSyntax.self)?.identifier.text }
-        }
-        return []
-    }
 
     // MARK: - Residue
 

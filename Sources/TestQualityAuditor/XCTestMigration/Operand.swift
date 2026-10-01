@@ -24,17 +24,22 @@ enum Operand {
     static func strip(_ expression: ExprSyntax) -> Stripped {
         var effects: [String] = []
         var core = expression
-        while true {
-            if let tryExpr = core.as(TryExprSyntax.self) {
-                effects.append(tryExpr.tryKeyword.text + (tryExpr.questionOrExclamationMark?.text ?? ""))
-                core = tryExpr.expression
-            } else if let awaitExpr = core.as(AwaitExprSyntax.self) {
-                effects.append("await")
-                core = awaitExpr.expression
-            } else {
-                return Stripped(effects: effects, expression: core)
-            }
+        while let (effect, inner) = peel(core) {
+            effects.append(effect)
+            core = inner
         }
+        return Stripped(effects: effects, expression: core)
+    }
+
+    /// The outermost `try` or `await` on `expression` and what it applies to, if it has one.
+    private static func peel(_ expression: ExprSyntax) -> (effect: String, inner: ExprSyntax)? {
+        if let tryExpr = expression.as(TryExprSyntax.self) {
+            return (tryExpr.tryKeyword.text + (tryExpr.questionOrExclamationMark?.text ?? ""), tryExpr.expression)
+        }
+        if let awaitExpr = expression.as(AwaitExprSyntax.self) {
+            return ("await", awaitExpr.expression)
+        }
+        return nil
     }
 
     /// Merges effect lists into one prefix (`"try await "`), each effect once, in Swift's order.

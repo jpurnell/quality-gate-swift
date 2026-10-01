@@ -88,7 +88,7 @@ final class MigrationRenderer {
         if let returnStmt = node.as(ReturnStmtSyntax.self) {
             return returnedFailure(returnStmt)
         }
-        if let call = node.as(FunctionCallExprSyntax.self) {
+        if let call = node.as(FunctionCallExprSyntax.self), !analysis.keptCalls.contains(call.id) {
             return AssertionMapping.replacement(for: call, renderer: self)
         }
         return nil

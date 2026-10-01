@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
+  `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
+  a fixture string that contains an XCTest file is never rewritten. That was the failure of
+  the script behind `1edc66e`. Each file is checked before it is written:
+  - **No test may be orphaned.** The "before" count is taken independently of the
+    conversion, because a test that loses its `@Test` stops running without failing.
+  - **The result must parse.**
+  - **The gate's own `exact-double-equality` detector must pass the output.** A converted
+    exact `XCTAssertEqual` on `Double` becomes `a.isEqual(to: b)`: the same claim, named.
+
+  `XCTSkip`, expectations, `measure`, and nil checks that can never fail are left in place and
+  returned unfixed with an instruction each. See *Migrating to Swift Testing with --fix*.
+
+  **Validated on SwiftExcelFunctions before its migration** (130 files, 2,018 tests):
+  - All 2,018 tests converted, and the result builds with no warnings once the residue is
+    decided: 39 `XCTSkip`s and one vacuous `XCTAssertNotNil`, plus one cross-file `try`
+    inside `#require` that the compiler named.
+  - Its tests behave as the hand migration's did, apart from the eleven deep-recursion
+    tests that overflow the cooperative pool's stack. The article explains why no source
+    check can see that.
+
+  The validation found four defects before this shipped, each now a regression test:
+  - Tests in an `extension` of the suite were missed, and the first orphan check, counted
+    from the conversion itself, missed them too.
+  - `try` on a named comparison covered only its left side.
+  - Optional operands could not take `isEqual(to:)`.
+  - Two untyped array literals were ambiguous to `#expect`.
+
+### Fixed
+
+- **`control-mapping` logs when it cannot list its own resources.** Its `try?` carried a
+  three-line `// silent:` justification that the logging auditor does not read, so the gate
+  reported it. It now catches and logs, as `decode` beside it already did, and still returns
+  no mappings.
+
 ## [3.4.0] - 2026-09-30
 
 **A passing verdict now means the whole roster ran.** A minor rather than a patch because that

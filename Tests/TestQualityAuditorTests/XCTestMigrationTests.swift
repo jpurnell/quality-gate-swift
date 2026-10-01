@@ -222,6 +222,21 @@ struct XCTestMigrationTests {
         """))
     }
 
+    @Test("An array literal on the left compares with elementsEqual (SwiftExcelFunctions: ambiguous ==)")
+    func arrayLiteralComparisons() {
+        // XCTAssertEqual<T> fixed the type from both sides. #expect splits `==` into its own
+        // overloads, and two untyped array literals are ambiguous there.
+        let source = file("""
+            func testDate() {
+                XCTAssertEqual([year, month, day], [2026, 9, 30])
+                XCTAssertNotEqual([month, day], [2, 29], "not a leap year")
+            }
+        """)
+        let result = output(source)
+        #expect(result.contains("#expect([year, month, day].elementsEqual([2026, 9, 30]))"))
+        #expect(result.contains(#"#expect(![month, day].elementsEqual([2, 29]), "not a leap year")"#))
+    }
+
     @Test("A message that is not a string literal is interpolated (SwiftExcelFunctions: row.date)")
     func nonLiteralMessages() {
         let source = file("""
@@ -401,6 +416,35 @@ struct XCTestMigrationTests {
         #expect(result.contains("#expect(x.isEqual(to: 1.5))"))
     }
 
+    @Test("try on a named comparison covers both sides (SwiftExcelFunctions: RANK.EQ)")
+    func namedComparisonHoistsEffects() {
+        let source = file("""
+            private func number(_ name: String) throws -> Double { 1 }
+            func testRanks() throws {
+                XCTAssertEqual(try number("RANK.EQ"), try number("RANK"))
+            }
+        """)
+        #expect(output(source).contains(#"#expect(try number("RANK.EQ").isEqual(to: number("RANK")))"#))
+    }
+
+    @Test("An optional float comparison stays exact and fails on nil (SwiftExcelFunctions: 5 sites)")
+    func optionalFloatsAreNamedThroughTheOptional() {
+        let source = file("""
+            private func numbers(_ x: Int) -> [Double]? { nil }
+            private func ratio(_ x: Int) -> Double? { nil }
+            func testOptionals() {
+                XCTAssertEqual(numbers(1), [1.5, 2.5])
+                XCTAssertEqual(ratio(1), 0.5)
+                XCTAssertEqual(model?.weights, [0.25])
+            }
+        """)
+        let result = output(source)
+        #expect(result.contains("#expect(numbers(1)?.elementsEqual([1.5, 2.5], by: { $0.isEqual(to: $1) }) == true)"))
+        #expect(result.contains("#expect(ratio(1)?.isEqual(to: 0.5) == true)"))
+        // Parenthesised: `model?.weights` is one optional whether or not `weights` is.
+        #expect(result.contains("#expect((model?.weights)?.elementsEqual([0.25], by: { $0.isEqual(to: $1) }) == true)"))
+    }
+
     // MARK: - Residue
 
     @Test("XCTSkip is residue: left in place and reported, because choosing for it is judgement")
@@ -414,6 +458,25 @@ struct XCTestMigrationTests {
         #expect(outcome.residue.count == 1)
         #expect(outcome.residue.first?.lineNumber == 5)
         #expect(outcome.residue.first?.message.contains("XCTSkip") == true)
+    }
+
+    @Test("A nil check on a value declared non-optional is residue: it can never fail (SwiftExcelFunctions: compiler crash)")
+    func vacuousNilCheckIsResidue() {
+        // `#expect(x != nil)` on a non-optional is a compiler warning at best, and on an
+        // existential (`any Sendable`) it crashed swift-frontend 6.4 in SILGen. XCTest took
+        // `Any?`, which is why the original compiled and why it never tested anything.
+        let outcome = migrate(file("""
+            func testSendable() {
+                let error: any Sendable = Failure.circular
+                XCTAssertNotNil(error)
+                let maybe: Int? = nil
+                XCTAssertNil(maybe)
+            }
+        """))
+        #expect(outcome.output.contains("XCTAssertNotNil(error)"))
+        #expect(outcome.output.contains("#expect(maybe == nil)"))
+        #expect(outcome.residue.count == 1)
+        #expect(outcome.residue.first?.message.contains("never fail") == true)
     }
 
     @Test("Expectations and measure are residue; async setUp is not, Swift Testing has async init")
@@ -442,6 +505,66 @@ struct XCTestMigrationTests {
         #expect(outcome.testsBefore == 3)
         #expect(outcome.testsAfter == 3)
         #expect(outcome.isSafeToWrite)
+    }
+
+    @Test("Tests in an extension of the suite convert too (SwiftExcelFunctions: 5 of 12 missed)")
+    func extensionsConvert() {
+        let outcome = migrate("""
+        import XCTest
+
+        final class ThingTests: XCTestCase {
+            func testInClass() { XCTAssertTrue(true) }
+        }
+
+        extension ThingTests {
+            func testInExtension() { XCTAssertTrue(true) }
+        }
+
+        """)
+        #expect(outcome.output.contains("@Test func inExtension()"))
+        #expect(outcome.testsBefore == 2)
+        #expect(outcome.testsAfter == 2)
+    }
+
+    @Test("The orphan check counts independently, so a blind spot in the conversion is caught")
+    func orphanCountIsIndependent() {
+        // A test method in a class that is not an XCTestCase subclass in this file — say, a
+        // subclass of a project base class — is something XCTest may run and the conversion
+        // does not touch. The independent count sees it; the file is refused.
+        let outcome = migrate("""
+        import XCTest
+
+        final class ThingTests: XCTestCase {
+            func testOne() { XCTAssertTrue(true) }
+        }
+
+        final class OtherTests: ProjectTestCase {
+            func testTwo() { XCTAssertTrue(true) }
+        }
+
+        """)
+        #expect(outcome.testsBefore == 2)
+        #expect(outcome.testsAfter == 1)
+        #expect(!outcome.isSafeToWrite)
+    }
+
+    @Test("tearDownWithError whose only try is the super call becomes deinit")
+    func tearDownWithSuperTry() {
+        let output = output("""
+        import XCTest
+
+        final class ThingTests: XCTestCase {
+            override func tearDownWithError() throws {
+                cleanUp()
+                try super.tearDownWithError()
+            }
+
+            func testIt() { XCTAssertTrue(true) }
+        }
+
+        """)
+        #expect(output.contains("deinit {\n        cleanUp()\n    }"))
+        #expect(!output.contains("override"))
     }
 
     @Test("The output parses")
