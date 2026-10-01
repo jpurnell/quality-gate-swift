@@ -53,6 +53,26 @@
 
 ### Changed
 
+- **A `// SECURITY:` acknowledgement must give a reason, and is always recorded.** Any security
+  finding used to be silenced by the bare marker on its line or the one above — no reason
+  required — and nine of the ten rules returned without a trace, so the exemption appeared in
+  no report and no telemetry. Every security rule now reports through one path: the text after
+  the marker is checked with `JustificationValidator`, the same eight-word, no-boilerplate bar
+  `concurrency.*` justifications already meet. A reason that passes is recorded as a
+  `DiagnosticOverride`. One that does not leaves the finding standing at its own severity, with
+  a sentence naming the marker's line and why it was refused.
+
+  **This will turn repositories red.** Across the 98 repositories carrying `.quality-gate.yml`,
+  about 110 `// SECURITY:` comments exist and **39 are shorter than eight words** — two read
+  *"CWE-22 prefix guard"*, which is the `hasPrefix` containment check the CWE sweep identifies
+  as itself defective. Each will be reported on its next run with the line and the reason.
+  Rewrite the sentence; the finding was always there.
+- **`// SAFETY:` no longer silences security rules.** `SafetyAuditor` passed
+  `safetyExemptions + ["// SECURITY:"]` to the security visitor, so a marker written to excuse a
+  force unwrap also excused a hard-coded secret on the same line. The security visitor now
+  accepts `// SECURITY:` only. Two existing tests asserted the old behaviour and now assert the
+  new one.
+
 - **`security.weak-crypto` is CWE-328, not 327.** The rule matches MD5 and SHA-1 and nothing
   else; 328 is *Use of Weak Hash*, 327 is its parent class. The diagnostic's message changes
   accordingly.

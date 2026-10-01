@@ -230,12 +230,13 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         safetyVisitor.walk(sourceFile)
 
         // Run security checks
-        let securityExemptions = configuration.safetyExemptions + ["// SECURITY:"]
+        // No exemption patterns are passed: the visitor accepts `// SECURITY:` and nothing
+        // else. `safetyExemptions` used to be passed here, so a marker that excused a force
+        // unwrap also excused a hard-coded secret — see `SecurityVisitor.marker`.
         let securityVisitor = SecurityVisitor(
             fileName: fileName,
             source: source,
             converter: converter,
-            exemptionPatterns: securityExemptions,
             configuration: configuration.security,
             sourceFile: sourceFile
         )

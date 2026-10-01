@@ -603,18 +603,20 @@ struct SecurityVisitorTests {
 
     @Test("SAFETY exemption suppresses security rule")
     func safetyExemptionWorks() async throws {
+        // Changed by AnAcknowledgementIsARecord.md: `// SAFETY:` no longer reaches security
+        // rules. This test used to assert the opposite.
         let code = """
         let apiKey = "sk-test-key" // SAFETY: Test fixture only
         """
 
         let result = try await auditCode(code)
-        #expect(!result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
+        #expect(result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
     }
 
     @Test("SECURITY exemption suppresses security rule")
     func securityExemptionWorks() async throws {
         let code = """
-        let apiKey = "sk-test-key" // SECURITY: Required for integration test
+        let apiKey = "sk-test-key" // SECURITY: integration fixture key, revoked, and never shipped in a build
         """
 
         let result = try await auditCode(code)
@@ -624,7 +626,7 @@ struct SecurityVisitorTests {
     @Test("SECURITY exemption on previous line works")
     func securityExemptionPreviousLine() async throws {
         let code = """
-        // SECURITY: Required for integration test
+        // SECURITY: integration fixture key, revoked, and never shipped in a build
         let token = "test-token-value"
         """
 

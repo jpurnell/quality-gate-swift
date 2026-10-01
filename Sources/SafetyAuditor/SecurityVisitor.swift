@@ -26,7 +26,6 @@ final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
     let sourceLines: [String]
-    let exemptionPatterns: [String]
     let configuration: SecurityAuditorConfig
     /// Built once per file — see `SafetyVisitor.converter`.
     let converter: SourceLocationConverter
@@ -38,12 +37,13 @@ final class SecurityVisitor: SyntaxVisitor {
     let localStringConstants: Set<String>
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
+    /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
+    private let justificationValidator = JustificationValidator()
 
     init(
         fileName: String,
         source: String,
         converter: SourceLocationConverter,
-        exemptionPatterns: [String],
         configuration: SecurityAuditorConfig,
         sourceFile: SourceFileSyntax? = nil
     ) {
@@ -52,7 +52,6 @@ final class SecurityVisitor: SyntaxVisitor {
         self.source = source
         self.converter = converter
         self.sourceLines = source.lines
-        self.exemptionPatterns = exemptionPatterns
         self.configuration = configuration
         super.init(viewMode: .sourceAccurate)
     }
@@ -86,12 +85,7 @@ final class SecurityVisitor: SyntaxVisitor {
             let location = node.startLocation(
                 converter: converter
             )
-            if isExempted(line: location.line) {
-    
-                continue
-            }
-
-            diagnostics.append(Diagnostic(
+            report(Diagnostic(
                 severity: .warning,
                 message: "Hardcoded secret or credential detected in '\(pattern.identifier.text)'. [CWE-798]",
                 filePath: fileName,
@@ -170,12 +164,7 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return .visitChildren
-        }
-
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .warning,
             message: "Insecure HTTP URL detected — use HTTPS instead. [CWE-319]",
             filePath: fileName,
@@ -334,18 +323,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
             let location = command.startLocation(
                 converter: converter)
-            if isExempted(line: location.line) {
-                overrides.append(DiagnosticOverride(
-                    ruleId: "security.command-injection",
-                    justification: sourceLines.indices.contains(location.line - 2)
-                        ? sourceLines[location.line - 2].trimmingCharacters(in: .whitespaces)
-                        : "acknowledged",
-                    filePath: fileName,
-                    lineNumber: location.line))
-                return
-            }
-
-            diagnostics.append(Diagnostic(
+            report(Diagnostic(
                 severity: .error,
                 message: "A shell is invoked with \(flag) and a command string assembled at "
                     + "runtime. The shell parses that string, so any value interpolated into it "
@@ -431,11 +409,6 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return
-        }
-
         // Whether a weak hash is a defect depends on what it is for. Deriving a key for a
         // file format that names SHA-1 is not a security choice — the alternative is
         // refusing to open the file — and no property of the surrounding code says so. A
@@ -447,7 +420,7 @@ final class SecurityVisitor: SyntaxVisitor {
             break
         case .requireJustification:
             guard !hasWeakCryptoJustification(line: location.line) else { return }
-            diagnostics.append(Diagnostic(
+            report(Diagnostic(
                 severity: .warning,
                 message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto")) "
                     + "Add a `// Justification:` comment saying why it is correct here.",
@@ -462,7 +435,7 @@ final class SecurityVisitor: SyntaxVisitor {
             break
         }
 
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .warning,
             message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto"))",
             filePath: fileName,
@@ -507,12 +480,7 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return
-        }
-
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .error,
             message: "evaluateJavaScript called with dynamic input — enables code injection. [CWE-95]",
             filePath: fileName,
@@ -581,12 +549,7 @@ final class SecurityVisitor: SyntaxVisitor {
             let location = node.startLocation(
                 converter: converter
             )
-            if isExempted(line: location.line) {
-    
-                return
-            }
-
-            diagnostics.append(Diagnostic(
+            report(Diagnostic(
                 severity: .error,
                 message: "SQL query with string interpolation — use parameterized queries. [CWE-89]",
                 filePath: fileName,
@@ -695,12 +658,7 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return
-        }
-
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .warning,
             message: "URL constructed from dynamic input — potential SSRF. [CWE-918]",
             filePath: fileName,
@@ -745,12 +703,7 @@ final class SecurityVisitor: SyntaxVisitor {
             let location = node.startLocation(
                 converter: converter
             )
-            if isExempted(line: location.line) {
-    
-                return
-            }
-
-            diagnostics.append(Diagnostic(
+            report(Diagnostic(
                 severity: .warning,
                 message: "FileManager operation with dynamic path — validate and sanitize to prevent path traversal. [CWE-22]",
                 filePath: fileName,
@@ -779,12 +732,7 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return
-        }
-
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .warning,
             message: "Insecure Keychain accessibility level '\(name)' — allows access when device is locked. \(Self.citation("security.insecure-keychain"))",
             filePath: fileName,
@@ -807,12 +755,7 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return
-        }
-
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .error,
             message: "TLS certificate validation disabled via '\(name)'. [CWE-295]",
             filePath: fileName,
@@ -847,12 +790,7 @@ final class SecurityVisitor: SyntaxVisitor {
         let location = node.startLocation(
             converter: converter
         )
-        if isExempted(line: location.line) {
-
-            return
-        }
-
-        diagnostics.append(Diagnostic(
+        report(Diagnostic(
             severity: .error,
             message: "TLS certificate validation weakened — '\(name)' set to true. [CWE-295]",
             filePath: fileName,
@@ -882,17 +820,85 @@ final class SecurityVisitor: SyntaxVisitor {
         return "[\(cwe)]"
     }
 
-    private func isExempted(line: Int) -> Bool {
-        let linesToCheck = [line - 1, line]
-            .filter { $0 >= 1 && $0 <= sourceLines.count }
-        for lineNum in linesToCheck {
-            let lineContent = sourceLines[lineNum - 1]
-            for pattern in exemptionPatterns {
-                if lineContent.contains(pattern) {
-                    return true
-                }
-            }
+    /// Records `diagnostic`, or the acknowledgement that answers it.
+    ///
+    /// Every security rule reports through here, so every rule is held to one contract. A
+    /// `// SECURITY:` marker on the finding's line or the one above is an acknowledgement only
+    /// if what follows it passes ``JustificationValidator``; then it is recorded as an
+    /// override and the finding is not reported. A marker that fails leaves the finding
+    /// standing, at its own severity, with a sentence saying why the marker was not accepted.
+    /// Silence and an unexplained exemption were the same thing to every report before this.
+    private func report(_ diagnostic: Diagnostic) {
+        guard let line = diagnostic.lineNumber,
+              let ruleId = diagnostic.ruleId,
+              let marker = securityMarker(near: line) else {
+            diagnostics.append(diagnostic)
+            return
         }
-        return false
+
+        switch justificationValidator.validate(marker.text, keyword: Self.marker) {
+        case .valid:
+            overrides.append(DiagnosticOverride(
+                ruleId: ruleId,
+                justification: Self.payload(of: marker.text),
+                filePath: fileName,
+                lineNumber: line))
+        case .tooShort(let wordCount):
+            diagnostics.append(Self.rejecting(
+                diagnostic, markerLine: marker.line,
+                because: "\(wordCount) word\(wordCount == 1 ? "" : "s"), 8 required"))
+        case .generic(let phrase):
+            diagnostics.append(Self.rejecting(
+                diagnostic, markerLine: marker.line,
+                because: "'\(phrase)' is a generic phrase, not a reason"))
+        case .duplicate:
+            // `validate` never answers this; only `validateForDuplicates` does, and a reason
+            // that recurs across sibling call sites is legitimate. Reporting is the safe
+            // reading if that ever changes.
+            diagnostics.append(diagnostic)
+        }
+    }
+
+    /// The marker every security acknowledgement is written with.
+    ///
+    /// Only this one. The safety auditor's markers used to be passed in too, so a
+    /// `// SAFETY:` written to excuse a force unwrap also excused a hard-coded secret on the
+    /// same line.
+    static let marker = "// SECURITY:"
+
+    /// The `// SECURITY:` comment on `line` or the line above, if there is one.
+    private func securityMarker(near line: Int) -> (text: String, line: Int)? {
+        for candidate in [line, line - 1] where sourceLines.indices.contains(candidate - 1) {
+            let content = sourceLines[candidate - 1]
+            guard let range = content.range(of: Self.marker) else { continue }
+            return (String(content[range.lowerBound...]), candidate)
+        }
+        return nil
+    }
+
+    /// What follows the marker.
+    private static func payload(of markerText: String) -> String {
+        guard let range = markerText.range(of: marker) else { return markerText }
+        return markerText[range.upperBound...].trimmingCharacters(in: .whitespaces)
+    }
+
+    /// `diagnostic`, unchanged but for a sentence saying why its acknowledgement failed.
+    private static func rejecting(
+        _ diagnostic: Diagnostic,
+        markerLine: Int,
+        because reason: String
+    ) -> Diagnostic {
+        Diagnostic(
+            severity: diagnostic.severity,
+            message: diagnostic.message
+                + " (The \(marker) acknowledgement on line \(markerLine) was not accepted: "
+                + "\(reason). Say why this is safe here, in a sentence.)",
+            filePath: diagnostic.filePath,
+            lineNumber: diagnostic.lineNumber,
+            columnNumber: diagnostic.columnNumber,
+            ruleId: diagnostic.ruleId,
+            suggestedFix: diagnostic.suggestedFix,
+            origin: diagnostic.origin,
+            endLine: diagnostic.endLine)
     }
 }
