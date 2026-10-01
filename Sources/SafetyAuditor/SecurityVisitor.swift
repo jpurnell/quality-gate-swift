@@ -111,6 +111,7 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSQLInjection(node)
         checkSSRF(node)
         checkPathTraversal(node)
+        checkPathContainmentByPrefix(node)
         return .visitChildren
     }
 
@@ -671,49 +672,357 @@ final class SecurityVisitor: SyntaxVisitor {
 
     // MARK: Path Traversal (CWE-22)
 
+    /// Operations that read, write, list, create or remove what a path names.
+    ///
+    /// `fileExists` and `attributesOfItem` used to be here. A probe opens nothing, and in the
+    /// gate's own source they were most of 238 findings that described no traversal.
+    private static let pathSinks: Set<String> = [
+        "contents", "contentsOfDirectory", "createDirectory", "createFile",
+        "removeItem", "copyItem", "moveItem",
+    ]
+
+    /// Traversal is a join: a segment somebody else chose, appended to a directory, then used.
+    ///
+    /// A path received whole is the caller's and is not reported here — nothing was joined in
+    /// this function. A join is reported unless a sound containment check on the joined value
+    /// comes first. See `TraversalIsAJoin.md`.
     private func checkPathTraversal(_ node: FunctionCallExprSyntax) {
-        guard isRuleEnabled("security.path-traversal") else { return }
+        guard isRuleEnabled("security.path-traversal"),
+              let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              Self.pathSinks.contains(member.declName.baseName.text),
+              let argument = node.arguments.first(where: {
+                  $0.label?.text == "atPath" || $0.label?.text == "path"
+              }) else { return }
 
-        // Check for FileManager.default.<method>(atPath: <non-literal>)
-        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self) else {
-            return
+        let core = Self.strippingPathAccessors(argument.expression)
+        var subject: String?
+        var joined = core
+        if let name = core.as(DeclReferenceExprSyntax.self)?.baseName.text,
+           let initialiser = Self.letInitialiser(named: name, before: node) {
+            subject = name
+            joined = Self.strippingPathAccessors(initialiser)
         }
+        guard Self.isJoinWithChosenSegment(joined, at: node) else { return }
+        if let subject, hasSoundContainmentCheck(on: subject, before: node) { return }
 
-        let fileManagerMethods = [
-            "fileExists", "contentsOfDirectory", "createDirectory",
-            "removeItem", "copyItem", "moveItem", "contents",
-            "createFile", "attributesOfItem"
+        let location = node.startLocation(converter: converter)
+        report(Diagnostic(
+            severity: .warning,
+            message: "A path segment that is not a literal is joined onto a directory and the result is "
+                + "used without a containment check. A segment of '..' or an absolute path walks out of "
+                + "the directory. [CWE-22]",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: "security.path-traversal",
+            suggestedFix: "Before using it, check the joined path with pathComponents.starts(with:) after "
+                + "resolvingSymlinksInPath(), or a function listed in security.containmentCheckers."
+        ))
+    }
+
+    /// `x.path`, `x.standardizedFileURL`, `x.resolvingSymlinksInPath()` … down to `x`.
+    private static func strippingPathAccessors(_ expression: ExprSyntax) -> ExprSyntax {
+        let accessors: Set<String> = [
+            "path", "standardized", "standardizedFileURL", "resolvingSymlinksInPath", "absoluteURL",
         ]
-
-        let methodName = member.declName.baseName.text
-        guard fileManagerMethods.contains(methodName) else { return }
-
-        // Check for atPath: parameter with non-literal value
-        for arg in node.arguments {
-            guard arg.label?.text == "atPath" || arg.label?.text == "path" else {
-                continue
+        var current = expression
+        // Bounded: a chain longer than this is not a path accessor chain anyone writes.
+        for _ in 0..<8 {
+            if let call = current.as(FunctionCallExprSyntax.self), call.arguments.isEmpty,
+               let member = call.calledExpression.as(MemberAccessExprSyntax.self),
+               accessors.contains(member.declName.baseName.text), let base = member.base {
+                current = base
+            } else if let member = current.as(MemberAccessExprSyntax.self),
+                      accessors.contains(member.declName.baseName.text), let base = member.base {
+                current = base
+            } else {
+                break
             }
-
-            // If the argument is a simple string literal, it's safe
-            if let literal = arg.expression.as(StringLiteralExprSyntax.self),
-               !containsInterpolation(literal) {
-                continue
-            }
-
-            let location = node.startLocation(
-                converter: converter
-            )
-            report(Diagnostic(
-                severity: .warning,
-                message: "FileManager operation with dynamic path — validate and sanitize to prevent path traversal. [CWE-22]",
-                filePath: fileName,
-                lineNumber: location.line,
-                columnNumber: location.column,
-                ruleId: "security.path-traversal",
-                suggestedFix: "Use URL.standardized to resolve path traversal sequences and validate against an allowed directory"
-            ))
-            return // One diagnostic per call site
         }
+        return current
+    }
+
+    /// Whether `expression` appends a segment somebody else chose to a directory.
+    ///
+    /// Only `appendingPathComponent`, `appending(path:)`, `URL(fileURLWithPath:relativeTo:)`, and
+    /// `+` or interpolation *after a separator*. `path + ".backup"` extends a file name;
+    /// `"\(root)/telemetry"` joins a literal; `a ?? b` joins nothing.
+    private static func isJoinWithChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
+        if let call = expression.as(FunctionCallExprSyntax.self) {
+            let callee = call.calledExpression
+            // `appending` only with a path label: `String.appending(_:)` extends a string.
+            if let member = callee.as(MemberAccessExprSyntax.self),
+               let first = call.arguments.first,
+               member.declName.baseName.text == "appendingPathComponent"
+                || (member.declName.baseName.text == "appending"
+                    && ["path", "component"].contains(first.label?.text ?? "")) {
+                return isChosenSegment(first.expression, at: node)
+            }
+            if callee.trimmedDescription == "URL",
+               call.arguments.contains(where: { $0.label?.text == "relativeTo" }),
+               let segment = call.arguments.first?.expression {
+                return isChosenSegment(segment, at: node)
+            }
+            return false
+        }
+        if let sequence = expression.as(SequenceExprSyntax.self) {
+            let elements = Array(sequence.elements)
+            let operators = elements.enumerated().filter { $0.offset % 2 == 1 }.map(\.element)
+            guard !operators.isEmpty,
+                  operators.allSatisfy({ $0.as(BinaryOperatorExprSyntax.self)?.operator.text == "+" }) else {
+                return false
+            }
+            var afterSeparator = false
+            for (index, operand) in elements.enumerated() where index % 2 == 0 {
+                if let literal = operand.as(StringLiteralExprSyntax.self) {
+                    if interpolatesAfterSeparator(literal, startingAfterSeparator: afterSeparator, at: node) {
+                        return true
+                    }
+                    if literal.segments.contains(where: { $0.as(StringSegmentSyntax.self)?.content.text.contains("/") == true }) {
+                        afterSeparator = true
+                    }
+                } else if afterSeparator, isChosenSegment(operand, at: node) {
+                    return true
+                }
+            }
+            return false
+        }
+        if let literal = expression.as(StringLiteralExprSyntax.self) {
+            return interpolatesAfterSeparator(literal, startingAfterSeparator: false, at: node)
+        }
+        return false
+    }
+
+    /// Whether an interpolation in `literal` follows a `/` — `"\(root)/\(sub)"` but not
+    /// `"\(root)/telemetry"`.
+    private static func interpolatesAfterSeparator(
+        _ literal: StringLiteralExprSyntax, startingAfterSeparator: Bool, at node: some SyntaxProtocol
+    ) -> Bool {
+        var afterSeparator = startingAfterSeparator
+        for segment in literal.segments {
+            if let text = segment.as(StringSegmentSyntax.self)?.content.text {
+                if text.contains("/") { afterSeparator = true }
+            } else if let hole = segment.as(ExpressionSegmentSyntax.self),
+                      afterSeparator,
+                      let value = hole.expressions.first?.expression,
+                      isChosenSegment(value, at: node) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// A segment somebody other than this code chose.
+    ///
+    /// Not a literal; not a loop variable over a collection of literals; not a name just listed
+    /// from a directory — `contentsOfDirectory` never returns a name with `/` in it, or `..`.
+    private static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
+        if isLiteralSegment(expression) { return false }
+        guard let name = expression.as(DeclReferenceExprSyntax.self)?.baseName.text else { return true }
+        var current = node.parent
+        while let candidate = current {
+            if let loop = candidate.as(ForStmtSyntax.self), binds(loop.pattern, name) {
+                var sequence = loop.sequence
+                if let reference = sequence.as(DeclReferenceExprSyntax.self)?.baseName.text,
+                   let value = letInitialiser(named: reference, before: loop) {
+                    sequence = value
+                }
+                if sequence.trimmedDescription.contains("contentsOfDirectory(") { return false }
+                if let array = sequence.as(ArrayExprSyntax.self),
+                   array.elements.allSatisfy({ isLiteralElement($0.expression) }) {
+                    return false
+                }
+                return true
+            }
+            current = candidate.parent
+        }
+        return true
+    }
+
+    /// Whether a `for` pattern binds `name` — directly or inside a tuple.
+    private static func binds(_ pattern: PatternSyntax, _ name: String) -> Bool {
+        if let identifier = pattern.as(IdentifierPatternSyntax.self) { return identifier.identifier.text == name }
+        if let tuple = pattern.as(TuplePatternSyntax.self) {
+            return tuple.elements.contains { binds($0.pattern, name) }
+        }
+        if let binding = pattern.as(ValueBindingPatternSyntax.self) { return binds(binding.pattern, name) }
+        return false
+    }
+
+    /// A string literal, an integer literal, or a tuple of them.
+    private static func isLiteralElement(_ expression: ExprSyntax) -> Bool {
+        if isLiteralSegment(expression) { return true }
+        if let tuple = expression.as(TupleExprSyntax.self) {
+            return tuple.elements.allSatisfy { isLiteralSegment($0.expression) }
+        }
+        return false
+    }
+
+    /// A string literal with no interpolation, or an integer literal.
+    private static func isLiteralSegment(_ expression: ExprSyntax) -> Bool {
+        if let literal = expression.as(StringLiteralExprSyntax.self) {
+            return !literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
+        }
+        return expression.is(IntegerLiteralExprSyntax.self)
+    }
+
+    /// The initialiser of `let name = …` in the enclosing body, before `node`.
+    private static func letInitialiser(named name: String, before node: some SyntaxProtocol) -> ExprSyntax? {
+        guard let body = enclosingBody(of: node) else { return nil }
+        var found: ExprSyntax?
+        for declaration in body.tokens(viewMode: .sourceAccurate)
+            .compactMap({ $0.parent?.as(IdentifierPatternSyntax.self) })
+            where declaration.identifier.text == name && declaration.position < node.position {
+            if let binding = declaration.parent?.as(PatternBindingSyntax.self),
+               binding.parent?.parent?.as(VariableDeclSyntax.self)?.bindingSpecifier.tokenKind == .keyword(.let),
+               let value = binding.initializer?.value {
+                found = value
+            }
+        }
+        return found
+    }
+
+    /// The function, initialiser, accessor or closure body that `node` sits in.
+    private static func enclosingBody(of node: some SyntaxProtocol) -> Syntax? {
+        var current = node.parent
+        while let candidate = current {
+            if let function = candidate.as(FunctionDeclSyntax.self) { return function.body.map(Syntax.init) }
+            if let initialiser = candidate.as(InitializerDeclSyntax.self) { return initialiser.body.map(Syntax.init) }
+            if let accessor = candidate.as(AccessorDeclSyntax.self) { return accessor.body.map(Syntax.init) }
+            if let closure = candidate.as(ClosureExprSyntax.self) { return Syntax(closure.statements) }
+            current = candidate.parent
+        }
+        return nil
+    }
+
+    /// Whether a `guard` or `if` before `node` checks `subject` soundly for containment.
+    ///
+    /// Sound means: whole components (`pathComponents.starts(with:)`), `isContained(in:)`, a
+    /// prefix test whose argument ends in a separator, or a configured checker. A prefix test
+    /// with no separator does not count — `/base-evil` begins with `/base`.
+    private func hasSoundContainmentCheck(on subject: String, before node: some SyntaxProtocol) -> Bool {
+        guard let body = Self.enclosingBody(of: node) else { return false }
+        let collector = ConditionCollector(before: node.position, checkers: configuration.containmentCheckers)
+        collector.walk(body)
+        // A configured checker called as a statement — `try WriteGuard.confine(p, to: base)` —
+        // is as good as one in a condition: it throws instead of returning false.
+        if collector.checkerCalls.contains(where: { $0.contains(subject) }) { return true }
+        for text in collector.conditions {
+            guard text.contains(subject) else { continue }
+            if text.contains("pathComponents.starts(with:") || text.contains(".isContained(in:") { return true }
+            if configuration.containmentCheckers.contains(where: { text.contains($0 + "(") }) { return true }
+            if Self.hasSeparatedPrefixTest(text) { return true }
+        }
+        return false
+    }
+
+    /// `hasPrefix(base + "/")` or `hasPrefix("\(base)/")` — a prefix test with the separator that
+    /// makes it a containment test. `hasPrefix("/")` alone is not one.
+    private static func hasSeparatedPrefixTest(_ text: String) -> Bool {
+        let compact = text.replacingOccurrences(of: " ", with: "")
+        return compact.contains("+\"/\")") || compact.range(of: #"hasPrefix\("\\\([^"]*\)/"\)"#, options: .regularExpression) != nil
+    }
+
+    // MARK: Path containment by prefix (CWE-22, CWE-187)
+
+    /// A containment check written as a string prefix with no separator.
+    ///
+    /// `"/runs/out-evil".hasPrefix("/runs/out")` is true, and a prefix test does not follow a
+    /// symbolic link. IconquerAI had this four times, VaultMCP and SwiftGraphStore have it, and
+    /// two of the comments beside it said "CWE-22 prefix guard".
+    private func checkPathContainmentByPrefix(_ node: FunctionCallExprSyntax) {
+        guard isRuleEnabled("security.path-containment-by-prefix"),
+              let member = node.calledExpression.as(MemberAccessExprSyntax.self),
+              member.declName.baseName.text == "hasPrefix",
+              let receiver = member.base,
+              node.arguments.count == 1,
+              let argument = node.arguments.first?.expression else { return }
+        if Self.isLiteralSegment(argument) { return }
+        if Self.hasSeparatedPrefixTest("hasPrefix(" + argument.trimmedDescription + ")") { return }
+        if argument.is(DeclReferenceExprSyntax.self) {
+            // A loop over literal prefixes (`for p in ["/css/", "/js/"]`) is not containment.
+            if !Self.isChosenSegment(argument, at: node) { return }
+            // `let prefix = root.hasSuffix("/") ? root : root + "/"` — the separator is in the local.
+            if let name = argument.as(DeclReferenceExprSyntax.self)?.baseName.text,
+               let value = Self.letInitialiser(named: name, before: node) {
+                let compact = value.trimmedDescription.replacingOccurrences(of: " ", with: "")
+                if compact.contains("+\"/\"") || compact.range(of: #"/"$"#, options: .regularExpression) != nil {
+                    return
+                }
+            }
+        }
+        guard Self.isPathShaped(receiver) || Self.isPathShaped(argument),
+              Self.isDecision(node) else { return }
+
+        let location = node.startLocation(converter: converter)
+        report(Diagnostic(
+            severity: .error,
+            message: "A path containment check written as a string prefix. '/base-evil' begins with "
+                + "'/base', and a prefix test does not follow a symbolic link out of the directory. "
+                + "\(Self.citation("security.path-containment-by-prefix"))",
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: "security.path-containment-by-prefix",
+            suggestedFix: "Compare whole components after resolving links: "
+                + "candidate.resolvingSymlinksInPath().pathComponents.starts(with: base.resolvingSymlinksInPath().pathComponents)"
+        ))
+    }
+
+    /// Whether `node` decides something: it is a `guard` / `if` / `while` condition, or the whole
+    /// body of a closure (`files.filter { $0.hasPrefix(dir) }`). A ternary that computes a
+    /// relative path, or a `return a || b` in a matcher, is arithmetic and is left alone.
+    private static func isDecision(_ node: some SyntaxProtocol) -> Bool {
+        var current: Syntax? = Syntax(node)
+        while let candidate = current {
+            if candidate.is(ConditionElementSyntax.self) { return true }
+            if candidate.is(TernaryExprSyntax.self) || candidate.is(ReturnStmtSyntax.self)
+                || candidate.is(PatternBindingSyntax.self) || candidate.is(CodeBlockItemListSyntax.self) {
+                // A closure whose body is this one expression is a predicate.
+                if let items = candidate.as(CodeBlockItemListSyntax.self),
+                   items.count == 1, items.parent?.is(ClosureExprSyntax.self) == true {
+                    return true
+                }
+                return false
+            }
+            current = candidate.parent
+        }
+        return false
+    }
+
+    /// An expression that names a path: it ends in `.path`, or its last name says so.
+    private static func isPathShaped(_ expression: ExprSyntax) -> Bool {
+        let text = expression.trimmedDescription
+        if text.hasSuffix(".path") { return true }
+        let last = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" }).last.map(String.init) ?? ""
+        // Whole camelCase words: `baseURL` and `rootPath` are paths; `base64SentinelPrefix` is not.
+        let pathWords: Set<String> = ["path", "dir", "directory", "root", "base", "url", "folder", "paths", "dirs"]
+        return camelCaseWords(last).contains { pathWords.contains($0) }
+    }
+
+    /// `baseURLPath` → `["base", "url", "path"]`; `base64Sentinel` → `["base64", "sentinel"]`.
+    private static func camelCaseWords(_ identifier: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        let characters = Array(identifier)
+        for (index, character) in characters.enumerated() {
+            let next = index + 1 < characters.count ? characters[index + 1] : nil
+            let startsWord = character.isUppercase && !current.isEmpty
+                && (current.last?.isLowercase == true || current.last?.isNumber == true
+                    || next?.isLowercase == true)
+            if character == "_" {
+                if !current.isEmpty { words.append(current.lowercased()) }
+                current = ""
+                continue
+            }
+            if startsWord {
+                words.append(current.lowercased())
+                current = ""
+            }
+            current.append(character)
+        }
+        if !current.isEmpty { words.append(current.lowercased()) }
+        return words
     }
 
     // MARK: Insecure Keychain (CWE-922)
@@ -900,5 +1209,32 @@ final class SecurityVisitor: SyntaxVisitor {
             suggestedFix: diagnostic.suggestedFix,
             origin: diagnostic.origin,
             endLine: diagnostic.endLine)
+    }
+}
+
+/// Before a position: the text of every `guard` / `if` condition list, and of every call to a
+/// configured containment checker.
+private final class ConditionCollector: SyntaxVisitor {
+    private let limit: AbsolutePosition
+    private let checkers: [String]
+    private(set) var conditions: [String] = []
+    private(set) var checkerCalls: [String] = []
+
+    init(before limit: AbsolutePosition, checkers: [String]) {
+        self.limit = limit
+        self.checkers = checkers
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: ConditionElementListSyntax) -> SyntaxVisitorContinueKind {
+        if node.position < limit { conditions.append(node.trimmedDescription) }
+        return .visitChildren
+    }
+
+    override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        if node.position < limit, checkers.contains(node.calledExpression.trimmedDescription) {
+            checkerCalls.append(node.trimmedDescription)
+        }
+        return .visitChildren
     }
 }

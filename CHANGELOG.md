@@ -51,6 +51,20 @@
   Every id and title was fetched from cwe.mitre.org (CWE 4.20) on 2026-10-01; none is from
   memory. Ids MITRE marks *Discouraged* or *Prohibited* for mapping are not used.
 
+### Added
+
+- **`security.path-containment-by-prefix` (error, CWE-22 and CWE-187).** A containment check
+  written `path.hasPrefix(base)` admits `/base-evil`, and a prefix test does not follow a
+  symbolic link out of the directory. It is reported where it decides something — a `guard`,
+  `if` or `while` condition, or a one-expression predicate closure — and not where it computes a
+  relative path. IconquerAI had it four times (fixed), VaultMCP and SwiftGraphStore have it, and
+  two of the comments beside it read *"CWE-22 prefix guard"*. A separator added through a local
+  (`let prefix = root.hasSuffix("/") ? root : root + "/"`), a loop over literal prefixes, and a
+  name that merely contains a path word (`base64SentinelPrefix`) are not reported — each was a
+  false positive in the portfolio measurement before release. Measured across 80 repositories
+  with this release: **29 findings in 10 repositories**, every one read and every one the
+  pattern.
+
 ### Changed
 
 - **A `// SECURITY:` acknowledgement must give a reason, and is always recorded.** Any security
@@ -72,6 +86,19 @@
   force unwrap also excused a hard-coded secret on the same line. The security visitor now
   accepts `// SECURITY:` only. Two existing tests asserted the old behaviour and now assert the
   new one.
+
+- **`security.path-traversal` reports a join, not every dynamic path.** It flagged any
+  `FileManager` call whose path was not a literal: **238** findings in this repository, nearly
+  all existence probes or paths received whole, and following its own `suggestedFix` did not
+  silence it — so it was switched off here and could not be left on anywhere it was not noise.
+  It now reports a segment someone else chose (not a literal, not a loop variable over literals,
+  not a name just listed from the directory) joined onto a directory and then read, written,
+  listed, created or removed; existence probes are no longer sinks. A sound containment check on
+  the joined path clears it — `pathComponents.starts(with:)`, `isContained(in:)`, a prefix test
+  *with* the separator, or a function in the new `security.containmentCheckers` list, as a
+  condition or as a throwing statement. Here: **238 → 11**. Both rules stay out of this
+  repository's `enabledRules` until the release is deployed: the pre-commit hook runs the
+  deployed binary, whose `path-traversal` is the old one.
 
 - **`SecurityRule` carries a CWE list and three OWASP columns.** `cwe: String` became `cwes:
   [String]` (primary first; `cwe` remains as the primary), and `owaspCategory` — documented as
@@ -110,6 +137,14 @@
   three-line `// silent:` justification that the logging auditor does not read, so the gate
   reported it. It now catches and logs, as `decode` beside it already did, and still returns
   no mappings.
+- **Four containment checks in the gate admitted a sibling directory.** The new rule found
+  them on its first run. `DocCommentCodeAuditor.owningModule` matched the project root as a
+  string, so `/pkgSources/Evil/a.swift` was assigned to module `Evil` of package `/pkg`.
+  `DocLinter`'s context narrowing took every file of module `FooBar` for a diagnostic in `Foo`.
+  `GenerateManifest` and `DocLinter` guarded joins with `hasPrefix`. All four compare whole
+  components now, each with a test where one was possible. The dashboard's pulse directory is
+  named by a label that can come from a pulse file in the corpus; a label that is not a single
+  directory name is refused rather than written to.
 - **`rule-registry.json` was missing 21 rule ids the gate emits** — `fallback.*`, `liveness.*`,
   `bounded-io.*`, `gpu.*`, `fatal-error`, `precondition`, `assertion-failure`, `newline-split`,
   `unasserted-optional-unwrap`, `hig.secure-field`. The registry exists so a mapping cannot cite

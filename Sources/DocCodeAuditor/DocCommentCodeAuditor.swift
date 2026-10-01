@@ -111,10 +111,11 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
     /// this package, exposes no public API, and its targets leave no `.swiftmodule` in
     /// `.build/debug` to compile against.
     static func owningModule(of file: URL, projectRoot: URL) -> String? {
-        let root = projectRoot.standardizedFileURL.path
-        let path = file.standardizedFileURL.path
-        guard path.hasPrefix(root) else { return nil }
-        let components = path.dropFirst(root.count).split(separator: "/")
+        // Whole components: a string prefix let `/pkgSources/Evil/a.swift` begin with `/pkg`.
+        let root = projectRoot.standardizedFileURL.pathComponents
+        let path = file.standardizedFileURL.pathComponents
+        guard path.starts(with: root) else { return nil }
+        let components = Array(path.dropFirst(root.count))
         guard components.count >= 3, SourceLayout.isSourceRoot(String(components[0])) else { return nil }
         return String(components[1])
     }

@@ -36,7 +36,7 @@ struct FPScopeTests {
         let base = root.resolvingSymlinksInPath().path
         return result.diagnostics.filter {
             $0.ruleId == Self.ruleId
-                && (($0.filePath ?? "") as NSString).resolvingSymlinksInPath.hasPrefix(base)
+                && (($0.filePath ?? "") as NSString).resolvingSymlinksInPath.hasPrefix(base + "/")
         }
     }
 

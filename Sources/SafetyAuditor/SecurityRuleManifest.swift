@@ -172,9 +172,19 @@ public enum SecurityRuleManifest {
             cwes: ["CWE-22"],
             owaspMobile: "M4 Insufficient Input/Output Validation",
             owaspTop10: "A01:2021 Broken Access Control",
-            description: "FileManager operation with dynamic unsanitized path",
+            description: "Non-literal segment joined onto a directory and used without a containment check",
             severity: "WARNING",
-            lastReviewedDate: "2026-04-14"
+            lastReviewedDate: "2026-10-01"
+        ),
+        SecurityRule(
+            ruleId: "security.path-containment-by-prefix",
+            // 187 (Partial String Comparison) is the mechanism; 22 is what it fails to prevent.
+            cwes: ["CWE-22", "CWE-187"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A01:2021 Broken Access Control",
+            description: "Path containment checked with a string prefix that has no separator",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
             ruleId: "security.ssrf",

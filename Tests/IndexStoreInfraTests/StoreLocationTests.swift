@@ -131,6 +131,7 @@ struct StoreLocationTests {
         let units_ = StoreLocator.unitsDirectory(in: store)
         try FileManager.default.createDirectory(at: units_, withIntermediateDirectories: true)
         for unit in units {
+            // SECURITY: a test fixture; unit names come from the calling test's own literal arguments
             FileManager.default.createFile(atPath: units_.appendingPathComponent(unit).path, contents: Data())
         }
         return store

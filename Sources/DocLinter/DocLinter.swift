@@ -762,7 +762,7 @@ public struct DocLinter: QualityChecker, Sendable {
     ) -> [Diagnostic] {
         let rootURL = URL(fileURLWithPath: sourceRoot).standardized
         let sourcesURL = rootURL.appendingPathComponent("Sources").standardized
-        guard sourcesURL.path.hasPrefix(rootURL.path) else { return diagnostics } // SAFETY: reject path traversal
+        guard RunEnvironment.path(sourcesURL, isInside: rootURL) else { return diagnostics }
         guard FileManager.default.fileExists(atPath: sourcesURL.path) else { return diagnostics } // SAFETY: validated child of sourceRoot
 
         let needsEnrichment = diagnostics.contains { $0.filePath == nil }
@@ -889,7 +889,7 @@ public struct DocLinter: QualityChecker, Sendable {
         )
     }
 
-    private static func narrowFilesForContext(
+    static func narrowFilesForContext(
         _ contextPath: String,
         sourcesPath: String,
         allFiles: [String]
@@ -898,7 +898,8 @@ public struct DocLinter: QualityChecker, Sendable {
         guard let moduleName = components.first else { return allFiles }
 
         let moduleDir = (sourcesPath as NSString).appendingPathComponent(moduleName)
-        let moduleFiles = allFiles.filter { $0.hasPrefix(moduleDir) }
+        // With the separator: a context in module `Foo` used to take every file of `FooBar`.
+        let moduleFiles = allFiles.filter { $0.hasPrefix(moduleDir + "/") }
         guard !moduleFiles.isEmpty else { return allFiles }
 
         if components.count >= 2 {

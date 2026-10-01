@@ -430,10 +430,12 @@ struct SecurityVisitorTests {
 
     // MARK: - Path Traversal (CWE-22)
 
-    @Test("Detects FileManager with dynamic path")
+    @Test("Detects a joined path that is read")
     func detectsPathTraversal() async throws {
+        // A probe of a received path used to be the example; it is not traversal. See
+        // PathTraversalTests and TraversalIsAJoin.md.
         let code = """
-        FileManager.default.fileExists(atPath: userPath)
+        let data = FileManager.default.contents(atPath: base.appendingPathComponent(userPath).path)
         """
 
         let result = try await auditCode(code)
@@ -736,9 +738,9 @@ struct SecurityVisitorTests {
 
     // MARK: - Manifest Tests
 
-    @Test("SecurityRuleManifest has 10 rules")
-    func manifestHasTenRules() {
-        #expect(SecurityRuleManifest.rules.count == 10)
+    @Test("SecurityRuleManifest has 11 rules")
+    func manifestHasElevenRules() {
+        #expect(SecurityRuleManifest.rules.count == 11)
     }
 
     @Test("All manifest rules have valid CWE references")

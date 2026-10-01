@@ -188,6 +188,7 @@
     "security.hardcoded-secret",
     "security.insecure-keychain",
     "security.insecure-transport",
+    "security.path-containment-by-prefix",
     "security.path-traversal",
     "security.sql-injection",
     "security.ssrf",

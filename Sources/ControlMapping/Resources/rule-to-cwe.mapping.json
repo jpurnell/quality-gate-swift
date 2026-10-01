@@ -483,5 +483,13 @@
       "cwe/CWE-918"
     ],
     "posture": "partial"
+  },
+  {
+    "ruleId": "security.path-containment-by-prefix",
+    "satisfies": [
+      "cwe/CWE-22",
+      "cwe/CWE-187"
+    ],
+    "posture": "partial"
   }
 ]

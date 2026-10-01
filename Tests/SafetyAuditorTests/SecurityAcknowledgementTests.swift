@@ -24,7 +24,7 @@ struct SecurityAcknowledgementTests {
         ("security.sql-injection", #"try db.execute("SELECT * FROM t WHERE id = \(id)")"#),
         ("security.insecure-keychain", "let level = Security.kSecAttrAccessibleAlways"),
         ("security.tls-disabled", "config.allowsExpiredCertificates = true"),
-        ("security.path-traversal", "let exists = FileManager.default.fileExists(atPath: userPath)"),
+        ("security.path-traversal", "let data = FileManager.default.contents(atPath: base.appendingPathComponent(name).path)"),
         ("security.ssrf", "let target = URL(string: input)"),
         ("security.command-injection", """
             let task = Process()
