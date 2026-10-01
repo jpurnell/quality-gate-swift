@@ -81,6 +81,16 @@ jobs:
           command -v swiftc
           ls -d "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/host/plugins/testing 2>/dev/null || echo "  no plugin dir"
           ls -d "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/pm/ManifestAPI 2>/dev/null || echo "  no ManifestAPI dir"
+          echo "--- where do the macro plugins actually live?"
+          find / -name 'libTestingMacros*' -o -name '*TestingMacros*' 2>/dev/null | head -5 || true
+          echo "--- host/plugins, if it exists at all"
+          ls -la "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/host/plugins 2>/dev/null || echo "  no host/plugins dir either"
+          echo "--- does a fence using a Testing macro compile here?"
+          cd /tmp/probe && cat > macro.swift <<'SWIFT'
+          import Testing
+          @Test func sample() { #expect(1 == 1) }
+          SWIFT
+          swiftc -swift-version 6 -parse macro.swift 2>&1 | head -8 || true
 
       - name: Test
         run: |
