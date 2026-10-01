@@ -4,6 +4,7 @@ import ProcessKernel
 import QualityGateCore
 import Testing
 import CorpusKit
+import GateCI
 
 /// Phase 2 §4b — the tripwire end-to-end: a corpus seeded with a second
 /// writer must surface the standing warning in the very next gate run's
@@ -83,10 +84,25 @@ struct SecondWriterTripwireTests {
         return result.stdout
     }
 
-    /// The owner identity the gate run itself will record (its own telemetry
+    /// The person identity the gate run itself will record (its own telemetry
     /// lands in the corpus too — seeds must not accidentally add a person).
+    ///
+    /// Resolved the way ``WriterCensus`` resolves it, which is the whole point: the census
+    /// counts `ciIdentity?.actor ?? decisionOwner`, so under a provider-verified run the
+    /// gate's own record is filed under the CI actor and not under `USER`. This helper read
+    /// `USER` alone, so on GitHub Actions the seed landed as `local` while the gate's record
+    /// landed as the actor — two persons for one writer, and the single-writer fixture tripped
+    /// the very warning it exists to prove absent.
+    ///
+    /// It passed everywhere it had ever run, because it had only ever run where `USER` and the
+    /// configured owner happened to be the same string. Not a Linux defect: any GitHub Actions
+    /// job would have shown it, and Linux CI was simply the first to run this suite.
     private var currentUser: String {
-        ProcessInfo.processInfo.environment["USER"] ?? "local"
+        let environment = ProcessInfo.processInfo.environment
+        if let verified = CIIdentityProbe.detect(environment: environment) {
+            return verified.actor
+        }
+        return environment["USER"] ?? "local"
     }
 
     @Test("a seeded second writer trips the warning on the next gate run")

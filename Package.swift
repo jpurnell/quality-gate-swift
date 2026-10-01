@@ -1194,7 +1194,12 @@ let package = Package(
         // must produce byte-identical diagnostics (the parity guarantee).
         .testTarget(
             name: "CIParityTests",
-            dependencies: ["QualityGateCLI", "QualityGateCore", "QualityGateTestKit"]
+            // `GateCI` for `CIIdentityProbe`: the tripwire fixtures have to predict the
+            // identity the gate run will record, and under GitHub Actions that is the
+            // provider-verified actor rather than `USER`. Reimplementing that rule in the
+            // test is what made the fixture pass only on a machine whose username matched
+            // the repository's configured owner.
+            dependencies: ["QualityGateCLI", "QualityGateCore", "QualityGateTestKit", "GateCI"]
         ),
 
         // The IJS MCP server moved to its own package, `jpurnell/ijs-mcp-server`, on
