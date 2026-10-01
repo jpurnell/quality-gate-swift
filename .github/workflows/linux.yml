@@ -65,32 +65,36 @@ jobs:
       # nothing* or by attributing a compile error to the wrong article line — neither
       # of which can be reproduced on macOS, because both depend on what this platform's
       # swiftc actually prints. So ask it, and print the answer, before running the suite.
-      - name: Diagnose — what swiftc reports here
+      # The plugin-path theory is dead: libTestingMacros.so IS at host/plugins, the fix
+      # that adds it changed nothing, and the failure count held at 130. So stop inferring
+      # and run the real checker against a real article in this container, printing what it
+      # reports. Whatever the 58 doc-checker failures are, this is where it will say so.
+      - name: Diagnose — run doc-code against a real article here
         run: |
-          mkdir -p /tmp/probe && cd /tmp/probe
-          cat > main.swift <<'SWIFT'
-          import Foundation
-          func greet(name: String) -> String { "hello, \(name)" }
-          print(greet(person: "Ada"))
-          SWIFT
-          echo "--- swiftc --version"
           swiftc --version
-          echo "--- compiling a 3-line program whose error is on line 3"
-          swiftc -swift-version 6 main.swift -o /tmp/probe/out 2>&1 | head -20 || true
-          echo "--- toolchain layout the auditor probes for"
-          command -v swiftc
-          ls -d "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/host/plugins/testing 2>/dev/null || echo "  no plugin dir"
-          ls -d "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/pm/ManifestAPI 2>/dev/null || echo "  no ManifestAPI dir"
-          echo "--- where do the macro plugins actually live?"
-          find / -name 'libTestingMacros*' -o -name '*TestingMacros*' 2>/dev/null | head -5 || true
-          echo "--- host/plugins, if it exists at all"
-          ls -la "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/host/plugins 2>/dev/null || echo "  no host/plugins dir either"
-          echo "--- does a fence using a Testing macro compile here?"
-          cd /tmp/probe && cat > macro.swift <<'SWIFT'
-          import Testing
-          @Test func sample() { #expect(1 == 1) }
+          set -x
+          mkdir -p /tmp/pkg/Sources/Demo/Demo.docc && cd /tmp/pkg
+          cat > Package.swift <<'SWIFT'
+          // swift-tools-version: 6.0
+          import PackageDescription
+          let package = Package(name: "Demo", targets: [.target(name: "Demo")])
           SWIFT
-          swiftc -swift-version 6 -parse macro.swift 2>&1 | head -8 || true
+          cat > Sources/Demo/Demo.swift <<'SWIFT'
+          public func greet(name: String) -> String { "hello, \(name)" }
+          SWIFT
+          cat > Sources/Demo/Demo.docc/Guide.md <<'MD'
+          # Guide
+
+          ```swift
+          import Demo
+          print(greet(person: "Ada"))
+          ```
+          MD
+          swift build 2>&1 | tail -3
+          set +x
+          echo "=== doc-code against that article — it SHOULD report a wrong-label error"
+          /__w/quality-gate-swift/quality-gate-swift/.build/release/quality-gate \
+            --check doc-code --continue-on-failure 2>&1 | head -40 || true
 
       - name: Test
         run: |
