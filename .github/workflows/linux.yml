@@ -61,6 +61,17 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
+      # The README's install step copies the resource bundles beside the binary, because
+      # SwiftPM resolves them relative to the executable. On Darwin they are `.bundle`
+      # directories; this prints what they are called here, so the Linux instructions name
+      # what the build actually produces rather than what someone remembered.
+      - name: What the build produced, for the README's install step
+        run: |
+          echo "--- bundles/resources beside the binary"
+          ls -d .build/release/*.bundle .build/release/*.resources 2>/dev/null \
+            || echo "  neither .bundle nor .resources — look wider:"
+          ls .build/release/ | grep -iE 'bundle|resource' || true
+
       # The reproduction that found the cause, kept as the regression check. It used to
       # print
       #     error: could not run swiftc: ... The file doesn't exist.
