@@ -61,6 +61,27 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
+      # The doc checkers are 58 of the remaining failures and they fail by *finding
+      # nothing* or by attributing a compile error to the wrong article line — neither
+      # of which can be reproduced on macOS, because both depend on what this platform's
+      # swiftc actually prints. So ask it, and print the answer, before running the suite.
+      - name: Diagnose — what swiftc reports here
+        run: |
+          mkdir -p /tmp/probe && cd /tmp/probe
+          cat > main.swift <<'SWIFT'
+          import Foundation
+          func greet(name: String) -> String { "hello, \(name)" }
+          print(greet(person: "Ada"))
+          SWIFT
+          echo "--- swiftc --version"
+          swiftc --version
+          echo "--- compiling a 3-line program whose error is on line 3"
+          swiftc -swift-version 6 main.swift -o /tmp/probe/out 2>&1 | head -20 || true
+          echo "--- toolchain layout the auditor probes for"
+          command -v swiftc
+          ls -d "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/host/plugins/testing 2>/dev/null || echo "  no plugin dir"
+          ls -d "$(dirname "$(dirname "$(command -v swiftc)")")"/lib/swift/pm/ManifestAPI 2>/dev/null || echo "  no ManifestAPI dir"
+
       - name: Test
         run: |
           swift test \
