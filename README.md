@@ -143,7 +143,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/jpurnell/quality-gate-swift.git", from: "3.3.0"),
+    .package(url: "https://github.com/jpurnell/quality-gate-swift.git", from: "3.4.0"),
 ]
 ```
 

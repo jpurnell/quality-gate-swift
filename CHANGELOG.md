@@ -2,6 +2,134 @@
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-30
+
+**A passing verdict now means the whole roster ran.** A minor rather than a patch because that
+changes what a green run *means* on any adopted repository, and because a new checker and Linux
+support arrived alongside it.
+
+### Fixed
+
+- **The baseline ledger is applied before the stop decision, not after it.** This is the release.
+
+  `CheckerRunner` stops at the first checker returning `.failed` when `continueOnFailure` is off,
+  and it judges the result the `transform` hook returns. Overrides went through that hook; the
+  ledger did not — it ran afterwards, over the finished result set. So in any repository holding a
+  baseline, the checker carrying adopted debt **failed during the run and truncated it**, every
+  checker ordered after it never executed, and the ledger then rewrote that checker's verdict to
+  `.passed`. The run reported success over an unexamined majority.
+
+  BusinessMath showed it as `24 of 46 checkers · 22 NOT REACHED` under a tick. It now reports
+  `46 of 46`, and an adopted repository with no new findings **exits 0** instead of blocking.
+
+  Three things make this the worst shape a defect in this tool can take. It appears only in
+  repositories that have run `adopt`, so it cannot be reproduced in a clean one — BusinessMath,
+  SwiftExcelFunctions and SwiftCLIKit all adopted ledgers the same day and all three were exposed
+  at once. Its output is *reassuring*: a tick printed directly above a line reading "0 findings
+  from them means nothing". And the obvious recovery, `--check <one>`, works for the wrong reason —
+  a single-checker run has nothing after it to skip, so it cannot truncate at all.
+
+  Two commits, and the order matters. `41ff038` fixed the **reporter**: truncation is asked
+  before `allPassed`, an all-green truncated run reports INCOMPLETE, and `hasFailure` gains the
+  same condition so such a run cannot exit 0. That was correct and insufficient — the runner still
+  truncated, so `--continue-on-failure` remained mandatory to see past adopted debt. `6856db0`
+  fixed the **cause**: `BaselineLedger.applying(to:now:)` transforms a single result, so it
+  composes into the runner's per-result transform beside the override processor, upstream of the
+  stop decision. `summarise(_:)` counts dispositions by diagnostic origin off the
+  already-transformed results, so the summary cannot disagree with what the runner acted on.
+  `apply(ledger:to:now:)` keeps its signature and calls both.
+
+  Verified in deployed shape — the hook's own invocation, with the early exit enabled rather than
+  disabled by `--continue-on-failure`, which cannot detect a truncation bug at all:
+
+  | binary | `--check all` on BusinessMath |
+  |---|---|
+  | 3.3.0 | `✅ PASSED` · 17 of 46 · 24 NOT REACHED |
+  | 3.4.0 | `✅ PASSED` · **46 of 46** · 0 errors, 0 warnings |
+
+  The test that matters is the control, `newFindingStillTruncates`. Without it, "the ledger runs
+  before the stop decision" and "the stop decision is broken" produce identical green output.
+  Its first form asserted `outcome.truncation != nil`, which this tool's own weak-assertion rule
+  flagged — correctly, since that also passes when the runner stops at the *wrong* checker. It now
+  asserts `stoppedAt` and `unreached` by value.
+
+- **Eight Linux build failures cleared** — not the port finished. None of these are compilable on
+  macOS, so no local build could have predicted any of them: a split Foundation, the last unguarded Darwin import, four files a
+  rewrite could not see because `Logger(` wrapped across a line, an ambiguous `Logger` where two
+  packages both export one, bundled resources enumerated through an API only one Foundation has,
+  a buffer nothing wrote through, an autoreleasepool with no runtime to drain, and acceptance
+  tests that could not locate the binary they exercise.
+
+- **Findings this release's own changes introduced**, plus one they exposed.
+
+### Added
+
+- **`xctest-import`** — `import XCTest` in test code is an error. This package's tests are Swift
+  Testing: 3,602 `@Test` and 6,338 `#expect` against six files that still imported XCTest. The
+  convention held by habit because nothing checked it, and **all six exceptions were in the test
+  suite of the auditor for test quality** — the one place the rule was not kept.
+
+  It fires only on test code (a path containing `/Tests/`, or a file named `…Tests.swift`): a
+  helper target that links XCTest deliberately is not this rule's business, and flagging it is how
+  a rule teaches people to switch it off. It reports at the import rather than at each assertion,
+  because the import is the decision and 270 assertion sites would be a list rather than a task.
+  Its suggested fix carries the whole mapping, since the migration is mechanical.
+
+  The six files are converted: 222 test functions, ~270 assertions, `XCTUnwrap` → `#require`,
+  eleven `XCTestCase` classes → `@Suite` structs.
+
+- **A CI job that makes "it does not build on Linux" falsifiable — and it is still red.** Linux
+  is **not** supported as of this release; the README's "macOS only, today" stands unchanged and
+  earns it. What this release adds is the job, and eight cleared failures behind it.
+
+  Where the port actually stands, measured rather than hedged: **the library and the test target
+  both compile on Linux, and the full suite runs — and 130 of 3,411 tests fail.** 58 of those are
+  the four documentation checkers (`doc-code`, `doc-run`, `doc-claims`, `doc-comment-code`), which
+  all shell out to `swiftc` and fail as a group because toolchain and module search paths differ
+  in a container. Most of the rest are index-store locators looking for Xcode DerivedData, which
+  has no Linux equivalent. There is a tail beyond that which has not been characterised.
+
+  That is the point of having the job: the port's state is now a number one can read instead of a
+  claim one asserts. "Compiles and runs, 130 failing, 58 from one mechanism" is a position. "Should
+  work" is what this tool exists to catch.
+
+  103 files
+  wrote `#if canImport(os) / import os / #endif` and then used `Logger` unguarded — a guard that
+  covers the import and not the use, so on Linux the type is simply absent. Each guard becomes a
+  plain `import QualityGateLogging`, which re-exports Apple's `os` where it exists and supplies an
+  equivalent where it does not, so none of the 287 call sites or 443 privacy interpolations change.
+
+  Two files were left alone deliberately: `NarrativeChain` and `IndexTestCoverage` already guard
+  the declaration *and* every use inline, and `LoggingVisitor` names `Logger` only inside a string
+  literal it suggests to other projects. A rewrite that treated a fix message as a call site would
+  have been the checker misreading itself.
+
+  The job remains `workflow_dispatch` only, deliberately, until it is green: a red X on every push
+  to a public repository whose subject is code quality is worse than no signal, because it teaches
+  the reader to ignore the tick. The trigger becomes `push` in the same commit that turns it green,
+  not as a tidy-up nobody schedules — so the trigger itself records whether the port has landed.
+
+### Changed
+
+- **Every dependency resolves from a public URL.** This package was public and could not be built
+  by anyone but its author — four dependencies were private, so `swift build` after following the
+  README failed with "could not read Username for github.com". The CI canary was not flaky; it was
+  the only honest signal in the repository. `quality-gate-types` and `quality-gate-corpus-kit` are
+  public and MIT; `SwiftCLIKit` is published as `jpurnell/swift-cli-kit`; `SwiftMCPServer` is
+  removed outright, having been left behind by the 3.2.0 removal while building nothing.
+
+- **The README's four blocking claims are corrected** — macOS 14+ against a manifest declaring
+  `.macOS(.v15)`, Swift 6.0+ against `swift-tools-version: 6.2`, an install that copied the binary
+  without its resource bundles so the tool crashed on the README's own first example, and a
+  dependency pinned `from: "2.0.1"`, which SemVer resolves below 3.x.
+
+- Dependency floors: `quality-gate-types` 1.7.0, `quality-gate-corpus-kit` 1.20.0,
+  `swift-cli-kit` 1.4.2, BusinessMath 3.0.0-alpha.9.
+
+- **The parameter carrying an index build's fallback reason is documented.** It was undocumented,
+  so the barrier it feeds could not say why its own index was partial.
+
+
 ## [3.3.0] - 2026-09-29
 
 ### Added
@@ -2247,7 +2375,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...v3.2.0
