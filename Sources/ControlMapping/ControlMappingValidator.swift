@@ -17,7 +17,7 @@ public struct ControlMappingValidator: QualityChecker, Sendable {
     public let name = "Control Mapping Validator"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning"
+    public let summary = "Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.specialty

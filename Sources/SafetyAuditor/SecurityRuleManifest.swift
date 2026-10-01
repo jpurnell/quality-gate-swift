@@ -82,11 +82,13 @@ public enum SecurityRuleManifest {
         ),
         SecurityRule(
             ruleId: "security.weak-crypto",
-            cwe: "CWE-327",
+            // 328 (Use of Weak Hash), not its parent 327: the rule matches MD5 and SHA-1 and
+            // nothing else. 327 is for a cipher rule, when there is one.
+            cwe: "CWE-328",
             owaspCategory: "M10 Insufficient Cryptography",
             description: "Use of weak cryptographic hash (MD5/SHA1)",
             severity: "WARNING",
-            lastReviewedDate: "2026-04-14"
+            lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
             ruleId: "security.insecure-transport",
@@ -114,11 +116,14 @@ public enum SecurityRuleManifest {
         ),
         SecurityRule(
             ruleId: "security.insecure-keychain",
-            cwe: "CWE-311",
+            // 922 (Insecure Storage of Sensitive Information). It was 311, "missing
+            // encryption", which MITRE marks discouraged for mapping and which is not the
+            // defect: the item is encrypted, and readable while the device is locked.
+            cwe: "CWE-922",
             owaspCategory: "M9 Insecure Data Storage",
             description: "Deprecated insecure Keychain accessibility level",
             severity: "WARNING",
-            lastReviewedDate: "2026-04-14"
+            lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
             ruleId: "security.tls-disabled",
@@ -145,6 +150,18 @@ public enum SecurityRuleManifest {
             lastReviewedDate: "2026-04-14"
         ),
     ]
+
+    /// The CWE recorded for a rule, or `nil` when the manifest does not list it.
+    ///
+    /// A diagnostic that cites a CWE in its message takes it from here rather than spelling
+    /// it again, so the message, the manifest and the control mapping cannot name three
+    /// different weaknesses for one rule.
+    ///
+    /// - Parameter ruleId: The rule identifier, e.g. `"security.weak-crypto"`.
+    /// - Returns: The CWE identifier, e.g. `"CWE-328"`.
+    public static func cwe(for ruleId: String) -> String? {
+        rules.first { $0.ruleId == ruleId }?.cwe
+    }
 
     /// Returns rules whose review date has exceeded their staleness threshold.
     ///

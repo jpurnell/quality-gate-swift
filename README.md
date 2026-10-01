@@ -271,7 +271,7 @@ swift package plugin quality-gate
 |----|--------|-------------|
 <!-- generated:checker-table-specialty -->
 | `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference |
-| `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
+| `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 | `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |

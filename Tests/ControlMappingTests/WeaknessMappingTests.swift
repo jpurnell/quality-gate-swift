@@ -1,0 +1,118 @@
+import Foundation
+import Testing
+import SafetyAuditor
+@testable import ControlMapping
+
+/// CWE as a fourth catalogue.
+///
+/// The gate could not say which weaknesses it covers: CWE lived in one manifest of ten
+/// `security.*` rules, and every other rule that is plainly about a named weakness was
+/// untagged. Mapping rules to CWE through the machinery that already maps them to SOC 2,
+/// ISO 27001 and HIPAA makes the answer a computed one — including the half that matters,
+/// the weaknesses listed in the catalogue that no rule reaches.
+@Suite("Weakness mapping (CWE)")
+struct WeaknessMappingTests {
+
+    private func cweCatalog() throws -> ControlCatalog {
+        try #require(ControlMappingResources.catalogs().first { $0.framework == "cwe" })
+    }
+
+    private func cweMappings() -> [RuleControlMapping] {
+        ControlMappingResources.mappings().filter { mapping in
+            mapping.satisfies.contains { $0.framework == "cwe" }
+        }
+    }
+
+    private func matrix() -> [ControlCoverage] {
+        ComplianceCoverage.matrix(
+            catalogs: ControlMappingResources.catalogs(),
+            mappings: ControlMappingResources.mappings(),
+            knownRuleIds: ControlMappingResources.registryRuleIds()
+        ).filter { $0.framework == "cwe" }
+    }
+
+    // MARK: - The catalogue
+
+    @Test("the bundled CWE catalogue loads, attributed to MITRE")
+    func catalogLoads() throws {
+        let catalog = try cweCatalog()
+        #expect(catalog.source == "mitre")
+        #expect(catalog.sourceRef.contains("cwe.mitre.org"))
+        #expect(catalog.control(id: "CWE-476")?.title == "NULL Pointer Dereference")
+    }
+
+    /// An id that is not `CWE-<digits>` is a typo waiting to be cited in a report.
+    @Test("every catalogue entry is identified as CWE-<number>, once")
+    func idsAreWellFormed() throws {
+        let ids = try cweCatalog().controls.map(\.id)
+        #expect(Set(ids).count == ids.count, "a CWE is listed twice")
+        for id in ids {
+            let digits = id.dropFirst(4)
+            #expect(id.hasPrefix("CWE-") && !digits.isEmpty && digits.allSatisfy(\.isNumber),
+                    "'\(id)' is not of the form CWE-<number>")
+        }
+    }
+
+    // MARK: - The mapping
+
+    @Test("rules outside the security.* family are mapped")
+    func nonSecurityRulesAreMapped() {
+        let mapped = Set(cweMappings().map(\.ruleId))
+        for rule in ["force-unwrap", "fallback.int-conversion-unguarded",
+                     "liveness.unbounded-wait", "infinite-loop", "keychain-secrets"] {
+            #expect(mapped.contains(rule), "\(rule) has no CWE")
+        }
+    }
+
+    /// The manifest embeds a CWE in every security diagnostic's message. Two places that can
+    /// state a rule's weakness will, eventually, state two different ones.
+    @Test("the security manifest and the mapping name the same CWE for each rule")
+    func manifestAgreesWithMapping() throws {
+        let mappings = cweMappings()
+        for rule in SecurityRuleManifest.rules {
+            let mapping = try #require(
+                mappings.first { $0.ruleId == rule.ruleId },
+                "\(rule.ruleId) is in the manifest and has no CWE mapping")
+            let mappedIds = mapping.satisfies.filter { $0.framework == "cwe" }.map(\.controlId)
+            #expect(mappedIds.contains(rule.cwe),
+                    "\(rule.ruleId): manifest says \(rule.cwe), mapping says \(mappedIds)")
+        }
+    }
+
+    @Test("the shipped data, CWE included, has no phantom rule or control")
+    func shippedDataIsValid() {
+        let findings = ControlMappingValidator.validate(
+            mappings: ControlMappingResources.mappings(),
+            catalogs: ControlMappingResources.catalogs(),
+            knownRuleIds: ControlMappingResources.registryRuleIds(),
+            freshnessHorizonDays: 180,
+            today: "2026-10-01")
+        let errors = findings.filter { $0.severity == .error }.map(\.message)
+        #expect(errors.isEmpty, "\(errors)")
+    }
+
+    // MARK: - Coverage, which is the point
+
+    @Test("a weakness a rule reaches is reported as enforced, naming the rule")
+    func enforcedRow() throws {
+        let row = try #require(matrix().first { $0.controlId == "CWE-476" })
+        #expect(row.state == .enforced)
+        #expect(row.rules.contains("force-unwrap"))
+    }
+
+    /// The reason to list a weakness nothing checks: the report then says so, every run,
+    /// instead of the absence being something a person has to notice.
+    @Test("a listed weakness no rule reaches is reported as a gap")
+    func gapRow() throws {
+        let row = try #require(matrix().first { $0.controlId == "CWE-611" })
+        #expect(row.state == .gap)
+        #expect(row.rules.isEmpty)
+    }
+
+    @Test("the catalogue records gaps as well as coverage")
+    func catalogueIsNotOnlyWhatIsCovered() {
+        let rows = matrix()
+        #expect(rows.contains { $0.state == .enforced })
+        #expect(rows.contains { $0.state == .gap })
+    }
+}

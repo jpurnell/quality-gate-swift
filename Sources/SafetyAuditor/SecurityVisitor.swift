@@ -388,7 +388,7 @@ final class SecurityVisitor: SyntaxVisitor {
         return nil
     }
 
-    // MARK: Weak Crypto (CWE-327)
+    // MARK: Weak Crypto (CWE-328)
 
     private func checkWeakCrypto(_ node: FunctionCallExprSyntax) {
         guard isRuleEnabled("security.weak-crypto") else { return }
@@ -449,7 +449,7 @@ final class SecurityVisitor: SyntaxVisitor {
             guard !hasWeakCryptoJustification(line: location.line) else { return }
             diagnostics.append(Diagnostic(
                 severity: .warning,
-                message: "Use of weak cryptographic hash '\(algorithm)'. [CWE-327] "
+                message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto")) "
                     + "Add a `// Justification:` comment saying why it is correct here.",
                 filePath: fileName,
                 lineNumber: location.line,
@@ -464,7 +464,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: "Use of weak cryptographic hash '\(algorithm)'. [CWE-327]",
+            message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto"))",
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,
@@ -763,7 +763,7 @@ final class SecurityVisitor: SyntaxVisitor {
         }
     }
 
-    // MARK: Insecure Keychain (CWE-311)
+    // MARK: Insecure Keychain (CWE-922)
 
     private func checkInsecureKeychain(_ node: MemberAccessExprSyntax) {
         guard isRuleEnabled("security.insecure-keychain") else { return }
@@ -786,7 +786,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: "Insecure Keychain accessibility level '\(name)' — allows access when device is locked. [CWE-311]",
+            message: "Insecure Keychain accessibility level '\(name)' — allows access when device is locked. \(Self.citation("security.insecure-keychain"))",
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,
@@ -871,6 +871,15 @@ final class SecurityVisitor: SyntaxVisitor {
 
     private func containsInterpolation(_ literal: StringLiteralExprSyntax) -> Bool {
         literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
+    }
+
+    /// The bracketed CWE a diagnostic for `ruleId` cites, read from the manifest.
+    ///
+    /// Empty when the manifest does not list the rule: a message with no citation is honest,
+    /// and one carrying a number nobody recorded is not.
+    private static func citation(_ ruleId: String) -> String {
+        guard let cwe = SecurityRuleManifest.cwe(for: ruleId) else { return "" }
+        return "[\(cwe)]"
     }
 
     private func isExempted(line: Int) -> Bool {

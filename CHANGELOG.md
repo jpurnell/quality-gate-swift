@@ -31,13 +31,50 @@
   - `try` on a named comparison covered only its left side.
   - Optional operands could not take `isEqual(to:)`.
   - Two untyped array literals were ambiguous to `#expect`.
+- **CWE is a fourth catalogue, and the gate can now say which weaknesses it covers.** Until now
+  CWE lived in one place — `SecurityRuleManifest`, ten `security.*` rules drawn from the OWASP
+  *Mobile* Top 10 — and every other rule that is plainly about a named weakness was untagged.
+  `force-unwrap`, `fallback.int-conversion-unguarded`, `pointer-escape.*`, `liveness.unbounded-wait`:
+  none of them said so anywhere a report could read.
+
+  `cwe.catalog.json` and `rule-to-cwe.mapping.json` go through the machinery that already maps
+  rules to SOC 2, ISO 27001 and HIPAA, so nothing new validates them: a mapping to a rule that
+  does not exist, or to a CWE the catalogue does not list, is the same `control-mapping` error it
+  always was. 69 rules are mapped to 38 weaknesses.
+
+  The half that matters is the other one. The catalogue also lists **48 weaknesses no rule
+  reaches** — XXE, deserialisation, integer overflow, unchecked loop bounds, output encoding,
+  missing authentication and the rest — and `quality-gate compliance` reports each as `gap`, on
+  every run. Two more are listed as out of static reach. The absence of a rule is now a line in
+  a report rather than something a person has to notice.
+
+  Every id and title was fetched from cwe.mitre.org (CWE 4.20) on 2026-10-01; none is from
+  memory. Ids MITRE marks *Discouraged* or *Prohibited* for mapping are not used.
+
+### Changed
+
+- **`security.weak-crypto` is CWE-328, not 327.** The rule matches MD5 and SHA-1 and nothing
+  else; 328 is *Use of Weak Hash*, 327 is its parent class. The diagnostic's message changes
+  accordingly.
+- **`security.insecure-keychain` is CWE-922, not 311.** MITRE marks 311 (*Missing Encryption of
+  Sensitive Data*) discouraged for mapping, and it is not the defect: a keychain item with
+  `kSecAttrAccessibleAlways` is encrypted, and readable while the device is locked. The
+  diagnostic's message changes accordingly.
+- **A security diagnostic takes its CWE from the manifest.** Both messages above spelled the
+  number in a string literal, so the manifest, the message and now the mapping were three places
+  to state one fact. `SecurityRuleManifest.cwe(for:)` is the one the message reads, and a test
+  holds the manifest and the mapping to each other.
 
 ### Fixed
-
 - **`control-mapping` logs when it cannot list its own resources.** Its `try?` carried a
   three-line `// silent:` justification that the logging auditor does not read, so the gate
   reported it. It now catches and logs, as `decode` beside it already did, and still returns
   no mappings.
+- **`rule-registry.json` was missing 21 rule ids the gate emits** — `fallback.*`, `liveness.*`,
+  `bounded-io.*`, `gpu.*`, `fatal-error`, `precondition`, `assertion-failure`, `newline-split`,
+  `unasserted-optional-unwrap`, `hig.secure-field`. The registry exists so a mapping cannot cite
+  a rule that does not exist; a registry that does not list a rule that *does* makes that rule
+  unmappable, and nothing reported it because nothing had tried.
 
 ## [3.4.0] - 2026-09-30
 

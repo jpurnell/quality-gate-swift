@@ -1,0 +1,486 @@
+[
+  {
+    "ruleId": "force-unwrap",
+    "satisfies": [
+      "cwe/CWE-476"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "unasserted-optional-unwrap",
+    "satisfies": [
+      "cwe/CWE-476"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "force-cast",
+    "satisfies": [
+      "cwe/CWE-704"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "force-try",
+    "satisfies": [
+      "cwe/CWE-248"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fatal-error",
+    "satisfies": [
+      "cwe/CWE-617"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "precondition",
+    "satisfies": [
+      "cwe/CWE-617"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "assertion-failure",
+    "satisfies": [
+      "cwe/CWE-617"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "unowned",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "infinite-loop",
+    "satisfies": [
+      "cwe/CWE-835"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fallback.int-conversion-unguarded",
+    "satisfies": [
+      "cwe/CWE-681"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fallback.clamp-absorbs-nan",
+    "satisfies": [
+      "cwe/CWE-754"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fallback.classification-omits-nan",
+    "satisfies": [
+      "cwe/CWE-754"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "fp-division-unguarded",
+    "satisfies": [
+      "cwe/CWE-369"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.return-from-with-block",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.assigned-to-outer-capture",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.stored-in-property",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.appended-to-outer-collection",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.passed-as-inout",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.stored-closure-captures-pointer",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.captured-by-escaping-closure",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.opaque-roundtrip",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "pointer-escape.unmanaged-retain-leak",
+    "satisfies": [
+      "cwe/CWE-401"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "concurrency.sendable-class-mutable-state",
+    "satisfies": [
+      "cwe/CWE-567"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "concurrency.sendable-class-non-sendable-property",
+    "satisfies": [
+      "cwe/CWE-567"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "concurrency.sendable-non-sendable-stored-property",
+    "satisfies": [
+      "cwe/CWE-567"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "concurrency.sendable-crosses-isolation",
+    "satisfies": [
+      "cwe/CWE-567"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "concurrency.task-captures-self-no-isolation",
+    "satisfies": [
+      "cwe/CWE-820"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "liveness.unbounded-wait",
+    "satisfies": [
+      "cwe/CWE-833"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "process.wait-before-read",
+    "satisfies": [
+      "cwe/CWE-833"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.computed-property-self",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.convenience-init-self",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.setter-self",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.subscript-self",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.subscript-setter-self",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.protocol-extension-default-self",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.mutual-cycle",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "recursion.unconditional-self-call",
+    "satisfies": [
+      "cwe/CWE-674"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "keychain-secrets",
+    "satisfies": [
+      "cwe/CWE-312"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.missing-privacy",
+    "satisfies": [
+      "cwe/CWE-532"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.print-statement",
+    "satisfies": [
+      "cwe/CWE-489"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.catch-without-logging",
+    "satisfies": [
+      "cwe/CWE-390"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "logging.silent-try",
+    "satisfies": [
+      "cwe/CWE-390"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "lifecycle-unbounded-stream",
+    "satisfies": [
+      "cwe/CWE-770"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "lifecycle-loop-array-growth",
+    "satisfies": [
+      "cwe/CWE-770"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "lifecycle-strong-delegate",
+    "satisfies": [
+      "cwe/CWE-401"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "lifecycle-delegate-retained-elsewhere",
+    "satisfies": [
+      "cwe/CWE-401"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "lifecycle-task-no-cancel",
+    "satisfies": [
+      "cwe/CWE-772"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "lifecycle-task-no-deinit",
+    "satisfies": [
+      "cwe/CWE-772"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "gpu.unbounded-thread-id",
+    "satisfies": [
+      "cwe/CWE-125",
+      "cwe/CWE-787"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "gpu.unchecked-command-buffer",
+    "satisfies": [
+      "cwe/CWE-252"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "dep-branch-pin",
+    "satisfies": [
+      "cwe/CWE-829"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "dep-unresolved",
+    "satisfies": [
+      "cwe/CWE-494"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "context.missing-consent-guard",
+    "satisfies": [
+      "cwe/CWE-280"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "hig.secure-field",
+    "satisfies": [
+      "cwe/CWE-549"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "unreachable.after_terminator",
+    "satisfies": [
+      "cwe/CWE-561"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "unreachable.dead_branch",
+    "satisfies": [
+      "cwe/CWE-561"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "unreachable.unused_private",
+    "satisfies": [
+      "cwe/CWE-561"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "unreachable.cross_module.unreachable_from_entry",
+    "satisfies": [
+      "cwe/CWE-561"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.hardcoded-secret",
+    "satisfies": [
+      "cwe/CWE-798"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.command-injection",
+    "satisfies": [
+      "cwe/CWE-78"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.weak-crypto",
+    "satisfies": [
+      "cwe/CWE-328"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.insecure-transport",
+    "satisfies": [
+      "cwe/CWE-319"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.eval-js",
+    "satisfies": [
+      "cwe/CWE-95"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.sql-injection",
+    "satisfies": [
+      "cwe/CWE-89"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.insecure-keychain",
+    "satisfies": [
+      "cwe/CWE-922"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.tls-disabled",
+    "satisfies": [
+      "cwe/CWE-295"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.path-traversal",
+    "satisfies": [
+      "cwe/CWE-22"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.ssrf",
+    "satisfies": [
+      "cwe/CWE-918"
+    ],
+    "posture": "partial"
+  }
+]

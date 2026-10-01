@@ -87,7 +87,22 @@ struct SecurityVisitorTests {
         #expect(diag?.message.contains("CWE-78") == true)
     }
 
-    // MARK: - Weak Crypto (CWE-327)
+    // MARK: - Weak Crypto (CWE-328)
+
+    /// CWE-327 is the class; MD5 and SHA-1 are hashes, and MITRE's entry for that is 328.
+    /// The message takes its CWE from the manifest so the two cannot disagree again.
+    @Test("Weak-hash diagnostic cites the CWE the manifest records")
+    func weakCryptoCitesManifestCWE() async throws {
+        let code = """
+        CC_MD5(data, len, &digest)
+        """
+
+        let result = try await auditCode(code)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "security.weak-crypto" })
+        let recorded = try #require(SecurityRuleManifest.cwe(for: "security.weak-crypto"))
+        #expect(recorded == "CWE-328")
+        #expect(diag.message.contains("[\(recorded)]"))
+    }
 
     @Test("Detects CC_MD5 usage")
     func detectsCCMD5() async throws {
@@ -356,7 +371,15 @@ struct SecurityVisitorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
     }
 
-    // MARK: - Insecure Keychain (CWE-311)
+    // MARK: - Insecure Keychain (CWE-922)
+
+    /// CWE-311 is "missing encryption", which MITRE discourages for mapping and which is not
+    /// what this is: the item is encrypted, and readable while the device is locked.
+    @Test("The keychain rule is recorded under insecure storage, not missing encryption")
+    func insecureKeychainCWE() {
+        #expect(SecurityRuleManifest.cwe(for: "security.insecure-keychain") == "CWE-922")
+        #expect(SecurityRuleManifest.cwe(for: "no.such-rule") == nil)
+    }
 
     @Test("Detects kSecAttrAccessibleAlways")
     func detectsInsecureKeychain() async throws {
