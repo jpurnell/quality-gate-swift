@@ -369,7 +369,7 @@ public enum ArticleRunner {
     /// reported in full by `doc-code`; repeating the whole diagnostic wall would double-count
     /// every article that does not compile and bury the ones that compile and die.
     static func build(source: URL, executable: URL, options: DocRunOptions) -> String? {
-        var arguments = ["swiftc", source.path, "-o", executable.path, "-diagnostic-style=llvm"]
+        var arguments = [source.path, "-o", executable.path, "-diagnostic-style=llvm"]
         if let moduleSearchPath = options.audit.moduleSearchPath {
             arguments += ["-I", moduleSearchPath]
         }
@@ -409,7 +409,7 @@ public enum ArticleRunner {
     ///
     /// Libraries are derived from the imports rather than configured, because the import
     /// list is already the authoritative statement of what the article depends on. A module
-    /// with no static archive beside it — a system framework, a header-only shim — simply
+    /// with no built library beside it — a system framework, a header-only shim — simply
     /// contributes no `-l`, which is the correct answer rather than a link error.
     static func linkArguments(
         imports: [String], searchPaths: [String], source: String
@@ -422,7 +422,11 @@ public enum ArticleRunner {
         let manager = FileManager.default
         for module in imports where module != "Foundation" {
             let found = searchPaths.contains { path in
-                ["a", "dylib", "tbd"].contains { suffix in
+                // `so` belongs here for the same reason `dylib` does: a SwiftPM package whose
+                // product is dynamic builds `lib<Module>.so` on Linux. Without it the module
+                // contributes no `-l`, the article fails to link, and `undefined symbol` reads
+                // like an article importing something it should not.
+                ["a", "dylib", "tbd", "so"].contains { suffix in
                     // SAFETY: CLI tool looks for the project's own built library
                     manager.fileExists(atPath: path + "/lib\(module).\(suffix)")
                 }
@@ -560,13 +564,24 @@ public enum ArticleRunner {
             : .exited(process.terminationStatus)
     }
 
-    /// Runs `xcrun` with `arguments`, returning its combined output and status.
+    /// Runs the resolved Swift compiler with `arguments`, returning its combined output and
+    /// status.
+    ///
+    /// The compiler comes from ``Toolchain/compiler()`` rather than from a hardcoded
+    /// `/usr/bin/xcrun`, which exists only on Darwin. A non-zero status with an `error:` line
+    /// is the shape the caller already parses, so an unresolvable toolchain arrives as a
+    /// tooling error and not as a compilation failure attributed to the article.
     static func capture(arguments: [String]) -> (status: Int32, text: String) {
+        guard let compiler = Toolchain.compiler() else {
+            logger.error("No Swift compiler could be resolved; nothing was compiled")
+            return (1, "error: no Swift compiler found: looked on PATH and, on Darwin, via xcrun")
+        }
         do {
-            // SAFETY: subprocess with `/usr/bin/xcrun swiftc` over a file this checker just
+            // SAFETY: subprocess with the resolved `swiftc` over a file this checker just
             // wrote into its own temporary directory
             let result = try ProcessRunner.run(
-                "/usr/bin/xcrun", arguments: arguments, mergeStderr: true, timeout: 300)
+                compiler.executable, arguments: compiler.arguments(arguments),
+                mergeStderr: true, timeout: 300)
             return (result.exitCode, result.stdout)
         } catch {
             logger.error("Could not run swiftc: \(error.localizedDescription, privacy: .public)")

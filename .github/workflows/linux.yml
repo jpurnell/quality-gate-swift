@@ -61,14 +61,16 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
-      # The doc checkers are 58 of the remaining failures and they fail by *finding
-      # nothing* or by attributing a compile error to the wrong article line — neither
-      # of which can be reproduced on macOS, because both depend on what this platform's
-      # swiftc actually prints. So ask it, and print the answer, before running the suite.
-      # The plugin-path theory is dead: libTestingMacros.so IS at host/plugins, the fix
-      # that adds it changed nothing, and the failure count held at 130. So stop inferring
-      # and run the real checker against a real article in this container, printing what it
-      # reports. Whatever the 58 doc-checker failures are, this is where it will say so.
+      # The reproduction that found the cause, kept as the regression check. It used to
+      # print
+      #     error: could not run swiftc: ... The file doesn't exist.
+      # against Guide.md line 1, because both compile sites invoked a hardcoded
+      # `/usr/bin/xcrun` — a Darwin-only file. It should now report the actual defect in
+      # the article: a call to `greet(person:)` against `greet(name:)`, on the fence line.
+      #
+      # Two theories were committed before this one and neither moved the count off 130:
+      # article line mapping, then the macro plugin path. Both were inferred from a single
+      # absent directory rather than from the checker's own output. Hence this step.
       - name: Diagnose — run doc-code against a real article here
         run: |
           swiftc --version
@@ -95,6 +97,20 @@ jobs:
           echo "=== doc-code against that article — it SHOULD report a wrong-label error"
           /__w/quality-gate-swift/quality-gate-swift/.build/release/quality-gate \
             --check doc-code --continue-on-failure 2>&1 | head -40 || true
+
+      # The remaining 12 failures are all in the index-store tier, which hardcodes
+      # `libIndexStore.dylib` and resolves it through `xcrun --find swift` and DerivedData.
+      # Before writing a port, establish what this platform actually ships and where — a
+      # fix for a library that is not in the container would be the third inferred fix in
+      # a row.
+      - name: Diagnose — does libIndexStore exist here, and under what name?
+        run: |
+          echo "--- any libIndexStore, by any extension"
+          find / -name 'libIndexStore*' 2>/dev/null || true
+          echo "--- what the Darwin path would have been"
+          ls -la /usr/lib/libIndexStore.dylib 2>/dev/null || echo "  absent, as expected off Darwin"
+          echo "--- is xcrun present at all"
+          command -v xcrun || echo "  no xcrun, as expected"
 
       - name: Test
         run: |

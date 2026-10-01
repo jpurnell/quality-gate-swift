@@ -192,7 +192,7 @@ public enum ArticleAuditor {
     static func typecheck(
         _ source: URL, options: DocCodeAuditOptions
     ) -> (errors: [RawError], barrier: String?) {
-        var arguments = ["swiftc", "-typecheck", source.path, "-diagnostic-style=llvm"]
+        var arguments = ["-typecheck", source.path, "-diagnostic-style=llvm"]
         if let moduleSearchPath = options.moduleSearchPath {
             arguments += ["-I", moduleSearchPath]
         }
@@ -205,12 +205,20 @@ public enum ArticleAuditor {
         arguments += options.toolchainFlags
         arguments += options.languageFlags
 
+        guard let compiler = Toolchain.compiler() else {
+            logger.error("No Swift compiler could be resolved; \(source.lastPathComponent, privacy: .public) was not typechecked")
+            return ([RawError(
+                line: 1,
+                message: "no Swift compiler found: looked on PATH and, on Darwin, via xcrun")], nil)
+        }
+
         let output: String
         do {
-            // SAFETY: subprocess with `/usr/bin/xcrun swiftc -typecheck` over a file this
+            // SAFETY: subprocess with the resolved `swiftc -typecheck` over a file this
             // checker just wrote into its own temporary directory
             let result = try ProcessRunner.run(
-                "/usr/bin/xcrun", arguments: arguments, mergeStderr: true, timeout: 300)
+                compiler.executable, arguments: compiler.arguments(arguments),
+                mergeStderr: true, timeout: 300)
             output = result.stdout
         } catch {
             logger.error("Could not run swiftc to typecheck \(source.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
