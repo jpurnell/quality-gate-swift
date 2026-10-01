@@ -353,27 +353,23 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         }
     }
 
+    /// The index-store library, resolved the way every other index-backed checker resolves it.
+    ///
+    /// This was a second implementation: `xcrun --find swift`, then
+    /// `usr/lib/libIndexStore.dylib`, both written in as literals. Seven other checkers —
+    /// `concurrency`, `recursion`, `complexity`, `doc-coverage`, `memory-lifecycle`,
+    /// `legibility` — already went through ``IndexStoreSession/findLibIndexStore()``, and this
+    /// one did not, so teaching that function about Linux fixed every checker except the one
+    /// whose tests were failing. The duplicate is the reason: a second copy of a resolution
+    /// does not announce itself when the first is corrected.
+    ///
+    /// Kept as a thin adapter rather than deleted so the throwing contract and
+    /// ``ToolchainError`` stay as callers expect.
     static func locateLibIndexStore() throws -> URL {
-        // `xcrun --find swift` → /…/usr/bin/swift
-        // libIndexStore lives at        /…/usr/lib/libIndexStore.dylib
-        // SAFETY: runs xcrun --find swift to locate the toolchain
-        let result = try ProcessRunner.run(
-            "/usr/bin/xcrun",
-            arguments: ["--find", "swift"]
-        )
-        guard result.exitCode == 0 else { throw ToolchainError.libIndexStoreNotFound }
-        let path = result.stdout
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { throw ToolchainError.libIndexStoreNotFound }
-        // /…/usr/bin/swift -> /…/usr/lib/libIndexStore.dylib
-        let usr = URL(fileURLWithPath: path)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let dylib = usr.appendingPathComponent("lib/libIndexStore.dylib")
-        guard FileManager.default.fileExists(atPath: dylib.path) else { // SAFETY: CLI tool checks local toolchain library
+        guard let library = IndexStoreSession.findLibIndexStore() else {
             throw ToolchainError.libIndexStoreNotFound
         }
-        return dylib
+        return library
     }
 
     /// Returns a `module name → target type` map from `swift package
