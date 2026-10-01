@@ -65,10 +65,23 @@ public enum Toolchain {
                 .deletingLastPathComponent()          // …/usr/bin
                 .deletingLastPathComponent()          // …/usr
 
-            let plugins = usr.appendingPathComponent("lib/swift/host/plugins/testing").path
-            // SAFETY: CLI tool probes the toolchain's own plugin directory
-            if FileManager.default.fileExists(atPath: plugins) {
-                flags += ["-plugin-path", plugins]
+            // Two layouts, because the macro plugins do not live in the same place on every
+            // platform. An Xcode toolchain nests them under `plugins/testing`; a swift.org
+            // Linux toolchain puts them directly in `plugins`. Probing only the first meant
+            // `-plugin-path` was silently omitted on Linux — and silently is the problem:
+            // every fence using a Swift Testing macro then fails to expand, `doc-claims`
+            // cannot compile the assertions it injects, and the checker reports no claims
+            // rather than reporting that it could not check them. Measured in CI: the
+            // container has `/usr/lib/swift/pm/ManifestAPI` but no `host/plugins/testing`.
+            //
+            // Both are added when both exist. A path that is not there contributes nothing,
+            // and the compiler ignores a `-plugin-path` it finds no plugins in.
+            for candidate in ["lib/swift/host/plugins/testing", "lib/swift/host/plugins"] {
+                let plugins = usr.appendingPathComponent(candidate).path
+                // SAFETY: CLI tool probes the toolchain's own plugin directory
+                if FileManager.default.fileExists(atPath: plugins) {
+                    flags += ["-plugin-path", plugins]
+                }
             }
 
             // `PackageDescription` ships beside the toolchain rather than in the SDK, so it
