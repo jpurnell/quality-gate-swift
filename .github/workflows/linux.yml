@@ -137,6 +137,23 @@ jobs:
           echo "--- decisionOwner visible from the repo root"
           grep -n 'decisionOwner' .quality-gate.yml || echo "  none"
 
+      # The last failing test. `unreachable` flags `deadInExe` here through the intra-file
+      # rule but not through the cross-module one, and only for the *executable* target —
+      # the library module's dead symbols are all found. macOS reports both rules for the
+      # same fixture, so this is a real platform difference and not a fixture defect.
+      # Printing the checker's own output and the target-type map it works from, because the
+      # three theories available from reading the source are all equally plausible and this
+      # session has already paid twice for choosing between those by intuition.
+      - name: Diagnose — why does cross-module miss the executable target here?
+        run: |
+          cd Tests/UnreachableCodeAuditorTests/Fixtures/CrossModuleFixture
+          echo "--- what swift package describe reports for target types"
+          swift package describe --type json 2>/dev/null \
+            | grep -E '"name"|"type"|"module_type"' | head -30 || echo "  describe failed"
+          echo "--- the checker's own findings for this fixture"
+          /__w/quality-gate-swift/quality-gate-swift/.build/release/quality-gate \
+            --check unreachable --continue-on-failure 2>&1 | head -40 || true
+
       - name: Test
         run: |
           swift test \

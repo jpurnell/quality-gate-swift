@@ -10,15 +10,22 @@
 
 - **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
 - **Swift 6.2+** — the manifest is `swift-tools-version: 6.2`; earlier toolchains cannot parse it.
-- **macOS only, today.** Linux is not supported and not tested. `indexstore-db`'s
-  `Concurrency-Mac.cpp` includes `<dispatch/dispatch.h>` with no platform guard, so a Linux
-  build fails there; `IndexStoreInfra` is depended on too widely to exclude, so there is no
-  Linux subset to fall back to. The Swift sources guard every `import os` behind
-  `canImport(os)`, so the intent is there — but those paths have never been compiled, and
-  saying "should work" about code nothing has built would be the kind of claim this tool
-  exists to catch.
+- **Linux: builds, tests and runs on Swift 6.2.** 3,595 of the 3,596 tests pass in the
+  official `swift:6.2` container; the one gap is noted under [Honest limits](#honest-limits). macOS is still the
+  platform every release is cut against, and the one to pick if you have a choice. See
+  [Install on Linux](#linux) for the two build flags it needs and what is known to differ.
+
+  This entry used to read "macOS only, today — Linux is not supported and not tested", on the
+  grounds that `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. That
+  much was true; the conclusion was not. The toolchain ships the header, just not on the
+  default include path, so the build needs two `-Xcxx` flags rather than a port of a C++
+  dependency. The rest of the gap was a handful of Darwin names written in as literals —
+  `/usr/bin/xcrun` as the compiler, `libIndexStore.dylib` as the library — each in a code path
+  macOS always takes and nothing else ever had.
 
 ## Install
+
+### macOS
 
 ```bash
 git clone https://github.com/jpurnell/quality-gate-swift.git
@@ -30,6 +37,33 @@ swift build -c release
 # "couldn't find bundle named quality-gate-swift_ControlMapping".
 sudo cp .build/release/quality-gate /usr/local/bin/
 sudo cp -R .build/release/quality-gate-swift_*.bundle /usr/local/bin/
+```
+
+### Linux
+
+Tested on the official `swift:6.2` container. Both `-Xcxx` flags are required, not optional:
+`indexstore-db`'s C++ sources include `<dispatch/dispatch.h>` and `Block.h` with no platform
+guard, and the Swift toolchain ships both headers — just not on the default include path.
+Without them the build fails in a C++ dependency, which is where the "macOS only" claim in
+this README came from for longer than it was true.
+
+```bash
+git clone https://github.com/jpurnell/quality-gate-swift.git
+cd quality-gate-swift
+swift build -c release \
+  -Xcxx -I/usr/lib/swift \
+  -Xcxx -I/usr/lib/swift/Block
+
+# Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
+# `.resources` directories here, not `.bundle`.
+sudo cp .build/release/quality-gate /usr/local/bin/
+sudo cp -R .build/release/quality-gate-swift_*.resources /usr/local/bin/
+```
+
+Run the same way on both:
+
+```bash
+quality-gate --check safety --check concurrency
 ```
 
 ## First run
@@ -406,6 +440,22 @@ Each checker is an independent module — depend on only what you need:
 **It is slower than a linter.** Some checkers need a full build; `unreachable` needs an index store.
 
 **Some checkers need project context you may not have.** `status` reads a project plan from a configured path and reports unavailable rather than passing when it cannot find one.
+
+**One checker is weaker on Linux than on macOS.** `unreachable`'s cross-module pass does not
+yet flag an unreferenced symbol in an *executable* target there: the same symbol is still
+caught by the intra-file rule, so it is not missed, but it arrives as a warning about one file
+rather than as "unreachable from any entry point". Library targets are unaffected. This is the
+single failing test in the Linux suite, and it is listed here rather than left for a reader to
+discover because a checker that is quieter on one platform is exactly the kind of thing this
+tool exists to make visible.
+
+**Linux is newer than the rest of this.** It builds, the suite runs, and the checkers work —
+but macOS has years of use behind it and Linux has days. The Linux job is
+[`linux.yml`](.github/workflows/linux.yml); if something misfires there specifically, say so
+in the issue, because the two platforms have already diverged in ways neither the compiler nor
+the test suite caught on its own: `appendingPathComponent(_:)` consults the filesystem on
+Linux and not on Darwin, and a checker that could not find its index store reported **passed**
+rather than reporting that it had not looked.
 
 ## License
 
