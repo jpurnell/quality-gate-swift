@@ -1,0 +1,129 @@
+import FloatingPointSafetyAuditor
+import Foundation
+import QualityGateCore
+import SwiftParser
+import SwiftSyntax
+
+/// Converts one XCTest file to Swift Testing, and says what it could not convert.
+///
+/// The conversion works on the syntax tree rather than the text. Both converters written
+/// before this one were text-based. One rewrote a class declaration inside a test's fixture
+/// string (`1edc66e`); the other turned `testRepeat` into the keyword `repeat`. A string
+/// literal is a single token here, and a token is only renamed where the tree says it is a
+/// name.
+///
+/// ## Checked before anything is written
+///
+/// A conversion is only offered for writing if three things hold (see ``Outcome``):
+/// - **No test is orphaned.** XCTest discovers tests by name, Swift Testing by attribute. A
+///   `func test*` that loses its way to `@Test` does not fail; it stops running.
+/// - **The output parses.**
+/// - **The output does not contain the finding the gate would report next.** A converted
+///   `XCTAssertEqual` on `Double` is `#expect(a == b)`, which `exact-double-equality`
+///   rejects. The gate's own detector is run over the output, and each site it flags becomes
+///   `a.isEqual(to: b)`: the exact claim `XCTAssertEqual` made, now named, never loosened.
+///
+/// What needs judgement (an `XCTSkip`, an expectation, a `measure` block) is left in place
+/// and reported in ``Outcome/residue``.
+enum XCTestMigration {
+
+    /// One file's conversion.
+    struct Outcome: Sendable {
+        /// The converted source.
+        let output: String
+        /// What was left for a person, one finding per site, at its line in the input.
+        let residue: [Diagnostic]
+        /// `func test*()` methods in `XCTestCase` subclasses, before.
+        let testsBefore: Int
+        /// `@Test` functions the conversion added.
+        let testsAfter: Int
+        /// Whether the output parses without errors.
+        let parses: Bool
+
+        /// The orphan check and the parse check together.
+        var isSafeToWrite: Bool { parses && testsAfter == testsBefore }
+    }
+
+    /// Converts `source`, reporting residue against `fileName`.
+    static func migrate(source: String, fileName: String) -> Outcome {
+        let tree = Parser.parse(source: source)
+        let analysis = MigrationAnalysis(tree: tree, fileName: fileName)
+        let converted = MigrationRenderer(analysis: analysis).render(Syntax(tree))
+        let named = namingExactFloatComparisons(in: converted, fileName: fileName)
+
+        let outputTree = Parser.parse(source: named)
+        return Outcome(
+            output: named,
+            residue: analysis.residue,
+            testsBefore: analysis.testMethodCount,
+            testsAfter: testAttributeCount(outputTree) - testAttributeCount(tree),
+            parses: !outputTree.hasError)
+    }
+
+    // MARK: - Verification
+
+    private static func testAttributeCount(_ tree: SourceFileSyntax) -> Int {
+        TestAttributeCounter(viewMode: .sourceAccurate).count(in: tree)
+    }
+
+    // MARK: - Self-consistency with the gate
+
+    /// Rewrites each exact float comparison the gate would flag into a named comparison.
+    ///
+    /// Asks `FloatingPointRules`, the detector `exact-double-equality` itself uses, rather
+    /// than guessing at types: a conversion that disagreed with the gate about what is a
+    /// float would hand back a file the gate rejects.
+    private static func namingExactFloatComparisons(in source: String, fileName: String) -> String {
+        let tree = Parser.parse(source: source)
+        let findings = FloatingPointRules.audit(
+            source: source,
+            fileName: fileName,
+            options: .testAssertions(extraSuppressionMarkers: []),
+            parsedTree: tree
+        ).diagnostics
+        guard !findings.isEmpty else { return source }
+
+        let converter = SourceLocationConverter(fileName: fileName, tree: tree)
+        var edits: [(range: Range<Int>, text: String)] = []
+        for finding in findings {
+            guard let line = finding.lineNumber, let column = finding.columnNumber else { continue }
+            let position = converter.position(ofLine: line, column: column)
+            guard let edit = NamedComparison.edit(
+                at: position, in: tree, elementwise: finding.message.contains("collections"))
+            else { continue }
+            if !edits.contains(where: { $0.range.overlaps(edit.range) }) {
+                edits.append(edit)
+            }
+        }
+        var bytes = Array(source.utf8)
+        for edit in edits.sorted(by: { $0.range.lowerBound > $1.range.lowerBound }) {
+            bytes.replaceSubrange(edit.range, with: Array(edit.text.utf8))
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+}
+
+/// Counts functions carrying `@Test`.
+private final class TestAttributeCounter: SyntaxVisitor {
+    private var total = 0
+
+    func count(in tree: SourceFileSyntax) -> Int {
+        total = 0
+        walk(tree)
+        return total
+    }
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        if node.attributes.contains(where: { $0.as(AttributeSyntax.self)?.isNamed("Test") == true }) {
+            total += 1
+        }
+        return .visitChildren
+    }
+}
+
+extension AttributeSyntax {
+    /// Whether this attribute is `@name`, ignoring arguments.
+    func isNamed(_ name: String) -> Bool {
+        attributeName.trimmedDescription == name
+    }
+}

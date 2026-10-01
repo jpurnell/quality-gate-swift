@@ -1,0 +1,468 @@
+import Foundation
+import Testing
+@testable import TestQualityAuditor
+import QualityGateCore
+
+/// `--fix` for `xctest-import`: one XCTest file in, one Swift Testing file out.
+///
+/// Each mapping row in `plans/proposals/XCTestMigrationFix.md` §4 has a case here, and so has
+/// every way the two hand-written converters that preceded this one went wrong. Those are
+/// the cases that matter most: a converter that handles the table and fails on a fixture
+/// string or a test named `testRepeat` has already been written twice.
+@Suite("xctest-import --fix")
+struct XCTestMigrationTests {
+
+    private func migrate(_ source: String) -> XCTestMigration.Outcome {
+        XCTestMigration.migrate(source: source, fileName: "Tests/ThingTests/ThingTests.swift")
+    }
+
+    private func output(_ source: String) -> String {
+        migrate(source).output
+    }
+
+    /// A test file around `body`, so each case states only the part it is about.
+    private func file(_ body: String) -> String {
+        """
+        import XCTest
+
+        final class ThingTests: XCTestCase {
+        \(body)
+        }
+
+        """
+    }
+
+    private func expected(_ body: String) -> String {
+        """
+        import Foundation
+        import Testing
+
+        @Suite struct ThingTests {
+        \(body)
+        }
+
+        """
+    }
+
+    // MARK: - Shape
+
+    @Test("The import, the class and a test method convert together")
+    func shape() {
+        let source = file("""
+            func testItWorks() {
+                XCTAssertTrue(true)
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func itWorks() {
+                #expect(true)
+            }
+        """))
+    }
+
+    @Test("A method that is not a test keeps its name and gains no attribute")
+    func helpersAreLeftAlone() {
+        let source = file("""
+            private func make() -> Int { 1 }
+            func testable(_ x: Int) {}
+        """)
+        #expect(output(source) == expected("""
+            private func make() -> Int { 1 }
+            func testable(_ x: Int) {}
+        """))
+    }
+
+    @Test("A lowered name that is a keyword keeps its prefix (SwiftExcelFunctions: testRepeat)")
+    func keywordNamesKeepThePrefix() {
+        let source = file("""
+            func testRepeat() {
+                XCTAssertTrue(true)
+            }
+        """)
+        #expect(output(source).contains("@Test func testRepeat()"))
+    }
+
+    @Test("A lowered name that collides with a member keeps its prefix")
+    func collidingNamesKeepThePrefix() {
+        let source = file("""
+            private func value() -> Int { 1 }
+            func testValue() {
+                XCTAssertEqual(value(), 1)
+            }
+        """)
+        #expect(output(source).contains("@Test func testValue()"))
+    }
+
+    @Test("An acronym lowers as a word: testURLParses becomes urlParses")
+    func acronymsLowerAsAWord() {
+        let source = file("""
+            func testURLParses() {
+                XCTAssertTrue(true)
+            }
+        """)
+        #expect(output(source).contains("@Test func urlParses()"))
+    }
+
+    @Test("XCTest inside a string literal is never touched (1edc66e: fixture rewritten)")
+    func fixtureStringsAreUntouched() {
+        let fixture = #"""
+            func testAuditsAFixture() {
+                let source = """
+                import XCTest
+                final class T: XCTestCase {
+                    func testX() { XCTAssertEqual(a, b) }
+                }
+                """
+                XCTAssertFalse(source.isEmpty)
+            }
+        """#
+        let result = output(file(fixture))
+        #expect(result.contains("import XCTest\n        final class T: XCTestCase {"))
+        #expect(result.contains("func testX() { XCTAssertEqual(a, b) }"))
+        #expect(result.contains("#expect(!source.isEmpty)"))
+    }
+
+    // MARK: - Assertions
+
+    @Test("Comparison assertions become operators, with the message kept")
+    func comparisons() {
+        let source = file("""
+            func testCompare() {
+                XCTAssertEqual(a, b, "same")
+                XCTAssertNotEqual(a, b)
+                XCTAssertGreaterThan(a, b)
+                XCTAssertGreaterThanOrEqual(a, b)
+                XCTAssertLessThan(a, b)
+                XCTAssertLessThanOrEqual(a, b)
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func compare() {
+                #expect(a == b, "same")
+                #expect(a != b)
+                #expect(a > b)
+                #expect(a >= b)
+                #expect(a < b)
+                #expect(a <= b)
+            }
+        """))
+    }
+
+    @Test("Truth and nil assertions")
+    func truthAndNil() {
+        let source = file("""
+            func testTruth() {
+                XCTAssert(flag)
+                XCTAssertTrue(flag)
+                XCTAssertFalse(flag)
+                XCTAssertFalse(a == b)
+                XCTAssertNil(x)
+                XCTAssertNotNil(x)
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func truth() {
+                #expect(flag)
+                #expect(flag)
+                #expect(!flag)
+                #expect(!(a == b))
+                #expect(x == nil)
+                #expect(x != nil)
+            }
+        """))
+    }
+
+    @Test("accuracy: becomes an explicit tolerance, the same claim XCTest made")
+    func accuracy() {
+        let source = file("""
+            func testClose() {
+                XCTAssertEqual(x, 1.5, accuracy: 1e-9)
+                XCTAssertNotEqual(x, 1.5, accuracy: 0.1, "apart")
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func close() {
+                #expect(abs(x - 1.5) <= 1e-9)
+                #expect(abs(x - 1.5) > 0.1, "apart")
+            }
+        """))
+    }
+
+    @Test("try and await move to the front of the expectation")
+    func effectsAreHoisted() {
+        let source = file("""
+            func testEffects() async throws {
+                XCTAssertEqual(try f(), 1)
+                XCTAssertEqual(1, try f())
+                XCTAssertTrue(await g())
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func effects() async throws {
+                #expect(try f() == 1)
+                #expect(try 1 == f())
+                #expect(await g())
+            }
+        """))
+    }
+
+    @Test("An operand with a top-level operator is parenthesised")
+    func operandsKeepTheirMeaning() {
+        let source = file("""
+            func testPrecedence() {
+                XCTAssertEqual(flag ? 1 : 2, 1)
+                XCTAssertEqual(a + b, c)
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func precedence() {
+                #expect((flag ? 1 : 2) == 1)
+                #expect((a + b) == c)
+            }
+        """))
+    }
+
+    @Test("A message that is not a string literal is interpolated (SwiftExcelFunctions: row.date)")
+    func nonLiteralMessages() {
+        let source = file("""
+            func testMessage() {
+                XCTAssertEqual(a, b, row.date)
+            }
+        """)
+        #expect(output(source).contains(#"#expect(a == b, "\(row.date)")"#))
+    }
+
+    @Test("XCTUnwrap becomes #require, and a call the file declares as throwing keeps its own try")
+    func unwrap() {
+        let source = file("""
+            private func f() throws -> Int? { 1 }
+            func testUnwrap() throws {
+                let x = try XCTUnwrap(optional, "missing")
+                let y = try XCTUnwrap(f())
+            }
+        """)
+        #expect(output(source) == expected("""
+            private func f() throws -> Int? { 1 }
+            @Test func unwrap() throws {
+                let x = try #require(optional, "missing")
+                let y = try #require(try f())
+            }
+        """))
+    }
+
+    @Test("XCTFail records an issue, and `return XCTFail` becomes two statements")
+    func fail() {
+        let source = file("""
+            func testFail() {
+                guard ok else { return XCTFail("no") }
+                XCTFail()
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func fail() {
+                guard ok else { Issue.record("no"); return }
+                Issue.record()
+            }
+        """))
+    }
+
+    @Test("XCTAssertThrowsError, bare and with a named closure parameter")
+    func throwsError() {
+        let source = file("""
+            func testThrowing() {
+                XCTAssertThrowsError(try f())
+                XCTAssertThrowsError(try f()) { error in
+                    XCTAssertEqual(error as? E, .bad)
+                }
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func throwing() {
+                #expect(throws: (any Error).self) { try f() }
+                if let error = #expect(throws: (any Error).self, performing: { try f() }) {
+                    #expect(error as? E == .bad)
+                }
+            }
+        """))
+    }
+
+    @Test("A $0 closure on XCTAssertThrowsError binds a name, not $0 (SwiftExcelFunctions: compiler crash)")
+    func throwsErrorDollarZero() {
+        let source = file("""
+            func testThrowsAgain() {
+                XCTAssertThrowsError(try f()) {
+                    XCTAssertEqual($0 as? E, .bad)
+                    let inner = [1].map { $0 + 1 }
+                }
+            }
+        """)
+        let result = output(source)
+        #expect(result.contains("if let error = #expect(throws: (any Error).self, performing: { try f() }) {"))
+        #expect(result.contains("#expect(error as? E == .bad)"))
+        #expect(result.contains("[1].map { $0 + 1 }"), "a nested closure's $0 is its own")
+    }
+
+    @Test("XCTAssertNoThrow expects Never")
+    func noThrow() {
+        let source = file("""
+            func testNoThrow() {
+                XCTAssertNoThrow(try f())
+            }
+        """)
+        #expect(output(source).contains("#expect(throws: Never.self) { try f() }"))
+    }
+
+    @Test("Forwarded file/line become sourceLocation")
+    func sourceLocation() {
+        let source = file("""
+            private func check(_ v: Int, file: StaticString = #filePath, line: UInt = #line) {
+                XCTAssertEqual(v, 1, file: file, line: line)
+            }
+        """)
+        #expect(output(source) == expected("""
+            private func check(_ v: Int, sourceLocation: SourceLocation = #_sourceLocation) {
+                #expect(v == 1, sourceLocation: sourceLocation)
+            }
+        """))
+    }
+
+    // MARK: - Lifecycle
+
+    @Test("setUp/tearDown make a final class with init and deinit")
+    func lifecycle() {
+        let source = """
+        import XCTest
+
+        final class ThingTests: XCTestCase {
+            private var root: URL!
+
+            override func setUpWithError() throws {
+                try super.setUpWithError()
+                root = URL(fileURLWithPath: "/tmp")
+            }
+
+            override func tearDown() {
+                root = nil
+                super.tearDown()
+            }
+
+            func testRootIsSet() {
+                XCTAssertNotNil(root)
+            }
+        }
+
+        """
+        #expect(output(source) == """
+        import Foundation
+        import Testing
+
+        @Suite final class ThingTests {
+            private var root: URL!
+
+            init() throws {
+                root = URL(fileURLWithPath: "/tmp")
+            }
+
+            deinit {
+                root = nil
+            }
+
+            @Test func rootIsSet() {
+                #expect(root != nil)
+            }
+        }
+
+        """)
+    }
+
+    @Test("A suite with mutable stored state stays a class, so its tests can mutate it")
+    func mutableStateStaysAClass() {
+        let source = file("""
+            private var count = 0
+            func testCount() {
+                count += 1
+                XCTAssertEqual(count, 1)
+            }
+        """)
+        #expect(output(source).contains("@Suite final class ThingTests {"))
+    }
+
+    // MARK: - Self-consistency with the gate
+
+    @Test("An exact comparison of Doubles comes out named, not as a finding the gate would report")
+    func floatsAreNamed() {
+        let source = file("""
+            func testDouble() {
+                let x: Double = 1.5
+                XCTAssertEqual(x, 1.5)
+            }
+        """)
+        let result = output(source)
+        #expect(result.contains("#expect(x.isEqual(to: 1.5))"))
+    }
+
+    // MARK: - Residue
+
+    @Test("XCTSkip is residue: left in place and reported, because choosing for it is judgement")
+    func skipIsResidue() {
+        let outcome = migrate(file("""
+            func testSkipped() throws {
+                throw XCTSkip("not here")
+            }
+        """))
+        #expect(outcome.output.contains(#"throw XCTSkip("not here")"#))
+        #expect(outcome.residue.count == 1)
+        #expect(outcome.residue.first?.lineNumber == 5)
+        #expect(outcome.residue.first?.message.contains("XCTSkip") == true)
+    }
+
+    @Test("Expectations and measure are residue; async setUp is not, Swift Testing has async init")
+    func otherResidue() {
+        let outcome = migrate(file("""
+            override func setUp() async throws {}
+            func testWaits() {
+                let e = expectation(description: "x")
+                wait(for: [e], timeout: 1)
+                measure { _ = 1 }
+            }
+        """))
+        #expect(outcome.residue.count == 3, "\(outcome.residue.map(\.message))")
+        #expect(outcome.output.contains("init() async throws {}"))
+    }
+
+    // MARK: - Verification
+
+    @Test("Every test method comes out as an @Test function (the silent trap)")
+    func noOrphans() {
+        let outcome = migrate(file("""
+            func testOne() { XCTAssertTrue(true) }
+            func testTwo() async throws { XCTAssertTrue(true) }
+            func testThree() { XCTAssertTrue(true) }
+        """))
+        #expect(outcome.testsBefore == 3)
+        #expect(outcome.testsAfter == 3)
+        #expect(outcome.isSafeToWrite)
+    }
+
+    @Test("The output parses")
+    func outputParses() {
+        let outcome = migrate(file("""
+            func testThrowsAgain() {
+                XCTAssertThrowsError(try f()) { error in
+                    XCTAssertNotNil(error)
+                }
+            }
+        """))
+        #expect(outcome.parses)
+    }
+
+    @Test("A file that is already Swift Testing is returned unchanged")
+    func idempotent() {
+        let source = expected("""
+            @Test func itWorks() {
+                #expect(true)
+            }
+        """)
+        #expect(output(source) == source)
+    }
+}
