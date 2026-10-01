@@ -49,12 +49,17 @@ public enum ControlMappingResources {
         // `[NSURL]`, whose `lastPathComponent` is `String?`, so the same three lines that
         // compile here fail there three ways at once. `contentsOfDirectory` answers `[URL]`
         // on both, and this directory is flat, which is all `subdirectory: nil` asked for.
-        guard let root = Bundle.module.resourceURL,
-              // silent: an unreadable resource directory yields no mappings, which is what the
-              // previous `urls(forResourcesWithExtension:) ?? []` also returned — the caller's
-              // contract is "the mappings that are bundled", and none is a valid answer
-              let contents = try? FileManager.default.contentsOfDirectory(
-                  at: root, includingPropertiesForKeys: nil) else {
+        guard let root = Bundle.module.resourceURL else { return [] }
+        // An unreadable resource directory yields no mappings, which is what the previous
+        // `urls(forResourcesWithExtension:) ?? []` also returned: the caller's contract is
+        // "the mappings that are bundled", and none is a valid answer. But as with `decode`,
+        // skipping is the behaviour and being unable to say why is not.
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+        } catch {
+            Self.logger.warning(
+                "control-mapping could not list its resources: \(error.localizedDescription, privacy: .public)")
             return []
         }
         return contents
