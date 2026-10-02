@@ -69,6 +69,11 @@ Two things the conversion cannot see, and the compiler will name:
 - **A throwing call inside `XCTUnwrap` from another file.** `try XCTUnwrap(f())` covered a
   throwing `f`; `#require` needs its own: `try #require(try f())`. The conversion adds it
   where this file declares `f` as throwing.
+- **`XCTUnwrap` of a value that is not optional.** XCTest took `T?`, so unwrapping a
+  non-optional compiled and could never fail. Typically an API stopped returning an optional
+  and its tests were not updated. `#require` on it is a compiler warning, "redundant because
+  … never equals nil". The fix is to drop the `try #require(…)`. In SwiftExcelCore, seven
+  `XCTUnwrap(cells.matrix(in:))` sites turned out to be this.
 - **An optional compared exactly as a float,** where the optional is neither an optional
   chain nor a call to a function this file declares as returning one. The forms it can see
   become `a?.isEqual(to: b) == true`.
