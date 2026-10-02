@@ -1051,7 +1051,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ControlMappingTests",
-            dependencies: ["ControlMapping"]
+            dependencies: ["ControlMapping", "SafetyAuditor"]
         ),
 
         // MARK: - Judgment workbench (Phase 3a §7)

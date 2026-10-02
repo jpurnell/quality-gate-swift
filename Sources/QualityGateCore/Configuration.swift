@@ -359,6 +359,15 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// format being read rather than chosen — see ``WeakCryptoPolicy``.
     public var weakCryptoPolicy: WeakCryptoPolicy
 
+    /// Functions that answer "is this path inside that directory?" soundly.
+    ///
+    /// A call to one of these, as a condition naming the joined path, clears
+    /// `security.path-traversal`. The default is the helper IconquerAI introduced; a project with
+    /// its own names it here. A function listed here is trusted to compare whole path components
+    /// after resolving links — listing a `hasPrefix` wrapper would silence the rule that exists to
+    /// catch it.
+    public var containmentCheckers: [String]
+
     /// Creates a security auditor configuration with the given options.
     public init(
         enabledRules: [String] = [],
@@ -371,13 +380,15 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
             "execute", "prepare", "query", "rawQuery",
             "sqlite3_exec", "sqlite3_prepare"
         ],
-        weakCryptoPolicy: WeakCryptoPolicy = .default
+        weakCryptoPolicy: WeakCryptoPolicy = .default,
+        containmentCheckers: [String] = ["PathContainment.isContained"]
     ) {
         self.enabledRules = enabledRules
         self.secretPatterns = secretPatterns
         self.allowedHTTPHosts = allowedHTTPHosts
         self.sqlFunctionNames = sqlFunctionNames
         self.weakCryptoPolicy = weakCryptoPolicy
+        self.containmentCheckers = containmentCheckers
     }
 
     /// Default security auditor configuration.
@@ -387,6 +398,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
 extension SecurityAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames, weakCryptoPolicy
+        case containmentCheckers
     }
 
     /// Creates a security auditor configuration by decoding from the given decoder.
@@ -398,6 +410,8 @@ extension SecurityAuditorConfig: Codable {
         allowedHTTPHosts = try container.decodeIfPresent([String].self, forKey: .allowedHTTPHosts) ?? defaults.allowedHTTPHosts
         sqlFunctionNames = try container.decodeIfPresent([String].self, forKey: .sqlFunctionNames) ?? defaults.sqlFunctionNames
         weakCryptoPolicy = try container.decodeIfPresent(WeakCryptoPolicy.self, forKey: .weakCryptoPolicy) ?? defaults.weakCryptoPolicy
+        containmentCheckers = try container.decodeIfPresent([String].self, forKey: .containmentCheckers)
+            ?? defaults.containmentCheckers
     }
 }
 

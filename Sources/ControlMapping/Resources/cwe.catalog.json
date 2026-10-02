@@ -1,0 +1,1075 @@
+{
+  "framework": "cwe",
+  "version": "CWE 4.20",
+  "source": "mitre",
+  "sourceRef": "https://cwe.mitre.org/data/definitions/{id}.html",
+  "fetched": "2026-10-01",
+  "contentHash": "sha256:3a4daeb9e3f14a157e03b9db9bbcc0e2d5ad01691833e413b1900c6e06d5527b",
+  "reviewedBy": "jpurnell",
+  "reviewed": "2026-10-01",
+  "superseded": false,
+  "controls": [
+    {
+      "id": "CWE-15",
+      "title": "External Control of System or Configuration Setting",
+      "text": "MITRE CWE-15 (Base). See https://cwe.mitre.org/data/definitions/15.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-22",
+      "title": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')",
+      "text": "MITRE CWE-22 (Base). See https://cwe.mitre.org/data/definitions/22.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-41",
+      "title": "Improper Resolution of Path Equivalence",
+      "text": "MITRE CWE-41 (Base). See https://cwe.mitre.org/data/definitions/41.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-59",
+      "title": "Improper Link Resolution Before File Access ('Link Following')",
+      "text": "MITRE CWE-59 (Base). See https://cwe.mitre.org/data/definitions/59.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-78",
+      "title": "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')",
+      "text": "MITRE CWE-78 (Base). See https://cwe.mitre.org/data/definitions/78.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-79",
+      "title": "Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')",
+      "text": "MITRE CWE-79 (Base). See https://cwe.mitre.org/data/definitions/79.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-88",
+      "title": "Improper Neutralization of Argument Delimiters in a Command ('Argument Injection')",
+      "text": "MITRE CWE-88 (Base). See https://cwe.mitre.org/data/definitions/88.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-89",
+      "title": "Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')",
+      "text": "MITRE CWE-89 (Base). See https://cwe.mitre.org/data/definitions/89.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-91",
+      "title": "XML Injection (aka Blind XPath Injection)",
+      "text": "MITRE CWE-91 (Base). See https://cwe.mitre.org/data/definitions/91.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-94",
+      "title": "Improper Control of Generation of Code ('Code Injection')",
+      "text": "MITRE CWE-94 (Base). See https://cwe.mitre.org/data/definitions/94.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-95",
+      "title": "Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')",
+      "text": "MITRE CWE-95 (Variant). See https://cwe.mitre.org/data/definitions/95.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-99",
+      "title": "Improper Control of Resource Identifiers ('Resource Injection')",
+      "text": "MITRE CWE-99 (Class). See https://cwe.mitre.org/data/definitions/99.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-113",
+      "title": "Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Request/Response Splitting')",
+      "text": "MITRE CWE-113 (Variant). See https://cwe.mitre.org/data/definitions/113.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-116",
+      "title": "Improper Encoding or Escaping of Output",
+      "text": "MITRE CWE-116 (Class). See https://cwe.mitre.org/data/definitions/116.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-117",
+      "title": "Improper Output Neutralization for Logs",
+      "text": "MITRE CWE-117 (Base). See https://cwe.mitre.org/data/definitions/117.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-125",
+      "title": "Out-of-bounds Read",
+      "text": "MITRE CWE-125 (Base). See https://cwe.mitre.org/data/definitions/125.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-129",
+      "title": "Improper Validation of Array Index",
+      "text": "MITRE CWE-129 (Variant). See https://cwe.mitre.org/data/definitions/129.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-131",
+      "title": "Incorrect Calculation of Buffer Size",
+      "text": "MITRE CWE-131 (Base). See https://cwe.mitre.org/data/definitions/131.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-135",
+      "title": "Incorrect Calculation of Multi-Byte String Length",
+      "text": "MITRE CWE-135 (Base). See https://cwe.mitre.org/data/definitions/135.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-150",
+      "title": "Improper Neutralization of Escape, Meta, or Control Sequences",
+      "text": "MITRE CWE-150 (Variant). See https://cwe.mitre.org/data/definitions/150.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-170",
+      "title": "Improper Null Termination",
+      "text": "MITRE CWE-170 (Base). See https://cwe.mitre.org/data/definitions/170.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-176",
+      "title": "Improper Handling of Unicode Encoding",
+      "text": "MITRE CWE-176 (Variant). See https://cwe.mitre.org/data/definitions/176.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-178",
+      "title": "Improper Handling of Case Sensitivity",
+      "text": "MITRE CWE-178 (Base). See https://cwe.mitre.org/data/definitions/178.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-180",
+      "title": "Incorrect Behavior Order: Validate Before Canonicalize",
+      "text": "MITRE CWE-180 (Variant). See https://cwe.mitre.org/data/definitions/180.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-182",
+      "title": "Collapse of Data into Unsafe Value",
+      "text": "MITRE CWE-182 (Base). See https://cwe.mitre.org/data/definitions/182.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-183",
+      "title": "Permissive List of Allowed Inputs",
+      "text": "MITRE CWE-183 (Base). See https://cwe.mitre.org/data/definitions/183.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-184",
+      "title": "Incomplete List of Disallowed Inputs",
+      "text": "MITRE CWE-184 (Base). See https://cwe.mitre.org/data/definitions/184.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-187",
+      "title": "Partial String Comparison",
+      "text": "MITRE CWE-187 (Variant). See https://cwe.mitre.org/data/definitions/187.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-190",
+      "title": "Integer Overflow or Wraparound",
+      "text": "MITRE CWE-190 (Base). See https://cwe.mitre.org/data/definitions/190.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-191",
+      "title": "Integer Underflow (Wrap or Wraparound)",
+      "text": "MITRE CWE-191 (Base). See https://cwe.mitre.org/data/definitions/191.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-201",
+      "title": "Insertion of Sensitive Information Into Sent Data",
+      "text": "MITRE CWE-201 (Base). See https://cwe.mitre.org/data/definitions/201.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-204",
+      "title": "Observable Response Discrepancy",
+      "text": "MITRE CWE-204 (Base). See https://cwe.mitre.org/data/definitions/204.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-208",
+      "title": "Observable Timing Discrepancy",
+      "text": "MITRE CWE-208 (Base). See https://cwe.mitre.org/data/definitions/208.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-209",
+      "title": "Generation of Error Message Containing Sensitive Information",
+      "text": "MITRE CWE-209 (Base). See https://cwe.mitre.org/data/definitions/209.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-213",
+      "title": "Exposure of Sensitive Information Due to Incompatible Policies",
+      "text": "MITRE CWE-213 (Base). See https://cwe.mitre.org/data/definitions/213.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-214",
+      "title": "Invocation of Process Using Visible Sensitive Information",
+      "text": "MITRE CWE-214 (Base). See https://cwe.mitre.org/data/definitions/214.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-242",
+      "title": "Use of Inherently Dangerous Function",
+      "text": "MITRE CWE-242 (Base). See https://cwe.mitre.org/data/definitions/242.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-248",
+      "title": "Uncaught Exception",
+      "text": "MITRE CWE-248 (Base). See https://cwe.mitre.org/data/definitions/248.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-250",
+      "title": "Execution with Unnecessary Privileges",
+      "text": "MITRE CWE-250 (Base). See https://cwe.mitre.org/data/definitions/250.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-252",
+      "title": "Unchecked Return Value",
+      "text": "MITRE CWE-252 (Base). See https://cwe.mitre.org/data/definitions/252.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-260",
+      "title": "Password in Configuration File",
+      "text": "MITRE CWE-260 (Base). See https://cwe.mitre.org/data/definitions/260.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-261",
+      "title": "Weak Encoding for Password",
+      "text": "MITRE CWE-261 (Base). See https://cwe.mitre.org/data/definitions/261.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-272",
+      "title": "Least Privilege Violation",
+      "text": "MITRE CWE-272 (Base). See https://cwe.mitre.org/data/definitions/272.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-276",
+      "title": "Incorrect Default Permissions",
+      "text": "MITRE CWE-276 (Base). See https://cwe.mitre.org/data/definitions/276.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-280",
+      "title": "Improper Handling of Insufficient Permissions or Privileges",
+      "text": "MITRE CWE-280 (Base). See https://cwe.mitre.org/data/definitions/280.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-290",
+      "title": "Authentication Bypass by Spoofing",
+      "text": "MITRE CWE-290 (Base). See https://cwe.mitre.org/data/definitions/290.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-291",
+      "title": "Reliance on IP Address for Authentication",
+      "text": "MITRE CWE-291 (Variant). See https://cwe.mitre.org/data/definitions/291.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-295",
+      "title": "Improper Certificate Validation",
+      "text": "MITRE CWE-295 (Base). See https://cwe.mitre.org/data/definitions/295.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-297",
+      "title": "Improper Validation of Certificate with Host Mismatch",
+      "text": "MITRE CWE-297 (Variant). See https://cwe.mitre.org/data/definitions/297.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-298",
+      "title": "Improper Validation of Certificate Expiration",
+      "text": "MITRE CWE-298 (Variant). See https://cwe.mitre.org/data/definitions/298.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-302",
+      "title": "Authentication Bypass by Assumed-Immutable Data",
+      "text": "MITRE CWE-302 (Base). See https://cwe.mitre.org/data/definitions/302.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-306",
+      "title": "Missing Authentication for Critical Function",
+      "text": "MITRE CWE-306 (Base). See https://cwe.mitre.org/data/definitions/306.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-307",
+      "title": "Improper Restriction of Excessive Authentication Attempts",
+      "text": "MITRE CWE-307 (Base). See https://cwe.mitre.org/data/definitions/307.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-312",
+      "title": "Cleartext Storage of Sensitive Information",
+      "text": "MITRE CWE-312 (Base). See https://cwe.mitre.org/data/definitions/312.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-313",
+      "title": "Cleartext Storage in a File or on Disk",
+      "text": "MITRE CWE-313 (Variant). See https://cwe.mitre.org/data/definitions/313.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-319",
+      "title": "Cleartext Transmission of Sensitive Information",
+      "text": "MITRE CWE-319 (Base). See https://cwe.mitre.org/data/definitions/319.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-321",
+      "title": "Use of Hard-coded Cryptographic Key",
+      "text": "MITRE CWE-321 (Variant). See https://cwe.mitre.org/data/definitions/321.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-326",
+      "title": "Inadequate Encryption Strength",
+      "text": "MITRE CWE-326 (Class). See https://cwe.mitre.org/data/definitions/326.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-327",
+      "title": "Use of a Broken or Risky Cryptographic Algorithm",
+      "text": "MITRE CWE-327 (Class). See https://cwe.mitre.org/data/definitions/327.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-328",
+      "title": "Use of Weak Hash",
+      "text": "MITRE CWE-328 (Base). See https://cwe.mitre.org/data/definitions/328.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-329",
+      "title": "Generation of Predictable IV with CBC Mode",
+      "text": "MITRE CWE-329 (Variant). See https://cwe.mitre.org/data/definitions/329.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-335",
+      "title": "Incorrect Usage of Seeds in Pseudo-Random Number Generator (PRNG)",
+      "text": "MITRE CWE-335 (Base). See https://cwe.mitre.org/data/definitions/335.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-338",
+      "title": "Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)",
+      "text": "MITRE CWE-338 (Base). See https://cwe.mitre.org/data/definitions/338.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-341",
+      "title": "Predictable from Observable State",
+      "text": "MITRE CWE-341 (Base). See https://cwe.mitre.org/data/definitions/341.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-346",
+      "title": "Origin Validation Error",
+      "text": "MITRE CWE-346 (Class). See https://cwe.mitre.org/data/definitions/346.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-347",
+      "title": "Improper Verification of Cryptographic Signature",
+      "text": "MITRE CWE-347 (Base). See https://cwe.mitre.org/data/definitions/347.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-348",
+      "title": "Use of Less Trusted Source",
+      "text": "MITRE CWE-348 (Base). See https://cwe.mitre.org/data/definitions/348.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-352",
+      "title": "Cross-Site Request Forgery (CSRF)",
+      "text": "MITRE CWE-352 (None). See https://cwe.mitre.org/data/definitions/352.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-356",
+      "title": "Product UI does not Warn User of Unsafe Actions",
+      "text": "MITRE CWE-356 (Base). See https://cwe.mitre.org/data/definitions/356.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-359",
+      "title": "Exposure of Private Personal Information to an Unauthorized Actor",
+      "text": "MITRE CWE-359 (Base). See https://cwe.mitre.org/data/definitions/359.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-367",
+      "title": "Time-of-check Time-of-use (TOCTOU) Race Condition",
+      "text": "MITRE CWE-367 (Base). See https://cwe.mitre.org/data/definitions/367.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-369",
+      "title": "Divide By Zero",
+      "text": "MITRE CWE-369 (Base). See https://cwe.mitre.org/data/definitions/369.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-377",
+      "title": "Insecure Temporary File",
+      "text": "MITRE CWE-377 (Class). See https://cwe.mitre.org/data/definitions/377.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-379",
+      "title": "Creation of Temporary File in Directory with Insecure Permissions",
+      "text": "MITRE CWE-379 (Base). See https://cwe.mitre.org/data/definitions/379.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-390",
+      "title": "Detection of Error Condition Without Action",
+      "text": "MITRE CWE-390 (Base). See https://cwe.mitre.org/data/definitions/390.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-401",
+      "title": "Missing Release of Memory after Effective Lifetime",
+      "text": "MITRE CWE-401 (Variant). See https://cwe.mitre.org/data/definitions/401.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-402",
+      "title": "Transmission of Private Resources into a New Sphere ('Resource Leak')",
+      "text": "MITRE CWE-402 (Class). See https://cwe.mitre.org/data/definitions/402.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-409",
+      "title": "Improper Handling of Highly Compressed Data (Data Amplification)",
+      "text": "MITRE CWE-409 (Base). See https://cwe.mitre.org/data/definitions/409.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-426",
+      "title": "Untrusted Search Path",
+      "text": "MITRE CWE-426 (Base). See https://cwe.mitre.org/data/definitions/426.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-427",
+      "title": "Uncontrolled Search Path Element",
+      "text": "MITRE CWE-427 (Base). See https://cwe.mitre.org/data/definitions/427.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-434",
+      "title": "Unrestricted Upload of File with Dangerous Type",
+      "text": "MITRE CWE-434 (Base). See https://cwe.mitre.org/data/definitions/434.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-436",
+      "title": "Interpretation Conflict",
+      "text": "MITRE CWE-436 (Class). See https://cwe.mitre.org/data/definitions/436.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-441",
+      "title": "Unintended Proxy or Intermediary ('Confused Deputy')",
+      "text": "MITRE CWE-441 (Class). See https://cwe.mitre.org/data/definitions/441.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-460",
+      "title": "Improper Cleanup on Thrown Exception",
+      "text": "MITRE CWE-460 (Base). See https://cwe.mitre.org/data/definitions/460.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-470",
+      "title": "Use of Externally-Controlled Input to Select Classes or Code ('Unsafe Reflection')",
+      "text": "MITRE CWE-470 (Base). See https://cwe.mitre.org/data/definitions/470.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-474",
+      "title": "Use of Function with Inconsistent Implementations",
+      "text": "MITRE CWE-474 (Base). See https://cwe.mitre.org/data/definitions/474.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-476",
+      "title": "NULL Pointer Dereference",
+      "text": "MITRE CWE-476 (Base). See https://cwe.mitre.org/data/definitions/476.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-479",
+      "title": "Signal Handler Use of a Non-reentrant Function",
+      "text": "MITRE CWE-479 (Variant). See https://cwe.mitre.org/data/definitions/479.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-486",
+      "title": "Comparison of Classes by Name",
+      "text": "MITRE CWE-486 (Variant). See https://cwe.mitre.org/data/definitions/486.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-488",
+      "title": "Exposure of Data Element to Wrong Session",
+      "text": "MITRE CWE-488 (Base). See https://cwe.mitre.org/data/definitions/488.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-489",
+      "title": "Active Debug Code",
+      "text": "MITRE CWE-489 (Base). See https://cwe.mitre.org/data/definitions/489.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-494",
+      "title": "Download of Code Without Integrity Check",
+      "text": "MITRE CWE-494 (Base). See https://cwe.mitre.org/data/definitions/494.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-502",
+      "title": "Deserialization of Untrusted Data",
+      "text": "MITRE CWE-502 (Base). See https://cwe.mitre.org/data/definitions/502.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-522",
+      "title": "Insufficiently Protected Credentials",
+      "text": "MITRE CWE-522 (Class). See https://cwe.mitre.org/data/definitions/522.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-524",
+      "title": "Use of Cache Containing Sensitive Information",
+      "text": "MITRE CWE-524 (Base). See https://cwe.mitre.org/data/definitions/524.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-526",
+      "title": "Cleartext Storage of Sensitive Information in an Environment Variable",
+      "text": "MITRE CWE-526 (Variant). See https://cwe.mitre.org/data/definitions/526.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-532",
+      "title": "Insertion of Sensitive Information into Log File",
+      "text": "MITRE CWE-532 (Base). See https://cwe.mitre.org/data/definitions/532.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-538",
+      "title": "Insertion of Sensitive Information into Externally-Accessible File or Directory",
+      "text": "MITRE CWE-538 (Base). See https://cwe.mitre.org/data/definitions/538.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-546",
+      "title": "Suspicious Comment",
+      "text": "MITRE CWE-546 (Variant). See https://cwe.mitre.org/data/definitions/546.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-549",
+      "title": "Missing Password Field Masking",
+      "text": "MITRE CWE-549 (Base). See https://cwe.mitre.org/data/definitions/549.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-552",
+      "title": "Files or Directories Accessible to External Parties",
+      "text": "MITRE CWE-552 (Base). See https://cwe.mitre.org/data/definitions/552.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-561",
+      "title": "Dead Code",
+      "text": "MITRE CWE-561 (Base). See https://cwe.mitre.org/data/definitions/561.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-565",
+      "title": "Reliance on Cookies without Validation and Integrity Checking",
+      "text": "MITRE CWE-565 (Base). See https://cwe.mitre.org/data/definitions/565.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-567",
+      "title": "Unsynchronized Access to Shared Data in a Multithreaded Context",
+      "text": "MITRE CWE-567 (Base). See https://cwe.mitre.org/data/definitions/567.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-598",
+      "title": "Use of HTTP Request With Sensitive Query String",
+      "text": "MITRE CWE-598 (Variant). See https://cwe.mitre.org/data/definitions/598.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-601",
+      "title": "URL Redirection to Untrusted Site ('Open Redirect')",
+      "text": "MITRE CWE-601 (Base). See https://cwe.mitre.org/data/definitions/601.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-603",
+      "title": "Use of Client-Side Authentication",
+      "text": "MITRE CWE-603 (Base). See https://cwe.mitre.org/data/definitions/603.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-606",
+      "title": "Unchecked Input for Loop Condition",
+      "text": "MITRE CWE-606 (Base). See https://cwe.mitre.org/data/definitions/606.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-611",
+      "title": "Improper Restriction of XML External Entity Reference",
+      "text": "MITRE CWE-611 (Base). See https://cwe.mitre.org/data/definitions/611.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-613",
+      "title": "Insufficient Session Expiration",
+      "text": "MITRE CWE-613 (Base). See https://cwe.mitre.org/data/definitions/613.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-614",
+      "title": "Sensitive Cookie in HTTPS Session Without 'Secure' Attribute",
+      "text": "MITRE CWE-614 (Variant). See https://cwe.mitre.org/data/definitions/614.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-615",
+      "title": "Inclusion of Sensitive Information in Source Code Comments",
+      "text": "MITRE CWE-615 (Variant). See https://cwe.mitre.org/data/definitions/615.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-617",
+      "title": "Reachable Assertion",
+      "text": "MITRE CWE-617 (Base). See https://cwe.mitre.org/data/definitions/617.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-636",
+      "title": "Not Failing Securely ('Failing Open')",
+      "text": "MITRE CWE-636 (Class). See https://cwe.mitre.org/data/definitions/636.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-639",
+      "title": "Authorization Bypass Through User-Controlled Key",
+      "text": "MITRE CWE-639 (Base). See https://cwe.mitre.org/data/definitions/639.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-643",
+      "title": "Improper Neutralization of Data within XPath Expressions ('XPath Injection')",
+      "text": "MITRE CWE-643 (Base). See https://cwe.mitre.org/data/definitions/643.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-650",
+      "title": "Trusting HTTP Permission Methods on the Server Side",
+      "text": "MITRE CWE-650 (Variant). See https://cwe.mitre.org/data/definitions/650.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-663",
+      "title": "Use of a Non-reentrant Function in a Concurrent Context",
+      "text": "MITRE CWE-663 (Base). See https://cwe.mitre.org/data/definitions/663.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-667",
+      "title": "Improper Locking",
+      "text": "MITRE CWE-667 (Class). See https://cwe.mitre.org/data/definitions/667.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-674",
+      "title": "Uncontrolled Recursion",
+      "text": "MITRE CWE-674 (Class). See https://cwe.mitre.org/data/definitions/674.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-676",
+      "title": "Use of Potentially Dangerous Function",
+      "text": "MITRE CWE-676 (Base). See https://cwe.mitre.org/data/definitions/676.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-681",
+      "title": "Incorrect Conversion between Numeric Types",
+      "text": "MITRE CWE-681 (Base). See https://cwe.mitre.org/data/definitions/681.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-695",
+      "title": "Use of Low-Level Functionality",
+      "text": "MITRE CWE-695 (Base). See https://cwe.mitre.org/data/definitions/695.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-704",
+      "title": "Incorrect Type Conversion or Cast",
+      "text": "MITRE CWE-704 (Class). See https://cwe.mitre.org/data/definitions/704.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-732",
+      "title": "Incorrect Permission Assignment for Critical Resource",
+      "text": "MITRE CWE-732 (Class). See https://cwe.mitre.org/data/definitions/732.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-733",
+      "title": "Compiler Optimization Removal or Modification of Security-critical Code",
+      "text": "MITRE CWE-733 (Base). See https://cwe.mitre.org/data/definitions/733.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-749",
+      "title": "Exposed Dangerous Method or Function",
+      "text": "MITRE CWE-749 (Base). See https://cwe.mitre.org/data/definitions/749.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-754",
+      "title": "Improper Check for Unusual or Exceptional Conditions",
+      "text": "MITRE CWE-754 (Class). See https://cwe.mitre.org/data/definitions/754.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-757",
+      "title": "Selection of Less-Secure Algorithm During Negotiation ('Algorithm Downgrade')",
+      "text": "MITRE CWE-757 (Base). See https://cwe.mitre.org/data/definitions/757.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-770",
+      "title": "Allocation of Resources Without Limits or Throttling",
+      "text": "MITRE CWE-770 (Base). See https://cwe.mitre.org/data/definitions/770.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-772",
+      "title": "Missing Release of Resource after Effective Lifetime",
+      "text": "MITRE CWE-772 (Base). See https://cwe.mitre.org/data/definitions/772.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-775",
+      "title": "Missing Release of File Descriptor or Handle after Effective Lifetime",
+      "text": "MITRE CWE-775 (Variant). See https://cwe.mitre.org/data/definitions/775.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-776",
+      "title": "Improper Restriction of Recursive Entity References in DTDs ('XML Entity Expansion')",
+      "text": "MITRE CWE-776 (Base). See https://cwe.mitre.org/data/definitions/776.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-778",
+      "title": "Insufficient Logging",
+      "text": "MITRE CWE-778 (Base). See https://cwe.mitre.org/data/definitions/778.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-787",
+      "title": "Out-of-bounds Write",
+      "text": "MITRE CWE-787 (Base). See https://cwe.mitre.org/data/definitions/787.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-789",
+      "title": "Memory Allocation with Excessive Size Value",
+      "text": "MITRE CWE-789 (Variant). See https://cwe.mitre.org/data/definitions/789.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-798",
+      "title": "Use of Hard-coded Credentials",
+      "text": "MITRE CWE-798 (Base). See https://cwe.mitre.org/data/definitions/798.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-799",
+      "title": "Improper Control of Interaction Frequency",
+      "text": "MITRE CWE-799 (Class). See https://cwe.mitre.org/data/definitions/799.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-820",
+      "title": "Missing Synchronization",
+      "text": "MITRE CWE-820 (Base). See https://cwe.mitre.org/data/definitions/820.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-823",
+      "title": "Use of Out-of-range Pointer Offset",
+      "text": "MITRE CWE-823 (Base). See https://cwe.mitre.org/data/definitions/823.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-825",
+      "title": "Expired Pointer Dereference",
+      "text": "MITRE CWE-825 (Base). See https://cwe.mitre.org/data/definitions/825.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-828",
+      "title": "Signal Handler with Functionality that is not Asynchronous-Safe",
+      "text": "MITRE CWE-828 (Variant). See https://cwe.mitre.org/data/definitions/828.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-829",
+      "title": "Inclusion of Functionality from Untrusted Control Sphere",
+      "text": "MITRE CWE-829 (Base). See https://cwe.mitre.org/data/definitions/829.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-833",
+      "title": "Deadlock",
+      "text": "MITRE CWE-833 (Base). See https://cwe.mitre.org/data/definitions/833.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-835",
+      "title": "Loop with Unreachable Exit Condition ('Infinite Loop')",
+      "text": "MITRE CWE-835 (Base). See https://cwe.mitre.org/data/definitions/835.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-843",
+      "title": "Access of Resource Using Incompatible Type ('Type Confusion')",
+      "text": "MITRE CWE-843 (Base). See https://cwe.mitre.org/data/definitions/843.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-862",
+      "title": "Missing Authorization",
+      "text": "MITRE CWE-862 (Class). See https://cwe.mitre.org/data/definitions/862.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-863",
+      "title": "Incorrect Authorization",
+      "text": "MITRE CWE-863 (Class). See https://cwe.mitre.org/data/definitions/863.html",
+      "checkability": "none"
+    },
+    {
+      "id": "CWE-908",
+      "title": "Use of Uninitialized Resource",
+      "text": "MITRE CWE-908 (Base). See https://cwe.mitre.org/data/definitions/908.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-915",
+      "title": "Improperly Controlled Modification of Dynamically-Determined Object Attributes",
+      "text": "MITRE CWE-915 (Base). See https://cwe.mitre.org/data/definitions/915.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-916",
+      "title": "Use of Password Hash With Insufficient Computational Effort",
+      "text": "MITRE CWE-916 (Base). See https://cwe.mitre.org/data/definitions/916.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-917",
+      "title": "Improper Neutralization of Special Elements used in an Expression Language Statement ('Expression Language Injection')",
+      "text": "MITRE CWE-917 (Base). See https://cwe.mitre.org/data/definitions/917.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-918",
+      "title": "Server-Side Request Forgery (SSRF)",
+      "text": "MITRE CWE-918 (Base). See https://cwe.mitre.org/data/definitions/918.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-921",
+      "title": "Storage of Sensitive Data in a Mechanism without Access Control",
+      "text": "MITRE CWE-921 (Base). See https://cwe.mitre.org/data/definitions/921.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-922",
+      "title": "Insecure Storage of Sensitive Information",
+      "text": "MITRE CWE-922 (Class). See https://cwe.mitre.org/data/definitions/922.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-939",
+      "title": "Improper Authorization in Handler for Custom URL Scheme",
+      "text": "MITRE CWE-939 (Base). See https://cwe.mitre.org/data/definitions/939.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-940",
+      "title": "Improper Verification of Source of a Communication Channel",
+      "text": "MITRE CWE-940 (Base). See https://cwe.mitre.org/data/definitions/940.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-942",
+      "title": "Permissive Cross-domain Security Policy with Untrusted Domains",
+      "text": "MITRE CWE-942 (Variant). See https://cwe.mitre.org/data/definitions/942.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-943",
+      "title": "Improper Neutralization of Special Elements in Data Query Logic",
+      "text": "MITRE CWE-943 (Class). See https://cwe.mitre.org/data/definitions/943.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1004",
+      "title": "Sensitive Cookie Without 'HttpOnly' Flag",
+      "text": "MITRE CWE-1004 (Variant). See https://cwe.mitre.org/data/definitions/1004.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1021",
+      "title": "Improper Restriction of Rendered UI Layers or Frames",
+      "text": "MITRE CWE-1021 (Base). See https://cwe.mitre.org/data/definitions/1021.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1023",
+      "title": "Incomplete Comparison with Missing Factors",
+      "text": "MITRE CWE-1023 (Class). See https://cwe.mitre.org/data/definitions/1023.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1088",
+      "title": "Synchronous Access of Remote Resource without Timeout",
+      "text": "MITRE CWE-1088 (Base). See https://cwe.mitre.org/data/definitions/1088.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1104",
+      "title": "Use of Unmaintained Third Party Components",
+      "text": "MITRE CWE-1104 (Base). See https://cwe.mitre.org/data/definitions/1104.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1173",
+      "title": "Improper Use of Validation Framework",
+      "text": "MITRE CWE-1173 (Base). See https://cwe.mitre.org/data/definitions/1173.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1188",
+      "title": "Initialization of a Resource with an Insecure Default",
+      "text": "MITRE CWE-1188 (Base). See https://cwe.mitre.org/data/definitions/1188.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1236",
+      "title": "Improper Neutralization of Formula Elements in a CSV File",
+      "text": "MITRE CWE-1236 (Base). See https://cwe.mitre.org/data/definitions/1236.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1240",
+      "title": "Use of a Cryptographic Primitive with a Risky Implementation",
+      "text": "MITRE CWE-1240 (Base). See https://cwe.mitre.org/data/definitions/1240.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1275",
+      "title": "Sensitive Cookie with Improper SameSite Attribute",
+      "text": "MITRE CWE-1275 (Variant). See https://cwe.mitre.org/data/definitions/1275.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1284",
+      "title": "Improper Validation of Specified Quantity in Input",
+      "text": "MITRE CWE-1284 (Base). See https://cwe.mitre.org/data/definitions/1284.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1327",
+      "title": "Binding to an Unrestricted IP Address",
+      "text": "MITRE CWE-1327 (Base). See https://cwe.mitre.org/data/definitions/1327.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1333",
+      "title": "Inefficient Regular Expression Complexity",
+      "text": "MITRE CWE-1333 (Base). See https://cwe.mitre.org/data/definitions/1333.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1339",
+      "title": "Insufficient Precision or Accuracy of a Real Number",
+      "text": "MITRE CWE-1339 (Base). See https://cwe.mitre.org/data/definitions/1339.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1385",
+      "title": "Missing Origin Validation in WebSockets",
+      "text": "MITRE CWE-1385 (Variant). See https://cwe.mitre.org/data/definitions/1385.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1392",
+      "title": "Use of Default Credentials",
+      "text": "MITRE CWE-1392 (Base). See https://cwe.mitre.org/data/definitions/1392.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1395",
+      "title": "Dependency on Vulnerable Third-Party Component",
+      "text": "MITRE CWE-1395 (Class). See https://cwe.mitre.org/data/definitions/1395.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1427",
+      "title": "Improper Neutralization of Input Used for LLM Prompting",
+      "text": "MITRE CWE-1427 (Base). See https://cwe.mitre.org/data/definitions/1427.html",
+      "checkability": "partial"
+    }
+  ]
+}

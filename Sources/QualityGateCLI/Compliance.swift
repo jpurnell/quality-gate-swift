@@ -6,14 +6,14 @@ import QualityGateCore
 /// `quality-gate compliance` — the honest control-coverage report
 /// (RegulatoryControlMapping Phase 1).
 ///
-/// Renders the SOC 2 / ISO 27001 / HIPAA technical-control coverage matrix from
+/// Renders the SOC 2 / ISO 27001 / HIPAA / CWE coverage matrix from
 /// the bundled mapping: which controls a rule enforces, which the gate's own
 /// operation evidences, and which are out of scope for static analysis. It
 /// reports coverage, never compliance — the disclaimer leads every rendering.
 struct Compliance: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "compliance",
-        abstract: "Report technical-control coverage (SOC2/ISO/HIPAA): enforced, evidence-only, out-of-scope. NOT an assertion of compliance."
+        abstract: "Report technical-control and weakness coverage (SOC2/ISO/HIPAA/CWE): enforced, evidence-only, gap, out-of-scope. NOT an assertion of compliance."
     )
 
     /// `--as` (not `--format`): the root command owns `--format`, and ArgumentParser

@@ -87,7 +87,22 @@ struct SecurityVisitorTests {
         #expect(diag?.message.contains("CWE-78") == true)
     }
 
-    // MARK: - Weak Crypto (CWE-327)
+    // MARK: - Weak Crypto (CWE-328)
+
+    /// CWE-327 is the class; MD5 and SHA-1 are hashes, and MITRE's entry for that is 328.
+    /// The message takes its CWE from the manifest so the two cannot disagree again.
+    @Test("Weak-hash diagnostic cites the CWE the manifest records")
+    func weakCryptoCitesManifestCWE() async throws {
+        let code = """
+        CC_MD5(data, len, &digest)
+        """
+
+        let result = try await auditCode(code)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "security.weak-crypto" })
+        let recorded = try #require(SecurityRuleManifest.cwe(for: "security.weak-crypto"))
+        #expect(recorded == "CWE-328")
+        #expect(diag.message.contains("[\(recorded)]"))
+    }
 
     @Test("Detects CC_MD5 usage")
     func detectsCCMD5() async throws {
@@ -356,7 +371,15 @@ struct SecurityVisitorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
     }
 
-    // MARK: - Insecure Keychain (CWE-311)
+    // MARK: - Insecure Keychain (CWE-922)
+
+    /// CWE-311 is "missing encryption", which MITRE discourages for mapping and which is not
+    /// what this is: the item is encrypted, and readable while the device is locked.
+    @Test("The keychain rule is recorded under insecure storage, not missing encryption")
+    func insecureKeychainCWE() {
+        #expect(SecurityRuleManifest.cwe(for: "security.insecure-keychain") == "CWE-922")
+        #expect(SecurityRuleManifest.cwe(for: "no.such-rule") == nil)
+    }
 
     @Test("Detects kSecAttrAccessibleAlways")
     func detectsInsecureKeychain() async throws {
@@ -407,10 +430,12 @@ struct SecurityVisitorTests {
 
     // MARK: - Path Traversal (CWE-22)
 
-    @Test("Detects FileManager with dynamic path")
+    @Test("Detects a joined path that is read")
     func detectsPathTraversal() async throws {
+        // A probe of a received path used to be the example; it is not traversal. See
+        // PathTraversalTests and TraversalIsAJoin.md.
         let code = """
-        FileManager.default.fileExists(atPath: userPath)
+        let data = FileManager.default.contents(atPath: base.appendingPathComponent(userPath).path)
         """
 
         let result = try await auditCode(code)
@@ -580,18 +605,20 @@ struct SecurityVisitorTests {
 
     @Test("SAFETY exemption suppresses security rule")
     func safetyExemptionWorks() async throws {
+        // Changed by AnAcknowledgementIsARecord.md: `// SAFETY:` no longer reaches security
+        // rules. This test used to assert the opposite.
         let code = """
         let apiKey = "sk-test-key" // SAFETY: Test fixture only
         """
 
         let result = try await auditCode(code)
-        #expect(!result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
+        #expect(result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
     }
 
     @Test("SECURITY exemption suppresses security rule")
     func securityExemptionWorks() async throws {
         let code = """
-        let apiKey = "sk-test-key" // SECURITY: Required for integration test
+        let apiKey = "sk-test-key" // SECURITY: integration fixture key, revoked, and never shipped in a build
         """
 
         let result = try await auditCode(code)
@@ -601,7 +628,7 @@ struct SecurityVisitorTests {
     @Test("SECURITY exemption on previous line works")
     func securityExemptionPreviousLine() async throws {
         let code = """
-        // SECURITY: Required for integration test
+        // SECURITY: integration fixture key, revoked, and never shipped in a build
         let token = "test-token-value"
         """
 
@@ -711,16 +738,16 @@ struct SecurityVisitorTests {
 
     // MARK: - Manifest Tests
 
-    @Test("SecurityRuleManifest has 10 rules")
-    func manifestHasTenRules() {
-        #expect(SecurityRuleManifest.rules.count == 10)
+    @Test("SecurityRuleManifest has 11 rules")
+    func manifestHasElevenRules() {
+        #expect(SecurityRuleManifest.rules.count == 11)
     }
 
     @Test("All manifest rules have valid CWE references")
     func manifestRulesHaveCWE() {
         for rule in SecurityRuleManifest.rules {
             #expect(rule.cwe.hasPrefix("CWE-"))
-            #expect(rule.owaspCategory.hasPrefix("M"))
+            #expect(rule.owaspMobile.hasPrefix("M"))
         }
     }
 

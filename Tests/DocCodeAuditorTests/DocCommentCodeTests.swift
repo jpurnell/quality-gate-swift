@@ -393,4 +393,13 @@ struct DocCommentCodeAuditorTests {
             of: URL(fileURLWithPath: "/pkg/Tests/IJSCoreTests/Nested.swift"),
             projectRoot: root) == nil)
     }
+
+    /// The root was matched as a string prefix, so `/pkgSources/…` began with `/pkg` and the
+    /// remainder read as `Sources/Evil/…` — a file outside the package assigned to a module of it.
+    @Test("A file beside the package root is not in the package")
+    func owningModuleNeedsWholeComponents() {
+        #expect(DocCommentCodeAuditor.owningModule(
+            of: URL(fileURLWithPath: "/pkgSources/Evil/a.swift"),
+            projectRoot: URL(fileURLWithPath: "/pkg")) == nil)
+    }
 }

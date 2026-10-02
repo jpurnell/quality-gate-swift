@@ -16,8 +16,8 @@ logging:
   projectType: cli
 
 security:
-  # CLI tool operates on configured paths (not user input), so path-traversal
-  # and insecure-transport remain false positives in this context.
+  # insecure-transport stays off: the http:// literals here are XML namespaces and test
+  # fixtures. path-traversal is waiting on a deploy — see the note above enabledRules.
   #
   # security.command-injection is ENABLED, and the order that got it here is
   # worth keeping: a rule name in this file binds to whatever mechanism the
@@ -49,6 +49,14 @@ security:
   # quality-gate-swift-project/plans/completed/ProcessSafetyAuditorCatchesTheClass.md for the
   # containment half — note completed/, not proposals/, where the old comment
   # pointed after the file moved.
+  #
+  # security.path-traversal and security.path-containment-by-prefix are NOT enabled yet, for
+  # the reason above: the hook runs the deployed gate, whose path-traversal is the old one (every
+  # dynamic path; 125 warnings here), and enabling it in the commit that rewrites it blocked that
+  # commit. Deploy, then add both. The new mechanism reports 11 here; four were real bugs, fixed.
+  containmentCheckers:
+    - PathContainment.isContained
+    - RunEnvironment.path
   enabledRules:
     - security.command-injection
     - security.hardcoded-secret

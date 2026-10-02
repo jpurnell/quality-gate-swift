@@ -187,7 +187,14 @@ struct Dashboard: AsyncParsableCommand {
                 outputPath = output
             } else {
                 let pulseLabel = pulse?.label ?? pulse?.weekLabel ?? isoWeekLabel(for: Date())
-                let pulseDir = "\(effectiveCorpusPath)/pulse/\(pulseLabel)" // SAFETY: corpusPath from config; label computed from date
+                let pulseDir = "\(effectiveCorpusPath)/pulse/\(pulseLabel)"
+                // The label can come from a pulse file in the corpus, not only from the date, so
+                // a label of `../x` would write outside `pulse/`. Refused rather than trusted.
+                guard RunEnvironment.path(
+                    URL(fileURLWithPath: pulseDir), isInside: URL(fileURLWithPath: "\(effectiveCorpusPath)/pulse")
+                ), !pulseLabel.contains("/") else {
+                    throw ValidationError("Pulse label '\(pulseLabel)' is not a single directory name.")
+                }
                 let fm = FileManager.default
                 if !fm.fileExists(atPath: pulseDir) { // SAFETY: pulseDir constructed from config corpus path + date-derived label
                     try fm.createDirectory(atPath: pulseDir, withIntermediateDirectories: true) // SAFETY: creates subdirectory within configured corpus
