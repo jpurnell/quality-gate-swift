@@ -23,6 +23,11 @@ public enum CheckerSelection {
     ///     exists so a repository the checker cannot evaluate can say so once, in writing,
     ///     instead of relying on every invocation remembering a flag.
     ///   - configuredEnabled: `Configuration.enabledCheckers` (from `.quality-gate.yml`).
+    ///   - configuredIncluded: `Configuration.includedCheckers` — ids added to the default
+    ///     set (or to `configuredEnabled` when that is set). The way to opt one checker in
+    ///     without `enabledCheckers: [all]`, which opts in every convention-gated one too.
+    ///     Has no effect on `--check all` or an explicit `--check`, and loses to an
+    ///     exclusion, so `--exclude` stays a working escape hatch.
     ///   - full: The `--full` flag; opts `xcode-build` back into the default set.
     ///   - allIDs: All registered checker ids, in registry (output) order.
     /// - Returns: The checker ids to run, preserving `allIDs` order where applicable.
@@ -30,6 +35,7 @@ public enum CheckerSelection {
         requested: [String],
         excluded: [String],
         configuredEnabled: [String],
+        configuredIncluded: [String] = [],
         full: Bool,
         allIDs: [String]
     ) -> [String] {
@@ -53,7 +59,8 @@ public enum CheckerSelection {
             if configuredEnabled.contains("all") {
                 return allIDs.filter { !excludeSet.contains($0) }
             }
-            return configuredEnabled.filter { !excludeSet.contains($0) }
+            let added = configuredIncluded.filter { !configuredEnabled.contains($0) }
+            return (configuredEnabled + added).filter { !excludeSet.contains($0) }
         } else {
             // Default (no --check, no config): everything except the opt-in checkers.
             //
@@ -131,6 +138,7 @@ public enum CheckerSelection {
                 "xcode-build", "doc-run", "doc-claims", "doc-comment-code", "doc-generated",
             ]
             if full { optOut.remove("xcode-build") }
+            optOut.subtract(configuredIncluded)
             // `--exclude` is honoured here too, which it was not before. While `doc-code` was
             // opt-in that gap was invisible: nothing in the default set was worth excluding,
             // so `quality-gate --exclude doc-code` silently doing nothing cost nobody

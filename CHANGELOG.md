@@ -4,6 +4,19 @@
 
 ### Added
 
+- **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
+  `excludedCheckers:`. Before this, the only way to opt a checker in from config was
+  `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
+  (`doc-run`, `doc-claims`, `doc-comment-code`, `doc-generated`). The new key is added to
+  `enabledCheckers` when that is set. It changes neither `--check all` nor an explicit
+  `--check`, and an exclusion still wins over it. It is a new schema key, so an older binary
+  rejects a file that uses it: ratchet `minimumGateVersion` when you adopt it.
+- **`xcode-build` builds plain Swift packages.** With no workspace or project in the root but
+  a `Package.swift`, it runs `xcodebuild` from the package directory with no container
+  arguments. A workspace or project still wins when present, so nothing that built before
+  builds something different now. Prompted by BioFeedbackKit-HealthKit, whose watchOS-only
+  HealthKit adapter the macOS `build` checker has never compiled.
+
 - **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
   `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
   a fixture string that contains an XCTest file is never rewritten. That was the failure of
@@ -136,6 +149,9 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`xcode-build` reported "nothing to build" as PASSED.** It now reports SKIPPED. Configured
+  with a scheme and a watchOS destination on a plain package, it printed
+  `✓ [xcode-build] PASSED (0ms)` having compiled nothing.
 - **`control-mapping` logs when it cannot list its own resources.** Its `try?` carried a
   three-line `// silent:` justification that the logging auditor does not read, so the gate
   reported it. It now catches and logs, as `decode` beside it already did, and still returns

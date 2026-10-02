@@ -264,4 +264,63 @@ struct CheckerSelectionTests {
         )
         #expect(result == ["build"])
     }
+
+    // MARK: - includedCheckers
+
+    @Test("includedCheckers opts one checker into the default set, and nothing else")
+    func includedOptsInto() {
+        // The opt-in the default set lacked. `enabledCheckers: [all]` was the only config
+        // route to `xcode-build`, and it also enabled every convention-gated doc checker —
+        // each red on arrival for a catalogue that has not adopted its convention.
+        let registry = allIDs + ["doc-run", "doc-comment-code"]
+        let result = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], configuredIncluded: ["xcode-build"],
+            full: false, allIDs: registry
+        )
+        #expect(result.contains("xcode-build"))
+        #expect(result.contains("safety"))
+        #expect(!result.contains("doc-run"))
+        #expect(!result.contains("doc-comment-code"))
+    }
+
+    @Test("includedCheckers preserves registry order")
+    func includedPreservesOrder() {
+        let result = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], configuredIncluded: ["xcode-build"],
+            full: false, allIDs: allIDs
+        )
+        #expect(result == allIDs)
+    }
+
+    @Test("an exclusion still wins over an inclusion")
+    func exclusionWinsOverInclusion() {
+        // The escape hatch has to stay load-bearing: `--exclude xcode-build` must work in a
+        // repository whose config opts it in.
+        let result = CheckerSelection.resolve(
+            requested: [], excluded: ["xcode-build"], configuredEnabled: [],
+            configuredIncluded: ["xcode-build"], full: false, allIDs: allIDs
+        )
+        #expect(!result.contains("xcode-build"))
+    }
+
+    @Test("includedCheckers adds to a configured enabledCheckers list")
+    func includedUnionsWithEnabled() {
+        let result = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: ["build", "safety"],
+            configuredIncluded: ["xcode-build", "safety"], full: false, allIDs: allIDs
+        )
+        #expect(result == ["build", "safety", "xcode-build"])
+    }
+
+    @Test("includedCheckers changes neither --check all nor an explicit --check")
+    func includedLeavesExplicitRequestsAlone() {
+        #expect(CheckerSelection.resolve(
+            requested: ["safety"], excluded: [], configuredEnabled: [], configuredIncluded: ["xcode-build"],
+            full: false, allIDs: allIDs
+        ) == ["safety"])
+        #expect(CheckerSelection.resolve(
+            requested: ["all"], excluded: [], configuredEnabled: [], configuredIncluded: ["xcode-build"],
+            full: false, allIDs: allIDs
+        ) == allIDs)
+    }
 }

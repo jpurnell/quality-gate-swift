@@ -394,6 +394,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             requested: check,
             excluded: exclude + configuration.excludedCheckers,
             configuredEnabled: configuration.enabledCheckers,
+            configuredIncluded: configuration.includedCheckers,
             full: full,
             allIDs: allCheckers.map(\.id)
         )

@@ -32,7 +32,7 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     public let name = "Xcode Build Checker"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Xcode project build validation and IndexStore generation (opt-in)"
+    public let summary = "Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in)"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.specialty
@@ -159,15 +159,18 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
 
         let projectArgs = try resolveProjectArguments(config, root: configuration.resolvedProjectRoot.path)
 
+        // Nothing built is `.skipped`, never `.passed`. It used to pass: a plain package,
+        // configured with a scheme and a watchOS destination, printed `✓ PASSED (0ms)`
+        // having compiled nothing — the green tick `BuildVerdictTests` exists to prevent.
         guard let projectArgs else {
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,
-                status: .passed,
+                status: .skipped,
                 diagnostics: [
                     Diagnostic(
                         severity: .note,
-                        message: "No Xcode project or workspace found — skipping",
+                        message: "No Xcode workspace, Xcode project or Package.swift found — nothing to build",
                         ruleId: "xcode-build-skip"
                     )
                 ],
@@ -269,23 +272,46 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         _ config: XcodeBuildCheckerConfig,
         root: String
     ) throws -> [String]? {
+        if config.workspace != nil || config.project != nil {
+            return Self.projectArguments(config: config, directoryContents: [])
+        }
+        // SAFETY: CLI reads local cwd directory listing for Xcode project auto-discovery
+        let contents = try FileManager.default.contentsOfDirectory(atPath: root)
+        return Self.projectArguments(config: config, directoryContents: contents)
+    }
+
+    /// The container arguments `xcodebuild` needs, or `nil` when there is nothing to build.
+    ///
+    /// Configured workspace, then configured project, then a discovered `.xcworkspace`,
+    /// then a discovered `.xcodeproj` — and, failing all four, a `Package.swift`, which
+    /// needs **no** container arguments: `xcodebuild` builds a package from its own
+    /// directory. A project or workspace beside a `Package.swift` still wins, so nothing
+    /// that built before builds something different now.
+    ///
+    /// - Parameters:
+    ///   - config: The checker's configuration.
+    ///   - directoryContents: Entry names in the project root (sorted for determinism).
+    /// - Returns: The arguments, possibly empty for a package; `nil` for nothing to build.
+    static func projectArguments(
+        config: XcodeBuildCheckerConfig,
+        directoryContents: [String]
+    ) -> [String]? {
         if let workspace = config.workspace {
             return ["-workspace", workspace]
         }
         if let project = config.project {
             return ["-project", project]
         }
-
-        // SAFETY: CLI reads local cwd directory listing for Xcode project auto-discovery
-        let contents = try FileManager.default.contentsOfDirectory(atPath: root)
-
+        let contents = directoryContents.sorted()
         if let workspace = contents.first(where: { $0.hasSuffix(".xcworkspace") }) {
             return ["-workspace", workspace]
         }
         if let project = contents.first(where: { $0.hasSuffix(".xcodeproj") }) {
             return ["-project", project]
         }
-
+        if contents.contains("Package.swift") {
+            return []
+        }
         return nil
     }
 
