@@ -112,6 +112,13 @@
     "posture": "partial"
   },
   {
+    "ruleId": "pointer-escape.assigned-to-outer-member",
+    "satisfies": [
+      "cwe/CWE-825"
+    ],
+    "posture": "partial"
+  },
+  {
     "ruleId": "pointer-escape.stored-in-property",
     "satisfies": [
       "cwe/CWE-825"
