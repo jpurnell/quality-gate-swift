@@ -373,7 +373,7 @@ public enum DashboardApp: Sendable {
                 return
             }
             let owner = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
-            state.statusMessage = ReviewStore.submit(
+            state.statusMessage = ReviewStore.submitFromEventLoop(
                 corpusPath: corpusPath, ruleId: ruleId,
                 justification: request.reason, by: owner)
         case .awaitingSecondIdentity:
@@ -395,7 +395,7 @@ public enum DashboardApp: Sendable {
             return
         }
         let reviewer = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
-        state.statusMessage = ReviewStore.apply(
+        state.statusMessage = ReviewStore.applyFromEventLoop(
             action, corpusPath: corpusPath, reviewer: reviewer)
         state.setReviewRows(ReviewStore.pending(corpusPath: corpusPath))
     }
