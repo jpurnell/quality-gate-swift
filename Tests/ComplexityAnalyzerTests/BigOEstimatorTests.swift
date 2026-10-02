@@ -207,6 +207,63 @@ struct BigOEstimatorTests {
         #expect(records[0].estimatedTimeComplexity == "O(n²)")
     }
 
+    // MARK: - Names that are not collection operations
+
+    @Test("An enum case named like a collection method is not an O(n) call")
+    func implicitMemberEnumCaseIsConstant() {
+        // Found in BioFeedbackKit-HealthKit: `case .first:` in a switch over a
+        // `BeatOutcome` enum read as `Collection.first` — "O(n)" — and the function holding
+        // it was then reported as O(n²) wherever it was called from a loop. A member with
+        // no base is an implicit member: an enum case or a static member, never a method on
+        // a collection instance.
+        let code = """
+        func describe(_ outcome: Outcome) -> String {
+            switch outcome {
+            case .first: return "first"
+            case .last: return "last"
+            default: return "other"
+            }
+        }
+        """
+        let results = analyze(code)
+        #expect(results[0].estimatedTimeComplexity == "O(1)")
+    }
+
+    @Test("map on a conditional cast is Optional.map, not a loop")
+    func optionalMapOnCastIsConstant() {
+        // Also from BioFeedbackKit-HealthKit: `(sample as? Series).map { ... }`. An `as?`
+        // produces an Optional, whose `map` runs its closure at most once.
+        let code = """
+        func kind(_ sample: Sample) -> String {
+            return (sample as? Series).map { "beats=\\($0.count)" } ?? "other"
+        }
+        """
+        let results = analyze(code)
+        #expect(results[0].estimatedTimeComplexity == "O(1)")
+    }
+
+    @Test("map on a collection is still a loop")
+    func collectionMapStillLinear() {
+        let code = """
+        func doubled(_ items: [Int]) -> [Int] {
+            return items.map { $0 * 2 }
+        }
+        """
+        let results = analyze(code)
+        #expect(results[0].estimatedTimeComplexity == "O(n)")
+    }
+
+    @Test("first on a collection is still O(n)")
+    func collectionFirstStillCounted() {
+        let code = """
+        func firstEven(_ items: [Int]) -> Int? {
+            return items.first(where: { $0 % 2 == 0 })
+        }
+        """
+        let results = analyze(code)
+        #expect(results[0].estimatedTimeComplexity == "O(n)")
+    }
+
     // MARK: - Helpers
 
     private func analyze(_ source: String) -> [FunctionComplexityRecord] {

@@ -149,6 +149,11 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`complexity` costed two non-loops as O(n).** An implicit member (`case .first:`,
+  `return .last`) has no receiver, so it is an enum case or a static member, never a
+  collection method. And `map` on an `as?` result is `Optional.map`, which runs once. Both
+  were matched by name alone. In BioFeedbackKit-HealthKit each one made a function read as
+  O(n²) from its caller. Collection `first` and `map` are still costed as before.
 - **`xcode-build` reported "nothing to build" as PASSED.** It now reports SKIPPED. Configured
   with a scheme and a watchOS destination on a plain package, it printed
   `✓ [xcode-build] PASSED (0ms)` having compiled nothing.
