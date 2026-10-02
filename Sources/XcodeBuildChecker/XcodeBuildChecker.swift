@@ -67,6 +67,16 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         exitCode != 0
     }
 
+    /// The checker's status: failed if any destination failed, otherwise a warning if the
+    /// compiler warned, otherwise passed.
+    ///
+    /// Warnings used to leave the status `.passed`, so a watchOS-only warning showed up in
+    /// the summary count while the checker's line stayed green.
+    static func status(anyBuildFailed: Bool, diagnostics: [Diagnostic]) -> CheckResult.Status {
+        if anyBuildFailed { return .failed }
+        return diagnostics.contains { $0.severity == .warning } ? .warning : .passed
+    }
+
     /// A diagnostic for a build that failed without any recognisable compiler output.
     ///
     /// Carries the tail of what xcodebuild actually printed, because the reason the
@@ -260,7 +270,7 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
 
         return CheckResult(
             checkerId: id,
-            status: anyBuildFailed ? .failed : .passed,
+            status: Self.status(anyBuildFailed: anyBuildFailed, diagnostics: deduped),
             diagnostics: deduped,
             duration: duration
         )

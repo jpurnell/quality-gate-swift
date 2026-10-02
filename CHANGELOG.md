@@ -83,6 +83,13 @@
 
 ### Changed
 
+- **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
+  successful build with warnings was counted in the summary while the checker's line stayed
+  green, so a run whose job is zero warnings could read as clean. The run still passes
+  without `--strict` and fails under it, the same as every other checker that warns.
+  Caveats: an incremental build re-emits a warning only when its file recompiles, so the
+  status appears on the run that compiles the file. Local path dependencies' warnings
+  count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
 - **A `// SECURITY:` acknowledgement must give a reason, and is always recorded.** Any security
   finding used to be silenced by the bare marker on its line or the one above — no reason
   required — and nine of the ten rules returned without a trace, so the exemption appeared in
