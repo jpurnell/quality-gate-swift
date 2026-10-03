@@ -29,6 +29,10 @@ struct SecurityAcknowledgementTests {
         ("security.broken-cipher", "let algorithm = CCAlgorithm(kCCAlgorithmDES)"),
         ("security.ecb-mode", "let options = CCOptions(kCCOptionECBMode)"),
         ("security.homemade-digest", "func hashKey(_ key: String) -> String { String(key.reversed()) }"),
+        ("security.hardcoded-key", #"let key = SymmetricKey(data: Data("0123456789abcdef".utf8))"#),
+        ("security.static-iv", "let s = CCCrypt(CCOperation(kCCEncrypt), alg, opts, k, n, nil, i, il, o, ol, &m)"),
+        ("security.weak-kdf", "let s = CCKeyDerivationPBKDF(alg, pw, n, salt, m, prf, 1000, out, len)"),
+        ("security.weak-key-size", "let a = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 1024]"),
         ("security.command-injection", """
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/sh")

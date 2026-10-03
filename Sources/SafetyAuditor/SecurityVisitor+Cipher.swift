@@ -202,14 +202,6 @@ extension SecurityVisitor {
         "hash", "hashed", "hashing", "digest", "hmac", "mac", "checksum",
     ]
 
-    /// Words that, in a parameter's name, make its value a secret.
-    ///
-    /// A local list, deliberately narrow. The shared sensitive-name matcher is being unified
-    /// separately (`TheGateIsNotYetAggressive.md` §2.1); this rule should move to it when it lands.
-    static let secretWords: Set<String> = [
-        "password", "passwd", "passphrase", "pin", "secret", "token", "key", "apikey", "credential",
-    ]
-
     /// Identifiers whose presence in a body means a recognised primitive is called.
     ///
     /// The weak ones are here on purpose: a function that hashes a password with MD5 *called a
@@ -273,9 +265,24 @@ extension SecurityVisitor {
     private static func secretParameterName(_ parameter: FunctionParameterSyntax) -> String? {
         let local = parameter.secondName?.text ?? parameter.firstName.text
         for candidate in [parameter.firstName.text, local] where candidate != "_" {
-            if camelCaseWords(candidate).contains(where: secretWords.contains) { return local }
+            if namesSecret(candidate) { return local }
         }
         return nil
+    }
+
+    /// Whether a parameter name makes its value a secret, by the gate's one sensitive-name matcher.
+    ///
+    /// The rule carried its own list until ``SensitiveName`` landed: `password`, `passwd`,
+    /// `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`. Every one is a
+    /// credential, password or key-material term there; two — `pin` and `key` — are *weak*, and
+    /// are asked for here because the list always included them. The matcher adds the rest of
+    /// its secret vocabulary (`bearer`, `privateKey`, `sessionKey`, …) and plurals. Measured over
+    /// the portfolio the findings did not change: one before, the same one after.
+    static func namesSecret(_ name: String) -> Bool {
+        let classification = SensitiveName.classify(name)
+        return classification.namesSecret
+            || classification.contains(.password, includingWeak: true)
+            || classification.contains(.keyMaterial, includingWeak: true)
     }
 
     /// Whether `body` names a recognised primitive, or delegates to another digest-named function.

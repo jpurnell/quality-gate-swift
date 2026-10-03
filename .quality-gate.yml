@@ -73,6 +73,10 @@ security:
     - security.broken-cipher
     - security.ecb-mode
     - security.homemade-digest
+    - security.hardcoded-key
+    - security.static-iv
+    - security.weak-kdf
+    - security.weak-key-size
     - security.eval-js
     - security.sql-injection
     - security.insecure-keychain
