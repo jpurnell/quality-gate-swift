@@ -21,15 +21,18 @@ import SwiftSyntax
 /// | `security.insecure-transport` | 319 | http:// URLs (excluding localhost) |
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
-/// | `security.insecure-keychain` | 311 | Deprecated keychain accessibility constants |
+/// | `security.insecure-keychain` | 922 | Deprecated keychain accessibility constants |
 /// | `security.tls-disabled` | 295, 298 | Certificate validation switched off — see `SecurityVisitor+Trust.swift` |
 /// | `security.tls-no-hostname` | 297 | Certificate not checked against the host |
 /// | `security.trust-handler-accepts-all` | 295 | Trust challenge answered without an evaluation |
 /// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
-/// | `security.path-traversal` | 22 | FileManager with dynamic path |
+/// | `security.path-traversal` | 22 | Chosen segment joined onto a directory and used without containment |
 /// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
 /// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
 /// | `security.xml-entity-expansion` | 776 | `XML_PARSE_HUGE`; `XMLDocument` parse with no DTD refusal (warning) |
+/// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |
+/// | `security.archive-path-escape` | 22 | Archive entry name joined and written without containment; `unzip -:`, `tar -P` |
+/// | `security.archive-symlink` | 59 | Link target chosen by an archive entry, unchecked; ZIPFoundation containment switched off |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -123,6 +126,8 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
+        checkArchivePathEscape(node)
+        checkArchiveSymlink(node)
         checkCertificateVerificationArguments(node)
         checkTrustCalls(node)
         checkVerifyBlock(node)
@@ -305,6 +310,8 @@ final class SecurityVisitor: SyntaxVisitor {
         // arguments in every shape this rule recognises.
         noteExecutableAssignment(node)
         checkShellCommandAssembly(node)
+        noteExtractorAssignment(node)
+        checkExtractorFlags(node)
         return .visitChildren
     }
 
@@ -317,7 +324,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// The list is the point of the rule: injection needs an interpreter. A `Process` given an
     /// `arguments` array invokes none — each element arrives as one `argv` entry, so a filename
     /// containing `; rm -rf /` is passed as a filename and nothing parses it.
-    private static let shellNames: Set<String> = [
+    static let shellNames: Set<String> = [
         "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish"
     ]
 
@@ -331,25 +338,35 @@ final class SecurityVisitor: SyntaxVisitor {
     /// whichever happened to be written second.
     private var shellVariables: Set<String> = []
 
+    /// Variables whose executable is an archive extractor, by base identifier, to the tool's
+    /// name (`unzip`, `tar`). Correlated the same way as `shellVariables`.
+    var extractorVariables: [String: String] = [:]
+
     /// Records `x.executableURL = URL(fileURLWithPath: "/bin/sh")` and `x.launchPath = "/bin/sh"`.
     ///
     /// Called for every assignment; only shell paths are retained.
     func noteExecutableAssignment(_ node: SequenceExprSyntax) {
-        let elements = Array(node.elements)
-        guard elements.count >= 3,
-              elements[1].is(AssignmentExprSyntax.self),
-              let member = elements[0].as(MemberAccessExprSyntax.self),
-              let base = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text else { return }
-        let property = member.declName.baseName.text
-        guard property == "executableURL" || property == "launchPath" else { return }
-
-        guard let path = Self.firstStringLiteral(in: elements[2]) else { return }
+        guard let (base, path) = Self.executableAssignment(node) else { return }
         let name = (path as NSString).lastPathComponent
         // `env` defers the choice of interpreter to its first argument, so the decision moves to
         // the argument array; treating it as a shell here is what makes `env sh -c` reachable.
         if Self.shellNames.contains(name) || name == "env" {
             shellVariables.insert(base)
         }
+    }
+
+    /// `x.executableURL = URL(fileURLWithPath: "/bin/sh")` or `x.launchPath = "/bin/sh"`: the
+    /// variable and the literal path.
+    static func executableAssignment(_ node: SequenceExprSyntax) -> (String, String)? {
+        let elements = Array(node.elements)
+        guard elements.count >= 3,
+              elements[1].is(AssignmentExprSyntax.self),
+              let member = elements[0].as(MemberAccessExprSyntax.self),
+              let base = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text else { return nil }
+        let property = member.declName.baseName.text
+        guard property == "executableURL" || property == "launchPath",
+              let path = firstStringLiteral(in: elements[2]) else { return nil }
+        return (base, path)
     }
 
     /// The command-injection rule proper: a shell handed a command string it did not author.
@@ -425,7 +442,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// The first string literal inside `expression`, unwrapping one call layer.
     ///
     /// Unwraps so `URL(fileURLWithPath: "/bin/sh")` yields the path the same as a bare literal.
-    private static func firstStringLiteral(in expression: ExprSyntaxProtocol) -> String? {
+    static func firstStringLiteral(in expression: ExprSyntaxProtocol) -> String? {
         if let literal = expression.as(StringLiteralExprSyntax.self) {
             return literal.representedLiteralValue
         }
@@ -744,6 +761,9 @@ final class SecurityVisitor: SyntaxVisitor {
         }
         guard Self.isJoinWithChosenSegment(joined, at: node) else { return }
         if let subject, hasSoundContainmentCheck(on: subject, before: node) { return }
+        // One defect, one diagnostic: an archive entry's name escaping is the more specific report.
+        if isRuleEnabled(Self.archiveEscapeRule), let join = joined.as(FunctionCallExprSyntax.self),
+           archiveEscape(of: join) != nil { return }
 
         let location = node.startLocation(converter: converter)
         report(Diagnostic(
@@ -761,7 +781,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// `x.path`, `x.standardizedFileURL`, `x.resolvingSymlinksInPath()` … down to `x`.
-    private static func strippingPathAccessors(_ expression: ExprSyntax) -> ExprSyntax {
+    static func strippingPathAccessors(_ expression: ExprSyntax) -> ExprSyntax {
         let accessors: Set<String> = [
             "path", "standardized", "standardizedFileURL", "resolvingSymlinksInPath", "absoluteURL",
         ]
@@ -789,21 +809,8 @@ final class SecurityVisitor: SyntaxVisitor {
     /// `"\(root)/telemetry"` joins a literal; `a ?? b` joins nothing.
     private static func isJoinWithChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
         if let call = expression.as(FunctionCallExprSyntax.self) {
-            let callee = call.calledExpression
-            // `appending` only with a path label: `String.appending(_:)` extends a string.
-            if let member = callee.as(MemberAccessExprSyntax.self),
-               let first = call.arguments.first,
-               member.declName.baseName.text == "appendingPathComponent"
-                || (member.declName.baseName.text == "appending"
-                    && ["path", "component"].contains(first.label?.text ?? "")) {
-                return isChosenSegment(first.expression, at: node)
-            }
-            if callee.trimmedDescription == "URL",
-               call.arguments.contains(where: { $0.label?.text == "relativeTo" }),
-               let segment = call.arguments.first?.expression {
-                return isChosenSegment(segment, at: node)
-            }
-            return false
+            guard let segment = joinSegment(of: call) else { return false }
+            return isChosenSegment(segment, at: node)
         }
         if let sequence = expression.as(SequenceExprSyntax.self) {
             let elements = Array(sequence.elements)
@@ -856,7 +863,7 @@ final class SecurityVisitor: SyntaxVisitor {
     ///
     /// Not a literal; not a loop variable over a collection of literals; not a name just listed
     /// from a directory — `contentsOfDirectory` never returns a name with `/` in it, or `..`.
-    private static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
+    static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
         if isLiteralSegment(expression) { return false }
         // A generated identifier — `UUID().uuidString`, a process's unique string — contains no
         // separator and nobody outside this code chose it.
@@ -887,7 +894,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// Whether a `for` pattern binds `name` — directly or inside a tuple.
-    private static func binds(_ pattern: PatternSyntax, _ name: String) -> Bool {
+    static func binds(_ pattern: PatternSyntax, _ name: String) -> Bool {
         if let identifier = pattern.as(IdentifierPatternSyntax.self) { return identifier.identifier.text == name }
         if let tuple = pattern.as(TuplePatternSyntax.self) {
             return tuple.elements.contains { binds($0.pattern, name) }
@@ -906,7 +913,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// A string literal with no interpolation, or an integer literal.
-    private static func isLiteralSegment(_ expression: ExprSyntax) -> Bool {
+    static func isLiteralSegment(_ expression: ExprSyntax) -> Bool {
         if let literal = expression.as(StringLiteralExprSyntax.self) {
             return !literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
         }
@@ -930,7 +937,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// The function, initialiser, accessor or closure body that `node` sits in.
-    private static func enclosingBody(of node: some SyntaxProtocol) -> Syntax? {
+    static func enclosingBody(of node: some SyntaxProtocol) -> Syntax? {
         var current = node.parent
         while let candidate = current {
             if let function = candidate.as(FunctionDeclSyntax.self) { return function.body.map(Syntax.init) }
@@ -965,7 +972,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     /// `hasPrefix(base + "/")` or `hasPrefix("\(base)/")` — a prefix test with the separator that
     /// makes it a containment test. `hasPrefix("/")` alone is not one.
-    private static func hasSeparatedPrefixTest(_ text: String) -> Bool {
+    static func hasSeparatedPrefixTest(_ text: String) -> Bool {
         let compact = text.replacingOccurrences(of: " ", with: "")
         return compact.contains("+\"/\")") || compact.range(of: #"hasPrefix\("\\\([^"]*\)/"\)"#, options: .regularExpression) != nil
     }

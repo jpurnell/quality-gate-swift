@@ -184,6 +184,8 @@
     "release-todo-sources",
     "release-unresolvable-dependency",
     "release-untagged-version",
+    "security.archive-path-escape",
+    "security.archive-symlink",
     "security.ats-disabled",
     "security.broken-cipher",
     "security.command-injection",

@@ -263,6 +263,27 @@ public enum SecurityRuleManifest {
             lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
+            ruleId: "security.archive-path-escape",
+            // 22, not its children 23 (relative) and 36 (absolute): an entry name can be either,
+            // and MITRE's own observed examples for 22 are the two CVEs it labels "Zip Slip".
+            cwes: ["CWE-22"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A01:2021 Broken Access Control",
+            description: "Archive entry name joined to a destination and written without a containment check",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.archive-symlink",
+            // 59 (Link Following), not the composite 61, which describes the attack, not the code.
+            cwes: ["CWE-59"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A01:2021 Broken Access Control",
+            description: "Symbolic link created from an archive entry with an unchecked target",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
             ruleId: "security.ssrf",
             cwes: ["CWE-918"],
             owaspMobile: "M5 Insecure Communication",

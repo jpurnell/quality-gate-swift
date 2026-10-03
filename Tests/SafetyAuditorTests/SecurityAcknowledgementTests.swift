@@ -36,6 +36,9 @@ struct SecurityAcknowledgementTests {
             """),
         ("security.xml-external-entities", "parser.shouldResolveExternalEntities = true"),
         ("security.xml-entity-expansion", "let flags = XML_PARSE_HUGE"),
+        ("security.archive-path-escape",
+         "for entry in archive.entries { try entry.data.write(to: dest.appendingPathComponent(entry.path)) }"),
+        ("security.archive-symlink", "try archive.extract(entry, to: dest, symlinksValidWithin: .rootFS)"),
     ]
 
     static let ruleIds = fixtures.map(\.rule)

@@ -149,6 +149,46 @@
   `trust-anchors-widened` a warning. A rule called `tls-disabled` that stayed silent about
   disabled TLS should not then spend a release being polite about it.
   SwiftMCPClient's three are the expected red.
+- **`security.archive-path-escape` (error, CWE-22) and `security.archive-symlink` (error,
+  CWE-59): zip-slip, as a tripwire.** An archive entry's name is a claim its author made.
+  `archive-path-escape` reports that name joined onto a destination (`appendingPathComponent`,
+  `appending(path:)`, `appending(component:)`, `URL(fileURLWithPath:relativeTo:)`, or
+  `NSString.appendingPathComponent`) inside a loop over an archive, and then written in the
+  same loop (`write(to:)`, `createFile`, `createDirectory`, `FileHandle(forWriting…)`,
+  `copyItem`, `moveItem`, `createSymbolicLink`, `extract`, or `fopen` with a write mode).
+  A loop is "over an archive" in one of two ways. A `for` loop or `forEach`/`map` closure counts
+  when the identifiers of its sequence (and of that sequence's declaration) contain an archive
+  word: `zip`, `archive`, `unarchive`, `unzip`, `tar`, `tarball`, `minizip` or `cpio`, as whole
+  camel-case words, so `target` is not `tar`. A `while`/`repeat` loop counts when it calls a
+  minizip or libarchive cursor. It also reports `unzip -:` and `tar -P` / `--absolute-paths` /
+  `--insecure` / `--absolute-names`. Each is correlated to its executable by variable, so
+  unzip's `-P` (a password) is not tar's.
+
+  The rule is cleared by a check before the write on the joined path. `isContained(in:)` or a
+  function in `security.containmentCheckers` clears it on its own, because both standardise by
+  contract. `pathComponents.starts(with:)` or a separated prefix clears it only on a path
+  that was standardised, since `a/b/../../etc` has components that start with `a`. A finding
+  says which half is missing. Where `path-traversal` would report the same join, only the archive
+  rule reports.
+
+  `archive-symlink` reports `createSymbolicLink` in an archive loop whose target the entry chose,
+  with no such check on the target. It also reports `symlinksValidWithin: .rootFS` and
+  `allowUncontainedSymlinks: true`, which switch ZIPFoundation's own check off.
+
+  Both are on by default, like every `security.*` rule (an empty `enabledRules` enables all),
+  and both are enabled in this repository's allow-list. They are new ids, so the deployed
+  binary has no old mechanism for the name to bind to. CWE-59 moves from `gap` to `enforced`.
+  **Measured before release:** the branch binary ran `--check safety` with every rule enabled
+  over scratch copies of 131 of the author's package roots (9,133 Swift files; third-party
+  clones excluded by remote) and found **zero findings**. The first run found 20, all one
+  false positive: `development-guidelines/setup.swift` loops over literal directory names, one
+  of them `"05_99_ARCHIVE"`. Now only identifiers count as vocabulary, and a regression test
+  pins it. The rules fire on the
+  real defect: marmelroy/Zip 2.1.2's `unzipFile` (`Zip.swift:179`, GHSA-g454-wj9r-jpg4).
+  ZIPFoundation's extraction code is clean, because it uses `isContained(in:)`. Its one finding is a test
+  that passes `allowUncontainedSymlinks: true` deliberately. That also confirms the spelling,
+  which the proposal had marked unverified. The proposal's size and decompression rules are
+  Phase 3 and not part of this change. See `AnArchiveDescribesItself.md` §4.1, §4.2.
 
 - **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
   `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so

@@ -135,6 +135,18 @@ struct WeaknessMappingTests {
         #expect(row.rules.contains("force-unwrap"))
     }
 
+    /// Link following was a listed gap until the archive rules: a symlink an archive entry chose,
+    /// created without checking where it points.
+    @Test("CWE-59 is enforced by security.archive-symlink, and CWE-22 also by archive-path-escape")
+    func archiveRulesCloseTheirRows() throws {
+        let rows = matrix()
+        let link = try #require(rows.first { $0.controlId == "CWE-59" })
+        #expect(link.state == .enforced)
+        #expect(link.rules == ["security.archive-symlink"])
+        let traversal = try #require(rows.first { $0.controlId == "CWE-22" })
+        #expect(traversal.rules.contains("security.archive-path-escape"))
+    }
+
     /// The reason to list a weakness nothing checks: the report then says so, every run,
     /// instead of the absence being something a person has to notice.
     @Test("a weakness the XML rules reach is enforced, and names them", arguments: [
