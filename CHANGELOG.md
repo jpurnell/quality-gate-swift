@@ -4,6 +4,53 @@
 
 ### Added
 
+- **A seed is not a secret: `security.weak-prng` (error, CWE-338), `security.seeded-secret`
+  (error, CWE-335/336/337), `security.predictable-token` (error, CWE-341) and
+  `security.uuid-as-secret` (warning, CWE-340).** A value that has to be unpredictable — named for
+  a token, nonce, salt, session, key, challenge, verifier, CSRF value or OTP by `SecurityContext`,
+  or written to a header, cookie or query item — and made by something predictable.
+  - `weak-prng`: `rand`, `random()`, `drand48` and the `*rand48` family, `rand_r`, any
+    GameplayKit source or distribution.
+  - `seeded-secret`: `using: &g` or `g.next()` where `g` is bound in the same function to a
+    generator given `seed:` / `state:` / `seeds:` or an integer literal, or whose type name says
+    it is deterministic (`SplitMix`, `Xoshiro`, `PCG`, `Mock`, `Seeded`…). CWE-336 for a literal
+    seed, 337 for a clock or pid seed, 335 otherwise. A generator the function cannot show — a
+    parameter, a stored property — is counted, not judged. Not reported in `Tests/`, where a seed
+    pins a credential's bytes on purpose (proposal §8).
+  - `predictable-token`: only literals and the clock, `getpid()`, `processIdentifier`,
+    `hashValue`, `Hasher`, `ObjectIdentifier`. The clock counts only once it is converted —
+    interpolated, `Int(…)`, encoded — so `Date()`, `now - start` and `sessionStart = start` are
+    times and durations, not tokens.
+  - `uuid-as-secret`: only literals and `UUID()`, including as a `??` default and a parameter's
+    default value. A warning permanently; `weakCryptoPolicy: justified` clears it with a
+    `// Justification:` on the line above, recorded as an override. Not reported in `Tests/`.
+  - "The value" is read by a new `SecurityValueSite`: through conversions, encoders,
+    interpolation, arithmetic and `map` closures, and through up to three locals, so
+    `let bytes = …; return bytes.hexEncoded()` inside `generateToken()` is a token and
+    `var g = SystemRandomNumberGenerator()` is known to be making one. A source under some other
+    call's label (`issue(name:, now: Date())`) is that call's business.
+  - **`stochastic-no-seed` and `stochastic-global-state` stand down** on
+    `SystemRandomNumberGenerator`, `.random(in:)` and `arc4random*` where the value is in a
+    security context (§3.6): their remedy, an injectable generator, is the defect for a
+    credential. They read the context through the same `SecurityValueSite`, so the two checkers
+    cannot both claim a line. `StochasticDeterminismAuditor` now depends on `SafetyAuditor`.
+    `drand48` keeps both findings.
+  - A `security.randomness-coverage` note on every run: values examined, safe, weak,
+    predictable, UUID, drawn from an unresolvable generator, and credential-producing functions
+    that take their caller's generator.
+  - CWE-336, 337 and 340 added to the MITRE 4.20 snapshot and catalogue (fetched from MITRE);
+    335, 336, 337, 338, 340 and 341 are covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (131 owned package roots, scratch copies,
+  third-party clones excluded): `weak-prng` 0, `seeded-secret` 0, `predictable-token` 0 — so all
+  three land at error. The first run found 21 `seeded-secret` in SwiftIdentity and both OAuth
+  repositories' tests and 4 `predictable-token` on HRVKit/NarbisKit's training-session clock;
+  each was a false positive and the rule was narrowed with a test for it. `uuid-as-secret` 9:
+  the four MCP session ids the proposal predicted (SwiftMCPServer ×3, swiftMoE), the swift-sdk
+  fork's session id ×2 and OAuth `state`, a book exercise's `token`, and sim-tap's XPC request
+  token. Note totals: 59 examined · 35 safe · 10 UUID · 8 unresolved generator · 10 seams. See
+  `ASeedIsNotASecret.md`.
+
 - **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
   and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
   names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose

@@ -689,6 +689,9 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                // `SecurityValueSite`: where the security rules own a line, this checker stands
+                // down, and it must read "the value" exactly as they do (ASeedIsNotASecret.md §3.6).
+                "SafetyAuditor",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],

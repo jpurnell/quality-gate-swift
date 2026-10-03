@@ -88,6 +88,12 @@ security:
     - security.xml-entity-expansion
     - security.archive-path-escape
     - security.archive-symlink
+    # A seed is not a secret (ASeedIsNotASecret.md): new ids, nothing in the deployed binary to
+    # wake. uuid-as-secret is a warning; the other three are tripwires at error.
+    - security.weak-prng
+    - security.seeded-secret
+    - security.predictable-token
+    - security.uuid-as-secret
 
 dependencyAudit:
   allowBranchPins:

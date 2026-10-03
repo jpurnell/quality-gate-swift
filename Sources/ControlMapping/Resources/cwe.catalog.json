@@ -382,9 +382,27 @@
       "checkability": "partial"
     },
     {
+      "id": "CWE-336",
+      "title": "Same Seed in Pseudo-Random Number Generator (PRNG)",
+      "text": "MITRE CWE-336 (Variant). See https://cwe.mitre.org/data/definitions/336.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-337",
+      "title": "Predictable Seed in Pseudo-Random Number Generator (PRNG)",
+      "text": "MITRE CWE-337 (Variant). See https://cwe.mitre.org/data/definitions/337.html",
+      "checkability": "partial"
+    },
+    {
       "id": "CWE-338",
       "title": "Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)",
       "text": "MITRE CWE-338 (Base). See https://cwe.mitre.org/data/definitions/338.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-340",
+      "title": "Generation of Predictable Numbers or Identifiers",
+      "text": "MITRE CWE-340 (Class). See https://cwe.mitre.org/data/definitions/340.html",
       "checkability": "partial"
     },
     {

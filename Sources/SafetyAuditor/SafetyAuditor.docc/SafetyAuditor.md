@@ -48,6 +48,10 @@ The same pass runs the `security.*` rules. Their CWE lists and OWASP columns liv
 | `security.trust-handler-accepts-all` | error | 295 | A trust challenge answered without an evaluation |
 | `security.trust-anchors-widened` | warning | 295 | Built-in anchors re-enabled after pinning |
 | `security.ats-disabled` | error / warning | 319 | App Transport Security exceptions in `Info.plist` |
+| `security.weak-prng` | error | 338 | A security value made by the C `rand` family or GameplayKit |
+| `security.seeded-secret` | error | 335, 336, 337 | A security value drawn from a generator seeded in the same function |
+| `security.predictable-token` | error | 341 | A security value made only of the clock, the process id or a hash value |
+| `security.uuid-as-secret` | warning | 340 | A security value made of `UUID()` |
 
 A finding is acknowledged with `// SECURITY: <reason>` on its line or the line above. The reason
 must pass the same validator as `concurrency.*` justifications, and an accepted acknowledgement
@@ -68,6 +72,45 @@ The two cipher rules stay quiet inside a CommonCrypto call whose operation is li
 `kCCDecrypt`: the reader of a file did not choose its cipher. Under
 `weakCryptoPolicy: justified`, a `// Justification:` with a real reason on the line above clears
 `weak-crypto`, `broken-cipher` and `ecb-mode`, and is recorded as an override.
+
+### A seed is not a secret
+
+Four rules ask one question of a value that has to be unpredictable — a token, nonce, salt,
+session id, key, challenge, verifier, CSRF value, or OTP, or anything written to a header, cookie
+or query item: was it made by something predictable? They fire only in a security context as
+`SecurityContext` defines it, so a seeded generator in a simulation stays exactly as wanted.
+
+| Rule ID | CWE | Severity | The value is made by |
+|---------|-----|----------|----------------------|
+| `security.weak-prng` | 338 | error | `rand`, `random()`, `drand48` and the `*rand48` family, `rand_r`; any GameplayKit source or distribution |
+| `security.seeded-secret` | 336 literal seed, 337 clock or pid seed, 335 otherwise | error | `using: &g` or `g.next()`, where `g` is bound in the same function to a generator given a `seed:` / `state:` / `seeds:` or an integer literal, or whose type name says it is deterministic (`SplitMix`, `Xoshiro`, `PCG`, `Mock`, `Seeded`…) |
+| `security.predictable-token` | 341 | error | Only literals and `Date()`, `.timeIntervalSince1970`, the clocks' `now`, `CFAbsoluteTimeGetCurrent()`, `mach_absolute_time()`, `getpid()`, `processIdentifier`, `hashValue`, `Hasher`, `ObjectIdentifier` |
+| `security.uuid-as-secret` | 340 | warning | Only literals and `UUID()` / `NSUUID()` |
+
+"The value" is read by ``SecurityValueSite``: it climbs through conversions (`String(…)`,
+`UInt8(truncatingIfNeeded:)`), encoders, interpolation, arithmetic and `map` closures, and
+follows a local into the expression that uses it, up to three hops — so
+`let bytes = …; return bytes.hexEncoded()` inside `generateToken()` is a token. A source passed
+under some other call's label (`issue(name:, now: Date())`) is that call's business. A bare
+`Date()` is a time, not a token: the clock is predictable only once it is turned into a string,
+an integer or a hash.
+
+Safe, and the form the fix suggests: `SystemRandomNumberGenerator` bound in the function and
+passed `using: &g`; `T.random(in:)`; `SecRandomCopyBytes`; `arc4random*`; `SymmetricKey(size:)`;
+CryptoKit nonces and private keys. A generator whose origin the function cannot show — a
+parameter, a stored property — is counted, not judged.
+
+`uuid-as-secret` is a warning permanently: a v4 UUID is as unpredictable as the alternative on
+the platforms checked, and also a type whose specification says not to rely on it. Under
+`weakCryptoPolicy: justified` a `// Justification:` on the line above clears it, recorded as an
+override; `// SECURITY:` works as for every rule.
+
+`stochastic-no-seed` and `stochastic-global-state` ask for an injectable generator, which is
+right for a simulation and the defect for a credential. Where a safe source makes a security
+value, they stand down and these rules own the line. Each run prints a
+`security.randomness-coverage` note: values examined, safe, weak, predictable, UUID, drawn from
+a generator the file cannot resolve, and credential-producing functions that accept a caller's
+generator.
 
 ### What a client agrees to trust
 

@@ -33,6 +33,10 @@ import SwiftSyntax
 /// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |
 /// | `security.archive-path-escape` | 22 | Archive entry name joined and written without containment; `unzip -:`, `tar -P` |
 /// | `security.archive-symlink` | 59 | Link target chosen by an archive entry, unchecked; ZIPFoundation containment switched off |
+/// | `security.weak-prng` | 338 | C `rand` family or GameplayKit making a security value — see `SecurityVisitor+Randomness.swift` |
+/// | `security.seeded-secret` | 335, 336, 337 | Security value drawn from a generator seeded in the same function |
+/// | `security.predictable-token` | 341 | Security value made only of the clock, the pid or a hash value |
+/// | `security.uuid-as-secret` | 340 | Security value made of `UUID()` (warning) |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -50,6 +54,8 @@ final class SecurityVisitor: SyntaxVisitor {
     var overrides: [DiagnosticOverride] = []
     /// XML parse sites seen in this file, for the `security.xml-coverage` note.
     var xmlSites = XMLSiteCounts()
+    /// What the randomness rules examined in this file, for the `security.randomness-coverage` note.
+    var randomnessSites = RandomnessSiteCounts()
     /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
     let justificationValidator = JustificationValidator()
     /// `secretPatterns` as terms for ``SensitiveName`` — built once per file, not per binding.
@@ -70,6 +76,13 @@ final class SecurityVisitor: SyntaxVisitor {
         self.configuration = configuration
         self.secretPatternTerms = configuration.secretPatterns.map { SensitiveName.customTerm($0) }
         super.init(viewMode: .sourceAccurate)
+    }
+
+    // MARK: - Source File Visitor (randomness — SecurityVisitor+Randomness.swift)
+
+    override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
+        checkRandomness(in: node)
+        return .visitChildren
     }
 
     // MARK: - Variable Declaration Visitor

@@ -39,6 +39,13 @@ struct SecurityAcknowledgementTests {
         ("security.archive-path-escape",
          "for entry in archive.entries { try entry.data.write(to: dest.appendingPathComponent(entry.path)) }"),
         ("security.archive-symlink", "try archive.extract(entry, to: dest, symlinksValidWithin: .rootFS)"),
+        ("security.weak-prng", "let token = String(drand48())"),
+        ("security.seeded-secret", """
+            var g = SplitMix64(seed: 1)
+            let token = generateToken(using: &g)
+            """),
+        ("security.predictable-token", #"let token = "\(Date().timeIntervalSince1970)""#),
+        ("security.uuid-as-secret", "let sessionId = UUID().uuidString"),
     ]
 
     static let ruleIds = fixtures.map(\.rule)
