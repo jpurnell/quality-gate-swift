@@ -4,6 +4,151 @@
 
 ### Added
 
+- **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
+  and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
+  names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose
+  name is fine, and produced no finding.
+  - `broken-cipher` reports the constant wherever it appears — `kCCAlgorithmDES`, `3DES`,
+    `RC4`, `RC2`, `CAST`, `Blowfish`, `kCCModeRC4` — and CryptoSwift `Blowfish(key:…)` /
+    `Rabbit(key:…)`. A qualified reference is one finding, not two.
+  - `ecb-mode` reports `kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`, and `.ECB` /
+    `.ecb` passed as `blockMode:` (only there: `.ecb` is an ordinary case name elsewhere).
+  - Neither reports inside a CommonCrypto call whose operation is literally `kCCDecrypt`: the
+    algorithm and mode on the decrypt side were chosen by whoever encrypted. This is what keeps
+    SwiftITL's AES-128-ECB `.itl` reader quiet; the proposal excludes decrypt from `static-iv`
+    for the same reason.
+  - `homemade-digest` reports a function whose name claims a digest (`hash`, `digest`, `hmac`,
+    `mac`, `checksum`, `sha…`, as whole words) and which takes a secret-named parameter, when its
+    body names no primitive — read from identifier tokens, so a comment that says "SHA-256" or
+    "bcrypt" calls nothing. Delegating to another digest-named function clears it; so does a
+    *weak* primitive, which is `weak-crypto`'s finding at the call — one defect, one finding.
+  - `weakCryptoPolicy: justified` now governs the two cipher rules as well as `weak-crypto`. A
+    `// Justification:` on the line above must pass `JustificationValidator` — the bar
+    `// SECURITY:` is held to — and is recorded as an override. Before, `weak-crypto` accepted
+    any line containing the marker and recorded nothing.
+  - CWE-327 and CWE-1240 move from `gap` to covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (94 owned packages, third-party clones
+  excluded): `broken-cipher` 0, `ecb-mode` 0, `homemade-digest` 1 — SwiftMCPServer's
+  `APIKeyAuthenticator.hashKey`, an XOR fold documented as SHA-256 on the API-key path, a real
+  defect. The one `weak-crypto` justification in the portfolio (SwiftExcelFunctions,
+  ECMA-376) passes the stronger bar. See `ACipherIsItsArguments.md`.
+- **`security.xml-external-entities` (error, CWE-611) and `security.xml-entity-expansion`
+  (CWE-776): an XML entity is a file read.** On macOS, `XMLDocument(data:)` with no options loads
+  every external entity that does not need the network, so a document that declares
+  `<!ENTITY x SYSTEM "file:///…">` gets that file's bytes as its text. No `XMLNode` option stops
+  internal expansion: 512 bytes of nested entities expanded to 10⁹ bytes in 1.6 s. `XMLParser`
+  refused both in every configuration probed. The portfolio is safe only because it happened to
+  use `XMLParser`.
+
+  `xml-external-entities` reports at **error**:
+  - `shouldResolveExternalEntities` set to anything but the literal `false`.
+  - `externalEntityResolvingPolicy` set to anything but `.never`. This includes `.noNetwork`,
+    because a local file is what XXE reads.
+  - An `XMLDocument(data:|contentsOf:|xmlString:)` whose `options:` is absent, or is a literal
+    without `.nodeLoadExternalEntitiesNever`.
+  - `.nodeLoadExternalEntitiesAlways` / `…SameOriginOnly` anywhere. Inside a parse call's options
+    this is still one diagnostic for the call.
+  - The libxml2 flags `XML_PARSE_NOENT`, `DTDLOAD`, `DTDATTR`, `DTDVALID`, `XINCLUDE`, and
+    `xmlSubstituteEntitiesDefault(<non-zero>)`.
+
+  It reports at **warning**:
+  - Options the rule cannot see.
+  - A `parser(_:resolveExternalEntityName:systemID:)` delegate whose body is not `nil`.
+
+  `xml-entity-expansion` reports `XML_PARSE_HUGE` at **error**. It reports an `XMLDocument` parse
+  with no `"<!DOCTYPE"`/`"<!ENTITY"` refusal before it (a `guard`, or an `if` that exits) at
+  **warning**, and that half stays a warning: no option clears it, and the rule cannot see trust.
+
+  Both rules report through `report(_:)`, so a `// SECURITY:` reason is validated and recorded as
+  an override like every other security rule's. They are on by default, like every security rule
+  when `security.enabledRules` is empty, and are added to this repository's own allow-list. A new
+  `security.xml-coverage` note states what was examined:
+  *examined N XML parse sites · X XMLParser · D XMLDocument · L libxml2 · K configured to load
+  external entities · J acknowledged*. The CWE catalogue's 611 and 776 rows move from `gap` to
+  enforced.
+
+  **Error on arrival, measured.** The release build ran over copies of 107 of the author's own
+  package roots, with forks of third-party code and book samples excluded by origin. It examined
+  7,864 files and found **0** findings for either rule. The coverage notes add up to 9 XML
+  parse sites, all `XMLParser`: SwiftXLSX 6, SwiftExcelFunctions 1, geo-audit 1, Shelfmark 1.
+  There were 0 `XMLDocument` and 0 libxml2 sites, which matches the proposal's hand count
+  exactly. A tripwire that finds nothing has nothing to stage. See `AnEntityIsAFileRead.md`.
+- **Trust has more than three off switches: `security.tls-disabled` widened, four rules beside
+  it.** The rule matched `disableEvaluation`, `allowsExpiredCertificates` and
+  `allowsExpiredRoots`. None of them appears in any owned repository, and none is URLSession,
+  Network.framework, SwiftNIO or AsyncHTTPClient API. The one way certificate validation *is*
+  switched off in owned code is NIOSSL's `tlsConfig.certificateVerification = .none`, behind a
+  "trust self-signed certificates" flag in three SwiftMCPClient transports. The rule had never
+  heard of it.
+
+  | Rule | CWE | Severity | Detects |
+  |---|---|---|---|
+  | `security.tls-disabled` (widened) | 295, 298 | error | a client's `certificateVerification` set or passed as `.none` / `.none(…)`, including either arm of a ternary and a typed `CertificateVerification` local; `SecTrustSetExceptions`; Alamofire's `DisabledTrustEvaluator` |
+  | `security.tls-no-hostname` | 297 | error | `.noHostnameVerification` on a *client* configuration; `validateHost: false` on an evaluator; `SecPolicyCreateSSL(true, nil)`; a basic X.509 policy given to `SecTrustSetPolicies` |
+  | `security.trust-handler-accepts-all` | 295 | error | A `urlSession`/`webView` handler with a `URLAuthenticationChallenge` parameter that answers `.useCredential` with `URLCredential(trust:)` and uses the result of no `SecTrustEvaluate*` / `evaluate` call (`_ =`, `try?` and bare statements count as unused); a `sec_protocol_options_set_verify_block` closure that only ever completes `true` |
+  | `security.trust-anchors-widened` | 295 | warning | `SecTrustSetAnchorCertificatesOnly(_, false)`. A warning permanently: it undoes pinning, which is a defect only when pinning was the point |
+  | `security.ats-disabled` | 319 | error / warning | `Info.plist` App Transport Security exceptions: `NSAllowsArbitraryLoads` (error; a warning when a key that makes the system ignore it is present), web-content and media arbitrary loads, an exception domain allowing cleartext HTTP, an exception domain's minimum TLS below 1.2 (warnings) |
+
+  The Swift rules report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is
+  validated and recorded like every other security acknowledgement. A property list keeps no
+  comments, so `ats-disabled` is acknowledged per domain with the new
+  `security.atsAllowedInsecureDomains`, recorded as an override. There is deliberately no
+  acknowledgement for the global key.
+
+  `ats-disabled` is CWE-319, not 295. ATS decides whether cleartext and weak TLS are
+  *permitted*, and switching it off leaves certificate validation on an `https` request intact.
+  The plist pass reads every `Info.plist` and `*-Info.plist` that `SourceWalker` reaches. The
+  walk now returns them as `propertyLists`, so `Pods/`, `.build/`, git-ignored trees and nested
+  packages are skipped for the same reasons a `.swift` file there is. The safety checker's
+  cache fingerprint includes them through
+  `SourceCacheInputs.wholeSourceAndPropertyLists`; leaving them out would let an edited
+  `Info.plist` replay a stale pass.
+
+  **Two departures from the proposal, both from reading the libraries rather than recalling
+  them.**
+  - A *server* configuration is exempt from both mode findings. On a server
+    `certificateVerification` governs client certificates. `.none` is NIOSSL's own server
+    default, and VaultMCP and SwiftMCPServer both build one. `.noHostnameVerification` is what
+    NIOSSL's `makeServerConfigurationWithMTLS` sets. A receiver initialised from
+    `makeServerConfiguration…` / `forServer…`, or a call so named, is a server.
+  - `performDefaultValidation: false` is not a hostname finding. Alamofire documents
+    `validateHost` as validating the host "even if `performDefaultValidation` is `false`", and
+    its evaluators do exactly that. Run against Alamofire's own tests, the label produced 27
+    findings, and in none of them was the host left unchecked.
+
+  CWE-297 moves from `gap` to `enforced` in the CWE catalogue. 295 and 319 were already
+  covered. Titles were checked against the committed MITRE 4.20 snapshot. Proposal:
+  `TrustHasMoreThanThreeOffSwitches.md`.
+
+  **Measured before choosing severities.** The branch's safety checker ran read-only
+  (`--foreign`, every rule on) over every directory under the development root with a
+  `Package.swift` or `.xcodeproj`. Archived projects, playgrounds, `.build` and worktrees were
+  excluded. That was 253 owned or unremoted roots and 204 third-party clones.
+  - **Owned: 8 findings, all accurate.**
+    - `tls-disabled` ×3 in SwiftMCPClient (`HTTPSSETransport.swift:394`,
+      `StreamableHTTPTransport.swift:685`, `WebSocketTransport.swift:66`). These are the
+      proposal's three: a "trust self-signed certificates" flag that verifies nothing. They are
+      real defects with a one-line fix (`additionalTrustRoots`, keep `.fullVerification`).
+    - `ats-disabled` ×5. Four copies of the *iOS Programming* 6th edition Photorama solution, and
+      an unremoted copy of KexpTVStream. In each `NSAllowsArbitraryLoads` really is `true`.
+      Neither tree adopts the gate.
+    - `tls-no-hostname`, `trust-handler-accepts-all` and `trust-anchors-widened`: 0. VaultMCP,
+      SwiftMCPServer, swift-oauth, geo-audit and GeoSEOMCP build NIOSSL *server* configurations
+      with the defaults and implement no URLSession trust delegate.
+  - **Third-party, as false-positive evidence.**
+    - `ats-disabled` ×6, all accurate: KexpTVStream, NetNewsWire for Mac and iOS, OpenEmu,
+      seeso-appletv, and TCA's case studies.
+    - `tls-disabled` ×3, Alamofire's tests of `DisabledTrustEvaluator`.
+    - `tls-no-hostname` ×17, all accurate. One is Alamofire's own `SecPolicyCreateSSL(true,
+      nil)`, the policy it uses when told not to validate the host. Sixteen are its tests'
+      `validateHost: false`.
+    - The 27 `performDefaultValidation: false` findings described above were wrong and are gone.
+
+  Every finding is accurate, so the destination severities apply on arrival: error, with
+  `trust-anchors-widened` a warning. A rule called `tls-disabled` that stayed silent about
+  disabled TLS should not then spend a release being polite about it.
+  SwiftMCPClient's three are the expected red.
 - **`security.archive-path-escape` (error, CWE-22) and `security.archive-symlink` (error,
   CWE-59): zip-slip, as a tripwire.** An archive entry's name is a claim its author made.
   `archive-path-escape` reports that name joined onto a destination (`appendingPathComponent`,

@@ -26,11 +26,16 @@ struct SecurityAcknowledgementTests {
         ("security.tls-disabled", "config.allowsExpiredCertificates = true"),
         ("security.path-traversal", "let data = FileManager.default.contents(atPath: base.appendingPathComponent(name).path)"),
         ("security.ssrf", "let target = URL(string: input)"),
+        ("security.broken-cipher", "let algorithm = CCAlgorithm(kCCAlgorithmDES)"),
+        ("security.ecb-mode", "let options = CCOptions(kCCOptionECBMode)"),
+        ("security.homemade-digest", "func hashKey(_ key: String) -> String { String(key.reversed()) }"),
         ("security.command-injection", """
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/sh")
             task.arguments = ["-c", "grep \\(pattern) \\(file)"]
             """),
+        ("security.xml-external-entities", "parser.shouldResolveExternalEntities = true"),
+        ("security.xml-entity-expansion", "let flags = XML_PARSE_HUGE"),
         ("security.archive-path-escape",
          "for entry in archive.entries { try entry.data.write(to: dest.appendingPathComponent(entry.path)) }"),
         ("security.archive-symlink", "try archive.extract(entry, to: dest, symlinksValidWithin: .rootFS)"),
