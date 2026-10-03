@@ -147,6 +147,22 @@ struct WeaknessMappingTests {
         #expect(traversal.rules.contains("security.archive-path-escape"))
     }
 
+    /// The PRNG weaknesses were listed gaps until `ASeedIsNotASecret.md`; 336, 337 and 340 were
+    /// not listed at all, and are added from MITRE 4.20 with the rules that reach them.
+    @Test("the randomness weaknesses are enforced, each by its rule", arguments: [
+        ("CWE-338", "security.weak-prng"),
+        ("CWE-335", "security.seeded-secret"),
+        ("CWE-336", "security.seeded-secret"),
+        ("CWE-337", "security.seeded-secret"),
+        ("CWE-341", "security.predictable-token"),
+        ("CWE-340", "security.uuid-as-secret"),
+    ])
+    func randomnessRowsAreEnforced(cwe: String, rule: String) throws {
+        let row = try #require(matrix().first { $0.controlId == cwe })
+        #expect(row.state == .enforced)
+        #expect(row.rules == [rule])
+    }
+
     /// The reason to list a weakness nothing checks: the report then says so, every run,
     /// instead of the absence being something a person has to notice.
     @Test("a weakness the XML rules reach is enforced, and names them", arguments: [
@@ -180,6 +196,22 @@ struct WeaknessMappingTests {
         #expect(Set(row.rules) == Set(rules))
     }
 
+    /// The key rules: 321, 329, 916 and 326 were catalogued gaps; 1204 and 323 are added with
+    /// the rule that reaches them, titles fetched from MITRE (CWE 4.20).
+    @Test("the key rules close their weaknesses", arguments: [
+        ("CWE-321", ["security.hardcoded-key"]),
+        ("CWE-329", ["security.static-iv"]),
+        ("CWE-1204", ["security.static-iv"]),
+        ("CWE-323", ["security.static-iv"]),
+        ("CWE-916", ["security.weak-kdf"]),
+        ("CWE-326", ["security.weak-key-size"]),
+    ])
+    func keyGapsClose(cwe: String, rules: [String]) throws {
+        let row = try #require(matrix().first { $0.controlId == cwe })
+        #expect(row.state == .enforced)
+        #expect(Set(row.rules) == Set(rules))
+    }
+
     @Test("the catalogue records gaps as well as coverage")
     func catalogueIsNotOnlyWhatIsCovered() {
         let rows = matrix()
@@ -198,10 +230,11 @@ struct WeaknessMappingTests {
                    "CWE-606", "CWE-789", "CWE-1284", "CWE-611", "CWE-502", "CWE-1395"] {
             #expect(ids.contains(id), "\(id) is not catalogued")
         }
-        // The floor was on the gap count (≥ 130), which every rule that lands is supposed to
-        // lower — the pattern rules closed 1333, 943 and 917 and took it to 129. What must not
-        // fall is the catalogue itself, so that is what is held: 177 ids on 2026-10-03.
+        // The catalogue itself must not shrink: 177 ids on 2026-10-03.
         #expect(ids.count >= 177)
-        #expect(matrix().filter { $0.state == .gap }.count >= 100)
+        // 130, less the four the key rules close (321, 326, 329, 916), the three the randomness
+        // rules close (335, 338, 341) and the three the pattern rules close (1333, 943, 917).
+        // 1204, 323, 336, 337 and 340 arrived already covered, so they never counted as gaps.
+        #expect(matrix().filter { $0.state == .gap }.count >= 120)
     }
 }

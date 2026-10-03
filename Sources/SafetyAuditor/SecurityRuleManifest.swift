@@ -151,6 +151,50 @@ public enum SecurityRuleManifest {
             lastReviewedDate: "2026-10-02"
         ),
         SecurityRule(
+            ruleId: "security.hardcoded-key",
+            // 321 is a Variant and a child of 798, which hardcoded-secret claims. One literal is
+            // one finding: this rule takes it when the literal is key material.
+            cwes: ["CWE-321"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Literal bytes or a PEM private key used as cryptographic key material",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.static-iv",
+            // 329 for a CBC IV (CommonCrypto's default mode, AES._CBC, CryptoSwift CBC), 1204 for
+            // a fixed IV in any other mode, 323 for a literal or held AEAD nonce. 1204 is not on
+            // any OWASP 2021 list; A02 is assigned by judgement, as the proposal says.
+            cwes: ["CWE-329", "CWE-1204", "CWE-323"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Encryption with a nil, literal or held IV or nonce",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.weak-kdf",
+            // 916: a password stretched too little, or not at all. A digest of a token is not
+            // this — a random token has no dictionary to attack.
+            cwes: ["CWE-916"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "PBKDF2 below 210,000 rounds, unchecked PBKDF2, or a bare digest of a password",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.weak-key-size",
+            // 326 is a Class; no Base child is about key length, so it stays.
+            cwes: ["CWE-326"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "RSA key below 2048 bits, or symmetric key below 128 bits",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
             ruleId: "security.insecure-transport",
             cwes: ["CWE-319"],
             owaspMobile: "M5 Insecure Communication",
@@ -349,6 +393,48 @@ public enum SecurityRuleManifest {
             description: "XML DOM parse with no DTD refusal, or libxml2 size limits removed",
             severity: "WARNING",
             lastReviewedDate: "2026-10-02"
+        ),
+        // The randomness rules (ASeedIsNotASecret.md). Every CWE fetched from MITRE 4.20; 330 is
+        // not used because MITRE marks it Discouraged. 335-338 and 340 are on A02:2021's mapped
+        // list; 341 is not, and A02 is assigned to it by judgement, as the proposal says.
+        SecurityRule(
+            ruleId: "security.weak-prng",
+            cwes: ["CWE-338"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Non-cryptographic generator (C rand family, GameplayKit) making a security value",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.seeded-secret",
+            // Primary 335; the visitor cites 336 for a literal seed and 337 for a clock or pid seed.
+            cwes: ["CWE-335", "CWE-336", "CWE-337"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Security value drawn from a generator seeded in the same function",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.predictable-token",
+            cwes: ["CWE-341"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Security value made only of the clock, the process id or a hash value",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.uuid-as-secret",
+            // 340 is a Class, kept after review: 341 is observable state and 342/343 prediction
+            // from earlier values, and a v4 UUID is neither. A warning permanently.
+            cwes: ["CWE-340"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "UUID used as a session id, token or key",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-03"
         ),
     ]
 

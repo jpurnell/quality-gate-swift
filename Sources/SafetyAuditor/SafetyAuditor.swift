@@ -115,6 +115,9 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                                    security: configuration.security) {
             allDiagnostics.append(note)
         }
+        if let note = Self.randomnessNote(sites: result.randomnessSites, security: configuration.security) {
+            allDiagnostics.append(note)
+        }
 
         // App Transport Security lives in property lists, not Swift. Same walk, same scope.
         let ats = auditPropertyLists(scan.propertyLists, configuration: configuration.security)
@@ -207,6 +210,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                 outcome.overrides.append(contentsOf: result.overrides)
                 for (rule, n) in result.countedTraps { outcome.countedTraps[rule, default: 0] += n }
                 outcome.xmlSites.add(result.xmlSites)
+                outcome.randomnessSites.add(result.randomnessSites)
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
@@ -240,7 +244,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         return (diagnostics, overrides)
     }
 
-    private func auditSourceCode(
+    func auditSourceCode(
         _ source: String,
         fileName: String,
         configuration: Configuration,
@@ -271,7 +275,8 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             source: source,
             converter: converter,
             configuration: configuration.security,
-            sourceFile: sourceFile
+            sourceFile: sourceFile,
+            targetType: targetTypes.targetType(forFile: fileName)
         )
         securityVisitor.walk(sourceFile)
 
@@ -279,7 +284,8 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             diagnostics: safetyVisitor.diagnostics + securityVisitor.diagnostics,
             overrides: safetyVisitor.overrides + securityVisitor.overrides,
             countedTraps: safetyVisitor.countedTraps,
-            xmlSites: securityVisitor.xmlSites
+            xmlSites: securityVisitor.xmlSites,
+            randomnessSites: securityVisitor.randomnessSites
         )
     }
 
@@ -289,6 +295,30 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         var overrides: [DiagnosticOverride] = []
         var countedTraps: [String: Int] = [:]
         var xmlSites = XMLSiteCounts()
+        var randomnessSites = RandomnessSiteCounts()
+    }
+
+    /// The `security.randomness-coverage` note (`ASeedIsNotASecret.md` §3.8): how many
+    /// security-named values drew on randomness, the clock or a UUID, and what each turned out to
+    /// be — including the two numbers that say where the rules stop: generators this file cannot
+    /// resolve, and credential-producing functions that take their caller's generator.
+    ///
+    /// Emitted with zeros too, for the reason `xmlNote` is: the rules are tripwires, and
+    /// *examined 0* is a different statement from silence. Not emitted when none of them runs.
+    static func randomnessNote(sites: RandomnessSiteCounts, security: SecurityAuditorConfig) -> Diagnostic? {
+        guard security.enabledRules.isEmpty
+            || SecurityVisitor.randomnessRules.contains(where: security.enabledRules.contains) else {
+            return nil
+        }
+        let values = sites.examined == 1 ? "value" : "values"
+        let seams = sites.generatorSeams == 1 ? "function accepts" : "functions accept"
+        return Diagnostic(
+            severity: .note,
+            message: "security examined \(sites.examined) security-named \(values) · \(sites.safe) from a safe source · "
+                + "\(sites.weak) weak · \(sites.predictable) predictable · \(sites.uuid) UUID · "
+                + "\(sites.unresolvedGenerator) from a generator this file cannot resolve · "
+                + "\(sites.generatorSeams) credential-producing \(seams) a caller's generator",
+            ruleId: "security.randomness-coverage")
     }
 
     /// The `security.xml-coverage` note: how many XML parse sites were examined, of which kind.
