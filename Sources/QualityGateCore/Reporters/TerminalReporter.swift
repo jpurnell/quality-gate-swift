@@ -22,15 +22,23 @@ public struct TerminalReporter: Reporter, Sendable {
     /// read as clean — the mechanism that hid one package's false positives for months.
     public let truncation: RunTruncation?
 
+    /// Whether the run is under `--strict`, where a checker that warned fails the run.
+    ///
+    /// The CLI's exit code already applied that rule; the summary did not, so a `--strict`
+    /// run that exited 1 on a warning printed `✅ Quality Gate: PASSED` above it.
+    public let strict: Bool
+
     /// Creates a new TerminalReporter instance.
     ///
     /// - Parameters:
     ///   - rosterSize: Total registered checkers, so the summary can state its
     ///     denominator. `nil` omits the line rather than guessing.
     ///   - truncation: How the run stopped early; `nil` for a complete run.
-    public init(rosterSize: Int? = nil, truncation: RunTruncation? = nil) {
+    ///   - strict: Whether a `.warning` result fails the run, as under `--strict`.
+    public init(rosterSize: Int? = nil, truncation: RunTruncation? = nil, strict: Bool = false) {
         self.rosterSize = rosterSize
         self.truncation = truncation
+        self.strict = strict
     }
 
     /// Outputs results in a human-readable terminal format.
@@ -47,6 +55,7 @@ public struct TerminalReporter: Reporter, Sendable {
         var totalErrors = 0
         var totalWarnings = 0
         var allPassed = true
+        var failedOnlyByStrictWarnings = false
 
         for result in results {
             let statusSymbol = statusSymbol(for: result.status)
@@ -57,6 +66,9 @@ public struct TerminalReporter: Reporter, Sendable {
 
             if result.status == .failed {
                 allPassed = false
+            } else if strict && result.status == .warning {
+                allPassed = false
+                failedOnlyByStrictWarnings = true
             }
 
             totalErrors += result.errorCount
@@ -96,6 +108,8 @@ public struct TerminalReporter: Reporter, Sendable {
             output.write("❌ Quality Gate: FAILED (run stopped at [\(truncation.stoppedAt)])\n")
         } else if allPassed {
             output.write("✅ Quality Gate: PASSED\n")
+        } else if failedOnlyByStrictWarnings && !results.contains(where: { $0.status == .failed }) {
+            output.write("❌ Quality Gate: FAILED (--strict: a checker warned)\n")
         } else {
             output.write("❌ Quality Gate: FAILED\n")
         }

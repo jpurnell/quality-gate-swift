@@ -156,6 +156,10 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
+  exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
+  `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
+  reads `❌ Quality Gate: FAILED (--strict: a checker warned)` when warnings alone caused it.
 - **`complexity` costed two non-loops as O(n).** An implicit member (`case .first:`,
   `return .last`) has no receiver, so it is an enum case or a static member, never a
   collection method. And `map` on an `as?` result is `Optional.map`, which runs once. Both

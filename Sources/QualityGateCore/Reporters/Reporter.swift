@@ -34,17 +34,20 @@ public enum ReporterFactory {
     ///     denominator. `nil` omits the line rather than guessing at it.
     ///   - truncation: How the run stopped early, so a terminal summary can distinguish
     ///     "not selected" from "never reached". `nil` for a complete run.
+    ///   - strict: Whether a `.warning` result fails the run, as under `--strict`, so the
+    ///     reported verdict agrees with the exit code.
     /// - Returns: A reporter instance.
     public static func create(
         for format: OutputFormat,
         rosterSize: Int? = nil,
-        truncation: RunTruncation? = nil
+        truncation: RunTruncation? = nil,
+        strict: Bool = false
     ) -> any Reporter {
         switch format {
         case .terminal:
-            return TerminalReporter(rosterSize: rosterSize, truncation: truncation)
+            return TerminalReporter(rosterSize: rosterSize, truncation: truncation, strict: strict)
         case .json:
-            return JSONReporter()
+            return JSONReporter(strict: strict)
         case .sarif:
             return SARIFReporter()
         case .xcode:

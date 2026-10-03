@@ -537,7 +537,8 @@ struct QualityGateCLI: AsyncParsableCommand {
         let reporter = ReporterFactory.create(
             for: outputFormat,
             rosterSize: Self.checkerRegistry(configuration: configuration).count,
-            truncation: runOutcome.truncation)
+            truncation: runOutcome.truncation,
+            strict: strict)
 
         // The post-run stage. `consistency` audits the results above rather than the newest
         // telemetry on disk, which is the previous run — appended before the reporter and
@@ -793,7 +794,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         var rendered = ""
         do {
             try WriteGuard.validate(path: path)
-            try ReporterFactory.create(for: format).report(results, to: &rendered)
+            try ReporterFactory.create(for: format, strict: strict).report(results, to: &rendered)
             let url = URL(fileURLWithPath: path)
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true) // SAFETY: caller-requested artifact directory
