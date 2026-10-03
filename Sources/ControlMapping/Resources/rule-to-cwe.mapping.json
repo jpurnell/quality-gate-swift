@@ -442,6 +442,27 @@
     "posture": "partial"
   },
   {
+    "ruleId": "security.broken-cipher",
+    "satisfies": [
+      "cwe/CWE-327"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.ecb-mode",
+    "satisfies": [
+      "cwe/CWE-327"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.homemade-digest",
+    "satisfies": [
+      "cwe/CWE-1240"
+    ],
+    "posture": "partial"
+  },
+  {
     "ruleId": "security.insecure-transport",
     "satisfies": [
       "cwe/CWE-319"
@@ -524,6 +545,20 @@
     "satisfies": [
       "cwe/CWE-22",
       "cwe/CWE-187"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.xml-external-entities",
+    "satisfies": [
+      "cwe/CWE-611"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.xml-entity-expansion",
+    "satisfies": [
+      "cwe/CWE-776"
     ],
     "posture": "partial"
   }

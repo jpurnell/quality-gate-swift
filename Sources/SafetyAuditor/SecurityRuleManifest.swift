@@ -120,6 +120,37 @@ public enum SecurityRuleManifest {
             lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
+            ruleId: "security.broken-cipher",
+            // 327 is a Class. Its children were examined first: 328 is hashes, 916 password
+            // KDFs, 780 RSA padding — none is "DES". So the Class stays, with the review done.
+            cwes: ["CWE-327"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Broken cipher selected: DES, 3DES, RC4, RC2, CAST or Blowfish",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.ecb-mode",
+            // As broken-cipher: no child of 327 is about a block mode.
+            cwes: ["CWE-327"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Block cipher used in ECB mode",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.homemade-digest",
+            // 1240 is not on any OWASP 2021 list; A02 is assigned by judgement, as the proposal says.
+            cwes: ["CWE-1240"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Digest-named function of a secret that calls no cryptographic primitive",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
             ruleId: "security.insecure-transport",
             cwes: ["CWE-319"],
             owaspMobile: "M5 Insecure Communication",
@@ -239,6 +270,31 @@ public enum SecurityRuleManifest {
             description: "URL constructed from dynamic input",
             severity: "WARNING",
             lastReviewedDate: "2026-04-14"
+        ),
+        SecurityRule(
+            ruleId: "security.xml-external-entities",
+            // 611, not 827 (Improper Control of Document Type Definition) for the DTD flags: 611
+            // is what a reader searches for. Both Top 10 and API columns from the proposal's
+            // table; MITRE's A05:2021 view lists 611.
+            cwes: ["CWE-611"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A05:2021 Security Misconfiguration",
+            owaspAPI: "API8:2023 Security Misconfiguration",
+            description: "XML parser configured, or defaulted, to load external entities",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.xml-entity-expansion",
+            // WARNING is the DOM-parse half, which no option clears and stays a warning. The
+            // XML_PARSE_HUGE half is reported at error by the visitor.
+            cwes: ["CWE-776"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A05:2021 Security Misconfiguration",
+            owaspAPI: "API4:2023 Unrestricted Resource Consumption",
+            description: "XML DOM parse with no DTD refusal, or libxml2 size limits removed",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-02"
         ),
     ]
 

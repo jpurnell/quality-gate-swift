@@ -14,7 +14,10 @@ import SwiftSyntax
 /// |---------|-----|-----------------|
 /// | `security.hardcoded-secret` | 798 | Secret-named variable with string literal value |
 /// | `security.command-injection` | 78 | Process/NSTask with dynamic arguments |
-/// | `security.weak-crypto` | 327 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+/// | `security.weak-crypto` | 328 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+/// | `security.broken-cipher` | 327 | DES/3DES/RC4/RC2/CAST/Blowfish constants; CryptoSwift Blowfish, Rabbit |
+/// | `security.ecb-mode` | 327 | kCCOptionECBMode, kCCModeECB; CryptoSwift ECB |
+/// | `security.homemade-digest` | 1240 | Digest-named function of a secret that calls no primitive |
 /// | `security.insecure-transport` | 319 | http:// URLs (excluding localhost) |
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
@@ -25,6 +28,8 @@ import SwiftSyntax
 /// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
 /// | `security.path-traversal` | 22 | FileManager with dynamic path |
 /// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
+/// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
+/// | `security.xml-entity-expansion` | 776 | `XML_PARSE_HUGE`; `XMLDocument` parse with no DTD refusal (warning) |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -40,8 +45,10 @@ final class SecurityVisitor: SyntaxVisitor {
     let localStringConstants: Set<String>
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
+    /// XML parse sites seen in this file, for the `security.xml-coverage` note.
+    var xmlSites = XMLSiteCounts()
     /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
-    private let justificationValidator = JustificationValidator()
+    let justificationValidator = JustificationValidator()
 
     init(
         fileName: String,
@@ -119,19 +126,62 @@ final class SecurityVisitor: SyntaxVisitor {
         checkCertificateVerificationArguments(node)
         checkTrustCalls(node)
         checkVerifyBlock(node)
+        countXMLParseSite(node)
+        for finding in XMLEntityRules.call(node) { reportXML(finding) }
         return .visitChildren
     }
 
-    // MARK: - Declaration Visitors (trust handlers, DisabledTrustEvaluator)
-
-    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        checkTrustHandler(node)
-        return .visitChildren
-    }
+    // MARK: - Reference Visitor (broken cipher, ECB, XML entities)
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        checkCipherReference(node)
         checkDisabledEvaluator(node)
+        if let finding = XMLEntityRules.reference(node) { reportXML(finding) }
         return .visitChildren
+    }
+
+    // MARK: - Function Declaration Visitor (homemade digest, XML resolver delegate)
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkHomemadeDigest(node)
+        checkTrustHandler(node)
+        if let finding = XMLEntityRules.function(node) { reportXML(finding) }
+        return .visitChildren
+    }
+
+    // MARK: - XML entities (CWE-611, CWE-776)
+
+    private var xmlRulesEnabled: Bool {
+        isRuleEnabled(XMLEntityRules.externalRule) || isRuleEnabled(XMLEntityRules.expansionRule)
+    }
+
+    /// Counts a parse site whether or not anything is wrong with it: the note's denominator.
+    private func countXMLParseSite(_ node: FunctionCallExprSyntax) {
+        guard xmlRulesEnabled else { return }
+        if XMLEntityRules.isXMLParserConstruction(node) {
+            xmlSites.xmlParser += 1
+        } else if XMLEntityRules.isParsingXMLDocument(node) {
+            xmlSites.xmlDocument += 1
+        } else if XMLEntityRules.isLibxml2Parse(node) {
+            xmlSites.libxml2 += 1
+        }
+    }
+
+    /// Locates an XML finding and sends it through `report(_:)`, so its acknowledgement is
+    /// validated and recorded like every other security rule's.
+    private func reportXML(_ finding: XMLEntityFinding) {
+        guard isRuleEnabled(finding.ruleId) else { return }
+        if finding.configuresExternalLoad { xmlSites.configuredToLoad += 1 }
+        let location = finding.anchor.startLocation(converter: converter)
+        report(Diagnostic(
+            severity: finding.severity,
+            message: finding.message,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: finding.ruleId,
+            suggestedFix: finding.suggestedFix
+        ))
     }
 
     // MARK: - String Literal Visitor (insecure transport)
@@ -239,6 +289,7 @@ final class SecurityVisitor: SyntaxVisitor {
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         checkInsecureKeychain(node)
         checkTLSDisabled(node)
+        if let finding = XMLEntityRules.memberAccess(node) { reportXML(finding) }
         return .visitChildren
     }
 
@@ -249,6 +300,7 @@ final class SecurityVisitor: SyntaxVisitor {
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkTLSAssignment(node)
         checkCertificateVerificationAssignment(node)
+        if let finding = XMLEntityRules.assignment(node) { reportXML(finding) }
         // Order matters and follows source order: the executable is assigned before the
         // arguments in every shape this rule recognises.
         noteExecutableAssignment(node)
@@ -426,37 +478,15 @@ final class SecurityVisitor: SyntaxVisitor {
         emitWeakCryptoDiagnostic(node, algorithm: callee)
     }
 
+    /// Whether a weak hash is a defect depends on what it is for. Deriving a key for a file
+    /// format that names SHA-1 is not a security choice — the alternative is refusing to open
+    /// the file — and no property of the surrounding code says so. A stated reason does, which
+    /// is what `weakCryptoPolicy: justified` asks for; ``reportUnderCryptoPolicy(_:)`` decides.
     private func emitWeakCryptoDiagnostic(_ node: FunctionCallExprSyntax, algorithm: String) {
         let location = node.startLocation(
             converter: converter
         )
-        // Whether a weak hash is a defect depends on what it is for. Deriving a key for a
-        // file format that names SHA-1 is not a security choice — the alternative is
-        // refusing to open the file — and no property of the surrounding code says so. A
-        // stated reason does, which is what `justified` asks for.
-        switch configuration.weakCryptoPolicy.verdict(in: (), evidence: ()) {
-        case .count:
-            // Not reachable: the policy offers no aggregate level, deliberately. Reporting
-            // is the safe reading if one is ever added without revisiting this.
-            break
-        case .requireJustification:
-            guard !hasWeakCryptoJustification(line: location.line) else { return }
-            report(Diagnostic(
-                severity: .warning,
-                message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto")) "
-                    + "Add a `// Justification:` comment saying why it is correct here.",
-                filePath: fileName,
-                lineNumber: location.line,
-                columnNumber: location.column,
-                ruleId: "security.weak-crypto",
-                suggestedFix: "// Justification: <why this hash is dictated rather than chosen>"
-            ))
-            return
-        case .report:
-            break
-        }
-
-        report(Diagnostic(
+        reportUnderCryptoPolicy(Diagnostic(
             severity: .warning,
             message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto"))",
             filePath: fileName,
@@ -465,16 +495,6 @@ final class SecurityVisitor: SyntaxVisitor {
             ruleId: "security.weak-crypto",
             suggestedFix: "Use SHA256 or stronger from CryptoKit: SHA256.hash(data:)"
         ))
-    }
-
-    /// Whether the line above the call carries a `// Justification:` comment.
-    ///
-    /// Adjacent by design, matching how `@unchecked Sendable` is justified elsewhere: a
-    /// reason anywhere in the file would drift away from the thing it excuses, and the
-    /// reader who needs it is looking at this line.
-    private func hasWeakCryptoJustification(line: Int) -> Bool {
-        guard line >= 2, line - 2 < sourceLines.count else { return false }
-        return sourceLines[line - 2].contains("// Justification:")
     }
 
     // MARK: Eval JS (CWE-95)
@@ -1028,7 +1048,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// `baseURLPath` → `["base", "url", "path"]`; `base64Sentinel` → `["base64", "sentinel"]`.
-    private static func camelCaseWords(_ identifier: String) -> [String] {
+    static func camelCaseWords(_ identifier: String) -> [String] {
         var words: [String] = []
         var current = ""
         let characters = Array(identifier)

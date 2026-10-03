@@ -4,6 +4,76 @@
 
 ### Added
 
+- **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
+  and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
+  names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose
+  name is fine, and produced no finding.
+  - `broken-cipher` reports the constant wherever it appears — `kCCAlgorithmDES`, `3DES`,
+    `RC4`, `RC2`, `CAST`, `Blowfish`, `kCCModeRC4` — and CryptoSwift `Blowfish(key:…)` /
+    `Rabbit(key:…)`. A qualified reference is one finding, not two.
+  - `ecb-mode` reports `kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`, and `.ECB` /
+    `.ecb` passed as `blockMode:` (only there: `.ecb` is an ordinary case name elsewhere).
+  - Neither reports inside a CommonCrypto call whose operation is literally `kCCDecrypt`: the
+    algorithm and mode on the decrypt side were chosen by whoever encrypted. This is what keeps
+    SwiftITL's AES-128-ECB `.itl` reader quiet; the proposal excludes decrypt from `static-iv`
+    for the same reason.
+  - `homemade-digest` reports a function whose name claims a digest (`hash`, `digest`, `hmac`,
+    `mac`, `checksum`, `sha…`, as whole words) and which takes a secret-named parameter, when its
+    body names no primitive — read from identifier tokens, so a comment that says "SHA-256" or
+    "bcrypt" calls nothing. Delegating to another digest-named function clears it; so does a
+    *weak* primitive, which is `weak-crypto`'s finding at the call — one defect, one finding.
+  - `weakCryptoPolicy: justified` now governs the two cipher rules as well as `weak-crypto`. A
+    `// Justification:` on the line above must pass `JustificationValidator` — the bar
+    `// SECURITY:` is held to — and is recorded as an override. Before, `weak-crypto` accepted
+    any line containing the marker and recorded nothing.
+  - CWE-327 and CWE-1240 move from `gap` to covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (94 owned packages, third-party clones
+  excluded): `broken-cipher` 0, `ecb-mode` 0, `homemade-digest` 1 — SwiftMCPServer's
+  `APIKeyAuthenticator.hashKey`, an XOR fold documented as SHA-256 on the API-key path, a real
+  defect. The one `weak-crypto` justification in the portfolio (SwiftExcelFunctions,
+  ECMA-376) passes the stronger bar. See `ACipherIsItsArguments.md`.
+- **`security.xml-external-entities` (error, CWE-611) and `security.xml-entity-expansion`
+  (CWE-776): an XML entity is a file read.** On macOS, `XMLDocument(data:)` with no options loads
+  every external entity that does not need the network, so a document that declares
+  `<!ENTITY x SYSTEM "file:///…">` gets that file's bytes as its text. No `XMLNode` option stops
+  internal expansion: 512 bytes of nested entities expanded to 10⁹ bytes in 1.6 s. `XMLParser`
+  refused both in every configuration probed. The portfolio is safe only because it happened to
+  use `XMLParser`.
+
+  `xml-external-entities` reports at **error**:
+  - `shouldResolveExternalEntities` set to anything but the literal `false`.
+  - `externalEntityResolvingPolicy` set to anything but `.never`. This includes `.noNetwork`,
+    because a local file is what XXE reads.
+  - An `XMLDocument(data:|contentsOf:|xmlString:)` whose `options:` is absent, or is a literal
+    without `.nodeLoadExternalEntitiesNever`.
+  - `.nodeLoadExternalEntitiesAlways` / `…SameOriginOnly` anywhere. Inside a parse call's options
+    this is still one diagnostic for the call.
+  - The libxml2 flags `XML_PARSE_NOENT`, `DTDLOAD`, `DTDATTR`, `DTDVALID`, `XINCLUDE`, and
+    `xmlSubstituteEntitiesDefault(<non-zero>)`.
+
+  It reports at **warning**:
+  - Options the rule cannot see.
+  - A `parser(_:resolveExternalEntityName:systemID:)` delegate whose body is not `nil`.
+
+  `xml-entity-expansion` reports `XML_PARSE_HUGE` at **error**. It reports an `XMLDocument` parse
+  with no `"<!DOCTYPE"`/`"<!ENTITY"` refusal before it (a `guard`, or an `if` that exits) at
+  **warning**, and that half stays a warning: no option clears it, and the rule cannot see trust.
+
+  Both rules report through `report(_:)`, so a `// SECURITY:` reason is validated and recorded as
+  an override like every other security rule's. They are on by default, like every security rule
+  when `security.enabledRules` is empty, and are added to this repository's own allow-list. A new
+  `security.xml-coverage` note states what was examined:
+  *examined N XML parse sites · X XMLParser · D XMLDocument · L libxml2 · K configured to load
+  external entities · J acknowledged*. The CWE catalogue's 611 and 776 rows move from `gap` to
+  enforced.
+
+  **Error on arrival, measured.** The release build ran over copies of 107 of the author's own
+  package roots, with forks of third-party code and book samples excluded by origin. It examined
+  7,864 files and found **0** findings for either rule. The coverage notes add up to 9 XML
+  parse sites, all `XMLParser`: SwiftXLSX 6, SwiftExcelFunctions 1, geo-audit 1, Shelfmark 1.
+  There were 0 `XMLDocument` and 0 libxml2 sites, which matches the proposal's hand count
+  exactly. A tripwire that finds nothing has nothing to stage. See `AnEntityIsAFileRead.md`.
 - **Trust has more than three off switches: `security.tls-disabled` widened, four rules beside
   it.** The rule matched `disableEvaluation`, `allowsExpiredCertificates` and
   `allowsExpiredRoots`. None of them appears in any owned repository, and none is URLSession,

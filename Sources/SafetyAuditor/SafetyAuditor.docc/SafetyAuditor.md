@@ -19,6 +19,22 @@ SafetyAuditor uses SwiftSyntax to parse and analyze Swift source code, detecting
 | `unowned` | Crashes if accessed after deallocation | `unowned` |
 | `while true` | Potential infinite loop | `infinite-loop` |
 
+### Cryptography rules
+
+The security visitor's crypto rules read what a call is *given*, not only what it is called:
+
+| Rule ID | CWE | Severity | What it detects |
+|---------|-----|----------|-----------------|
+| `security.weak-crypto` | 328 | warning | `CC_MD5`, `CC_SHA1`, `Insecure.MD5` / `Insecure.SHA1` |
+| `security.broken-cipher` | 327 | error | DES, 3DES, RC4, RC2, CAST or Blowfish selected by constant; CryptoSwift `Blowfish`, `Rabbit` |
+| `security.ecb-mode` | 327 | error | `kCCOptionECBMode`, `kCCModeECB`; CryptoSwift `ECB` as a block mode |
+| `security.homemade-digest` | 1240 | warning | A digest-named function of a secret whose body calls no primitive |
+
+The two cipher rules stay quiet inside a CommonCrypto call whose operation is literally
+`kCCDecrypt`: the reader of a file did not choose its cipher. Under
+`weakCryptoPolicy: justified`, a `// Justification:` with a real reason on the line above clears
+`weak-crypto`, `broken-cipher` and `ecb-mode`, and is recorded as an override.
+
 ### What a client agrees to trust
 
 Five security rules cover certificate validation and transport policy. The four that read Swift
