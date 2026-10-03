@@ -93,6 +93,23 @@ struct SecurityRuleManifestTests {
         #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
     }
 
+    /// Fetched from MITRE (CWE 4.20) on 2026-10-03. `static-iv` is three weaknesses: a CBC IV
+    /// (329, primary), any other fixed IV (1204), and a reused AEAD nonce (323). 326 is a Class
+    /// with no Base child about key length, so it stays.
+    @Test("The key rules carry the CWEs and severity the proposal fixed", arguments: [
+        ("security.hardcoded-key", ["CWE-321"]),
+        ("security.static-iv", ["CWE-329", "CWE-1204", "CWE-323"]),
+        ("security.weak-kdf", ["CWE-916"]),
+        ("security.weak-key-size", ["CWE-326"]),
+    ])
+    func keyRules(ruleId: String, cwes: [String]) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == cwes)
+        #expect(rule.severity == "ERROR")
+        #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
+        #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
+    }
+
     @Test("The Mobile column keeps its value under its own name")
     func mobileColumn() {
         for rule in SecurityRuleManifest.rules {

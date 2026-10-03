@@ -230,6 +230,10 @@
       "title": "Use of Hard-coded Cryptographic Key",
       "usage": "Allowed"
     },
+    "CWE-323": {
+      "title": "Reusing a Nonce, Key Pair in Encryption",
+      "usage": "Allowed"
+    },
     "CWE-326": {
       "title": "Inadequate Encryption Strength",
       "usage": "Allowed-with-Review"
@@ -664,6 +668,10 @@
     },
     "CWE-1188": {
       "title": "Initialization of a Resource with an Insecure Default",
+      "usage": "Allowed"
+    },
+    "CWE-1204": {
+      "title": "Generation of Weak Initialization Vector (IV)",
       "usage": "Allowed"
     },
     "CWE-1236": {

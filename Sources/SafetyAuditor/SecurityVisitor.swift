@@ -18,6 +18,10 @@ import SwiftSyntax
 /// | `security.broken-cipher` | 327 | DES/3DES/RC4/RC2/CAST/Blowfish constants; CryptoSwift Blowfish, Rabbit |
 /// | `security.ecb-mode` | 327 | kCCOptionECBMode, kCCModeECB; CryptoSwift ECB |
 /// | `security.homemade-digest` | 1240 | Digest-named function of a secret that calls no primitive |
+/// | `security.hardcoded-key` | 321 | Literal key bytes to SymmetricKey, CCCrypt/CCHmac, a PrivateKey; a PEM private key — see `SecurityVisitor+Keys.swift` |
+/// | `security.static-iv` | 329, 1204, 323 | nil or literal IV when encrypting; literal or held AEAD nonce |
+/// | `security.weak-kdf` | 916 | PBKDF2 below 210,000 rounds; unchecked PBKDF2; a bare digest of a password |
+/// | `security.weak-key-size` | 326 | RSA below 2048 bits, symmetric key below 128 bits |
 /// | `security.insecure-transport` | 319 | http:// URLs (excluding localhost) |
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
@@ -54,6 +58,11 @@ final class SecurityVisitor: SyntaxVisitor {
     let justificationValidator = JustificationValidator()
     /// `secretPatterns` as terms for ``SensitiveName`` — built once per file, not per binding.
     private let secretPatternTerms: [SensitiveName.Term]
+    /// `let` bindings whose literal `security.hardcoded-key` reported at a use as key material.
+    var claimedKeyBindings: Set<SyntaxIdentifier> = []
+    /// `security.hardcoded-secret` findings held until the file is walked, so one that
+    /// `hardcoded-key` claims is not reported twice — see ``visitPost(_:)``.
+    private var pendingSecrets: [(binding: SyntaxIdentifier, diagnostic: Diagnostic)] = []
 
     init(
         fileName: String,
@@ -99,14 +108,16 @@ final class SecurityVisitor: SyntaxVisitor {
 
             // Check if assigned a string literal
             guard let initializer = binding.initializer,
-                  initializer.value.is(StringLiteralExprSyntax.self) else {
+                  let literal = initializer.value.as(StringLiteralExprSyntax.self) else {
                 continue
             }
+            // A PEM private key is key material: `hardcoded-key` reports the literal itself.
+            if isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(literal) { continue }
 
             let location = node.startLocation(
                 converter: converter
             )
-            report(Diagnostic(
+            pendingSecrets.append((pattern.id, Diagnostic(
                 severity: .warning,
                 message: "Hardcoded secret or credential detected in '\(pattern.identifier.text)'. [CWE-798]",
                 filePath: fileName,
@@ -114,10 +125,25 @@ final class SecurityVisitor: SyntaxVisitor {
                 columnNumber: location.column,
                 ruleId: "security.hardcoded-secret",
                 suggestedFix: "Load secrets from environment variables, keychain, or a secure configuration provider"
-            ))
+            )))
         }
 
         return .visitChildren
+    }
+
+    /// Reports the `hardcoded-secret` findings that `hardcoded-key` did not claim.
+    ///
+    /// One literal, one finding. `hardcoded-secret` (CWE-798) reads a *name*: a secret-named
+    /// binding assigned a string literal. `hardcoded-key` (CWE-321, a child of 798) reads a *use*:
+    /// literal bytes passed where a cipher, MAC or key initialiser takes its key. When a
+    /// secret-named literal is that key, the more specific rule reports it at the use, and this
+    /// one stays quiet. Held to the end of the file because the use may come after, or before,
+    /// the declaration.
+    override func visitPost(_ node: SourceFileSyntax) {
+        for pending in pendingSecrets where !claimedKeyBindings.contains(pending.binding) {
+            report(pending.diagnostic)
+        }
+        pendingSecrets.removeAll()
     }
 
     // MARK: - Function Call Visitor
@@ -138,6 +164,7 @@ final class SecurityVisitor: SyntaxVisitor {
         checkCertificateVerificationArguments(node)
         checkTrustCalls(node)
         checkVerifyBlock(node)
+        checkKeyArguments(node)
         countXMLParseSite(node)
         for finding in XMLEntityRules.call(node) { reportXML(finding) }
         return .visitChildren
@@ -147,6 +174,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkCipherReference(node)
+        checkKeySizeAttribute(node)
         checkDisabledEvaluator(node)
         if let finding = XMLEntityRules.reference(node) { reportXML(finding) }
         return .visitChildren
@@ -199,6 +227,7 @@ final class SecurityVisitor: SyntaxVisitor {
     // MARK: - String Literal Visitor (insecure transport)
 
     override func visit(_ node: StringLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        checkPrivateKeyLiteral(node)
         guard isRuleEnabled("security.insecure-transport") else {
             return .visitChildren
         }
