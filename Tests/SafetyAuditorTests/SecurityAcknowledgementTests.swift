@@ -26,6 +26,9 @@ struct SecurityAcknowledgementTests {
         ("security.tls-disabled", "config.allowsExpiredCertificates = true"),
         ("security.path-traversal", "let data = FileManager.default.contents(atPath: base.appendingPathComponent(name).path)"),
         ("security.ssrf", "let target = URL(string: input)"),
+        ("security.broken-cipher", "let algorithm = CCAlgorithm(kCCAlgorithmDES)"),
+        ("security.ecb-mode", "let options = CCOptions(kCCOptionECBMode)"),
+        ("security.homemade-digest", "func hashKey(_ key: String) -> String { String(key.reversed()) }"),
         ("security.command-injection", """
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/sh")

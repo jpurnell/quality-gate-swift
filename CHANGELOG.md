@@ -4,6 +4,36 @@
 
 ### Added
 
+- **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
+  and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
+  names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose
+  name is fine, and produced no finding.
+  - `broken-cipher` reports the constant wherever it appears — `kCCAlgorithmDES`, `3DES`,
+    `RC4`, `RC2`, `CAST`, `Blowfish`, `kCCModeRC4` — and CryptoSwift `Blowfish(key:…)` /
+    `Rabbit(key:…)`. A qualified reference is one finding, not two.
+  - `ecb-mode` reports `kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`, and `.ECB` /
+    `.ecb` passed as `blockMode:` (only there: `.ecb` is an ordinary case name elsewhere).
+  - Neither reports inside a CommonCrypto call whose operation is literally `kCCDecrypt`: the
+    algorithm and mode on the decrypt side were chosen by whoever encrypted. This is what keeps
+    SwiftITL's AES-128-ECB `.itl` reader quiet; the proposal excludes decrypt from `static-iv`
+    for the same reason.
+  - `homemade-digest` reports a function whose name claims a digest (`hash`, `digest`, `hmac`,
+    `mac`, `checksum`, `sha…`, as whole words) and which takes a secret-named parameter, when its
+    body names no primitive — read from identifier tokens, so a comment that says "SHA-256" or
+    "bcrypt" calls nothing. Delegating to another digest-named function clears it; so does a
+    *weak* primitive, which is `weak-crypto`'s finding at the call — one defect, one finding.
+  - `weakCryptoPolicy: justified` now governs the two cipher rules as well as `weak-crypto`. A
+    `// Justification:` on the line above must pass `JustificationValidator` — the bar
+    `// SECURITY:` is held to — and is recorded as an override. Before, `weak-crypto` accepted
+    any line containing the marker and recorded nothing.
+  - CWE-327 and CWE-1240 move from `gap` to covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (94 owned packages, third-party clones
+  excluded): `broken-cipher` 0, `ecb-mode` 0, `homemade-digest` 1 — SwiftMCPServer's
+  `APIKeyAuthenticator.hashKey`, an XOR fold documented as SHA-256 on the API-key path, a real
+  defect. The one `weak-crypto` justification in the portfolio (SwiftExcelFunctions,
+  ECMA-376) passes the stronger bar. See `ACipherIsItsArguments.md`.
+
 - **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
   `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
   a fixture string that contains an XCTest file is never rewritten. That was the failure of
