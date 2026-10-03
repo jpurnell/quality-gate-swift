@@ -39,6 +39,8 @@ final class SecurityVisitor: SyntaxVisitor {
     var overrides: [DiagnosticOverride] = []
     /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
     private let justificationValidator = JustificationValidator()
+    /// `secretPatterns` as terms for ``SensitiveName`` — built once per file, not per binding.
+    private let secretPatternTerms: [SensitiveName.Term]
 
     init(
         fileName: String,
@@ -53,6 +55,7 @@ final class SecurityVisitor: SyntaxVisitor {
         self.converter = converter
         self.sourceLines = source.lines
         self.configuration = configuration
+        self.secretPatternTerms = configuration.secretPatterns.map { SensitiveName.customTerm($0) }
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -68,13 +71,17 @@ final class SecurityVisitor: SyntaxVisitor {
                 continue
             }
 
-            let name = pattern.identifier.text.lowercased()
-
-            // Check if variable name matches secret patterns
-            let isSecretName = configuration.secretPatterns.contains { pattern in
-                name.contains(pattern.lowercased())
-            }
-            guard isSecretName else { continue }
+            // Whole words, through the gate's one sensitive-name matcher. This was
+            // `name.lowercased().contains(pattern)`, which made `tokenizer` and `secretary`
+            // credentials (`PublicIsAClaimAboutTheValue.md` §4.4). The rule keeps the words it
+            // shipped with: the union vocabulary added nineteen findings across the portfolio,
+            // all header names, grant-type constants and test fixtures, so widening it is left
+            // to a change that measures and argues for it.
+            let classification = SensitiveName.classify(
+                pattern.identifier.text,
+                restrictedTo: .hardcodedSecretRule,
+                additionalTerms: secretPatternTerms)
+            guard classification.namesSecret else { continue }
 
             // Check if assigned a string literal
             guard let initializer = binding.initializer,

@@ -182,6 +182,54 @@ struct KeychainSecretsCheckerTests {
         #expect(try #require(result.diagnostics.first).severity == .warning)
     }
 
+    // MARK: - Shared matcher (SensitiveName)
+
+    @Test("a compound must be whole words: apiKeyboard is not apiKey")
+    func compoundIsWholeWords() {
+        // The concatenated-substring technique this replaced matched `apikeyboard`.
+        let result = analyze("""
+        func save() {
+            UserDefaults.standard.set("v", forKey: "apiKeyboardLayout")
+        }
+        """)
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    /// The checker never matched a plural and still does not. Measured over the portfolio,
+    /// plurals would have added `maxTokens`, `inputTokens`, `totalTokens` — counts.
+    @Test("a plural is not this checker's secret noun")
+    func pluralKeyNotFlagged() {
+        let result = analyze("""
+        func save(_ count: String) {
+            UserDefaults.standard.set(count, forKey: "maxTokens")
+        }
+        """)
+        #expect(result.diagnostics.isEmpty)
+    }
+
+    @Test("an extra compound pattern matches its spelled-out words")
+    func extraCompoundPattern() {
+        let config = KeychainSecretsConfig(extraPatterns: ["license_key"])
+        let result = analyze("""
+        func save() {
+            UserDefaults.standard.set("v", forKey: "licenseKey")
+        }
+        """, config: config)
+        #expect(result.diagnostics.count == 1)
+    }
+
+    @Test("snake, screaming and dotted key spellings are all recognised", arguments: [
+        "api_key", "API_KEY", "auth.refresh_token", "x-api-key",
+    ])
+    func keySpellings(key: String) {
+        let result = analyze("""
+        func save() {
+            UserDefaults.standard.set("v", forKey: "\(key)")
+        }
+        """)
+        #expect(result.diagnostics.count == 1)
+    }
+
     // MARK: - Exemption (recorded, never silent)
 
     @Test("an inline // keychain:exempt records an override, not a diagnostic")
