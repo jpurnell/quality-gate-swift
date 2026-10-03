@@ -39,6 +39,8 @@ struct SecurityAcknowledgementTests {
         ("security.archive-path-escape",
          "for entry in archive.entries { try entry.data.write(to: dest.appendingPathComponent(entry.path)) }"),
         ("security.archive-symlink", "try archive.extract(entry, to: dest, symlinksValidWithin: .rootFS)"),
+        ("security.regex-catastrophic", #"let expression = try NSRegularExpression(pattern: "(a+)+$")"#),
+        ("security.predicate-injection", "let predicate = NSPredicate(format: query)"),
     ]
 
     static let ruleIds = fixtures.map(\.rule)

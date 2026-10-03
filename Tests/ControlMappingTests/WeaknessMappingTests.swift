@@ -198,6 +198,10 @@ struct WeaknessMappingTests {
                    "CWE-606", "CWE-789", "CWE-1284", "CWE-611", "CWE-502", "CWE-1395"] {
             #expect(ids.contains(id), "\(id) is not catalogued")
         }
-        #expect(matrix().filter { $0.state == .gap }.count >= 130)
+        // The floor was on the gap count (≥ 130), which every rule that lands is supposed to
+        // lower — the pattern rules closed 1333, 943 and 917 and took it to 129. What must not
+        // fall is the catalogue itself, so that is what is held: 177 ids on 2026-10-03.
+        #expect(ids.count >= 177)
+        #expect(matrix().filter { $0.state == .gap }.count >= 100)
     }
 }

@@ -272,6 +272,25 @@ let package = Package(
             dependencies: ["QualityGateCore"]
         ),
 
+        // MARK: - External-input source model (SwiftSyntax adapter)
+        .target(
+            name: "ExternalInputSyntax",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+            ],
+            resources: [.copy("ExternalInputSyntax.docc")]
+        ),
+        .testTarget(
+            name: "ExternalInputSyntaxTests",
+            dependencies: [
+                "ExternalInputSyntax",
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+
         // MARK: - Checker Modules
         .target(
             name: "SafetyAuditor",
@@ -279,6 +298,7 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                "ExternalInputSyntax",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],

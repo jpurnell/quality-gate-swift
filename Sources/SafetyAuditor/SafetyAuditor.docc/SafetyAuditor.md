@@ -38,6 +38,9 @@ The same pass runs the `security.*` rules. Their CWE lists and OWASP columns liv
 | `security.path-containment-by-prefix` | error | 22, 187 | A containment check written as a prefix with no separator |
 | `security.archive-path-escape` | error | 22 | An archive entry's name joined onto a destination and written unchecked; `unzip -:`, `tar -P` |
 | `security.archive-symlink` | error | 59 | A link whose target an archive entry chose, created unchecked; ZIPFoundation's symlink check switched off |
+| `security.regex-catastrophic` | error | 1333 | A literal pattern with nested or overlapping unbounded repetition |
+| `security.regex-from-input` | warning | 1333 | A pattern derived from external input |
+| `security.predicate-injection` | error | 943, 917 | An `NSPredicate` / `NSExpression` format string assembled at runtime |
 | `security.ssrf` | warning | 918 | `URL(string:)` from dynamic input |
 | `security.broken-cipher` | error | 327 | DES, 3DES, RC4, RC2, CAST or Blowfish constants; CryptoSwift Blowfish, Rabbit |
 | `security.ecb-mode` | error | 327 | ECB mode (`kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`) |
@@ -68,6 +71,29 @@ The two cipher rules stay quiet inside a CommonCrypto call whose operation is li
 `kCCDecrypt`: the reader of a file did not choose its cipher. Under
 `weakCryptoPolicy: justified`, a `// Justification:` with a real reason on the line above clears
 `weak-crypto`, `broken-cipher` and `ecb-mode`, and is recorded as an override.
+
+### A pattern is a program
+
+A regular expression is a program for a backtracking interpreter: `(a+)+$` takes 27 seconds on an
+eighteen-character subject in Swift `Regex`. Three rules read patterns and format strings:
+
+| Rule ID | CWE | Severity | What it detects |
+|---------|-----|----------|-----------------|
+| `security.regex-catastrophic` | 1333 | error | A literal pattern — at `NSRegularExpression(pattern:)`, `Regex(_:)`, an `of:` passed with `.regularExpression`, a regex literal, or a same-file `let` they name — with a group quantified by `+`/`*`/`{n,}` whose body repeats with no mandatory literal, or whose alternatives overlap |
+| `security.regex-from-input` | 1333 | warning | A pattern at the same sites, or an `NSPredicate` `MATCHES` operand, derived from external input: request content, an MCP tool argument, the command line or environment, file or network bytes, a workbook cell |
+| `security.predicate-injection` | 943, 917 | error | `NSPredicate(format:)` / `NSExpression(format:)` whose format is interpolated or not a literal |
+
+`regex-catastrophic` is cleared by rewriting: a possessive inner quantifier (`a++`), an atomic
+group (`(?>a+)`), or disjoint alternatives. `predicate-injection` is cleared by a literal format
+with values passed as `%@` and key paths as `%K`. `regex-from-input` stays a warning — every real
+site is a feature whose contract is that someone else writes the pattern — and its
+`// SECURITY:` acknowledgement must **name a bound** (a cap, limit, maximum, ceiling, deadline or
+timeout): "subject capped at 32,767 characters, pattern at 255" is accepted; "the author is
+careful" is not.
+
+"External input" is the shared model in `QualityGateCore` (`ExternalInput`), read off the tree by
+the `ExternalInputSyntax` target. It is one function wide: a parameter of a public helper is not
+input, so the rule says nothing about a pattern that arrives through one.
 
 ### What a client agrees to trust
 

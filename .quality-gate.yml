@@ -88,6 +88,9 @@ security:
     - security.xml-entity-expansion
     - security.archive-path-escape
     - security.archive-symlink
+    - security.regex-catastrophic
+    - security.regex-from-input
+    - security.predicate-injection
 
 dependencyAudit:
   allowBranchPins:

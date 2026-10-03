@@ -1,3 +1,4 @@
+import ExternalInputSyntax
 import Foundation
 import QualityGateCore
 import SwiftSyntax
@@ -33,6 +34,9 @@ import SwiftSyntax
 /// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |
 /// | `security.archive-path-escape` | 22 | Archive entry name joined and written without containment; `unzip -:`, `tar -P` |
 /// | `security.archive-symlink` | 59 | Link target chosen by an archive entry, unchecked; ZIPFoundation containment switched off |
+/// | `security.regex-catastrophic` | 1333 | Literal pattern with nested or overlapping unbounded repetition — see `SecurityVisitor+Pattern.swift` |
+/// | `security.regex-from-input` | 1333 | Pattern derived from external input (warning; acknowledgement must name a bound) |
+/// | `security.predicate-injection` | 943, 917 | `NSPredicate` / `NSExpression` format string assembled at runtime |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -54,6 +58,8 @@ final class SecurityVisitor: SyntaxVisitor {
     let justificationValidator = JustificationValidator()
     /// `secretPatterns` as terms for ``SensitiveName`` — built once per file, not per binding.
     private let secretPatternTerms: [SensitiveName.Term]
+    /// The file's external-input reading, built on first use by a rule that needs it.
+    var externalInputFile: ExternalInputFile?
 
     init(
         fileName: String,
@@ -140,6 +146,14 @@ final class SecurityVisitor: SyntaxVisitor {
         checkVerifyBlock(node)
         countXMLParseSite(node)
         for finding in XMLEntityRules.call(node) { reportXML(finding) }
+        checkPatternCalls(node)
+        return .visitChildren
+    }
+
+    // MARK: - Regex Literal Visitor (catastrophic pattern)
+
+    override func visit(_ node: RegexLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        checkRegexLiteral(node)
         return .visitChildren
     }
 
@@ -1208,6 +1222,10 @@ final class SecurityVisitor: SyntaxVisitor {
 
         switch justificationValidator.validate(marker.text, keyword: Self.marker) {
         case .valid:
+            if let unmet = Self.unmetAcknowledgementRequirement(ruleId: ruleId, reason: Self.payload(of: marker.text)) {
+                diagnostics.append(Self.rejecting(diagnostic, markerLine: marker.line, because: unmet))
+                return
+            }
             overrides.append(DiagnosticOverride(
                 ruleId: ruleId,
                 justification: Self.payload(of: marker.text),
