@@ -352,6 +352,12 @@
       "checkability": "partial"
     },
     {
+      "id": "CWE-323",
+      "title": "Reusing a Nonce, Key Pair in Encryption",
+      "text": "MITRE CWE-323 (Base). See https://cwe.mitre.org/data/definitions/323.html",
+      "checkability": "partial"
+    },
+    {
       "id": "CWE-326",
       "title": "Inadequate Encryption Strength",
       "text": "MITRE CWE-326 (Class). See https://cwe.mitre.org/data/definitions/326.html",
@@ -1003,6 +1009,12 @@
       "id": "CWE-1188",
       "title": "Initialization of a Resource with an Insecure Default",
       "text": "MITRE CWE-1188 (Base). See https://cwe.mitre.org/data/definitions/1188.html",
+      "checkability": "partial"
+    },
+    {
+      "id": "CWE-1204",
+      "title": "Generation of Weak Initialization Vector (IV)",
+      "text": "MITRE CWE-1204 (Base). See https://cwe.mitre.org/data/definitions/1204.html",
       "checkability": "partial"
     },
     {
