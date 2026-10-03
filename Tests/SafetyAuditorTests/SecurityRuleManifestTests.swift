@@ -49,11 +49,29 @@ struct SecurityRuleManifestTests {
         ("security.tls-disabled", "A07:2021"),
         ("security.path-traversal", "A01:2021"),
         ("security.ssrf", "A10:2021"),
+        ("security.broken-cipher", "A02:2021"),
+        ("security.ecb-mode", "A02:2021"),
+        ("security.homemade-digest", "A02:2021"),
     ])
     func top10Category(ruleId: String, category: String) throws {
         let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
         let top10 = try #require(rule.owaspTop10, "\(ruleId) has no Top 10 category")
         #expect(top10.hasPrefix(category))
+    }
+
+    /// Fetched from MITRE (CWE 4.20). 327 is a Class; its children were examined first and none
+    /// fits "DES" or "ECB" — 328 is hashes, 916 is password KDFs, 780 is RSA padding.
+    @Test("The cipher rules carry the CWE, severity and Mobile category the proposal fixed", arguments: [
+        ("security.broken-cipher", "CWE-327", "ERROR"),
+        ("security.ecb-mode", "CWE-327", "ERROR"),
+        ("security.homemade-digest", "CWE-1240", "WARNING"),
+    ])
+    func cipherRules(ruleId: String, cwe: String, severity: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == [cwe])
+        #expect(rule.severity == severity)
+        #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
+        #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
     }
 
     @Test("The Mobile column keeps its value under its own name")

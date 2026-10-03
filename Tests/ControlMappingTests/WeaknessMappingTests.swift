@@ -144,6 +144,18 @@ struct WeaknessMappingTests {
         #expect(row.rules.isEmpty)
     }
 
+    /// `ACipherIsItsArguments.md`: 327 had no rule once `weak-crypto` moved to 328, and 1240 had
+    /// none at all. Each is now reached, and the row names the rule that reaches it.
+    @Test("the cipher rules close CWE-327 and CWE-1240", arguments: [
+        ("CWE-327", ["security.broken-cipher", "security.ecb-mode"]),
+        ("CWE-1240", ["security.homemade-digest"]),
+    ])
+    func cipherGapsClose(cwe: String, rules: [String]) throws {
+        let row = try #require(matrix().first { $0.controlId == cwe })
+        #expect(row.state != .gap)
+        #expect(Set(row.rules) == Set(rules))
+    }
+
     @Test("the catalogue records gaps as well as coverage")
     func catalogueIsNotOnlyWhatIsCovered() {
         let rows = matrix()

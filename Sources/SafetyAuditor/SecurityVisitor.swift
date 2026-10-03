@@ -14,7 +14,10 @@ import SwiftSyntax
 /// |---------|-----|-----------------|
 /// | `security.hardcoded-secret` | 798 | Secret-named variable with string literal value |
 /// | `security.command-injection` | 78 | Process/NSTask with dynamic arguments |
-/// | `security.weak-crypto` | 327 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+/// | `security.weak-crypto` | 328 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+/// | `security.broken-cipher` | 327 | DES/3DES/RC4/RC2/CAST/Blowfish constants; CryptoSwift Blowfish, Rabbit |
+/// | `security.ecb-mode` | 327 | kCCOptionECBMode, kCCModeECB; CryptoSwift ECB |
+/// | `security.homemade-digest` | 1240 | Digest-named function of a secret that calls no primitive |
 /// | `security.insecure-transport` | 319 | http:// URLs (excluding localhost) |
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
@@ -38,7 +41,7 @@ final class SecurityVisitor: SyntaxVisitor {
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
     /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
-    private let justificationValidator = JustificationValidator()
+    let justificationValidator = JustificationValidator()
 
     init(
         fileName: String,
@@ -112,6 +115,20 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
+        return .visitChildren
+    }
+
+    // MARK: - Reference Visitor (broken cipher, ECB)
+
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        checkCipherReference(node)
+        return .visitChildren
+    }
+
+    // MARK: - Function Declaration Visitor (homemade digest)
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkHomemadeDigest(node)
         return .visitChildren
     }
 
@@ -406,37 +423,15 @@ final class SecurityVisitor: SyntaxVisitor {
         emitWeakCryptoDiagnostic(node, algorithm: callee)
     }
 
+    /// Whether a weak hash is a defect depends on what it is for. Deriving a key for a file
+    /// format that names SHA-1 is not a security choice — the alternative is refusing to open
+    /// the file — and no property of the surrounding code says so. A stated reason does, which
+    /// is what `weakCryptoPolicy: justified` asks for; ``reportUnderCryptoPolicy(_:)`` decides.
     private func emitWeakCryptoDiagnostic(_ node: FunctionCallExprSyntax, algorithm: String) {
         let location = node.startLocation(
             converter: converter
         )
-        // Whether a weak hash is a defect depends on what it is for. Deriving a key for a
-        // file format that names SHA-1 is not a security choice — the alternative is
-        // refusing to open the file — and no property of the surrounding code says so. A
-        // stated reason does, which is what `justified` asks for.
-        switch configuration.weakCryptoPolicy.verdict(in: (), evidence: ()) {
-        case .count:
-            // Not reachable: the policy offers no aggregate level, deliberately. Reporting
-            // is the safe reading if one is ever added without revisiting this.
-            break
-        case .requireJustification:
-            guard !hasWeakCryptoJustification(line: location.line) else { return }
-            report(Diagnostic(
-                severity: .warning,
-                message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto")) "
-                    + "Add a `// Justification:` comment saying why it is correct here.",
-                filePath: fileName,
-                lineNumber: location.line,
-                columnNumber: location.column,
-                ruleId: "security.weak-crypto",
-                suggestedFix: "// Justification: <why this hash is dictated rather than chosen>"
-            ))
-            return
-        case .report:
-            break
-        }
-
-        report(Diagnostic(
+        reportUnderCryptoPolicy(Diagnostic(
             severity: .warning,
             message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto"))",
             filePath: fileName,
@@ -445,16 +440,6 @@ final class SecurityVisitor: SyntaxVisitor {
             ruleId: "security.weak-crypto",
             suggestedFix: "Use SHA256 or stronger from CryptoKit: SHA256.hash(data:)"
         ))
-    }
-
-    /// Whether the line above the call carries a `// Justification:` comment.
-    ///
-    /// Adjacent by design, matching how `@unchecked Sendable` is justified elsewhere: a
-    /// reason anywhere in the file would drift away from the thing it excuses, and the
-    /// reader who needs it is looking at this line.
-    private func hasWeakCryptoJustification(line: Int) -> Bool {
-        guard line >= 2, line - 2 < sourceLines.count else { return false }
-        return sourceLines[line - 2].contains("// Justification:")
     }
 
     // MARK: Eval JS (CWE-95)
@@ -1008,7 +993,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// `baseURLPath` → `["base", "url", "path"]`; `base64Sentinel` → `["base64", "sentinel"]`.
-    private static func camelCaseWords(_ identifier: String) -> [String] {
+    static func camelCaseWords(_ identifier: String) -> [String] {
         var words: [String] = []
         var current = ""
         let characters = Array(identifier)
@@ -1119,7 +1104,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     // MARK: - Helpers
 
-    private func isRuleEnabled(_ ruleId: String) -> Bool {
+    func isRuleEnabled(_ ruleId: String) -> Bool {
         configuration.enabledRules.isEmpty || configuration.enabledRules.contains(ruleId)
     }
 
@@ -1131,7 +1116,7 @@ final class SecurityVisitor: SyntaxVisitor {
     ///
     /// Empty when the manifest does not list the rule: a message with no citation is honest,
     /// and one carrying a number nobody recorded is not.
-    private static func citation(_ ruleId: String) -> String {
+    static func citation(_ ruleId: String) -> String {
         guard let cwe = SecurityRuleManifest.cwe(for: ruleId) else { return "" }
         return "[\(cwe)]"
     }
@@ -1144,7 +1129,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// override and the finding is not reported. A marker that fails leaves the finding
     /// standing, at its own severity, with a sentence saying why the marker was not accepted.
     /// Silence and an unexplained exemption were the same thing to every report before this.
-    private func report(_ diagnostic: Diagnostic) {
+    func report(_ diagnostic: Diagnostic) {
         guard let line = diagnostic.lineNumber,
               let ruleId = diagnostic.ruleId,
               let marker = securityMarker(near: line) else {

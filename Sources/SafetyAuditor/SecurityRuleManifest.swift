@@ -120,6 +120,37 @@ public enum SecurityRuleManifest {
             lastReviewedDate: "2026-10-01"
         ),
         SecurityRule(
+            ruleId: "security.broken-cipher",
+            // 327 is a Class. Its children were examined first: 328 is hashes, 916 password
+            // KDFs, 780 RSA padding — none is "DES". So the Class stays, with the review done.
+            cwes: ["CWE-327"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Broken cipher selected: DES, 3DES, RC4, RC2, CAST or Blowfish",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.ecb-mode",
+            // As broken-cipher: no child of 327 is about a block mode.
+            cwes: ["CWE-327"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Block cipher used in ECB mode",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.homemade-digest",
+            // 1240 is not on any OWASP 2021 list; A02 is assigned by judgement, as the proposal says.
+            cwes: ["CWE-1240"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Digest-named function of a secret that calls no cryptographic primitive",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
             ruleId: "security.insecure-transport",
             cwes: ["CWE-319"],
             owaspMobile: "M5 Insecure Communication",

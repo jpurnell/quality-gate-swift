@@ -36,6 +36,33 @@
     "posture": "partial"
   },
   {
+    "ruleId": "security.broken-cipher",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.ecb-mode",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.homemade-digest",
+    "satisfies": [
+      "hipaa-security-rule/164.312(a)(2)(iv)",
+      "soc2-tsc/CC6.1",
+      "iso-27001-annexa/A.8.24"
+    ],
+    "posture": "partial"
+  },
+  {
     "ruleId": "security.insecure-transport",
     "satisfies": [
       "hipaa-security-rule/164.312(e)(1)",
