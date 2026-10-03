@@ -67,6 +67,10 @@ security:
     - security.sql-injection
     - security.insecure-keychain
     - security.tls-disabled
+    - security.tls-no-hostname
+    - security.trust-handler-accepts-all
+    - security.trust-anchors-widened
+    - security.ats-disabled
     - security.ssrf
 
 dependencyAudit:

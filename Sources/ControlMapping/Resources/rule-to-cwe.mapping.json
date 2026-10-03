@@ -478,6 +478,34 @@
     "posture": "partial"
   },
   {
+    "ruleId": "security.tls-no-hostname",
+    "satisfies": [
+      "cwe/CWE-297"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.trust-handler-accepts-all",
+    "satisfies": [
+      "cwe/CWE-295"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.trust-anchors-widened",
+    "satisfies": [
+      "cwe/CWE-295"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.ats-disabled",
+    "satisfies": [
+      "cwe/CWE-319"
+    ],
+    "posture": "partial"
+  },
+  {
     "ruleId": "security.path-traversal",
     "satisfies": [
       "cwe/CWE-22"

@@ -62,9 +62,10 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     ///
     /// `wholeSource` is deliberately over-inclusive: over-including an input costs a cache miss,
     /// while under-including one serves a stale pass, which is the only way caching can be
-    /// *wrong* rather than merely slow.
+    /// *wrong* rather than merely slow. The `Info.plist` files `security.ats-disabled` reads are
+    /// inputs too, so they are fingerprinted with the sources.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSource(
+        SourceCacheInputs.wholeSourceAndPropertyLists(
             projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
@@ -110,6 +111,11 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         if let note = Self.trapNote(counted: result.countedTraps, targetKind: "library, test or plugin") {
             allDiagnostics.append(note)
         }
+
+        // App Transport Security lives in property lists, not Swift. Same walk, same scope.
+        let ats = auditPropertyLists(scan.propertyLists, configuration: configuration.security)
+        allDiagnostics.append(contentsOf: ats.diagnostics)
+        allOverrides.append(contentsOf: ats.overrides)
 
         // Emitted pass or fail. A checker that examined nothing must not print what a checker
         // that found nothing prints — and this one spent its whole life examining one directory
@@ -205,6 +211,30 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         }
 
         return (diagnostics, overrides, countedTraps)
+    }
+
+    /// Runs `security.ats-disabled` over each property list the walk found.
+    private func auditPropertyLists(
+        _ paths: [String],
+        configuration: SecurityAuditorConfig
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
+        for path in paths {
+            let data: Data
+            do {
+                data = try Data(contentsOf: URL(fileURLWithPath: path))
+            } catch {
+                // The error becomes a finding through `ATSPolicy` below as an unparseable plist
+                // would — an unexamined file must not look like a clean one.
+                Self.logger.warning("Could not read property list \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                data = Data()
+            }
+            let result = ATSPolicy.audit(path: path, data: data, configuration: configuration)
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
+        }
+        return (diagnostics, overrides)
     }
 
     private func auditSourceCode(

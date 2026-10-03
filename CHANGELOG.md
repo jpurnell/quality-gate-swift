@@ -4,6 +4,82 @@
 
 ### Added
 
+- **Trust has more than three off switches: `security.tls-disabled` widened, four rules beside
+  it.** The rule matched `disableEvaluation`, `allowsExpiredCertificates` and
+  `allowsExpiredRoots`. None of them appears in any owned repository, and none is URLSession,
+  Network.framework, SwiftNIO or AsyncHTTPClient API. The one way certificate validation *is*
+  switched off in owned code is NIOSSL's `tlsConfig.certificateVerification = .none`, behind a
+  "trust self-signed certificates" flag in three SwiftMCPClient transports. The rule had never
+  heard of it.
+
+  | Rule | CWE | Severity | Detects |
+  |---|---|---|---|
+  | `security.tls-disabled` (widened) | 295, 298 | error | a client's `certificateVerification` set or passed as `.none` / `.none(…)`, including either arm of a ternary and a typed `CertificateVerification` local; `SecTrustSetExceptions`; Alamofire's `DisabledTrustEvaluator` |
+  | `security.tls-no-hostname` | 297 | error | `.noHostnameVerification` on a *client* configuration; `validateHost: false` on an evaluator; `SecPolicyCreateSSL(true, nil)`; a basic X.509 policy given to `SecTrustSetPolicies` |
+  | `security.trust-handler-accepts-all` | 295 | error | A `urlSession`/`webView` handler with a `URLAuthenticationChallenge` parameter that answers `.useCredential` with `URLCredential(trust:)` and uses the result of no `SecTrustEvaluate*` / `evaluate` call (`_ =`, `try?` and bare statements count as unused); a `sec_protocol_options_set_verify_block` closure that only ever completes `true` |
+  | `security.trust-anchors-widened` | 295 | warning | `SecTrustSetAnchorCertificatesOnly(_, false)`. A warning permanently: it undoes pinning, which is a defect only when pinning was the point |
+  | `security.ats-disabled` | 319 | error / warning | `Info.plist` App Transport Security exceptions: `NSAllowsArbitraryLoads` (error; a warning when a key that makes the system ignore it is present), web-content and media arbitrary loads, an exception domain allowing cleartext HTTP, an exception domain's minimum TLS below 1.2 (warnings) |
+
+  The Swift rules report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is
+  validated and recorded like every other security acknowledgement. A property list keeps no
+  comments, so `ats-disabled` is acknowledged per domain with the new
+  `security.atsAllowedInsecureDomains`, recorded as an override. There is deliberately no
+  acknowledgement for the global key.
+
+  `ats-disabled` is CWE-319, not 295. ATS decides whether cleartext and weak TLS are
+  *permitted*, and switching it off leaves certificate validation on an `https` request intact.
+  The plist pass reads every `Info.plist` and `*-Info.plist` that `SourceWalker` reaches. The
+  walk now returns them as `propertyLists`, so `Pods/`, `.build/`, git-ignored trees and nested
+  packages are skipped for the same reasons a `.swift` file there is. The safety checker's
+  cache fingerprint includes them through
+  `SourceCacheInputs.wholeSourceAndPropertyLists`; leaving them out would let an edited
+  `Info.plist` replay a stale pass.
+
+  **Two departures from the proposal, both from reading the libraries rather than recalling
+  them.**
+  - A *server* configuration is exempt from both mode findings. On a server
+    `certificateVerification` governs client certificates. `.none` is NIOSSL's own server
+    default, and VaultMCP and SwiftMCPServer both build one. `.noHostnameVerification` is what
+    NIOSSL's `makeServerConfigurationWithMTLS` sets. A receiver initialised from
+    `makeServerConfiguration…` / `forServer…`, or a call so named, is a server.
+  - `performDefaultValidation: false` is not a hostname finding. Alamofire documents
+    `validateHost` as validating the host "even if `performDefaultValidation` is `false`", and
+    its evaluators do exactly that. Run against Alamofire's own tests, the label produced 27
+    findings, and in none of them was the host left unchecked.
+
+  CWE-297 moves from `gap` to `enforced` in the CWE catalogue. 295 and 319 were already
+  covered. Titles were checked against the committed MITRE 4.20 snapshot. Proposal:
+  `TrustHasMoreThanThreeOffSwitches.md`.
+
+  **Measured before choosing severities.** The branch's safety checker ran read-only
+  (`--foreign`, every rule on) over every directory under the development root with a
+  `Package.swift` or `.xcodeproj`. Archived projects, playgrounds, `.build` and worktrees were
+  excluded. That was 253 owned or unremoted roots and 204 third-party clones.
+  - **Owned: 8 findings, all accurate.**
+    - `tls-disabled` ×3 in SwiftMCPClient (`HTTPSSETransport.swift:394`,
+      `StreamableHTTPTransport.swift:685`, `WebSocketTransport.swift:66`). These are the
+      proposal's three: a "trust self-signed certificates" flag that verifies nothing. They are
+      real defects with a one-line fix (`additionalTrustRoots`, keep `.fullVerification`).
+    - `ats-disabled` ×5. Four copies of the *iOS Programming* 6th edition Photorama solution, and
+      an unremoted copy of KexpTVStream. In each `NSAllowsArbitraryLoads` really is `true`.
+      Neither tree adopts the gate.
+    - `tls-no-hostname`, `trust-handler-accepts-all` and `trust-anchors-widened`: 0. VaultMCP,
+      SwiftMCPServer, swift-oauth, geo-audit and GeoSEOMCP build NIOSSL *server* configurations
+      with the defaults and implement no URLSession trust delegate.
+  - **Third-party, as false-positive evidence.**
+    - `ats-disabled` ×6, all accurate: KexpTVStream, NetNewsWire for Mac and iOS, OpenEmu,
+      seeso-appletv, and TCA's case studies.
+    - `tls-disabled` ×3, Alamofire's tests of `DisabledTrustEvaluator`.
+    - `tls-no-hostname` ×17, all accurate. One is Alamofire's own `SecPolicyCreateSSL(true,
+      nil)`, the policy it uses when told not to validate the host. Sixteen are its tests'
+      `validateHost: false`.
+    - The 27 `performDefaultValidation: false` findings described above were wrong and are gone.
+
+  Every finding is accurate, so the destination severities apply on arrival: error, with
+  `trust-anchors-widened` a warning. A rule called `tls-disabled` that stayed silent about
+  disabled TLS should not then spend a release being polite about it.
+  SwiftMCPClient's three are the expected red.
+
 - **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
   `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
   a fixture string that contains an XCTest file is never rewritten. That was the failure of

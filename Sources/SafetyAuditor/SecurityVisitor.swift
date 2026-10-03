@@ -19,7 +19,10 @@ import SwiftSyntax
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
 /// | `security.insecure-keychain` | 311 | Deprecated keychain accessibility constants |
-/// | `security.tls-disabled` | 295 | Certificate validation disabled |
+/// | `security.tls-disabled` | 295, 298 | Certificate validation switched off — see `SecurityVisitor+Trust.swift` |
+/// | `security.tls-no-hostname` | 297 | Certificate not checked against the host |
+/// | `security.trust-handler-accepts-all` | 295 | Trust challenge answered without an evaluation |
+/// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
 /// | `security.path-traversal` | 22 | FileManager with dynamic path |
 /// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
 final class SecurityVisitor: SyntaxVisitor {
@@ -59,6 +62,7 @@ final class SecurityVisitor: SyntaxVisitor {
     // MARK: - Variable Declaration Visitor
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkTypedCertificateVerification(node)
         guard isRuleEnabled("security.hardcoded-secret") else {
             return .visitChildren
         }
@@ -112,6 +116,21 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
+        checkCertificateVerificationArguments(node)
+        checkTrustCalls(node)
+        checkVerifyBlock(node)
+        return .visitChildren
+    }
+
+    // MARK: - Declaration Visitors (trust handlers, DisabledTrustEvaluator)
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkTrustHandler(node)
+        return .visitChildren
+    }
+
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        checkDisabledEvaluator(node)
         return .visitChildren
     }
 
@@ -229,6 +248,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkTLSAssignment(node)
+        checkCertificateVerificationAssignment(node)
         // Order matters and follows source order: the executable is assigned before the
         // arguments in every shape this rule recognises.
         noteExecutableAssignment(node)
@@ -1119,7 +1139,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     // MARK: - Helpers
 
-    private func isRuleEnabled(_ ruleId: String) -> Bool {
+    func isRuleEnabled(_ ruleId: String) -> Bool {
         configuration.enabledRules.isEmpty || configuration.enabledRules.contains(ruleId)
     }
 
@@ -1131,7 +1151,7 @@ final class SecurityVisitor: SyntaxVisitor {
     ///
     /// Empty when the manifest does not list the rule: a message with no citation is honest,
     /// and one carrying a number nobody recorded is not.
-    private static func citation(_ ruleId: String) -> String {
+    static func citation(_ ruleId: String) -> String {
         guard let cwe = SecurityRuleManifest.cwe(for: ruleId) else { return "" }
         return "[\(cwe)]"
     }
@@ -1144,7 +1164,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// override and the finding is not reported. A marker that fails leaves the finding
     /// standing, at its own severity, with a sentence saying why the marker was not accepted.
     /// Silence and an unexplained exemption were the same thing to every report before this.
-    private func report(_ diagnostic: Diagnostic) {
+    func report(_ diagnostic: Diagnostic) {
         guard let line = diagnostic.lineNumber,
               let ruleId = diagnostic.ruleId,
               let marker = securityMarker(near: line) else {

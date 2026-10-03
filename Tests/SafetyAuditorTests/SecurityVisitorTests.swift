@@ -738,9 +738,9 @@ struct SecurityVisitorTests {
 
     // MARK: - Manifest Tests
 
-    @Test("SecurityRuleManifest has 11 rules")
-    func manifestHasElevenRules() {
-        #expect(SecurityRuleManifest.rules.count == 11)
+    @Test("SecurityRuleManifest has 15 rules")
+    func manifestHasFifteenRules() {
+        #expect(SecurityRuleManifest.rules.count == 15)
     }
 
     @Test("All manifest rules have valid CWE references")
