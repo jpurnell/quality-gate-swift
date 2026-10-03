@@ -22,7 +22,10 @@ import SwiftSyntax
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
 /// | `security.insecure-keychain` | 311 | Deprecated keychain accessibility constants |
-/// | `security.tls-disabled` | 295 | Certificate validation disabled |
+/// | `security.tls-disabled` | 295, 298 | Certificate validation switched off — see `SecurityVisitor+Trust.swift` |
+/// | `security.tls-no-hostname` | 297 | Certificate not checked against the host |
+/// | `security.trust-handler-accepts-all` | 295 | Trust challenge answered without an evaluation |
+/// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
 /// | `security.path-traversal` | 22 | FileManager with dynamic path |
 /// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
 /// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
@@ -66,6 +69,7 @@ final class SecurityVisitor: SyntaxVisitor {
     // MARK: - Variable Declaration Visitor
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkTypedCertificateVerification(node)
         guard isRuleEnabled("security.hardcoded-secret") else {
             return .visitChildren
         }
@@ -119,6 +123,9 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
+        checkCertificateVerificationArguments(node)
+        checkTrustCalls(node)
+        checkVerifyBlock(node)
         countXMLParseSite(node)
         for finding in XMLEntityRules.call(node) { reportXML(finding) }
         return .visitChildren
@@ -128,6 +135,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkCipherReference(node)
+        checkDisabledEvaluator(node)
         if let finding = XMLEntityRules.reference(node) { reportXML(finding) }
         return .visitChildren
     }
@@ -136,6 +144,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         checkHomemadeDigest(node)
+        checkTrustHandler(node)
         if let finding = XMLEntityRules.function(node) { reportXML(finding) }
         return .visitChildren
     }
@@ -290,6 +299,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkTLSAssignment(node)
+        checkCertificateVerificationAssignment(node)
         if let finding = XMLEntityRules.assignment(node) { reportXML(finding) }
         // Order matters and follows source order: the executable is assigned before the
         // arguments in every shape this rule recognises.

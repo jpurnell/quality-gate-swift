@@ -194,9 +194,54 @@ public enum SecurityRuleManifest {
             cwes: ["CWE-295", "CWE-298"],
             owaspMobile: "M5 Insecure Communication",
             owaspTop10: "A07:2021 Identification and Authentication Failures",
-            description: "TLS certificate validation disabled or weakened",
+            // Widened 2026-10-02: the three identifiers it matched were in no owned repository,
+            // and the one shape that was — NIOSSL's `.none`, three sites — it did not know.
+            description: "Certificate validation switched off — URLSession, Security, NIOSSL, AsyncHTTPClient, Alamofire",
             severity: "ERROR",
-            lastReviewedDate: "2026-04-14"
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.tls-no-hostname",
+            // 297 is a Variant, the level MITRE prefers for mapping; the chain is checked and
+            // the name is not.
+            cwes: ["CWE-297"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A07:2021 Identification and Authentication Failures",
+            description: "Certificate validated without checking it against the host",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.trust-handler-accepts-all",
+            cwes: ["CWE-295"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A07:2021 Identification and Authentication Failures",
+            description: "Server-trust challenge answered with a credential and no evaluation whose result is used",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.trust-anchors-widened",
+            // A warning permanently: `false` undoes pinning, which is a defect only when
+            // pinning was the point, and the call site alone does not say which.
+            cwes: ["CWE-295"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A07:2021 Identification and Authentication Failures",
+            description: "Built-in anchor certificates re-enabled on a trust object",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.ats-disabled",
+            // 319, not 295: ATS decides whether cleartext and weak TLS are permitted. Turning
+            // it off leaves certificate validation on an https request untouched. Read from
+            // Info.plist by `ATSPolicy`, not by the visitor.
+            cwes: ["CWE-319"],
+            owaspMobile: "M5 Insecure Communication",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "App Transport Security disabled or excepted in Info.plist",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
         ),
         SecurityRule(
             ruleId: "security.path-traversal",

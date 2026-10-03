@@ -14,7 +14,7 @@ public enum SourceCacheInputs {
     /// snapshot, and a file created mid-run is seen by the *next* run's walk. The same
     /// safety argument as `FileDigestCache` — nothing the gate mutates mid-run
     /// (`.build`, records) is inside the walked set.
-    private static let walkMemo = Mutex<[String: [String]]>([:])
+    private static let walkMemo = Mutex<[String: SourceWalker.WalkResult]>([:])
 
     /// Per-process memo of `.docc` catalogue enumerations, keyed by root path.
     private static let doccMemo = Mutex<[String: [String]]>([:])
@@ -38,17 +38,7 @@ public enum SourceCacheInputs {
         // this fingerprint did not, so editing the SPM plugin left every cached result valid. Six
         // wait-before-read deadlocks were found in exactly those directories the day this was
         // written.
-        let memoKey = projectRoot.path + "\u{0}" + configuration.excludePatterns.joined(separator: "\u{0}")
-        var files: [String]
-        if let memoized = walkMemo.withLock({ $0[memoKey] }) {
-            files = memoized
-        } else {
-            // Walk outside the lock: concurrent first calls redo the same walk of an
-            // unchanged tree, and either result is correct to store.
-            files = SourceWalker.swiftFiles(
-                under: projectRoot, excludePatterns: configuration.excludePatterns)
-            walkMemo.withLock { $0[memoKey] = files }
-        }
+        var files = walk(projectRoot: projectRoot, configuration: configuration).files
         for manifest in ["Package.swift", "Package.resolved"] {
             files.append(projectRoot.appendingPathComponent(manifest).path)
         }
@@ -59,6 +49,35 @@ public enum SourceCacheInputs {
         // feature flags, exclusions) invalidates the cached result — a checker's output depends
         // on its config, not just the source. Over-inclusive (whole config) by design.
         return CacheInputs(files: files, salt: configurationSalt(configuration))
+    }
+
+    /// The walk behind every input set here, memoized per `(root, excludePatterns)`.
+    private static func walk(projectRoot: URL, configuration: Configuration) -> SourceWalker.WalkResult {
+        let memoKey = projectRoot.path + "\u{0}" + configuration.excludePatterns.joined(separator: "\u{0}")
+        if let memoized = walkMemo.withLock({ $0[memoKey] }) {
+            return memoized
+        }
+        // Walk outside the lock: concurrent first calls redo the same walk of an
+        // unchanged tree, and either result is correct to store.
+        let result = SourceWalker.walk(under: projectRoot, excludePatterns: configuration.excludePatterns)
+        walkMemo.withLock { $0[memoKey] = result }
+        return result
+    }
+
+    /// Every input `wholeSource` covers, **plus the `Info.plist` files the walk found**.
+    ///
+    /// For the safety checker, whose `security.ats-disabled` rule reads App Transport Security
+    /// keys from property lists. Fingerprinting it with `wholeSource` alone would let an edited
+    /// `Info.plist` replay a stale pass.
+    ///
+    /// - Parameters:
+    ///   - projectRoot: The package root.
+    ///   - configuration: Project configuration, digested into the salt.
+    /// - Returns: Inputs covering Swift sources, manifests, `.gitignore`, and `Info.plist` files.
+    public static func wholeSourceAndPropertyLists(projectRoot: URL, configuration: Configuration) -> CacheInputs {
+        let base = wholeSource(projectRoot: projectRoot, configuration: configuration)
+        let plists = walk(projectRoot: projectRoot, configuration: configuration).propertyLists
+        return CacheInputs(files: base.files + plists, salt: base.salt)
     }
 
     /// Every input `wholeSource` covers, **plus the index store the checker will read**.
