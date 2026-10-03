@@ -195,8 +195,9 @@ struct ManifestParsingAgreementTests {
         // The number is asserted rather than computed on purpose: it is a tripwire
         // for the parser silently disagreeing with `swift package describe`, so it
         // is expected to be edited whenever the manifest genuinely changes.
-        #expect(map.targetCount == 114,
-                "describe reported 114 targets on 2026-09-19; parser found \(map.targetCount)")
+        // 116 from 2026-10-03: ServerSurface and its test target, the server-surface inventory.
+        #expect(map.targetCount == 116,
+                "describe reported 116 targets on 2026-10-03; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

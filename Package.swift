@@ -21,6 +21,10 @@ let package = Package(
             targets: ["SafetyAuditor"]
         ),
         .library(
+            name: "ServerSurface",
+            targets: ["ServerSurface"]
+        ),
+        .library(
             name: "BuildChecker",
             targets: ["BuildChecker"]
         ),
@@ -279,6 +283,7 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                "ServerSurface",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
@@ -288,6 +293,23 @@ let package = Package(
             name: "SafetyAuditorTests",
             dependencies: [
                 "IndexStoreInfra","SafetyAuditor"]
+        ),
+
+        // What a package exposes to a network — listeners and handlers — as data for rules.
+        // Shared infrastructure (TheGateIsNotYetAggressive.md §2.2 item 1): SafetyAuditor's
+        // listener rules read it now; the server-surface proposals add columns to it later.
+        .target(
+            name: "ServerSurface",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            resources: [.copy("ServerSurface.docc")]
+        ),
+        .testTarget(
+            name: "ServerSurfaceTests",
+            dependencies: ["ServerSurface", "QualityGateCore"]
         ),
 
         .target(
