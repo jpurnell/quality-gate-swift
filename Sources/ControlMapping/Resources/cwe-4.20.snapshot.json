@@ -254,9 +254,21 @@
       "title": "Incorrect Usage of Seeds in Pseudo-Random Number Generator (PRNG)",
       "usage": "Allowed"
     },
+    "CWE-336": {
+      "title": "Same Seed in Pseudo-Random Number Generator (PRNG)",
+      "usage": "Allowed"
+    },
+    "CWE-337": {
+      "title": "Predictable Seed in Pseudo-Random Number Generator (PRNG)",
+      "usage": "Allowed"
+    },
     "CWE-338": {
       "title": "Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)",
       "usage": "Allowed"
+    },
+    "CWE-340": {
+      "title": "Generation of Predictable Numbers or Identifiers",
+      "usage": "Allowed-with-Review"
     },
     "CWE-341": {
       "title": "Predictable from Observable State",

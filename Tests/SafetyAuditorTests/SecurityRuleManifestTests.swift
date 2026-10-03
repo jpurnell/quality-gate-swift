@@ -56,6 +56,10 @@ struct SecurityRuleManifestTests {
         ("security.xml-entity-expansion", "A05:2021"),
         ("security.archive-path-escape", "A01:2021"),
         ("security.archive-symlink", "A01:2021"),
+        ("security.weak-prng", "A02:2021"),
+        ("security.seeded-secret", "A02:2021"),
+        ("security.predictable-token", "A02:2021"),
+        ("security.uuid-as-secret", "A02:2021"),
     ])
     func top10Category(ruleId: String, category: String) throws {
         let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
@@ -108,6 +112,24 @@ struct SecurityRuleManifestTests {
         #expect(rule.severity == "ERROR")
         #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
         #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
+    }
+
+    /// Fetched from MITRE (CWE 4.20) and in the committed snapshot. 330 is not used: MITRE marks it
+    /// Discouraged. 340 is a Class kept after review — 341 is about observable state and 342/343
+    /// about prediction from earlier values, and a v4 UUID is neither.
+    @Test("The randomness rules carry the CWEs, severity and categories the proposal fixed", arguments: [
+        ("security.weak-prng", ["CWE-338"], "ERROR"),
+        ("security.seeded-secret", ["CWE-335", "CWE-336", "CWE-337"], "ERROR"),
+        ("security.predictable-token", ["CWE-341"], "ERROR"),
+        ("security.uuid-as-secret", ["CWE-340"], "WARNING"),
+    ])
+    func randomnessRules(ruleId: String, cwes: [String], severity: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == cwes)
+        #expect(rule.severity == severity)
+        #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
+        #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
+        #expect(rule.owaspAPI == nil)
     }
 
     @Test("The Mobile column keeps its value under its own name")

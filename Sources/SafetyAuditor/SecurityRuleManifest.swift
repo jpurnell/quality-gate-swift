@@ -361,6 +361,48 @@ public enum SecurityRuleManifest {
             severity: "WARNING",
             lastReviewedDate: "2026-10-02"
         ),
+        // The randomness rules (ASeedIsNotASecret.md). Every CWE fetched from MITRE 4.20; 330 is
+        // not used because MITRE marks it Discouraged. 335-338 and 340 are on A02:2021's mapped
+        // list; 341 is not, and A02 is assigned to it by judgement, as the proposal says.
+        SecurityRule(
+            ruleId: "security.weak-prng",
+            cwes: ["CWE-338"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Non-cryptographic generator (C rand family, GameplayKit) making a security value",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.seeded-secret",
+            // Primary 335; the visitor cites 336 for a literal seed and 337 for a clock or pid seed.
+            cwes: ["CWE-335", "CWE-336", "CWE-337"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Security value drawn from a generator seeded in the same function",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.predictable-token",
+            cwes: ["CWE-341"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "Security value made only of the clock, the process id or a hash value",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.uuid-as-secret",
+            // 340 is a Class, kept after review: 341 is observable state and 342/343 prediction
+            // from earlier values, and a v4 UUID is neither. A warning permanently.
+            cwes: ["CWE-340"],
+            owaspMobile: "M10 Insufficient Cryptography",
+            owaspTop10: "A02:2021 Cryptographic Failures",
+            description: "UUID used as a session id, token or key",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-03"
+        ),
     ]
 
     /// The CWE recorded for a rule, or `nil` when the manifest does not list it.

@@ -605,5 +605,35 @@
       "cwe/CWE-59"
     ],
     "posture": "partial"
+  },
+  {
+    "ruleId": "security.weak-prng",
+    "satisfies": [
+      "cwe/CWE-338"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.seeded-secret",
+    "satisfies": [
+      "cwe/CWE-335",
+      "cwe/CWE-336",
+      "cwe/CWE-337"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.predictable-token",
+    "satisfies": [
+      "cwe/CWE-341"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.uuid-as-secret",
+    "satisfies": [
+      "cwe/CWE-340"
+    ],
+    "posture": "partial"
   }
 ]
