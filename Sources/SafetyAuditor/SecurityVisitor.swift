@@ -33,6 +33,8 @@ import SwiftSyntax
 /// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |
 /// | `security.archive-path-escape` | 22 | Archive entry name joined and written without containment; `unzip -:`, `tar -P` |
 /// | `security.archive-symlink` | 59 | Link target chosen by an archive entry, unchecked; ZIPFoundation containment switched off |
+/// | `security.bind-all-interfaces` | 1327 | Listener bound to every interface: literal at the bind (error); default, assignment or argument (warning) — see `ServerSurfaceRules.swift` |
+/// | `security.listener-auth-optional` | 1188 | Authenticator defaulting to off, or switchable off from the environment, in a target that listens |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String

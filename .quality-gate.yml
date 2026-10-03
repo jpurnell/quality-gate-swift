@@ -88,6 +88,11 @@ security:
     - security.xml-entity-expansion
     - security.archive-path-escape
     - security.archive-symlink
+    # New ids (AHandlerThatAnyoneCanCall.md, AHandlerSaysWhoMayCallIt.md): no older mechanism
+    # answers to them. This package opens no listener, so both report nothing here; the
+    # server-surface coverage note says so rather than staying silent.
+    - security.bind-all-interfaces
+    - security.listener-auth-optional
 
 dependencyAudit:
   allowBranchPins:

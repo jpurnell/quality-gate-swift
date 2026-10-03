@@ -48,6 +48,8 @@ The same pass runs the `security.*` rules. Their CWE lists and OWASP columns liv
 | `security.trust-handler-accepts-all` | error | 295 | A trust challenge answered without an evaluation |
 | `security.trust-anchors-widened` | warning | 295 | Built-in anchors re-enabled after pinning |
 | `security.ats-disabled` | error / warning | 319 | App Transport Security exceptions in `Info.plist` |
+| `security.bind-all-interfaces` | error (literal at the bind) / warning | 1327 | A listener bound to every interface |
+| `security.listener-auth-optional` | warning | 1188 | Authentication off by default, or switchable off from the environment, in a target that listens |
 
 A finding is acknowledged with `// SECURITY: <reason>` on its line or the line above. The reason
 must pass the same validator as `concurrency.*` justifications, and an accepted acknowledgement
@@ -103,6 +105,31 @@ security:
 
 There is no acknowledgement for the global key. An app that needs it removes
 `security.ats-disabled` from `enabledRules`, in a file with history.
+
+### Who can connect
+
+Two rules read the package's server-surface inventory (the `ServerSurface` module): every
+listener and the address it binds, every handler and what stands in front of it. They are
+package-wide questions — whether a `host` default is a bind address depends on whether the
+package opens a socket, and whether an authenticator defaulting to `nil` matters depends on
+whether its *target* does — so they run once the walk has seen every file, and each finding is
+then reported, and acknowledged, in its own file.
+
+| Rule ID | CWE | Severity | Detects |
+|---------|-----|----------|---------|
+| `security.bind-all-interfaces` | 1327 | error | `"0.0.0.0"`, `"::"`, `"[::]"` or `""` as the host of a `bind`, or of the `.hostPort` a `requiredLocalEndpoint` is set to: a caller cannot narrow it |
+| `security.bind-all-interfaces` | 1327 | warning | The same literal as a `host`-named parameter or property default (`@Option` included), an assignment to `hostname`/`host`, or a `host:`/`hostname:`/`bindAddress:` argument that reaches a listener; an `NWListener` with no `requiredLocalEndpoint` |
+| `security.listener-auth-optional` | 1188 | warning | In a target that opens a listener: an authenticator parameter or property defaulting to `nil`/`.none`, an `authRequired`-style flag defaulting to `false`, a flag read from the environment; anywhere, an authenticator passed as `nil` to a listener type |
+
+A literal that is compared against, listed, subscripted or written in a comment chooses nothing
+and is not reported. A loopback or non-literal address clears `bind-all-interfaces`; a
+non-optional authenticator with no default clears `listener-auth-optional`. A listener started
+inside a dependency (`MCPServer.builder()`) is the library's finding, not the caller's: the
+caller cannot narrow it. Test targets are not deployments and are skipped.
+
+Each run states what was examined, zeros included, in a `security.server-surface-coverage` note:
+listeners and handlers by framework, how many bind every interface, how many have authentication
+off by default, and how many findings were acknowledged.
 
 ### What it scans
 

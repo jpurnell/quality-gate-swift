@@ -159,6 +159,24 @@ struct WeaknessMappingTests {
         #expect(row.rules == [rule])
     }
 
+    /// The listener rules close 1327 and 1188. 306, the consequence, stays a gap: only a
+    /// handler rule can say a handler is unauthenticated.
+    @Test("a weakness the listener rules reach is enforced, and names them", arguments: [
+        ("CWE-1327", "security.bind-all-interfaces"),
+        ("CWE-1188", "security.listener-auth-optional"),
+    ])
+    func listenerRowsAreEnforced(cwe: String, rule: String) throws {
+        let row = try #require(matrix().first { $0.controlId == cwe })
+        #expect(row.state == .enforced)
+        #expect(row.rules == [rule])
+    }
+
+    @Test("missing authentication stays a gap until a handler rule reaches it")
+    func missingAuthenticationIsAGap() throws {
+        let row = try #require(matrix().first { $0.controlId == "CWE-306" })
+        #expect(row.state == .gap)
+    }
+
     @Test("a listed weakness no rule reaches is reported as a gap")
     func gapRow() throws {
         // CWE-611 was the example until `security.xml-external-entities` reached it; 789 is
@@ -198,6 +216,8 @@ struct WeaknessMappingTests {
                    "CWE-606", "CWE-789", "CWE-1284", "CWE-611", "CWE-502", "CWE-1395"] {
             #expect(ids.contains(id), "\(id) is not catalogued")
         }
-        #expect(matrix().filter { $0.state == .gap }.count >= 130)
+        // The gap count falls as rules land — 130 was its floor until the listener rules took
+        // 1327 and 1188 — so the invariant is the catalogue's size, which only a removal lowers.
+        #expect(ids.count >= 177)
     }
 }

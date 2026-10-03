@@ -2,6 +2,7 @@ import Foundation
 import IndexStoreInfra
 import QualityGateLogging
 import QualityGateCore
+import ServerSurface
 import SwiftSyntax
 import SwiftParser
 
@@ -116,6 +117,14 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             allDiagnostics.append(note)
         }
 
+        // Listeners and handlers are package-wide facts, so these rules run once the walk has
+        // seen every file. See `ServerSurfaceRules`.
+        let surface = Self.runServerSurface(
+            facts: result.serverSurface, targets: targetTypes, configuration: configuration,
+            source: { try? String(contentsOfFile: $0, encoding: .utf8) }) // silent: an unreadable file has no line to acknowledge, and the walk above already logged it
+        allDiagnostics.append(contentsOf: surface.diagnostics)
+        allOverrides.append(contentsOf: surface.overrides)
+
         // App Transport Security lives in property lists, not Swift. Same walk, same scope.
         let ats = auditPropertyLists(scan.propertyLists, configuration: configuration.security)
         allDiagnostics.append(contentsOf: ats.diagnostics)
@@ -164,15 +173,19 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             fileName: fileName,
             configuration: configuration
         )
+        let surface = Self.runServerSurface(
+            facts: result.serverSurface, targets: TargetTypeMap(targets: []),
+            configuration: configuration, includeNote: false, source: { $0 == fileName ? source : nil })
+        let diagnostics = result.diagnostics + surface.diagnostics
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = result.diagnostics.contains { $0.isViolation } ? .failed : .passed
+        let status: CheckResult.Status = diagnostics.contains { $0.isViolation } ? .failed : .passed
 
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: result.diagnostics,
-            overrides: result.overrides,
+            diagnostics: diagnostics,
+            overrides: result.overrides + surface.overrides,
             duration: duration
         )
     }
@@ -207,6 +220,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                 outcome.overrides.append(contentsOf: result.overrides)
                 for (rule, n) in result.countedTraps { outcome.countedTraps[rule, default: 0] += n }
                 outcome.xmlSites.add(result.xmlSites)
+                outcome.serverSurface.append(contentsOf: result.serverSurface)
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
@@ -275,11 +289,18 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         )
         securityVisitor.walk(sourceFile)
 
+        // One more visitor over the same tree, not a second parse: the server-surface facts
+        // this file contributes to the package inventory.
+        let surface = Self.serverSurfaceEnabled(configuration.security)
+            ? [ServerSurfaceFileFacts.collect(from: sourceFile, converter: converter, fileName: fileName)]
+            : []
+
         return AuditOutcome(
             diagnostics: safetyVisitor.diagnostics + securityVisitor.diagnostics,
             overrides: safetyVisitor.overrides + securityVisitor.overrides,
             countedTraps: safetyVisitor.countedTraps,
-            xmlSites: securityVisitor.xmlSites
+            xmlSites: securityVisitor.xmlSites,
+            serverSurface: surface
         )
     }
 
@@ -289,6 +310,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         var overrides: [DiagnosticOverride] = []
         var countedTraps: [String: Int] = [:]
         var xmlSites = XMLSiteCounts()
+        var serverSurface: [ServerSurfaceFileFacts] = []
     }
 
     /// The `security.xml-coverage` note: how many XML parse sites were examined, of which kind.

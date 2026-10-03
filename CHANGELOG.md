@@ -4,6 +4,68 @@
 
 ### Added
 
+- **The server-surface inventory (`ServerSurface`, new target): what a package exposes to a
+  network, as data.** Shared infrastructure from `TheGateIsNotYetAggressive.md` §2.2 item 1 —
+  three proposals add columns to it and none built it. Per package, syntactically:
+  - **Listeners**, with where they bind: NIO `bind(host:…)` (a host expression resolved to the
+    owning type's parameter or property default — `SSHServer.init(host: String = "0.0.0.0")`),
+    `NWListener` (its `requiredLocalEndpoint`, or every interface when there is none), Vapor
+    `Application.make` (127.0.0.1 unless a `hostname` is assigned), `MCPServer.builder()` and
+    library listeners (`HTTPServerTransport`, `SSHServer`) constructed outside their package.
+  - **Handlers**: Vapor routes with method, path and group lineage — guards, authenticators,
+    other middleware, `app.middleware.use`, `req.auth.require` — through `grouped`, `group`
+    closures and `RouteCollection`s registered in other files (the weaker of two registrations;
+    *unknown* when never registered); SwiftMCPServer tools, providers and `MCPHTTPRoute`s with
+    the builder's `.authenticator`/`.oauthServer`; SDK `withMethodHandler`; hand-written
+    `switch (method, path)` cases in NIOHTTP1 files; `channelRead` on handlers a bootstrap
+    installs; WebSocket upgrades.
+  - **Settings**: every host literal chosen in source, and every authentication switch — an
+    authenticator defaulting to `nil`/`.none`, a flag defaulting to `false`, a flag read from the
+    environment, an authenticator passed as `nil` to a listener type.
+  - Columns for the later proposals (`bodyCeiling`, `admission`, `credential`, `cors`,
+    `responseHeaders`, `errorDetail`) are named keys set by site, so adding one reshapes nothing.
+  - Not seen, and said so in the DocC: route composition across helper functions, dynamic
+    registration, `if request.path ==` dispatch (pinned as a miss), anything decided at deploy.
+  - Built from per-file facts collected in the safety walk's existing parse — one more visitor,
+    no second parse — and independent of file order.
+
+  Measured on 98 owned packages: 20 have a listener or a handler. LedgeOS 6 routes, StockOpt 9,
+  geo-audit 31 (10 behind a guard or `require`, 16 behind only `sessionAuthenticator`); 267 MCP
+  tool rows across eight builder-based servers, one (VaultMCP) with its authenticator in source;
+  SwiftMCPServer's 11 dispatch cases.
+- **`security.bind-all-interfaces` (CWE-1327) and `security.listener-auth-optional`
+  (CWE-1188): the inventory's first consumers.** `AHandlerThatAnyoneCanCall.md` §3.1,
+  reconciled with `AHandlerSaysWhoMayCallIt.md` per §2.1 of the assessment: one bind rule, the
+  authenticator *parameter* rule, and the fail-open *function* rule reduced to the one case only
+  it could see — a flag read from the environment.
+  - `bind-all-interfaces` is an **error** for `"0.0.0.0"`, `"::"`, `"[::]"` or `""` at a `bind`
+    or a `requiredLocalEndpoint = .hostPort(…)`, where no caller can narrow it; a **warning** for
+    the same literal as a `host`-named default (`@Option` included), a `hostname` assignment, or a
+    `host:`/`bindAddress:` argument that reaches a listener, and for an `NWListener` with no
+    endpoint. Compared, listed, subscripted and commented literals choose nothing.
+  - `listener-auth-optional` is a **warning**, target-wide: an authenticator, `authMode` or
+    `authRequired`-style flag defaulting to off, or read from the environment, in a target that
+    opens a listener; an authenticator passed as `nil` to a listener type anywhere. Names are
+    exact — `author`, `authorization` (a client's credential) and an empty `apiKeys` list, which
+    rejects everyone, are not authentication left off.
+  - Both report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is validated
+    and recorded. A `security.server-surface-coverage` note states the inventory every run,
+    zeros included. A listener inherited from SwiftMCPServer is the library's finding, not each
+    consumer's. Test targets are skipped.
+  - CWE-1327 and CWE-1188 move from `gap` to covered; CWE-306 stays a gap until a handler rule
+    reaches it. First rules with an `owaspAPI` column that plainly applies (API8, API2); no Top 10
+    2021 column, because MITRE's view lists neither CWE.
+
+  **Portfolio, measured with this branch's gate** (98 owned packages, scratch copies): 13
+  findings, no false positives. `bind-all-interfaces` 6 — SwiftMCPServer
+  `HTTPServerTransport.swift:215` (error, real), SwiftCLIKit `SSHServer.swift:59` (real),
+  IconquerServer, IconquerTournament ×2 and VaultMCP `WebOptions.swift:161` (intended, to be
+  acknowledged). `listener-auth-optional` 7 — SwiftMCPServer `HTTPServerTransport.swift:108`,
+  `:109`, SwiftCLIKit `SSHConfiguration.swift:46`, IconquerMCP `MatchHost.swift:142` (real); the
+  `MCP_AUTH_REQUIRED` switch at SwiftMCPServer `MCPServer.swift:585`,
+  `APIKeyAuthenticator.swift:212` and VaultMCP `Main.swift:61` (intended, to be acknowledged).
+  `server-surface.unprotected-handler` is not implemented: its population is in the hundreds.
+
 - **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
   and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
   names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose

@@ -39,6 +39,12 @@ struct SecurityAcknowledgementTests {
         ("security.archive-path-escape",
          "for entry in archive.entries { try entry.data.write(to: dest.appendingPathComponent(entry.path)) }"),
         ("security.archive-symlink", "try archive.extract(entry, to: dest, symlinksValidWithin: .rootFS)"),
+        ("security.bind-all-interfaces",
+         "_ = try await ServerBootstrap(group: g).bind(host: \"0.0.0.0\", port: 8080).get()"),
+        ("security.listener-auth-optional", """
+            _ = try await ServerBootstrap(group: g).bind(host: host, port: 8080).get()
+            init(port: Int, authenticator: Authenticator? = nil) {}
+            """),
     ]
 
     static let ruleIds = fixtures.map(\.rule)

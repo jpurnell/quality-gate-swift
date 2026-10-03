@@ -575,5 +575,19 @@
       "cwe/CWE-59"
     ],
     "posture": "partial"
+  },
+  {
+    "ruleId": "security.bind-all-interfaces",
+    "satisfies": [
+      "cwe/CWE-1327"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.listener-auth-optional",
+    "satisfies": [
+      "cwe/CWE-1188"
+    ],
+    "posture": "partial"
   }
 ]
