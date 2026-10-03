@@ -159,6 +159,7 @@
     "pointer-escape",
     "pointer-escape.appended-to-outer-collection",
     "pointer-escape.assigned-to-outer-capture",
+    "pointer-escape.assigned-to-outer-member",
     "pointer-escape.captured-by-escaping-closure",
     "pointer-escape.opaque-roundtrip",
     "pointer-escape.passed-as-inout",

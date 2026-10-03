@@ -40,7 +40,8 @@
   `cwe.catalog.json` and `rule-to-cwe.mapping.json` go through the machinery that already maps
   rules to SOC 2, ISO 27001 and HIPAA, so nothing new validates them: a mapping to a rule that
   does not exist, or to a CWE the catalogue does not list, is the same `control-mapping` error it
-  always was. 69 rules are mapped to 38 weaknesses.
+  always was. 69 rules were mapped to 38 weaknesses when this entry was written; 70 now, with
+  `pointer-escape.assigned-to-outer-member` (below) mapped to CWE-825 like its siblings.
 
   The half that matters is the other one. The catalogue also lists **48 weaknesses no rule
   reaches** — XXE, deserialisation, integer overflow, unchecked loop bounds, output encoding,
@@ -52,6 +53,30 @@
   memory. Ids MITRE marks *Discouraged* or *Prohibited* for mapping are not used.
 
 ### Added
+
+- **`pointer-escape.assigned-to-outer-member` (error, CWE-825): a pointer stored into a field of
+  an outer variable that is read after the with-block returns.** SwiftZIP's zlib path set
+  `stream.next_in = srcBuf.baseAddress` inside `withUnsafeMutableBufferPointer` and called
+  `deflate(&stream, …)` after it — undefined behaviour that passed the gate, because the
+  auditor only modelled a *bare* outer variable, `self.x` and `Type.x` as assignment targets.
+  `stream.next_in`, `outer.a.b` and `buf[0]` fell through as "unknown".
+
+  Storing a field is how C APIs are driven, so the rule is conditional. It reports when the root
+  is not a local of the enclosing function (parameter, property, global — it outlives the call),
+  or when the scope declaring the root references it after the call of the block that *lent*
+  the pointer, or anywhere in a loop between the two. References to a disjoint field
+  (`stream.total_out` after `stream.next_in`) and plain overwrites do not count; `&stream`, a
+  bare `stream` and `stream.method()` do. A `defer` written before the block is not counted, so
+  the correct shape's `defer { inflateEnd(&stream) }` stays clean — a known gap, chosen. The
+  full rule is in the auditor's doc comment and the guide.
+
+  **Measured.** SwiftZIP before its fix (`Deflate.swift` as shipped in 0.8.0): **4 findings**,
+  lines 136 and 143 (`compressWithZlib`) and 189 and 194 (`decompressWithZlib`); `ZlibStream`,
+  which nests the call inside both blocks, is clean, as is SwiftZIP after its fix. swiftMoE,
+  IconquerAI, SwiftCLIKit, VaultMCP, BusinessMath and edge-firmware-swift, plus swift-nio and
+  swift-collections as heavy third-party users of `withUnsafe*`: **no new finding**. The one
+  false positive the first measurement found (IconquerAI, `dest[i] = floatBuf[i]` — an element
+  copy) is fixed below and pinned by a test.
 
 - **`security.path-containment-by-prefix` (error, CWE-22 and CWE-187).** A containment check
   written `path.hasPrefix(base)` admits `/base-evil`, and a prefix test does not follow a
@@ -136,6 +161,18 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`pointer-escape` no longer reports an assignment as a return, or an element as a pointer.**
+  A with-block whose last statement was an assignment (`{ buffer, count in …; count = 0 }`,
+  `{ _ = f(ptr) }`) had that statement treated as the implicit return value, so a closure
+  returning `()` was reported under `return-from-with-block`. And `buf[i]` was treated as the
+  buffer itself, where it is one element — a value, like `.pointee`; a range subscript
+  (`buf[0..<n]`) is still a pointer, since the slice refers to the same memory. Across
+  swift-collections and swift-nio this removes **46 findings**, every one read and every one
+  of these two shapes; nothing that was a real escape is lost.
+- **`pointer-escape` now analyses with-blocks nested in a `repeat` loop, in a `let`
+  initialiser, or behind `try`.** `let n = chunk.withUnsafeMutableBufferPointer { … }` inside
+  `repeat { … } while` — `ZlibStream`'s shape — was never visited, so nothing inside it could be
+  reported. `self.a.b = ptr` and `self[i] = ptr` are now `stored-in-property` like `self.x`.
 - **`control-mapping` logs when it cannot list its own resources.** Its `try?` carried a
   three-line `// silent:` justification that the logging auditor does not read, so the gate
   reported it. It now catches and logs, as `decode` beside it already did, and still returns
