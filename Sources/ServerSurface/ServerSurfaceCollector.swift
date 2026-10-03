@@ -31,6 +31,7 @@ final class ServerSurfaceCollector: SyntaxVisitor {
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         recordListener(node)
+        recordSocketAddressArguments(node)
         recordHostArguments(node)
         recordAuthArguments(node)
         if importsVapor { recordVaporCall(node) }
@@ -109,7 +110,7 @@ final class ServerSurfaceCollector: SyntaxVisitor {
         facts.listeners.append(ServerListener(
             site: site(node), framework: framework, construct: construct, host: host,
             port: port, owningType: owner))
-        if let owner, framework == .nio || framework == .network {
+        if let owner, framework.opensOwnSocket {
             facts.listenerOwningTypes.insert(owner)
         }
     }
@@ -187,6 +188,46 @@ final class ServerSurfaceCollector: SyntaxVisitor {
               lhs.declName.baseName.text == "requiredLocalEndpoint" else { return }
         addHostSetting(at: hostExpr, kind: .bindArgument, name: "host", value: value,
                        addressKind: HostAddressKind.classify(value), callee: "hostPort")
+    }
+
+    // MARK: - BSD sockets
+
+    /// `addr.sin_addr.s_addr = INADDR_ANY`, `addr.sin6_addr = in6addr_any`.
+    ///
+    /// The wildcard is a listener wherever it is written: nothing connects *to* every interface.
+    /// Any other address is a listener only in a file that calls `listen(2)` — a `sockaddr_in` is
+    /// also how a client names its destination.
+    func recordSocketAddressAssignment(lhs: ExprSyntax, rhs: ExprSyntax) {
+        guard let member = lhs.as(MemberAccessExprSyntax.self) else { return }
+        let field = member.declName.baseName.text
+        if field == "s_addr", member.base?.as(MemberAccessExprSyntax.self)?.declName.baseName.text == "sin_addr" {
+            recordSocketAddress(at: lhs, field: field, value: rhs)
+        } else if field == "sin6_addr" {
+            recordSocketAddress(at: lhs, field: field, value: rhs)
+        }
+    }
+
+    /// `in_addr(s_addr: INADDR_ANY)`, `sockaddr_in6(…, sin6_addr: in6addr_any, …)`.
+    private func recordSocketAddressArguments(_ node: FunctionCallExprSyntax) {
+        for argument in node.arguments {
+            guard let label = argument.label?.text, label == "s_addr" || label == "sin6_addr" else { continue }
+            recordSocketAddress(at: ExprSyntax(node), field: label, value: argument.expression)
+        }
+    }
+
+    private func recordSocketAddress(at node: ExprSyntax, field: String, value: ExprSyntax) {
+        let construct = field == "sin6_addr" ? "sockaddr_in6" : "sockaddr_in"
+        let text = value.trimmedDescription
+        guard let constant = HostAddressKind.socketConstant(in: text) else {
+            guard prescan.callsListen else { return }
+            addListener(node, framework: .posix, construct: construct,
+                        host: .expression(text, defaultValue: nil))
+            return
+        }
+        guard constant.kind == .allInterfaces || prescan.callsListen else { return }
+        addListener(node, framework: .posix, construct: construct, host: .literal(constant.name, constant.kind))
+        addHostSetting(at: value, kind: .bindArgument, name: field, value: constant.name,
+                       addressKind: constant.kind, callee: construct)
     }
 
     /// `Application.make(…)` or `Application(…)` in a file importing Vapor.

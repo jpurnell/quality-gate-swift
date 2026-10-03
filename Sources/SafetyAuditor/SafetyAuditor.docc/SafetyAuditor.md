@@ -117,7 +117,7 @@ then reported, and acknowledged, in its own file.
 
 | Rule ID | CWE | Severity | Detects |
 |---------|-----|----------|---------|
-| `security.bind-all-interfaces` | 1327 | error | `"0.0.0.0"`, `"::"`, `"[::]"` or `""` as the host of a `bind`, or of the `.hostPort` a `requiredLocalEndpoint` is set to: a caller cannot narrow it |
+| `security.bind-all-interfaces` | 1327 | error | `"0.0.0.0"`, `"::"`, `"[::]"` or `""` as the host of a `bind`, or of the `.hostPort` a `requiredLocalEndpoint` is set to; `INADDR_ANY` / `in6addr_any` as the address of a `sockaddr_in` / `sockaddr_in6`: a caller cannot narrow it |
 | `security.bind-all-interfaces` | 1327 | warning | The same literal as a `host`-named parameter or property default (`@Option` included), an assignment to `hostname`/`host`, or a `host:`/`hostname:`/`bindAddress:` argument that reaches a listener; an `NWListener` with no `requiredLocalEndpoint` |
 | `security.listener-auth-optional` | 1188 | warning | In a target that opens a listener: an authenticator parameter or property defaulting to `nil`/`.none`, an `authRequired`-style flag defaulting to `false`, a flag read from the environment; anywhere, an authenticator passed as `nil` to a listener type |
 

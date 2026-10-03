@@ -7,8 +7,11 @@ final class FilePrescan: SyntaxVisitor {
     /// Modules the file imports.
     private(set) var imports: Set<String> = []
     /// The file constructs a socket: `ServerBootstrap(`, `DatagramBootstrap(`, `NWListener(`,
-    /// or calls `bind(host:…)`.
+    /// or calls `bind(host:…)` or `listen(2)`.
     private(set) var hasListenerConstruction = false
+    /// The file calls `listen(2)`: `listen(fd, backlog)`, a free function with two unlabelled
+    /// arguments.
+    private(set) var callsListen = false
     /// The file constructs a `ServerBootstrap` or `DatagramBootstrap`.
     private(set) var hasBootstrap = false
     /// The file assigns `requiredLocalEndpoint` somewhere.
@@ -33,6 +36,11 @@ final class FilePrescan: SyntaxVisitor {
             hasListenerConstruction = true
         }
         if name == "NWListener" { hasListenerConstruction = true }
+        if name == "listen", node.calledExpression.is(DeclReferenceExprSyntax.self),
+           node.arguments.count == 2, node.arguments.allSatisfy({ $0.label == nil }) {
+            callsListen = true
+            hasListenerConstruction = true
+        }
         if name == "bind", SyntaxReading.argument(node, labelled: "host") != nil {
             hasListenerConstruction = true
         }

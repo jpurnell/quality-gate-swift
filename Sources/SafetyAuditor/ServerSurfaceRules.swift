@@ -72,9 +72,14 @@ enum ServerSurfaceRules {
         let quoted = "\"\(setting.value)\""
         switch setting.kind {
         case .bindArgument:
+            // `INADDR_ANY` is a constant in a `sockaddr_in`, not a quoted literal at a `bind(host:)`.
+            let isSocketConstant = setting.callee?.hasPrefix("sockaddr") == true
+            let how = isSocketConstant
+                ? "\(setting.value), every interface, by a constant in the socket address"
+                : "\(quoted), every interface, by a literal at the bind"
             return Finding(
                 ruleId: bindRule, severity: .error,
-                message: "Listener bound to \(quoted), every interface, by a literal at the bind: a caller "
+                message: "Listener bound to \(how): a caller "
                     + "cannot narrow it without editing this code. \(SecurityVisitor.citation(bindRule))",
                 suggestedFix: "Bind 127.0.0.1 and let a reverse proxy face the network, or take the host as a "
                     + "parameter; if every interface is intended, say why with // SECURITY:",

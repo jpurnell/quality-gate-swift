@@ -11,7 +11,9 @@
     owning type's parameter or property default — `SSHServer.init(host: String = "0.0.0.0")`),
     `NWListener` (its `requiredLocalEndpoint`, or every interface when there is none), Vapor
     `Application.make` (127.0.0.1 unless a `hostname` is assigned), `MCPServer.builder()` and
-    library listeners (`HTTPServerTransport`, `SSHServer`) constructed outside their package.
+    library listeners (`HTTPServerTransport`, `SSHServer`) constructed outside their package;
+    BSD sockets by hand — a `sockaddr_in`/`sockaddr_in6` whose address is `INADDR_ANY` or
+    `in6addr_any`, or any address in a file that calls `listen(2)`.
   - **Handlers**: Vapor routes with method, path and group lineage — guards, authenticators,
     other middleware, `app.middleware.use`, `req.auth.require` — through `grouped`, `group`
     closures and `RouteCollection`s registered in other files (the weaker of two registrations;
@@ -29,9 +31,11 @@
   - Built from per-file facts collected in the safety walk's existing parse — one more visitor,
     no second parse — and independent of file order.
 
-  Measured on 98 owned packages: 20 have a listener or a handler. LedgeOS 6 routes, StockOpt 9,
-  geo-audit 31 (10 behind a guard or `require`, 16 behind only `sessionAuthenticator`); 267 MCP
-  tool rows across eight builder-based servers, one (VaultMCP) with its authenticator in source;
+  Measured on 109 owned packages: 21 have a listener or a handler — 23 listeners (NIO 7,
+  `MCPServer.builder` 9, Vapor 3, `NWListener` 2, `HTTPServerTransport` 1, BSD sockets 1) and 387
+  handlers. LedgeOS 6 routes, StockOpt 9, geo-audit 31 (10 behind a guard or `require`, 16 behind
+  only an authenticator, 5 behind middleware the inventory cannot classify); 267 MCP tool rows
+  across the builder-based servers, one (VaultMCP) with its authenticator in source;
   SwiftMCPServer's 11 dispatch cases.
 - **`security.bind-all-interfaces` (CWE-1327) and `security.listener-auth-optional`
   (CWE-1188): the inventory's first consumers.** `AHandlerThatAnyoneCanCall.md` §3.1,
@@ -39,7 +43,8 @@
   authenticator *parameter* rule, and the fail-open *function* rule reduced to the one case only
   it could see — a flag read from the environment.
   - `bind-all-interfaces` is an **error** for `"0.0.0.0"`, `"::"`, `"[::]"` or `""` at a `bind`
-    or a `requiredLocalEndpoint = .hostPort(…)`, where no caller can narrow it; a **warning** for
+    or a `requiredLocalEndpoint = .hostPort(…)`, and for `INADDR_ANY`/`in6addr_any` in a socket
+    address, where no caller can narrow it; a **warning** for
     the same literal as a `host`-named default (`@Option` included), a `hostname` assignment, or a
     `host:`/`bindAddress:` argument that reaches a listener, and for an `NWListener` with no
     endpoint. Compared, listed, subscripted and commented literals choose nothing.
@@ -56,9 +61,12 @@
     reaches it. First rules with an `owaspAPI` column that plainly applies (API8, API2); no Top 10
     2021 column, because MITRE's view lists neither CWE.
 
-  **Portfolio, measured with this branch's gate** (98 owned packages, scratch copies): 13
-  findings, no false positives. `bind-all-interfaces` 6 — SwiftMCPServer
-  `HTTPServerTransport.swift:215` (error, real), SwiftCLIKit `SSHServer.swift:59` (real),
+  **Portfolio, measured with this branch's gate** (109 owned packages, scratch copies): 14
+  findings, no false positives. `bind-all-interfaces` 7 — SwiftMCPServer
+  `HTTPServerTransport.swift:215` (error, real), swiftMoE `HTTPServer.swift:61` (error, real: a
+  hand-written BSD-socket server on `INADDR_ANY` whose log line says `localhost` — no `grep` for
+  `ServerBootstrap(` or `"0.0.0.0"` finds it, and the first measurement of this rule did not
+  either), SwiftCLIKit `SSHServer.swift:59` (real),
   IconquerServer, IconquerTournament ×2 and VaultMCP `WebOptions.swift:161` (intended, to be
   acknowledged). `listener-auth-optional` 7 — SwiftMCPServer `HTTPServerTransport.swift:108`,
   `:109`, SwiftCLIKit `SSHConfiguration.swift:46`, IconquerMCP `MatchHost.swift:142` (real); the

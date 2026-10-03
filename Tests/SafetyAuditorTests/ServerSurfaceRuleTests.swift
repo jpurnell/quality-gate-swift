@@ -96,6 +96,20 @@ struct ServerSurfaceRuleTests {
                 let listener = try NWListener(using: .tcp, on: 8080)
             }
             """, .warning, 3),
+        ("BSD sockets, INADDR_ANY (swiftMoE)", """
+            func start() throws {
+                var addr = sockaddr_in()
+                addr.sin_addr.s_addr = INADDR_ANY.bigEndian
+                guard listen(serverFD, 5) == 0 else { return }
+            }
+            """, .error, 3),
+        ("BSD sockets, loopback", """
+            func start() throws {
+                var addr = sockaddr_in()
+                addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
+                guard listen(serverFD, 5) == 0 else { return }
+            }
+            """, nil, 0),
         ("doc comment", """
             /// - host: The address to bind to. Defaults to "0.0.0.0".
             func start() async throws { _ = try await ServerBootstrap(group: g).bind(host: host, port: 1).get() }
@@ -114,6 +128,17 @@ struct ServerSurfaceRuleTests {
         #expect(found.first?.severity == severity)
         #expect(found.first?.lineNumber == fixture.line)
         #expect(found.first?.message.contains("[CWE-1327]") == true)
+    }
+
+    /// A constant is not a quoted literal, and the message should not dress it as one.
+    @Test("bind-all-interfaces: the wildcard constant is named as written")
+    func posixMessage() async throws {
+        let fixture = try #require(Self.bindCases.first { $0.name == "BSD sockets, INADDR_ANY (swiftMoE)" })
+        let found = findings(try await audit(fixture.source), Self.bind)
+        #expect(found.map(\.message) == [
+            "Listener bound to INADDR_ANY, every interface, by a constant in the socket address: a caller "
+                + "cannot narrow it without editing this code. [CWE-1327]",
+        ])
     }
 
     /// VaultMCP: the insecure mode is loopback, the default is everything. The loopback arm is

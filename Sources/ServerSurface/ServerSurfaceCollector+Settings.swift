@@ -75,6 +75,7 @@ extension ServerSurfaceCollector {
         guard elements.count == 3, elements[1].is(AssignmentExprSyntax.self) else { return }
         let lhs = elements[0]
         let rhs = elements[2]
+        recordSocketAddressAssignment(lhs: lhs, rhs: rhs)
         let member = lhs.as(MemberAccessExprSyntax.self)?.declName.baseName.text
             ?? lhs.as(DeclReferenceExprSyntax.self)?.baseName.text
         guard let member else { return }

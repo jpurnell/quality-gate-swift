@@ -85,7 +85,7 @@ private struct Assembly {
     func build() -> ServerSurfaceInventory {
         let hostSettings = files.flatMap(\.hostSettings).map(placed).sorted { $0.site < $1.site }
         var listeners = files.flatMap(\.listeners).filter(isOwnListener).map(placed)
-        let owningTypes = Set(listeners.compactMap { $0.framework == .nio || $0.framework == .network ? $0.owningType : nil })
+        let owningTypes = Set(listeners.compactMap { $0.framework.opensOwnSocket ? $0.owningType : nil })
         let authSettings = files.flatMap(\.authSettings).map(placed)
             .filter { $0.kind != .argument || isAuthCarrier($0.callee, owningTypes: owningTypes) }
             .sorted { $0.site < $1.site }

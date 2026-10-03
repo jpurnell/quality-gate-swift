@@ -130,6 +130,18 @@ public enum ServerFramework: String, Sendable, Codable, CaseIterable, Comparable
     case nio
     /// Network.framework — `NWListener`.
     case network
+    /// BSD sockets by hand — a `sockaddr_in` filled in and handed to `bind(2)` and `listen(2)`.
+    case posix
+
+    /// Whether this recogniser reads the package's own socket, rather than a framework's or a
+    /// library's. The type that owns such a socket is a listener type: constructing it starts
+    /// a listener.
+    public var opensOwnSocket: Bool {
+        switch self {
+        case .nio, .network, .posix: return true
+        case .vapor, .swiftMCPServer, .mcpSDK: return false
+        }
+    }
 
     /// Declaration order, for stable printing.
     public static func < (lhs: ServerFramework, rhs: ServerFramework) -> Bool {
@@ -140,9 +152,10 @@ public enum ServerFramework: String, Sendable, Codable, CaseIterable, Comparable
 
 /// What an address literal means for who can connect.
 public enum HostAddressKind: String, Sendable, Codable, Hashable {
-    /// `0.0.0.0`, `::`, `[::]` — every interface the machine has. CWE-1327.
+    /// `0.0.0.0`, `::`, `[::]`, `INADDR_ANY`, `in6addr_any` — every interface the machine has.
+    /// CWE-1327.
     case allInterfaces = "all-interfaces"
-    /// `127.0.0.1`, `::1`, `localhost` — this machine only.
+    /// `127.0.0.1`, `::1`, `localhost`, `INADDR_LOOPBACK`, `in6addr_loopback` — this machine only.
     case loopback
     /// Any other literal: one named interface.
     case specific
@@ -164,11 +177,25 @@ public enum HostAddressKind: String, Sendable, Codable, Hashable {
 
     /// Literals that mean this machine only.
     public static let loopbackLiterals: Set<String> = ["127.0.0.1", "::1", "[::1]", "localhost"]
+
+    /// The BSD-socket constant `expression` names, and what it means: `INADDR_ANY.bigEndian` is
+    /// `INADDR_ANY`, every interface. `nil` when the expression names none — the caller's address.
+    public static func socketConstant(in expression: String) -> (name: String, kind: HostAddressKind)? {
+        for (name, kind) in socketConstants where expression.contains(name) { return (name, kind) }
+        return nil
+    }
+
+    /// The wildcard and loopback constants of `<netinet/in.h>`, in the order they are looked for.
+    private static let socketConstants: [(name: String, kind: HostAddressKind)] = [
+        ("INADDR_ANY", .allInterfaces), ("in6addr_any", .allInterfaces),
+        ("INADDR_LOOPBACK", .loopback), ("in6addr_loopback", .loopback),
+    ]
 }
 
 /// Where a listener binds, as far as source says.
 public enum HostBinding: Sendable, Codable, Hashable {
-    /// A string literal at the bind: `bind(host: "0.0.0.0", …)`.
+    /// A string literal at the bind: `bind(host: "0.0.0.0", …)` — or a socket constant in the
+    /// address handed to `bind(2)`, `sin_addr.s_addr = INADDR_ANY`.
     case literal(String, HostAddressKind)
     /// An expression at the bind — the caller or the operator decides. `defaultValue` is the
     /// literal default of the parameter or property the expression names, when the owning type
@@ -234,7 +261,7 @@ public struct ServerListener: Sendable, Codable, Hashable {
     /// Which recogniser found it.
     public var framework: ServerFramework
     /// The construct, as printed: `ServerBootstrap.bind`, `NWListener`, `Application.make`,
-    /// `MCPServer.builder`, `HTTPServerTransport`, `SSHServer`.
+    /// `MCPServer.builder`, `HTTPServerTransport`, `SSHServer`, `sockaddr_in`, `sockaddr_in6`.
     public var construct: String
     /// Where it binds.
     public var host: HostBinding
@@ -448,7 +475,8 @@ public enum HandlerAuthVerdict: String, Sendable, Codable, CaseIterable {
 public struct HostSetting: Sendable, Codable, Hashable {
     /// How the address was written.
     public enum Kind: String, Sendable, Codable, Hashable {
-        /// The `host:` argument of a `bind` (or `.hostPort(host:…)` endpoint).
+        /// The `host:` argument of a `bind` (or `.hostPort(host:…)` endpoint), or the address
+        /// field of a `sockaddr_in` / `sockaddr_in6`.
         case bindArgument = "bind-argument"
         /// A function or initialiser parameter's default.
         case parameterDefault = "parameter-default"
@@ -474,7 +502,9 @@ public struct HostSetting: Sendable, Codable, Hashable {
     public var value: String
     /// What it means.
     public var addressKind: HostAddressKind
-    /// For ``Kind/argument``: the callee's last name component — `TournamentWebSocketServer`.
+    /// The callee's last name component — `TournamentWebSocketServer` for an
+    /// ``Kind/argument``; `bind`, `hostPort`, `sockaddr_in` or `sockaddr_in6` for a
+    /// ``Kind/bindArgument``.
     public var callee: String?
     /// For ``Kind/argument``: whether the file also constructs a listener.
     public var fileHasListener: Bool

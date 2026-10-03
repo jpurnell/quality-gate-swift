@@ -85,6 +85,42 @@ struct ListenerDiscoveryTests {
             """, "MCPServer.builder", .swiftMCPServer,
             .inherited(library: "SwiftMCPServer", kind: .allInterfaces,
                        note: "HTTPServerTransport binds 0.0.0.0 and the builder cannot set the address")),
+        ("BSD sockets, INADDR_ANY (swiftMoE)", """
+            func start() throws {
+                serverFD = socket(AF_INET, SOCK_STREAM, 0)
+                var addr = sockaddr_in()
+                addr.sin_port = port.bigEndian
+                addr.sin_addr.s_addr = INADDR_ANY.bigEndian
+                guard listen(serverFD, 5) == 0 else { return }
+            }
+            """, "sockaddr_in", .posix, .literal("INADDR_ANY", .allInterfaces)),
+        ("BSD sockets, in6addr_any", """
+            func start() throws {
+                var addr = sockaddr_in6()
+                addr.sin6_addr = in6addr_any
+                guard listen(fd, 16) == 0 else { return }
+            }
+            """, "sockaddr_in6", .posix, .literal("in6addr_any", .allInterfaces)),
+        ("BSD sockets, INADDR_ANY in a memberwise address", """
+            func start() throws {
+                var addr = sockaddr_in(sin_len: 16, sin_family: 2, sin_port: port.bigEndian,
+                                       sin_addr: in_addr(s_addr: INADDR_ANY), sin_zero: zero)
+            }
+            """, "sockaddr_in", .posix, .literal("INADDR_ANY", .allInterfaces)),
+        ("BSD sockets, loopback", """
+            func start() throws {
+                var addr = sockaddr_in()
+                addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
+                guard listen(fd, 5) == 0 else { return }
+            }
+            """, "sockaddr_in", .posix, .literal("INADDR_LOOPBACK", .loopback)),
+        ("BSD sockets, an address the caller supplies", """
+            func start(address: in_addr_t) throws {
+                var addr = sockaddr_in()
+                addr.sin_addr.s_addr = address
+                guard listen(fd, 5) == 0 else { return }
+            }
+            """, "sockaddr_in", .posix, .expression("address", defaultValue: nil)),
     ]
 
     @Test("A listener records where it binds", arguments: bindings.map(\.name))
@@ -96,6 +132,56 @@ struct ListenerDiscoveryTests {
         #expect(listener.construct == fixture.construct)
         #expect(listener.framework == fixture.framework)
         #expect(listener.host == fixture.host)
+    }
+
+    /// A `sockaddr_in` is also how a client names where it connects. Without `listen(` in the
+    /// file, an address that is not the wildcard is a destination.
+    @Test("A socket address in a file that never listens is a client's destination")
+    func posixClientIsNotAListener() {
+        let inventory = Self.only("""
+            func dial(host: String) throws {
+                var addr = sockaddr_in()
+                addr.sin_addr.s_addr = inet_addr(host)
+                addr.sin_port = port.bigEndian
+                _ = connect(fd, pointer, size)
+            }
+            """)
+        #expect(inventory.listeners == [])
+        #expect(inventory.hostSettings == [])
+    }
+
+    /// The wildcard compared against is a check, not a bind.
+    @Test("INADDR_ANY in a comparison opens nothing")
+    func posixComparisonIsNotAListener() {
+        let inventory = Self.only("""
+            func isWildcard(_ addr: sockaddr_in) -> Bool { addr.sin_addr.s_addr == INADDR_ANY }
+            """)
+        #expect(inventory.listeners == [])
+        #expect(inventory.hostSettings == [])
+    }
+
+    @Test("A BSD-socket listener records its site, its owner and the address as a bind setting")
+    func posixSiteAndSetting() throws {
+        let inventory = Self.only("""
+            final class HTTPServer {
+                func start() throws {
+                    var addr = sockaddr_in()
+                    addr.sin_addr.s_addr = INADDR_ANY.bigEndian
+                    guard listen(serverFD, 5) == 0 else { return }
+                }
+            }
+            """)
+        let listener = try #require(inventory.listeners.first)
+        #expect(listener.site == SourceSite(file: "Sources/Server/Server.swift", line: 4, column: 9))
+        #expect(listener.owningType == "HTTPServer")
+        #expect(inventory.listenerOwningTypes == ["HTTPServer"])
+        #expect(inventory.listenerTargets == [ServerSurfaceInventory.anonymousTarget])
+        #expect(inventory.hostSettings == [HostSetting(
+            site: SourceSite(file: "Sources/Server/Server.swift", line: 4, column: 32),
+            kind: .bindArgument, name: "s_addr", value: "INADDR_ANY", addressKind: .allInterfaces,
+            callee: "sockaddr_in", fileHasListener: true, owningType: "HTTPServer")])
+        #expect(inventory.summary == "examined 1 file · 1 listener (posix 1) · 1 bound to all interfaces · "
+            + "0 with authentication off by default · 0 handlers")
     }
 
     @Test("A bind records its port and its line")

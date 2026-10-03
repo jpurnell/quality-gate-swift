@@ -45,6 +45,7 @@ sorts every list by site, so the answer does not depend on the order files arriv
 |---|---|---|
 | SwiftNIO | `bind(host:port:)`; `bind(to:)` and `bind(unixDomainSocketPath:)` in a file that constructs a bootstrap | the literal; or the expression, resolved to the owning type's parameter or property default (`SSHServer.init(host: String = "0.0.0.0")` then `bind(host: host)`) |
 | Network.framework | `NWListener(…)` | the `requiredLocalEndpoint = .hostPort(host:…)` in the same body; `.unix(…)` is a Unix socket; none at all is every interface |
+| BSD sockets | `sin_addr.s_addr = …` / `sin6_addr = …`, as an assignment or a memberwise argument: always when the value is `INADDR_ANY` / `in6addr_any`, otherwise only in a file that calls `listen(fd, backlog)` | the constant (`INADDR_ANY` is every interface, `INADDR_LOOPBACK` this machine); any other expression is the caller's |
 | Vapor | `Application.make(…)`, `Application(…)` in a file importing Vapor | `127.0.0.1`, Vapor's default, unless `…http.server.configuration.hostname` is assigned anywhere in the package |
 | SwiftMCPServer | `MCPServer.builder()`; `HTTPServerTransport(…)` and `SSHServer(…)` constructed outside the package that declares them | inherited: the library binds `0.0.0.0` and the caller cannot narrow it |
 
@@ -77,7 +78,10 @@ Stated because a table that omits a row looks exactly like a table with nothing 
 - **Dynamic registration.** Handlers built from a list (`buildToolHandlers()`), a path that is not
   a literal (recorded as `<dynamic>`), a collection whose type is chosen at runtime.
 - **Dispatch written as `if request.path == …`** (VaultMCPWeb). Pinned as a known miss.
-- **A second listener** opened any other way, and Vapor's `--hostname` flag, a reverse proxy, a
+- **Handlers behind a BSD socket.** The listener is a row; the `read(2)` loop that parses the
+  request is not (swiftMoE's `/v1/chat/completions`).
+- **A second listener** opened any other way — Vapor 1's `Droplet()`, Hummingbird, a socket
+  whose address is built by `getaddrinfo` — and Vapor's `--hostname` flag, a reverse proxy, a
   firewall or a launchd environment — anything decided outside source.
 - **Whether a guard is right** — the wrong user type, the wrong role, object-level access.
 
