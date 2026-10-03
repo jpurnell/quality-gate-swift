@@ -63,6 +63,12 @@ security:
     - security.path-containment-by-prefix
     - security.hardcoded-secret
     - security.weak-crypto
+    # The cipher rules (ACipherIsItsArguments.md). Safe to enable in the commit that adds
+    # them, unlike command-injection above: no older mechanism answers to these names, so the
+    # deployed gate the hook runs simply has nothing to wake.
+    - security.broken-cipher
+    - security.ecb-mode
+    - security.homemade-digest
     - security.eval-js
     - security.sql-injection
     - security.insecure-keychain
