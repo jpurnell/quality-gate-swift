@@ -328,6 +328,39 @@ public enum SecurityRuleManifest {
             lastReviewedDate: "2026-10-02"
         ),
         SecurityRule(
+            ruleId: "security.regex-catastrophic",
+            // 1333 (Base, Allowed). 407 is its Class parent; 400 is Discouraged; 730 Prohibited.
+            cwes: ["CWE-1333"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspAPI: "API4:2023 Unrestricted Resource Consumption",
+            description: "Literal regular expression with nested or overlapping unbounded repetition",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.regex-from-input",
+            // No CWE names regex injection; 1333 by consequence — whoever writes the pattern
+            // writes the inefficient one (APatternIsAProgram.md §4.2).
+            cwes: ["CWE-1333"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspAPI: "API4:2023 Unrestricted Resource Consumption",
+            description: "Regular expression compiled from external input",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.predicate-injection",
+            // One rule, both sinks (TheGateIsNotYetAggressive.md §2.1): 943 (Class, reviewed —
+            // its children are SQL, LDAP, XPath, XQuery) for NSPredicate, 917 (Base) for
+            // NSExpression's evaluated format language. A03 by 917's membership.
+            cwes: ["CWE-943", "CWE-917"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A03:2021 Injection",
+            description: "NSPredicate or NSExpression format string assembled at runtime",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
             ruleId: "security.ssrf",
             cwes: ["CWE-918"],
             owaspMobile: "M5 Insecure Communication",

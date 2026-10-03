@@ -98,6 +98,9 @@ security:
     - security.seeded-secret
     - security.predictable-token
     - security.uuid-as-secret
+    - security.regex-catastrophic
+    - security.regex-from-input
+    - security.predicate-injection
 
 dependencyAudit:
   allowBranchPins:

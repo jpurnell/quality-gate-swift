@@ -635,5 +635,27 @@
       "cwe/CWE-340"
     ],
     "posture": "partial"
+  },
+  {
+    "ruleId": "security.regex-catastrophic",
+    "satisfies": [
+      "cwe/CWE-1333"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.regex-from-input",
+    "satisfies": [
+      "cwe/CWE-1333"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.predicate-injection",
+    "satisfies": [
+      "cwe/CWE-943",
+      "cwe/CWE-917"
+    ],
+    "posture": "partial"
   }
 ]

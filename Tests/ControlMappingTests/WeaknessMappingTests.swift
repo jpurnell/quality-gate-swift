@@ -230,9 +230,11 @@ struct WeaknessMappingTests {
                    "CWE-606", "CWE-789", "CWE-1284", "CWE-611", "CWE-502", "CWE-1395"] {
             #expect(ids.contains(id), "\(id) is not catalogued")
         }
-        // 130, less the four the key rules close (321, 326, 329, 916) and the three the randomness
-        // rules close (335, 338, 341). 1204, 323, 336, 337 and 340 arrived already covered, so
-        // they never counted as gaps.
-        #expect(matrix().filter { $0.state == .gap }.count >= 123)
+        // The catalogue itself must not shrink: 177 ids on 2026-10-03.
+        #expect(ids.count >= 177)
+        // 130, less the four the key rules close (321, 326, 329, 916), the three the randomness
+        // rules close (335, 338, 341) and the three the pattern rules close (1333, 943, 917).
+        // 1204, 323, 336, 337 and 340 arrived already covered, so they never counted as gaps.
+        #expect(matrix().filter { $0.state == .gap }.count >= 120)
     }
 }

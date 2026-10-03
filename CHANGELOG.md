@@ -99,6 +99,44 @@
   fork's session id ×2 and OAuth `state`, a book exercise's `token`, and sim-tap's XPC request
   token. Note totals: 59 examined · 35 safe · 10 UUID · 8 unresolved generator · 10 seams. See
   `ASeedIsNotASecret.md`.
+- **One external-input source model (`ExternalInput`, `QualityGateCore`) and its SwiftSyntax
+  adapter (`ExternalInputFile`, new target `ExternalInputSyntax`).** Five proposals each defined a
+  partial copy of "this value came from outside" (`TheGateIsNotYetAggressive.md` §2.2 item 3).
+  The model is their union — request content (Vapor accessors, `Content` parameters), MCP tool
+  arguments (SwiftMCPServer's `get…` accessors, argument dictionaries), command line (including
+  ArgumentParser properties), environment, file bytes, network bytes (URLSession, NIO
+  `ByteBuffer`), workbook cells (`CellValue`) and untraced decodes — each kind tagged with its
+  reach (network / local / unknown) and the proposals it came from. Propagation is one function
+  wide: binding chains up to 8 hops, member access, subscript, conversions, method calls,
+  interpolation and operators, with a *direct* flag for "the source under a name". A plain
+  parameter is answered as `.parameter` with its index — the extension point for a one-call hop.
+  Not tracked, and tested as not tracked: anything across a function boundary (86 of 120 MCP
+  integer arguments in businessMathMCP leave the function they arrive in), reassignment,
+  properties, a subscript's index, callback parameters. No shipped rule was migrated onto it.
+- **A pattern is a program: `security.regex-catastrophic` (error, CWE-1333),
+  `security.regex-from-input` (warning, CWE-1333) and `security.predicate-injection` (error,
+  CWE-943 and CWE-917).** `RegexStructure` (`QualityGateCore`) reads an ICU pattern far enough to
+  find a group quantified by `+`/`*`/`{n,}` whose body repeats with no mandatory literal
+  (`(a+)+`, `(\w+\s?)*`) or whose alternatives overlap (`(a|ab)+`, `(\w|\d)+`); `\d+(?:\.\d+)*`
+  stays clean. `regex-catastrophic` applies it at `NSRegularExpression(pattern:)`, `Regex(_:)`,
+  `of:` passed with `.regularExpression`, regex literals, and same-file `let` constants (reported
+  at the literal, once). `regex-from-input` reports a pattern — or an `NSPredicate` `MATCHES`
+  operand — that the external-input model traces to a source, naming the kind and the binding
+  path; its `// SECURITY:` acknowledgement must also **name a bound** (cap, limit, maximum,
+  ceiling, deadline, timeout, "at most") per §2.3. `predicate-injection` reports an
+  `NSPredicate`/`NSExpression` format that is interpolated or not a literal, citing 943 for a
+  predicate and 917 for an expression, one rule per §2.1. CWE-1333, 943 and 917 move from `gap`
+  to covered; all three ids are in this repository's `enabledRules`.
+
+  **Portfolio, measured with this branch's gate** (130 package roots, 11,241 Swift files, copied to
+  a scratch directory; third-party clones excluded by remote): `regex-catastrophic` 0;
+  `predicate-injection` 1 — SwiftMCPServer `CrossPlatformExpression.swift:18`,
+  `NSExpression(format: formula)` reached by businessMathMCP tool arguments, a real defect, so
+  the rule lands at error; `regex-from-input` 1 — SwiftExcelFunctions
+  `BuiltinTextConversionFunctions.swift:335`, a `REGEXTEST`/`REGEXEXTRACT`/`REGEXREPLACE`
+  pattern taken from a worksheet cell, real and a warning by design. Sites whose pattern
+  arrives through a parameter of a public helper (Shelfmark's search field, SwiftCLIKit's
+  `.pattern(String)`) are not seen: the model is one function wide. See `APatternIsAProgram.md`.
 
 - **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
   and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee

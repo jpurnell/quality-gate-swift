@@ -50,6 +50,8 @@ struct SecurityAcknowledgementTests {
             """),
         ("security.predictable-token", #"let token = "\(Date().timeIntervalSince1970)""#),
         ("security.uuid-as-secret", "let sessionId = UUID().uuidString"),
+        ("security.regex-catastrophic", #"let expression = try NSRegularExpression(pattern: "(a+)+$")"#),
+        ("security.predicate-injection", "let predicate = NSPredicate(format: query)"),
     ]
 
     static let ruleIds = fixtures.map(\.rule)

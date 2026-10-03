@@ -1,3 +1,4 @@
+import ExternalInputSyntax
 import Foundation
 import QualityGateCore
 import SwiftSyntax
@@ -41,6 +42,9 @@ import SwiftSyntax
 /// | `security.seeded-secret` | 335, 336, 337 | Security value drawn from a generator seeded in the same function |
 /// | `security.predictable-token` | 341 | Security value made only of the clock, the pid or a hash value |
 /// | `security.uuid-as-secret` | 340 | Security value made of `UUID()` (warning) |
+/// | `security.regex-catastrophic` | 1333 | Literal pattern with nested or overlapping unbounded repetition — see `SecurityVisitor+Pattern.swift` |
+/// | `security.regex-from-input` | 1333 | Pattern derived from external input (warning; acknowledgement must name a bound) |
+/// | `security.predicate-injection` | 943, 917 | `NSPredicate` / `NSExpression` format string assembled at runtime |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -72,6 +76,8 @@ final class SecurityVisitor: SyntaxVisitor {
     /// `security.hardcoded-secret` findings held until the file is walked, so one that
     /// `hardcoded-key` claims is not reported twice — see ``visitPost(_:)``.
     private var pendingSecrets: [(binding: SyntaxIdentifier, diagnostic: Diagnostic)] = []
+    /// The file's external-input reading, built on first use by a rule that needs it.
+    var externalInputFile: ExternalInputFile?
 
     init(
         fileName: String,
@@ -185,6 +191,14 @@ final class SecurityVisitor: SyntaxVisitor {
         checkKeyArguments(node)
         countXMLParseSite(node)
         for finding in XMLEntityRules.call(node) { reportXML(finding) }
+        checkPatternCalls(node)
+        return .visitChildren
+    }
+
+    // MARK: - Regex Literal Visitor (catastrophic pattern)
+
+    override func visit(_ node: RegexLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        checkRegexLiteral(node)
         return .visitChildren
     }
 
@@ -1255,6 +1269,10 @@ final class SecurityVisitor: SyntaxVisitor {
 
         switch justificationValidator.validate(marker.text, keyword: Self.marker) {
         case .valid:
+            if let unmet = Self.unmetAcknowledgementRequirement(ruleId: ruleId, reason: Self.payload(of: marker.text)) {
+                diagnostics.append(Self.rejecting(diagnostic, markerLine: marker.line, because: unmet))
+                return
+            }
             overrides.append(DiagnosticOverride(
                 ruleId: ruleId,
                 justification: Self.payload(of: marker.text),
