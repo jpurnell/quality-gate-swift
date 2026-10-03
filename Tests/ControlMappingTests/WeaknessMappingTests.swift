@@ -137,9 +137,21 @@ struct WeaknessMappingTests {
 
     /// The reason to list a weakness nothing checks: the report then says so, every run,
     /// instead of the absence being something a person has to notice.
+    @Test("a weakness the XML rules reach is enforced, and names them", arguments: [
+        ("CWE-611", "security.xml-external-entities"),
+        ("CWE-776", "security.xml-entity-expansion"),
+    ])
+    func xmlRowsAreEnforced(cwe: String, rule: String) throws {
+        let row = try #require(matrix().first { $0.controlId == cwe })
+        #expect(row.state == .enforced)
+        #expect(row.rules == [rule])
+    }
+
     @Test("a listed weakness no rule reaches is reported as a gap")
     func gapRow() throws {
-        let row = try #require(matrix().first { $0.controlId == "CWE-611" })
+        // CWE-611 was the example until `security.xml-external-entities` reached it; 789 is
+        // a Phase 3 weakness (body limits), so it should stay a gap for a while yet.
+        let row = try #require(matrix().first { $0.controlId == "CWE-789" })
         #expect(row.state == .gap)
         #expect(row.rules.isEmpty)
     }

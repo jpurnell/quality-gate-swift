@@ -195,6 +195,31 @@ public enum SecurityRuleManifest {
             severity: "WARNING",
             lastReviewedDate: "2026-04-14"
         ),
+        SecurityRule(
+            ruleId: "security.xml-external-entities",
+            // 611, not 827 (Improper Control of Document Type Definition) for the DTD flags: 611
+            // is what a reader searches for. Both Top 10 and API columns from the proposal's
+            // table; MITRE's A05:2021 view lists 611.
+            cwes: ["CWE-611"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A05:2021 Security Misconfiguration",
+            owaspAPI: "API8:2023 Security Misconfiguration",
+            description: "XML parser configured, or defaulted, to load external entities",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-02"
+        ),
+        SecurityRule(
+            ruleId: "security.xml-entity-expansion",
+            // WARNING is the DOM-parse half, which no option clears and stays a warning. The
+            // XML_PARSE_HUGE half is reported at error by the visitor.
+            cwes: ["CWE-776"],
+            owaspMobile: "M4 Insufficient Input/Output Validation",
+            owaspTop10: "A05:2021 Security Misconfiguration",
+            owaspAPI: "API4:2023 Unrestricted Resource Consumption",
+            description: "XML DOM parse with no DTD refusal, or libxml2 size limits removed",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-02"
+        ),
     ]
 
     /// The CWE recorded for a rule, or `nil` when the manifest does not list it.

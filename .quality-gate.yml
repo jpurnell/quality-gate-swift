@@ -68,6 +68,10 @@ security:
     - security.insecure-keychain
     - security.tls-disabled
     - security.ssrf
+    # Tripwires: zero findings in this tree or the portfolio when they landed. Safe to list
+    # before deployment because the deployed binary has no rule of these names to wake.
+    - security.xml-external-entities
+    - security.xml-entity-expansion
 
 dependencyAudit:
   allowBranchPins:

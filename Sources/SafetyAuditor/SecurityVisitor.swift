@@ -22,6 +22,8 @@ import SwiftSyntax
 /// | `security.tls-disabled` | 295 | Certificate validation disabled |
 /// | `security.path-traversal` | 22 | FileManager with dynamic path |
 /// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
+/// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
+/// | `security.xml-entity-expansion` | 776 | `XML_PARSE_HUGE`; `XMLDocument` parse with no DTD refusal (warning) |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -37,6 +39,8 @@ final class SecurityVisitor: SyntaxVisitor {
     let localStringConstants: Set<String>
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
+    /// XML parse sites seen in this file, for the `security.xml-coverage` note.
+    var xmlSites = XMLSiteCounts()
     /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
     private let justificationValidator = JustificationValidator()
 
@@ -112,7 +116,54 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
+        countXMLParseSite(node)
+        for finding in XMLEntityRules.call(node) { reportXML(finding) }
         return .visitChildren
+    }
+
+    // MARK: - XML entities (CWE-611, CWE-776)
+
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        if let finding = XMLEntityRules.reference(node) { reportXML(finding) }
+        return .visitChildren
+    }
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        if let finding = XMLEntityRules.function(node) { reportXML(finding) }
+        return .visitChildren
+    }
+
+    private var xmlRulesEnabled: Bool {
+        isRuleEnabled(XMLEntityRules.externalRule) || isRuleEnabled(XMLEntityRules.expansionRule)
+    }
+
+    /// Counts a parse site whether or not anything is wrong with it: the note's denominator.
+    private func countXMLParseSite(_ node: FunctionCallExprSyntax) {
+        guard xmlRulesEnabled else { return }
+        if XMLEntityRules.isXMLParserConstruction(node) {
+            xmlSites.xmlParser += 1
+        } else if XMLEntityRules.isParsingXMLDocument(node) {
+            xmlSites.xmlDocument += 1
+        } else if XMLEntityRules.isLibxml2Parse(node) {
+            xmlSites.libxml2 += 1
+        }
+    }
+
+    /// Locates an XML finding and sends it through `report(_:)`, so its acknowledgement is
+    /// validated and recorded like every other security rule's.
+    private func reportXML(_ finding: XMLEntityFinding) {
+        guard isRuleEnabled(finding.ruleId) else { return }
+        if finding.configuresExternalLoad { xmlSites.configuredToLoad += 1 }
+        let location = finding.anchor.startLocation(converter: converter)
+        report(Diagnostic(
+            severity: finding.severity,
+            message: finding.message,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: finding.ruleId,
+            suggestedFix: finding.suggestedFix
+        ))
     }
 
     // MARK: - String Literal Visitor (insecure transport)
@@ -220,6 +271,7 @@ final class SecurityVisitor: SyntaxVisitor {
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         checkInsecureKeychain(node)
         checkTLSDisabled(node)
+        if let finding = XMLEntityRules.memberAccess(node) { reportXML(finding) }
         return .visitChildren
     }
 
@@ -229,6 +281,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkTLSAssignment(node)
+        if let finding = XMLEntityRules.assignment(node) { reportXML(finding) }
         // Order matters and follows source order: the executable is assigned before the
         // arguments in every shape this rule recognises.
         noteExecutableAssignment(node)
