@@ -519,5 +519,19 @@
       "cwe/CWE-187"
     ],
     "posture": "partial"
+  },
+  {
+    "ruleId": "security.xml-external-entities",
+    "satisfies": [
+      "cwe/CWE-611"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.xml-entity-expansion",
+    "satisfies": [
+      "cwe/CWE-776"
+    ],
+    "posture": "partial"
   }
 ]

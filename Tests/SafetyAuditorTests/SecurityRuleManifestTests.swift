@@ -52,6 +52,8 @@ struct SecurityRuleManifestTests {
         ("security.broken-cipher", "A02:2021"),
         ("security.ecb-mode", "A02:2021"),
         ("security.homemade-digest", "A02:2021"),
+        ("security.xml-external-entities", "A05:2021"),
+        ("security.xml-entity-expansion", "A05:2021"),
     ])
     func top10Category(ruleId: String, category: String) throws {
         let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
@@ -99,5 +101,19 @@ struct SecurityRuleManifestTests {
                 #expect(yaml.contains(top10))
             }
         }
+    }
+
+    /// The proposal's table, recorded so the API column is not re-derived from memory.
+    @Test("The XML rules carry their CWE, severity and API Security category", arguments: [
+        ("security.xml-external-entities", "CWE-611", "ERROR", "API8:2023 Security Misconfiguration"),
+        ("security.xml-entity-expansion", "CWE-776", "WARNING", "API4:2023 Unrestricted Resource Consumption"),
+    ])
+    func xmlRules(ruleId: String, cwe: String, severity: String, api: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == [cwe])
+        #expect(rule.severity == severity)
+        #expect(rule.owaspAPI == api)
+        #expect(rule.owaspTop10 == "A05:2021 Security Misconfiguration")
+        #expect(rule.owaspMobile == "M4 Insufficient Input/Output Validation")
     }
 }

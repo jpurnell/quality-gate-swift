@@ -34,6 +34,8 @@ struct SecurityAcknowledgementTests {
             task.executableURL = URL(fileURLWithPath: "/bin/sh")
             task.arguments = ["-c", "grep \\(pattern) \\(file)"]
             """),
+        ("security.xml-external-entities", "parser.shouldResolveExternalEntities = true"),
+        ("security.xml-entity-expansion", "let flags = XML_PARSE_HUGE"),
     ]
 
     static let ruleIds = fixtures.map(\.rule)
