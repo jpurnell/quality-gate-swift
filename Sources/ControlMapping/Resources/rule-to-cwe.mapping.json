@@ -498,5 +498,19 @@
       "cwe/CWE-187"
     ],
     "posture": "partial"
+  },
+  {
+    "ruleId": "security.archive-path-escape",
+    "satisfies": [
+      "cwe/CWE-22"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.archive-symlink",
+    "satisfies": [
+      "cwe/CWE-59"
+    ],
+    "posture": "partial"
   }
 ]

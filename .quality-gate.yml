@@ -54,6 +54,10 @@ security:
   # above: the rewrite landed in 9f88a58, was deployed, and only then was switched on here. It
   # reports a join rather than every dynamic path; 238 findings here became 11, four of them
   # real bugs fixed in the same change (TraversalIsAJoin.md).
+  # security.archive-path-escape and security.archive-symlink are new ids, not rewrites of old
+  # ones, so the deployed binary has no mechanism for them to bind to and enabling them in the
+  # same change is safe. Without them the allow-list would keep them silent here.
+  # (AnArchiveDescribesItself.md, rollout step 5.)
   containmentCheckers:
     - PathContainment.isContained
     - RunEnvironment.path
@@ -68,6 +72,8 @@ security:
     - security.insecure-keychain
     - security.tls-disabled
     - security.ssrf
+    - security.archive-path-escape
+    - security.archive-symlink
 
 dependencyAudit:
   allowBranchPins:

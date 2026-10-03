@@ -49,11 +49,28 @@ struct SecurityRuleManifestTests {
         ("security.tls-disabled", "A07:2021"),
         ("security.path-traversal", "A01:2021"),
         ("security.ssrf", "A10:2021"),
+        ("security.archive-path-escape", "A01:2021"),
+        ("security.archive-symlink", "A01:2021"),
     ])
     func top10Category(ruleId: String, category: String) throws {
         let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
         let top10 = try #require(rule.owaspTop10, "\(ruleId) has no Top 10 category")
         #expect(top10.hasPrefix(category))
+    }
+
+    /// MITRE CWE 4.20: 22 is the parent of relative (23) and absolute (36) traversal, and an entry
+    /// name can be either, so the parent is the accurate mapping. 59 is link following; 61 is the
+    /// attack-oriented composite and is not used.
+    @Test("The archive rules name the weaknesses they reach, at error", arguments: [
+        ("security.archive-path-escape", ["CWE-22"]),
+        ("security.archive-symlink", ["CWE-59"]),
+    ])
+    func archiveRules(ruleId: String, cwes: [String]) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == cwes)
+        #expect(rule.severity == "ERROR")
+        #expect(rule.owaspMobile == "M4 Insufficient Input/Output Validation")
+        #expect(rule.owaspAPI == nil)
     }
 
     @Test("The Mobile column keeps its value under its own name")
