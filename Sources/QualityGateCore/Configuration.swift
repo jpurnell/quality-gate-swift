@@ -338,6 +338,7 @@ extension PointerEscapeAuditorConfig: Codable {
 ///   secretPatterns: ["password", "secret", "apiKey", "token"]
 ///   allowedHTTPHosts: ["localhost", "127.0.0.1"]
 ///   sqlFunctionNames: ["execute", "prepare", "query"]
+///   atsAllowedInsecureDomains: ["legacy.example.com"]
 /// ```
 public struct SecurityAuditorConfig: Sendable, Equatable {
     /// Which security rules to enable. Empty means all rules are enabled.
@@ -374,6 +375,15 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// catch it.
     public var containmentCheckers: [String]
 
+    /// Domains whose App Transport Security exception for cleartext HTTP is accepted.
+    ///
+    /// A property list has no comments the serialiser preserves, so `security.ats-disabled`
+    /// cannot be acknowledged with `// SECURITY:`. An entry here records the domain-level
+    /// finding as an override instead. Each entry is a sentence a reviewer can disagree with,
+    /// in a file with history. There is deliberately no equivalent for the global
+    /// `NSAllowsArbitraryLoads`: an app that needs it disables the rule in `enabledRules`.
+    public var atsAllowedInsecureDomains: [String]
+
     /// Creates a security auditor configuration with the given options.
     public init(
         enabledRules: [String] = [],
@@ -387,7 +397,8 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
             "sqlite3_exec", "sqlite3_prepare"
         ],
         weakCryptoPolicy: WeakCryptoPolicy = .default,
-        containmentCheckers: [String] = ["PathContainment.isContained"]
+        containmentCheckers: [String] = ["PathContainment.isContained"],
+        atsAllowedInsecureDomains: [String] = []
     ) {
         self.enabledRules = enabledRules
         self.secretPatterns = secretPatterns
@@ -395,6 +406,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
         self.sqlFunctionNames = sqlFunctionNames
         self.weakCryptoPolicy = weakCryptoPolicy
         self.containmentCheckers = containmentCheckers
+        self.atsAllowedInsecureDomains = atsAllowedInsecureDomains
     }
 
     /// Default security auditor configuration.
@@ -404,7 +416,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
 extension SecurityAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames, weakCryptoPolicy
-        case containmentCheckers
+        case containmentCheckers, atsAllowedInsecureDomains
     }
 
     /// Creates a security auditor configuration by decoding from the given decoder.
@@ -418,6 +430,8 @@ extension SecurityAuditorConfig: Codable {
         weakCryptoPolicy = try container.decodeIfPresent(WeakCryptoPolicy.self, forKey: .weakCryptoPolicy) ?? defaults.weakCryptoPolicy
         containmentCheckers = try container.decodeIfPresent([String].self, forKey: .containmentCheckers)
             ?? defaults.containmentCheckers
+        atsAllowedInsecureDomains = try container.decodeIfPresent([String].self, forKey: .atsAllowedInsecureDomains)
+            ?? defaults.atsAllowedInsecureDomains
     }
 }
 

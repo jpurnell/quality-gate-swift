@@ -46,6 +46,14 @@ public enum SourceWalker {
         /// Counted as directories for the same reason as `gitIgnoredDirectories`: the walk
         /// stops at the boundary rather than descending to count what it has just declined.
         public let nestedPackageDirectories: Int
+        /// Absolute paths of the `Info.plist` files under the same scope as ``files``.
+        ///
+        /// Collected by this walk rather than a second one so a property list in `Pods/`, in
+        /// `.build/`, in a git-ignored tree or in a nested package is skipped for exactly the
+        /// reasons a `.swift` file there is. `security.ats-disabled` reads them; the safety
+        /// checker's cache fingerprint includes them. `*-Info.plist` counts, as Xcode names a
+        /// second target's that way.
+        public let propertyLists: [String]
 
         /// The scope clause for a coverage note, or `nil` when the walk read everything it found.
         ///
@@ -88,11 +96,12 @@ public enum SourceWalker {
         ) else {
             return WalkResult(
                 files: [], excludedByPattern: 0, excludedByGitIgnore: 0,
-                gitIgnoredDirectories: 0, nestedPackageDirectories: 0)
+                gitIgnoredDirectories: 0, nestedPackageDirectories: 0, propertyLists: [])
         }
 
         let ignored = gitIgnoredPaths(under: root)
         var out: [String] = []
+        var plists: [String] = []
         var byPattern = 0
         var byIgnoreFile = 0
         var ignoredDirectories = 0
@@ -129,24 +138,26 @@ public enum SourceWalker {
                 }
                 continue
             }
-            guard url.pathExtension == "swift" else { continue }
+            let isSwift = url.pathExtension == "swift"
+            guard isSwift || name.hasSuffix("Info.plist") else { continue }
             let path = url.path
             if shouldExclude(path: path, patterns: excludePatterns) {
-                byPattern += 1
+                if isSwift { byPattern += 1 }
                 continue
             }
             if ignored.contains(url.standardizedFileURL.path) {
-                byIgnoreFile += 1
+                if isSwift { byIgnoreFile += 1 }
                 continue
             }
-            out.append(path)
+            if isSwift { out.append(path) } else { plists.append(path) }
         }
         return WalkResult(
             files: out,
             excludedByPattern: byPattern,
             excludedByGitIgnore: byIgnoreFile,
             gitIgnoredDirectories: ignoredDirectories,
-            nestedPackageDirectories: nestedPackages)
+            nestedPackageDirectories: nestedPackages,
+            propertyLists: plists)
     }
 
     /// Absolute paths git has been told to ignore under `root`.

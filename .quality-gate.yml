@@ -54,6 +54,10 @@ security:
   # above: the rewrite landed in 9f88a58, was deployed, and only then was switched on here. It
   # reports a join rather than every dynamic path; 238 findings here became 11, four of them
   # real bugs fixed in the same change (TraversalIsAJoin.md).
+  # security.archive-path-escape and security.archive-symlink are new ids, not rewrites of old
+  # ones, so the deployed binary has no mechanism for them to bind to and enabling them in the
+  # same change is safe. Without them the allow-list would keep them silent here.
+  # (AnArchiveDescribesItself.md, rollout step 5.)
   containmentCheckers:
     - PathContainment.isContained
     - RunEnvironment.path
@@ -63,11 +67,27 @@ security:
     - security.path-containment-by-prefix
     - security.hardcoded-secret
     - security.weak-crypto
+    # The cipher rules (ACipherIsItsArguments.md). Safe to enable in the commit that adds
+    # them, unlike command-injection above: no older mechanism answers to these names, so the
+    # deployed gate the hook runs simply has nothing to wake.
+    - security.broken-cipher
+    - security.ecb-mode
+    - security.homemade-digest
     - security.eval-js
     - security.sql-injection
     - security.insecure-keychain
     - security.tls-disabled
+    - security.tls-no-hostname
+    - security.trust-handler-accepts-all
+    - security.trust-anchors-widened
+    - security.ats-disabled
     - security.ssrf
+    # Tripwires: zero findings in this tree or the portfolio when they landed. Safe to list
+    # before deployment because the deployed binary has no rule of these names to wake.
+    - security.xml-external-entities
+    - security.xml-entity-expansion
+    - security.archive-path-escape
+    - security.archive-symlink
 
 dependencyAudit:
   allowBranchPins:
