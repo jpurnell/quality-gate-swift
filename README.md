@@ -274,7 +274,7 @@ swift package plugin quality-gate
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 | `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
-| `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
+| `xcode-build` | XcodeBuildChecker | Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in) |
 <!-- /generated:checker-table-specialty -->
 
 ## CLI reference
@@ -331,6 +331,23 @@ security:
   secretPatterns: [password, secret, apiKey, token, credential, privateKey]
   allowedHTTPHosts: [localhost, 127.0.0.1]
 ```
+
+To add one opt-in checker to the default run without enabling the rest, list it under
+`includedCheckers:` (the mirror of `excludedCheckers:`). For example, a package whose code is
+gated `#if os(watchOS)` can build it on every run:
+
+```yaml
+includedCheckers:
+  - xcode-build
+
+xcodeBuild:
+  scheme: MyPackage
+  destinations:
+    - "generic/platform=watchOS"
+```
+
+`xcode-build` builds a plain Swift package from its directory, with no `.xcodeproj` needed.
+When it finds no workspace, project or `Package.swift`, it reports SKIPPED, not PASSED.
 
 Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, `keychain-secrets`, `privacy-manifest`, and `consistency`.
 

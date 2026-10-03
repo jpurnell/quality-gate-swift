@@ -101,6 +101,70 @@ struct ReporterTests {
         #expect(output.contains("22 NOT REACHED"))
     }
 
+    @Test("Under --strict a warning run prints FAILED, matching its exit code")
+    func terminalReporterStrictWarningIsFailed() throws {
+        // The CLI exits 1 under --strict when any checker warned, and the summary printed
+        // "✅ Quality Gate: PASSED" over it. A verdict line that disagrees with the exit
+        // code is the one a human reads, so it has to carry the same rule.
+        let results = [
+            CheckResult(checkerId: "build", status: .passed, diagnostics: [], duration: .zero),
+            CheckResult(
+                checkerId: "xcode-build", status: .warning,
+                diagnostics: [Diagnostic(severity: .warning, message: "unused", ruleId: "xcode-compiler")],
+                duration: .zero),
+        ]
+
+        var strictOutput = ""
+        try TerminalReporter(strict: true).report(results, to: &strictOutput)
+        #expect(strictOutput.contains("Quality Gate: FAILED"))
+        #expect(!strictOutput.contains("Quality Gate: PASSED"))
+        #expect(strictOutput.contains("--strict"))
+
+        // Without --strict a warning does not fail the run, and the line still says so.
+        var defaultOutput = ""
+        try TerminalReporter().report(results, to: &defaultOutput)
+        #expect(defaultOutput.contains("Quality Gate: PASSED"))
+    }
+
+    @Test("Under --strict a run stopped by a warning is FAILED, not INCOMPLETE")
+    func terminalReporterStrictTruncationAtWarningIsFailed() throws {
+        // Under --strict the runner stops at a checker that warned. Seen in
+        // BioFeedbackKit-HealthKit: a planted watchOS warning stopped the run at
+        // xcode-build with 38 checkers unreached, and the summary read INCOMPLETE —
+        // a verdict for "nothing failed, but not everything ran", which is not this.
+        let reporter = TerminalReporter(
+            rosterSize: 46,
+            truncation: RunTruncation(stoppedAt: "xcode-build", unreached: (0..<38).map { "checker-\($0)" }),
+            strict: true)
+        var output = ""
+        let results = [
+            CheckResult(
+                checkerId: "xcode-build", status: .warning,
+                diagnostics: [Diagnostic(severity: .warning, message: "unused", ruleId: "xcode-compiler")],
+                duration: .zero),
+        ]
+        try reporter.report(results, to: &output)
+        #expect(output.contains("Quality Gate: FAILED"))
+        #expect(!output.contains("INCOMPLETE"))
+    }
+
+    @Test("Under --strict the JSON summary status is failed when a checker warned")
+    func jsonReporterStrictWarningIsFailed() throws {
+        let results = [
+            CheckResult(
+                checkerId: "build", status: .warning,
+                diagnostics: [Diagnostic(severity: .warning, message: "unused", ruleId: "swift-compiler")],
+                duration: .zero),
+        ]
+        var strictOutput = ""
+        try JSONReporter(strict: true).report(results, to: &strictOutput)
+        #expect(strictOutput.contains("\"status\" : \"failed\""))
+
+        var defaultOutput = ""
+        try JSONReporter().report(results, to: &defaultOutput)
+        #expect(defaultOutput.contains("\"status\" : \"passed\""))
+    }
+
     @Test("A complete narrowed run still reads as a selection, not a truncation")
     func terminalReporterNarrowedRun() throws {
         let reporter = TerminalReporter(rosterSize: 45)

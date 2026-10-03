@@ -44,6 +44,7 @@ struct Adopt: AsyncParsableCommand {
             requested: checkers,
             excluded: exclude,
             configuredEnabled: configuration.enabledCheckers,
+            configuredIncluded: configuration.includedCheckers,
             full: false,
             allIDs: registry.map(\.id))
         let checkersToRun = registry.filter { selected.contains($0.id) }

@@ -11,8 +11,16 @@ import Foundation
 /// ```
 public struct JSONReporter: Reporter, Sendable {
 
+    /// Whether a `.warning` result fails the run, as under `--strict`.
+    public let strict: Bool
+
     /// Creates a new JSONReporter instance.
-    public init() {}
+    ///
+    /// - Parameter strict: Whether a `.warning` result makes the summary status `failed`,
+    ///   matching the CLI's exit code under `--strict`.
+    public init(strict: Bool = false) {
+        self.strict = strict
+    }
 
     /// Outputs results in JSON format for programmatic consumption.
     ///
@@ -20,7 +28,7 @@ public struct JSONReporter: Reporter, Sendable {
     ///   - results: The check results to report.
     ///   - output: The text stream to write to.
     public func report(_ results: [CheckResult], to output: inout some TextOutputStream) throws {
-        let report = JSONReport(results: results)
+        let report = JSONReport(results: results, strict: strict)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -41,9 +49,9 @@ private struct JSONReport: Codable {
     let summary: Summary
     let results: [CheckResult]
 
-    init(results: [CheckResult]) {
+    init(results: [CheckResult], strict: Bool) {
         self.results = results
-        self.summary = Summary(from: results)
+        self.summary = Summary(from: results, strict: strict)
     }
 
     struct Summary: Codable {
@@ -57,7 +65,7 @@ private struct JSONReport: Codable {
         let totalWarnings: Int
         let totalDuration: Double
 
-        init(from results: [CheckResult]) {
+        init(from results: [CheckResult], strict: Bool) {
             totalChecks = results.count
             passed = results.filter { $0.status == .passed }.count
             failed = results.filter { $0.status == .failed }.count
@@ -72,7 +80,7 @@ private struct JSONReport: Codable {
             totalDuration = Double(totalDurationValue.components.seconds) + // fp-safety:disable
                            Double(totalDurationValue.components.attoseconds) / 1e18
 
-            status = failed > 0 ? "failed" : "passed"
+            status = failed > 0 || (strict && warnings > 0) ? "failed" : "passed"
         }
     }
 }

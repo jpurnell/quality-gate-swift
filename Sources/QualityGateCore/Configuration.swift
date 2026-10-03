@@ -1782,6 +1782,8 @@ public struct CustomRuleConfig: Sendable, Equatable, Codable {
 ///   - pointer-escape
 /// excludedCheckers:
 ///   - doc-comment-code
+/// includedCheckers:
+///   - xcode-build
 /// concurrency:
 ///   justificationKeyword: "Justification:"
 ///   allowPreconcurrencyImports:
@@ -1864,6 +1866,18 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// claim from "this package's documentation is fine", and only the first is true there.
     /// An entry that means the second is a suppression and belongs nowhere.
     public var excludedCheckers: [String]
+
+    /// Opt-in checkers to add to the default run, by id — the mirror of
+    /// ``excludedCheckers``, and the config-file form of `--full` for one checker.
+    ///
+    /// Before this, the only config route to an opt-in checker was
+    /// `enabledCheckers: [all]`, which also opts in every convention-gated doc checker.
+    /// BioFeedbackKit-HealthKit needs `xcode-build` — its HealthKit adapter is compiled
+    /// only for watchOS, which the macOS `build` checker never compiles — and nothing else.
+    ///
+    /// Added to `enabledCheckers` when that is set. Has no effect on `--check all` or an
+    /// explicit `--check`, and an exclusion still wins over it.
+    public var includedCheckers: [String]
 
     /// Build configuration to use (debug or release). Defaults to debug.
     public var buildConfiguration: String?
@@ -2033,6 +2047,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         trapPolicy: TrapPolicy = .default,
         enabledCheckers: [String] = [],
         excludedCheckers: [String] = [],
+        includedCheckers: [String] = [],
         buildConfiguration: String? = nil,
         testFilter: String? = nil,
         docTarget: String? = nil,
@@ -2087,6 +2102,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.trapPolicy = trapPolicy
         self.enabledCheckers = enabledCheckers
         self.excludedCheckers = excludedCheckers
+        self.includedCheckers = includedCheckers
         self.buildConfiguration = buildConfiguration
         self.testFilter = testFilter
         self.docTarget = docTarget
@@ -2200,6 +2216,7 @@ extension Configuration {
         case trapPolicy
         case enabledCheckers
         case excludedCheckers
+        case includedCheckers
         case buildConfiguration
         case testFilter
         case docTarget
@@ -2285,6 +2302,7 @@ extension Configuration {
         trapPolicy = try container.decodeIfPresent(TrapPolicy.self, forKey: .trapPolicy) ?? .default
         enabledCheckers = try container.decodeIfPresent([String].self, forKey: .enabledCheckers) ?? []
         excludedCheckers = try container.decodeIfPresent([String].self, forKey: .excludedCheckers) ?? []
+        includedCheckers = try container.decodeIfPresent([String].self, forKey: .includedCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
         docTarget = try container.decodeIfPresent(String.self, forKey: .docTarget)
