@@ -192,7 +192,7 @@ struct WeaknessMappingTests {
     ])
     func keyGapsClose(cwe: String, rules: [String]) throws {
         let row = try #require(matrix().first { $0.controlId == cwe })
-        #expect(row.state != .gap)
+        #expect(row.state == .enforced)
         #expect(Set(row.rules) == Set(rules))
     }
 

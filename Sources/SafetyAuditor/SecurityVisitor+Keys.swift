@@ -75,8 +75,20 @@ extension SecurityVisitor {
 
     // MARK: - Entry points
 
+    /// Whether the key rules report in this file: everywhere but a test target.
+    ///
+    /// A known-answer test needs a fixed key, IV and nonce, a fast test wants few PBKDF2 rounds
+    /// and a small key, and the gate's own determinism rules require a test's inputs to be
+    /// fixed. The proposal names `Tests/` as the remedy for a test vector that ships in a library
+    /// (§6), and a remedy has to clear the finding. Test code protects no data. Measured over the
+    /// portfolio: seven literal keys in test targets (Quorum ×6, swift-oauth ×1, whose comment
+    /// says the key is fixed so `stochastic-determinism` will not object), all fixtures; the one
+    /// outside a test target, Quorum's demonstration share, is reported.
+    var keyRulesApply: Bool { targetType != .test }
+
     /// Every key, IV, round-count and key-size check that starts at a call.
     func checkKeyArguments(_ node: FunctionCallExprSyntax) {
+        guard keyRulesApply else { return }
         checkHardcodedKey(node)
         checkStaticIV(node)
         checkWeakKDF(node)
@@ -144,7 +156,7 @@ extension SecurityVisitor {
     /// `"http://"` case again, and is not reported. A body interpolated from elsewhere is not a
     /// literal key either.
     func checkPrivateKeyLiteral(_ node: StringLiteralExprSyntax) {
-        guard isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(node) else { return }
+        guard keyRulesApply, isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(node) else { return }
         let location = node.startLocation(converter: converter)
         reportUnderCryptoPolicy(Diagnostic(
             severity: .error,
@@ -399,7 +411,8 @@ extension SecurityVisitor {
     /// `kSecAttrKeySizeInBits: N` in a dictionary literal, N below 2048, unless the same literal
     /// asks for an elliptic-curve key.
     func checkKeySizeAttribute(_ node: DeclReferenceExprSyntax) {
-        guard isRuleEnabled("security.weak-key-size"), node.baseName.text == "kSecAttrKeySizeInBits" else { return }
+        guard keyRulesApply, isRuleEnabled("security.weak-key-size"),
+              node.baseName.text == "kSecAttrKeySizeInBits" else { return }
         var current = node.parent
         var element: DictionaryElementSyntax?
         // Bounded: the constant is at most an `as String` cast away from the element.

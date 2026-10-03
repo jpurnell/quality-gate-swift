@@ -4,6 +4,56 @@
 
 ### Added
 
+- **What a cipher is keyed with: `security.hardcoded-key` (CWE-321), `security.static-iv`
+  (CWE-329, 1204, 323), `security.weak-kdf` (CWE-916) and `security.weak-key-size` (CWE-326), all
+  error.** The rest of `ACipherIsItsArguments.md`; `broken-cipher` and `ecb-mode` read the
+  algorithm and mode, these read the key, the IV, the round count and the key length.
+  - `hardcoded-key`: literal-derived bytes given to `SymmetricKey(data:)`, the key argument of
+    `CCCrypt` / `CCCryptorCreate` / `CCHmac`, a `P256` / `P384` / `P521` / `Curve25519` / `_RSA`
+    `PrivateKey(raw|pem|derRepresentation:)`, or a CryptoSwift `key:`; and a string literal holding
+    a PEM private key *with a body* — a header alone is what a PEM parser matches against.
+  - `static-iv`: a `nil` or literal IV to `CCCrypt` / `CCCryptorCreate` when encrypting outside ECB
+    (CommonCrypto turns `nil` into zeros) and `AES._CBC.encrypt` with a literal IV (329); a literal
+    CryptoSwift `iv:` in a non-CBC mode (1204); a literal `AES.GCM` / `ChaChaPoly` nonce, or one
+    held in a `static let` or file-scope `let` and passed to `seal` (323) — random once is still
+    once. A literal `kCCDecrypt`, `_CBC.decrypt` and a nonce rebuilding a `SealedBox` are the
+    decrypt side and are not reported.
+  - `weak-kdf`: `CCKeyDerivationPBKDF` with a literal round count below 210,000 (swift-crypto's
+    floor; OWASP's higher figure was not fetched); `unsafeUncheckedRounds:` — a warning, an error
+    below the floor; and `SHA256` / `384` / `512.hash` or `CC_SHA*` of a password-named value. A
+    digest of a token, key or secret is not reported: a random token has no dictionary.
+  - `weak-key-size`: `kSecAttrKeySizeInBits` below 2048 in a dictionary literal that does not ask
+    for an EC key; `_RSA` keys below 2048 bits; `SymmetricKey` below 128 bits.
+  - "Literal-derived" is syntactic and one file deep: a literal, the same through `Data(…)`,
+    `.utf8`, `.data(using:)`, `Data(base64Encoded:)`, or a `let` bound to one. The `let` is found
+    lexically (`LetResolver`), so a parameter that shadows a literal constant is not the constant.
+    A key copied into a buffer is not followed; the proposal's test 18 pins that miss (SwiftITL).
+  - Every name-based decision goes through `SensitiveName`: a CryptoSwift label is a key if it
+    classifies as key material and an IV if it is a security parameter; a digest's input is a
+    password if any identifier in it is password-class, the weak `pin` included.
+  - **One literal, one finding.** `hardcoded-secret` (CWE-798) reads a name; `hardcoded-key`
+    (321, a child of 798) reads a use. A secret-named literal that is used as a key, or that is a
+    PEM private key, is reported by `hardcoded-key` only; with `hardcoded-key` off, or in a test
+    target, `hardcoded-secret` reports it as before.
+  - **Test targets are not reported.** A known-answer test needs a fixed key and IV, and the
+    gate's determinism rules require fixed test inputs; the proposal names `Tests/` as the remedy
+    for a test vector, and a remedy has to clear the finding. The security visitor now receives
+    the file's target type, as the safety visitor already did.
+  - `weakCryptoPolicy: justified` governs `hardcoded-key` and `static-iv` as well, as the proposal
+    specifies (a published format can dictate a key). `weak-kdf` and `weak-key-size` are not under
+    it; `// SECURITY: <reason>` acknowledges any of the four and is recorded.
+  - CWE-321, 326, 329 and 916 move from `gap` to covered; CWE-323 and CWE-1204 are catalogued
+    (titles fetched from MITRE, CWE 4.20) and covered.
+
+  **Portfolio, measured with this branch's gate** on scratch copies, every security rule enabled
+  (131 package roots; 121 package directories whose git remote is somebody else's excluded):
+  `hardcoded-key` 1 — Quorum `quorum-tones/main.swift:279`, a demonstration HMAC share built with
+  `Data(repeating:count:)` in an executable, the site the proposal predicted, real by the rule's
+  definition and fixable by generating the share; `static-iv` 0, `weak-kdf` 0, `weak-key-size` 0.
+  Seven literal keys in test targets (Quorum ×6, swift-oauth ×1) are fixtures and not reported.
+  Every other security finding is identical to `main`'s. The three zero-population rules land at
+  error as tripwires; `hardcoded-key` lands at error because its one finding is real.
+
 - **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
   and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
   names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose
@@ -304,6 +354,12 @@
   80 repositories then reports **no new security finding anywhere**.
 
 ### Changed
+
+- **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
+  (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
+  is gone; a parameter is secret-named when it names a strong credential, password or
+  key-material term, or the weak `pin` / `key` the old list carried. Portfolio findings before and
+  after: the same one (SwiftMCPServer `APIKeyAuthenticator.swift:176`, `hashKey`).
 
 - **`security.hardcoded-secret` and `keychain-secrets` now use `SensitiveName`.** Both keep
   the words they shipped with, selected by origin. Widening them to the union vocabulary

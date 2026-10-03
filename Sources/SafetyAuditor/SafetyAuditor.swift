@@ -240,7 +240,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         return (diagnostics, overrides)
     }
 
-    private func auditSourceCode(
+    func auditSourceCode(
         _ source: String,
         fileName: String,
         configuration: Configuration,
@@ -271,7 +271,8 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             source: source,
             converter: converter,
             configuration: configuration.security,
-            sourceFile: sourceFile
+            sourceFile: sourceFile,
+            targetType: targetTypes.targetType(forFile: fileName)
         )
         securityVisitor.walk(sourceFile)
 

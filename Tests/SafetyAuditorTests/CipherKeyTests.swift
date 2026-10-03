@@ -620,6 +620,44 @@ struct CipherKeyTests {
         #expect(cryptoFindings(result).isEmpty)
     }
 
+    // MARK: - Test targets
+
+    /// One fixture per rule, each a finding in a library or executable target.
+    private static let testTargetFixtures = [
+        "let share = SymmetricKey(data: Data(repeating: 1, count: 32))",
+        "let box = try AES.GCM.seal(p, using: k, nonce: AES.GCM.Nonce(data: Data(repeating: 0, count: 12)))",
+        "let s = CCKeyDerivationPBKDF(alg, pw, n, salt, m, prf, 1000, out, len)",
+        "let a = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 1024]",
+    ]
+
+    /// Audits `code` as a file in a target of `targetType`, through the auditor's own wiring.
+    private func walk(_ code: String, targetType: TargetType) -> [Diagnostic] {
+        let map = TargetTypeMap(targets: [.init(name: "Foo", type: targetType.rawValue, path: "Targets/Foo")])
+        let outcome = SafetyAuditor().auditSourceCode(
+            code, fileName: "/package/Targets/Foo/Foo.swift", configuration: Configuration(), targetTypes: map)
+        return outcome.diagnostics.filter { Self.keyRules.contains($0.ruleId ?? "") }
+    }
+
+    /// The proposal's remedy for a known-answer vector is `Tests/` (§6), and the gate's own
+    /// determinism rules require a test's inputs to be fixed. A fixed key, IV, round count or
+    /// key size in a test target is the test doing its job.
+    @Test("The key rules do not report fixtures in a test target", arguments: testTargetFixtures)
+    func testTargetIsClean(code: String) {
+        #expect(walk(code, targetType: .test).isEmpty)
+        #expect(walk(code, targetType: .library).count == 1)
+    }
+
+    /// In a test target the key rule is silent, so the older rule keeps the literal it always
+    /// reported — nothing that `main` reported in a test goes quiet.
+    @Test("In a test target hardcoded-secret still reports a secret-named literal used as a key")
+    func testTargetKeepsHardcodedSecret() {
+        let found = walk("""
+            let apiSecret = "0123456789abcdef"
+            let key = SymmetricKey(data: Data(apiSecret.utf8))
+            """, targetType: .test)
+        #expect(found.map(\.ruleId) == ["security.hardcoded-secret"])
+    }
+
     // MARK: - homemade-digest on SensitiveName
 
     /// The rule's own word list moved onto the shared matcher. `pin` and `key` are weak terms

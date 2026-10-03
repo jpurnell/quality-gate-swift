@@ -42,6 +42,10 @@ The same pass runs the `security.*` rules. Their CWE lists and OWASP columns liv
 | `security.broken-cipher` | error | 327 | DES, 3DES, RC4, RC2, CAST or Blowfish constants; CryptoSwift Blowfish, Rabbit |
 | `security.ecb-mode` | error | 327 | ECB mode (`kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`) |
 | `security.homemade-digest` | warning | 1240 | A digest-named function of a secret that calls no primitive |
+| `security.hardcoded-key` | error | 321 | Literal key bytes given to a cipher, MAC or key initialiser; a PEM private key in a literal |
+| `security.static-iv` | error | 329, 1204, 323 | A nil or literal IV when encrypting; a literal or held AEAD nonce |
+| `security.weak-kdf` | error (unchecked PBKDF2: warning) | 916 | PBKDF2 below 210,000 rounds; a bare SHA-2 digest of a password |
+| `security.weak-key-size` | error | 326 | RSA below 2048 bits; a symmetric key below 128 bits |
 | `security.xml-external-entities` | error | 611 | An XML parser configured, or defaulted, to load external entities |
 | `security.xml-entity-expansion` | warning (`XML_PARSE_HUGE`: error) | 776 | An `XMLDocument` parse with no DTD refusal; `XML_PARSE_HUGE` |
 | `security.tls-no-hostname` | error | 297 | A certificate not checked against the host |
@@ -63,11 +67,35 @@ The security visitor's crypto rules read what a call is *given*, not only what i
 | `security.broken-cipher` | 327 | error | DES, 3DES, RC4, RC2, CAST or Blowfish selected by constant; CryptoSwift `Blowfish`, `Rabbit` |
 | `security.ecb-mode` | 327 | error | `kCCOptionECBMode`, `kCCModeECB`; CryptoSwift `ECB` as a block mode |
 | `security.homemade-digest` | 1240 | warning | A digest-named function of a secret whose body calls no primitive |
+| `security.hardcoded-key` | 321 | error | Literal-derived bytes to `SymmetricKey(data:)`, the key of `CCCrypt` / `CCCryptorCreate` / `CCHmac`, a `P256`/`P384`/`P521`/`Curve25519`/`_RSA` `PrivateKey(raw/pem/derRepresentation:)` or a CryptoSwift `key:`; a PEM private key literal with a body |
+| `security.static-iv` | 329, 1204, 323 | error | `nil` or literal IV to an encrypting `CCCrypt` / `CCCryptorCreate` outside ECB; `AES._CBC.encrypt` with a literal IV; a literal `AES.GCM` / `ChaChaPoly` nonce; a nonce held in a `static let` or file-scope `let` passed to `seal`; a CryptoSwift literal `iv:` |
+| `security.weak-kdf` | 916 | error | `CCKeyDerivationPBKDF` below 210,000 rounds; `unsafeUncheckedRounds:` (warning, error below the floor); `SHA256`/`384`/`512.hash` or `CC_SHA*` of a password-named value |
+| `security.weak-key-size` | 326 | error | `kSecAttrKeySizeInBits` below 2048 unless the same literal asks for an EC key; `_RSA` below 2048 bits; `SymmetricKey` below 128 bits |
 
 The two cipher rules stay quiet inside a CommonCrypto call whose operation is literally
-`kCCDecrypt`: the reader of a file did not choose its cipher. Under
+`kCCDecrypt`: the reader of a file did not choose its cipher. `static-iv` does the same, and also
+ignores `AES._CBC.decrypt` and a nonce rebuilding a `SealedBox` to open. `hardcoded-key` does
+not: a key in the source is readable whichever way the call goes. Under
 `weakCryptoPolicy: justified`, a `// Justification:` with a real reason on the line above clears
-`weak-crypto`, `broken-cipher` and `ecb-mode`, and is recorded as an override.
+`weak-crypto`, `broken-cipher`, `ecb-mode`, `hardcoded-key` and `static-iv`, and is recorded as an
+override.
+
+"Literal-derived" is syntactic: a string, integer-array, `Data(repeating:count:)` or
+`Data(count:)` literal, any of those through `Data(…)`, `Array(…)`, `.utf8`, `.data(using:)`,
+`Data(base64Encoded:)` or `Data(hexString:)`, or a name bound by a `let` in the same file to one
+of those. The `let` is found lexically, so a parameter that shadows a literal constant is not
+the constant. A key copied into a buffer and the buffer passed is not seen.
+
+`hardcoded-secret` (CWE-798) reads a name: a secret-named binding assigned a string literal.
+`hardcoded-key` (CWE-321, a child of 798) reads a use: literal bytes where a key belongs. When a
+secret-named literal is that key — `let apiSecret = "…"` passed to `SymmetricKey(data:)`, or a
+PEM private key — only `hardcoded-key` reports it, so one literal is one finding. With
+`hardcoded-key` disabled, `hardcoded-secret` reports it as before.
+
+The four key rules do not report in a test target. A known-answer test needs a fixed key, IV
+and nonce, a fast test wants few rounds and a small key, and the gate's determinism rules require
+a test's inputs to be fixed — so `Tests/` is where a test vector belongs, and moving it there
+clears the finding.
 
 ### What a client agrees to trust
 

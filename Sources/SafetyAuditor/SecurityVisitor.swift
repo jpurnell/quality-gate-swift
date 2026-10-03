@@ -58,6 +58,9 @@ final class SecurityVisitor: SyntaxVisitor {
     let justificationValidator = JustificationValidator()
     /// `secretPatterns` as terms for ``SensitiveName`` — built once per file, not per binding.
     private let secretPatternTerms: [SensitiveName.Term]
+    /// The type of the target owning this file. The key rules (`SecurityVisitor+Keys.swift`) do
+    /// not report in a test target, where fixed key material is a known-answer vector.
+    let targetType: TargetType
     /// `let` bindings whose literal `security.hardcoded-key` reported at a use as key material.
     var claimedKeyBindings: Set<SyntaxIdentifier> = []
     /// `security.hardcoded-secret` findings held until the file is walked, so one that
@@ -69,8 +72,10 @@ final class SecurityVisitor: SyntaxVisitor {
         source: String,
         converter: SourceLocationConverter,
         configuration: SecurityAuditorConfig,
-        sourceFile: SourceFileSyntax? = nil
+        sourceFile: SourceFileSyntax? = nil,
+        targetType: TargetType = .executable
     ) {
+        self.targetType = targetType
         self.localStringConstants = sourceFile.map(Self.stringLiteralConstants(in:)) ?? []
         self.fileName = fileName
         self.source = source
@@ -112,7 +117,7 @@ final class SecurityVisitor: SyntaxVisitor {
                 continue
             }
             // A PEM private key is key material: `hardcoded-key` reports the literal itself.
-            if isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(literal) { continue }
+            if keyRulesApply, isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(literal) { continue }
 
             let location = node.startLocation(
                 converter: converter
