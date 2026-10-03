@@ -344,7 +344,13 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// Which security rules to enable. Empty means all rules are enabled.
     public var enabledRules: [String]
 
-    /// Regex patterns for variable names that indicate secrets.
+    /// Extra secret nouns for `security.hardcoded-secret`, matched by ``SensitiveName`` as a
+    /// whole word or a run of whole words (`connectionString` matches `dbConnectionString`;
+    /// `token` no longer matches `tokenizer`).
+    ///
+    /// Additive: the rule's built-in words (``SensitiveName/Origin/hardcodedSecretRule``) always
+    /// apply, so listing fewer words does not remove any. The defaults are exactly those words
+    /// and are kept for compatibility.
     public var secretPatterns: [String]
 
     /// Hosts allowed to use http:// (e.g. localhost test servers).

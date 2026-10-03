@@ -54,6 +54,49 @@ struct SecurityVisitorTests {
         #expect(!result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
     }
 
+    // MARK: - Hardcoded Secret on the shared matcher (SensitiveName)
+
+    /// Names the rule reported under substring matching and still reports on whole words.
+    @Test("hardcoded-secret still reports every name that mentions a secret word", arguments: [
+        "apiKey", "API_KEY", "api_key", "databasePassword", "authToken", "clientSecret",
+        "privateKey", "credentials", "tokenCount", "maxTokens", "githubToken", "secretValue",
+        "token1", "secret123", "SuperSecret123", "eosToken2", "accesstoken", "clientsecret",
+    ])
+    func hardcodedSecretStillReports(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.count == 1)
+    }
+
+    /// The behaviour change the migration makes (`PublicIsAClaimAboutTheValue.md` §5 test 31):
+    /// a word that only *contains* a secret word is not one.
+    @Test("hardcoded-secret no longer reports a word that merely contains a secret word", arguments: [
+        "tokenizer", "secretary", "passwordless", "tokenizerVersion", "detokenized",
+    ])
+    func hardcodedSecretWordBoundary(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.isEmpty)
+    }
+
+    /// The rule keeps the words it shipped with. Giving it the union vocabulary added nineteen
+    /// portfolio findings — `authorizationCode`, `bearer` and `sessionID` as protocol constants,
+    /// test-fixture passphrases — and removed none, so the widening is pinned *out* until a
+    /// change argues for it with its own measurement.
+    @Test("hardcoded-secret does not take the union vocabulary's other words", arguments: [
+        "bearer", "passwd", "passphrase", "jwt", "sessionId", "signingKey", "authorization",
+    ])
+    func hardcodedSecretKeepsItsWords(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.isEmpty)
+    }
+
+    @Test("hardcoded-secret ignores security parameters and personal data", arguments: [
+        "nonce", "salt", "email", "sessionLabel", "keyPath",
+    ])
+    func hardcodedSecretIgnoresNonSecrets(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.isEmpty)
+    }
+
     // MARK: - Command Injection (CWE-78)
 
     /// A bare `Process()` is no longer this rule's business.

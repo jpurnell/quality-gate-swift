@@ -189,6 +189,30 @@
   that passes `allowUncontainedSymlinks: true` deliberately. That also confirms the spelling,
   which the proposal had marked unverified. The proposal's size and decompression rules are
   Phase 3 and not part of this change. See `AnArchiveDescribesItself.md` §4.1, §4.2.
+- **`SensitiveName` and `SecurityContext` in `QualityGateCore`: one sensitive-name matcher and
+  one security-context predicate** (`ideas/TheGateIsNotYetAggressive.md` §2.1 last row, §2.2
+  item 5). This is shared infrastructure for the Wave B rules, and adds no rules itself.
+  - `SensitiveName.classify(_:restrictedTo:additionalTerms:)` splits an identifier or key in
+    any spelling (`apiKey`, `API_KEY`, `x-api-key`, `auth.token`, `"api_key"`) into whole
+    words. It matches terms as runs of whole words, never as substrings: `tokenizer`,
+    `secretary`, `keyboard`, `passwordless` and `apiKeyboard` match nothing. It answers three
+    questions:
+    - `namesSecret`: a secret word anywhere in the name, which is what the shipped rules ask.
+    - `headCategory`: whether the secret is the head of the name. `accessToken` is a token;
+      `tokenCount` and `inputTokens` are not. `PublicIsAClaimAboutTheValue` needs this.
+    - `descriptor`: `keyName`, `sessionExpiry`, `maxTokens`. `ASeedIsNotASecret` needs this.
+  - The vocabulary is the union of every list the gate shipped or a proposal defined. It
+    has 48 terms in five categories: credential, password, key material, security
+    parameter and personal data. Every term records its origin, and `key`, `state` and
+    `pin` are weak.
+  - `SecurityContext.evaluate(_:)` is `ASeedIsNotASecret` §3.1, made syntax-free and
+    decidable. A value is in a security context when its binding, argument label or
+    returning function carries a strong security word and no descriptor. A weak word
+    counts only inside an auth- or crypto-named function or type. Separately, the value
+    argument of a header, cookie or query sink is always in context. An enclosing scope
+    alone is not enough.
+  - Tested by 36 table-driven tests covering every term, the substring traps, both clauses
+    of the predicate and the proposals' own corpus cases.
 
 - **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
   `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
@@ -280,6 +304,30 @@
   80 repositories then reports **no new security finding anywhere**.
 
 ### Changed
+
+- **`security.hardcoded-secret` and `keychain-secrets` now use `SensitiveName`.** Both keep
+  the words they shipped with, selected by origin. Widening them to the union vocabulary
+  was measured and declined: over the portfolio it added 19 `hardcoded-secret` findings,
+  all of them OAuth constants, header names, a regex and test fixtures, and removed none.
+  - `hardcoded-secret` matches whole words instead of `name.lowercased().contains(pattern)`.
+    `tokenizer`, `BPETokenizer`, `secretary`, `secretly`, `credentialed` and
+    `kSecReturnData` are no longer credentials. `token1`, `secret123` and run-together
+    `accesstoken` still are, because letters and digits now split.
+  - `keychain-secrets` finds compounds as whole-word runs, not substrings of the joined
+    name, so `apiKeyboardLayout` is no longer a secret. `token1` now is.
+    - Plurals behave as before: `apiKeys` and `access_tokens` match. `tokens` and
+      `maxTokens` do not.
+    - An `extraPatterns` compound such as `license_key` now matches `licenseKey`.
+  - `secretPatterns` is now additive. Listing fewer words no longer removes any, so a
+    security rule cannot be weakened by configuration.
+  - **Portfolio sweep:** 101 first-party packages, `safety` + `keychain-secrets` +
+    `logging`, run before and after on read-only copies. The findings are identical.
+  - **Predicate sweep:** the old and new predicates were run over all 111,209 distinct
+    identifiers and string literals in those packages.
+    - Every `hardcoded-secret` name the new code drops is a substring false positive from
+      the list above.
+    - Its three additions are hyphenated strings, which can't be Swift identifiers.
+    - `keychain-secrets` gains 14 digit-suffixed names (`token1`, `secret123`) and loses none.
 
 - **A `// SECURITY:` acknowledgement must give a reason, and is always recorded.** Any security
   finding used to be silenced by the bare marker on its line or the one above — no reason
