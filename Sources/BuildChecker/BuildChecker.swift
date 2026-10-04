@@ -1,5 +1,4 @@
 import Foundation
-import IndexStoreInfra
 import QualityGateLogging
 import QualityGateCore
 
@@ -7,6 +6,12 @@ import QualityGateCore
 ///
 /// BuildChecker runs the Swift compiler and parses its output into structured
 /// diagnostics. It detects errors, warnings, and notes from the build process.
+///
+/// An incremental build prints a diagnostic only for the files it recompiles, so after a
+/// successful build the checker also reads what the compiler *recorded* for every first-party
+/// compile unit — see ``RecordedDiagnostics``. The same tree gives the same warnings on a cold
+/// build directory and a warm one, and when the checker cannot establish that, it reports
+/// `build.warnings-unverified` instead of passing.
 ///
 /// ## Usage
 ///
@@ -61,26 +66,36 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Creates a new BuildChecker instance.
     public init() {}
 
-    /// Declares this checker cacheable on the whole source tree.
+    /// Declares no cache inputs: a `build` verdict is never replayed from the result cache.
     ///
-    /// "Does this package compile" is a function of the sources and the manifests, both in the
-    /// fingerprint, and of the toolchain, which `gateIdentityHash` salts in.
+    /// It used to declare the whole source tree, on the reasoning that "does this package
+    /// compile" is a function of the sources and the manifests. Two real inputs were missing
+    /// from that fingerprint, and each made the cache wrong in its own direction:
     ///
-    /// A cache hit means the compiler did not run. That is sound for *this* checker's verdict —
-    /// the same sources under the same toolchain still compile — but it is worth stating,
-    /// because a hit does not repopulate `.build`. Anything that needs artifacts rather than a
-    /// verdict must not infer their existence from this checker passing.
+    /// - **The build directory.** A warm build prints no warnings, so whether the stored verdict
+    ///   was a pass or a warning depended on what `.build` looked like when it was written.
+    /// - **Local path dependencies.** They are compiled, their warnings are reported, and they
+    ///   live outside the project root — so a warning fixed in a sibling package was replayed
+    ///   on every cached run until the build directory was deleted.
+    ///
+    /// Either could be patched into the fingerprint, and the next missing input (SDK,
+    /// environment, an `-Xswiftc` in the shell) would be found the same way those were. The
+    /// build system already tracks all of them, per file, and answers a no-op build in a few
+    /// seconds; with the recorded diagnostics read after it, that warm build is a complete
+    /// answer. So the build system is the cache, and the gate keeps no copy in front of it.
+    ///
+    /// A side effect worth having: with no hits, `.build` is populated whenever `build` has
+    /// run, which is what the index-backed checkers and the test runner want to be true.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSource(
-            projectRoot: configuration.resolvedProjectRoot,
-            configuration: configuration
-        )
+        nil
     }
 
     /// Run the build check.
     ///
-    /// Executes `swift build` and parses any compiler diagnostics.
-    /// Skips automatically when no Package.swift is present (Xcode-only projects).
+    /// Executes `swift build`, parses any compiler diagnostics it printed, and — when the build
+    /// succeeded — merges in the diagnostics the compiler recorded for the compile units the
+    /// build left alone. Skips automatically when no Package.swift is present (Xcode-only
+    /// projects).
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
@@ -104,15 +119,29 @@ public struct BuildChecker: QualityChecker, Sendable {
         }
 
         let args = buildArguments(for: configuration)
+        // Wall-clock, because it is compared with file modification dates: a record written
+        // since this moment was written by this build.
+        let buildStarted = Date()
         let (output, exitCode) = try await runSwiftBuild(arguments: args, in: projectRoot)
 
+        // Success only. After a failure the transcript has the errors, the verdict is already
+        // `.failed`, and not every unit ran — the failing file's record is the previous build's.
+        let recorded: RecordedDiagnostics? = exitCode == 0
+            ? RecordedDiagnostics.collect(
+                projectRoot: projectRoot,
+                buildConfiguration: configuration.buildConfiguration,
+                buildStarted: buildStarted
+            )
+            : nil
+
         let duration = ContinuousClock.now - startTime
-        return Self.createResult(output: output, exitCode: exitCode, duration: duration)
+        return Self.createResult(output: output, exitCode: exitCode, duration: duration, recorded: recorded)
     }
 
     // MARK: - Public API for Testing
 
-    /// Strips ANSI SGR escape sequences (`ESC[…m`) from compiler output.
+    /// Strips terminal escape sequences from compiler output: ANSI SGR colour (`ESC[…m`) and
+    /// OSC 8 hyperlinks (`ESC]8;…;URI` terminated by `ESC\` or BEL).
     ///
     /// `swift build` colourises diagnostics even when its output is a pipe rather than
     /// a terminal, so a real warning arrives as
@@ -121,15 +150,29 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// pattern expects nothing — and they would also travel into any report built from
     /// the message.
     ///
+    /// The compiler also wraps a diagnostic's group in a hyperlink to its documentation:
+    /// `[#ESC]8;;https://docs.swift.org/…ESC\NoUsageESC]8;;ESC\]`. Stripping colour alone
+    /// left the link's payload behind, so every report printed
+    /// `[#]8;;https://docs.swift.org/…\NoUsage]8;;\]`. A message is text: with both removed
+    /// it reads `[#NoUsage]`, which is also the form a recorded diagnostic is rendered in —
+    /// the two must compare equal for a warning that is both printed and recorded to be
+    /// reported once.
+    ///
     /// - Parameter text: Raw compiler output, possibly colourised.
-    /// - Returns: The same text with SGR escape sequences removed.
+    /// - Returns: The same text with SGR and OSC 8 escape sequences removed.
     private static func strippingANSIEscapes(_ text: String) -> String {
         guard text.contains("\u{1B}") else { return text }
-        return text.replacingOccurrences(
-            of: "\u{1B}\\[[0-9;]*m",
-            with: "",
-            options: .regularExpression
-        )
+        return text
+            .replacingOccurrences(
+                of: "\u{1B}\\]8;[^\u{1B}\u{07}]*(?:\u{1B}\\\\|\u{07})",
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: "\u{1B}\\[[0-9;]*m",
+                with: "",
+                options: .regularExpression
+            )
     }
 
     /// The last `lines` lines of `text`, for reporting a failure no pattern matched.
@@ -148,8 +191,8 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Parse Swift compiler output into diagnostics.
     ///
     /// This method is exposed for testing purposes. It extracts file locations,
-    /// severity levels, and messages from compiler output, after removing any ANSI
-    /// colour escapes the compiler emitted around the severity token.
+    /// severity levels, and messages from compiler output, after removing the ANSI colour
+    /// and hyperlink escapes the compiler emits around the severity and the diagnostic group.
     ///
     /// - Parameter rawOutput: The raw output from `swift build`, as emitted.
     /// - Returns: An array of diagnostics parsed from the output
@@ -218,25 +261,71 @@ public struct BuildChecker: QualityChecker, Sendable {
         return diagnostics
     }
 
-    /// Create a CheckResult from build output.
+    /// Removes repeated diagnostics, keeping the first of each.
+    ///
+    /// Two diagnostics are the same finding when they agree on path, line, column, severity
+    /// and message — at which point no reader could tell them apart either. It exists for one
+    /// diagnostic reported by two jobs: emit-module and the compile job both report a warning
+    /// in a declaration, so two warnings were counted as four; and a file this run compiled is
+    /// in both the transcript and its record.
+    ///
+    /// - Parameter diagnostics: Diagnostics in reporting order.
+    /// - Returns: The same diagnostics with later repeats removed, order preserved.
+    static func uniqued(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
+        var seen = Set<String>()
+        return diagnostics.filter { diagnostic in
+            let key = [
+                diagnostic.filePath ?? "",
+                diagnostic.lineNumber.map(String.init) ?? "",
+                diagnostic.columnNumber.map(String.init) ?? "",
+                diagnostic.severity.rawValue,
+                diagnostic.message,
+            ].joined(separator: "\u{0}")
+            return seen.insert(key).inserted
+        }
+    }
+
+    /// Create a CheckResult from build output and the compiler's recorded diagnostics.
+    ///
+    /// A successful build's findings are the union of what the build printed and what the
+    /// compiler recorded for every first-party compile unit, each reported once: transcript
+    /// order first, then recorded. When `recorded` says some unit could not be vouched for,
+    /// the result carries `build.warnings-unverified` and is at best a warning; it always
+    /// carries the `build.diagnostic-coverage` note. A failed build ignores `recorded`.
     ///
     /// - Parameters:
     ///   - output: The raw build output
     ///   - exitCode: The exit code from `swift build`
     ///   - duration: How long the build took
+    ///   - recorded: The recorded diagnostics read after a successful build, or `nil` to judge
+    ///     the transcript alone.
     /// - Returns: A CheckResult summarizing the build
     public static func createResult(
         output: String,
         exitCode: Int32,
-        duration: Duration
+        duration: Duration,
+        recorded: RecordedDiagnostics? = nil
     ) -> CheckResult {
-        var diagnostics = parseBuildOutput(output)
+        let succeeded = exitCode == 0
+        var diagnostics = uniqued(parseBuildOutput(output) + (succeeded ? recorded?.diagnostics ?? [] : []))
+        // The checker's own statements about what it read. Kept apart from compiler
+        // diagnostics until after first-party scoping, which is about where a compiler
+        // diagnostic points and has nothing to say about these.
+        var coverage: [Diagnostic] = []
 
         let status: CheckResult.Status
-        if exitCode == 0 {
+        if succeeded {
+            if let recorded {
+                if let unverified = recorded.unverifiedDiagnostic {
+                    coverage.append(unverified)
+                }
+                coverage.append(recorded.coverageDiagnostic)
+            }
             // A compiler warning is a finding, and the verdict says so. As `.passed` it was
-            // counted in the summary and nowhere else: the tick stayed green.
-            status = diagnostics.contains { $0.severity == .warning } ? .warning : .passed
+            // counted in the summary and nowhere else: the tick stayed green. A pass that
+            // cannot be vouched for is not a pass either.
+            let warned = (diagnostics + coverage).contains { $0.severity == .warning }
+            status = warned ? .warning : .passed
         } else {
             let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
             if !hasCompilationErrors && isCodeSigningError(output) {
@@ -275,7 +364,7 @@ public struct BuildChecker: QualityChecker, Sendable {
         return CheckResult(
             checkerId: "build",
             status: status,
-            diagnostics: diagnostics.scopedToFirstParty(),
+            diagnostics: diagnostics.scopedToFirstParty() + coverage,
             duration: duration
         )
     }

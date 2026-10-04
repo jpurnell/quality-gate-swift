@@ -85,6 +85,28 @@
 
 ### Added
 
+- **A reader for the compiler's serialized diagnostics, and an index of a build's compile
+  units.** Both are in the `BuildChecker` target, and are the groundwork for `build` reporting
+  warnings in files a build did not recompile.
+  - `SerializedDiagnosticsReader` decodes a `.dia` file — what each compile job writes beside
+    its object file — into the gate's `Diagnostic`, rendering a message as the compiler prints
+    it (`text [#Group]`). Malformed input throws; nothing traps.
+  - `CompileUnitIndex` reads a build directory's output file maps for one configuration and
+    returns the live, first-party compile units and where each records its diagnostics. It
+    reads the map, not the directory: a `.dia` left behind by a deleted source file is not a
+    unit. Handles the `swiftbuild` layout (per-file records and the `""`-keyed emit-module
+    record in debug; the `""`-keyed whole-module record in release) and the native one.
+  - The decoder is `TSCUtility.SerializedDiagnostics`, vendored from
+    [swift-tools-support-core](https://github.com/swiftlang/swift-tools-support-core) at commit
+    `c574915fe88e942e4c4c93376f022daa2ecf05f9` (Apache-2.0 with Runtime Library Exception):
+    `Sources/TSCUtility/Bits.swift`, `Bitstream.swift`, `BitstreamReader.swift` and
+    `SerializedDiagnostics.swift`, now under `Sources/BuildChecker/SerializedDiagnostics/`.
+    `ByteString` became `[UInt8]`, so there is no new package dependency. Every trap in the
+    upstream code (`precondition`, `fatalError`, force unwraps, unchecked integer conversions)
+    became a thrown error, because this copy reads whatever is on disk; records own their
+    fields instead of borrowing an unsafe buffer; and the recursive readers are depth-bounded.
+    Source ranges, fix-its and the writer-side declarations were dropped. Each file's header
+    keeps the upstream licence notice and lists its changes.
 - **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
   `excludedCheckers:`. Before this, the only way to opt a checker in from config was
   `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
@@ -672,6 +694,12 @@
   Caveats: an incremental build re-emits a warning only when its file recompiles, so the
   status appears on the run that compiles the file. Local path dependencies' warnings
   count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
+  The first caveat no longer holds for `build` — see *Fixed*, "`build` reports compiler
+  warnings in files the build did not recompile". It still holds for `xcode-build`.
+- **A warning printed by two compile jobs is counted once.** Emit-module and the compile job
+  both report a warning in a declaration, so two deprecation warnings were counted as four.
+  `build` findings are now keyed on path, line, column, severity and message. Expect counts to
+  fall where they were doubled.
 - **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
   (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
   is gone; a parameter is secret-named when it names a strong credential, password or
@@ -768,6 +796,46 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`build` reports compiler warnings in files the build did not recompile.** An incremental
+  `swift build` prints a diagnostic only for the files it compiles, so a warm build directory
+  reported zero warnings: the same tree gave `WARNING`, `PASSED`, `WARNING` on three runs,
+  depending on which files each run happened to rebuild, and `--strict --no-cache` exited 0 over
+  warnings that a clean build printed. After a successful build the checker now also reads the
+  serialized diagnostics (`.dia`) the compiler recorded for every first-party compile unit, found
+  through the build's output file maps, and reports the union. A unit counts only if a current
+  map names it and its source exists (a deleted file's record is not replayed), a record older
+  than its source is not trusted, and nothing is read after a failed build. Works on the
+  `swiftbuild` debug and release layouts and the native one.
+  - When a unit's record is missing, unreadable or stale — or no output file map is found at
+    all — the result carries `build.warnings-unverified`, a warning, instead of passing: *"N of
+    M compile units were up to date and their recorded diagnostics could not be read"*.
+  - Every successful result carries the note `build.diagnostic-coverage`: *"9 Swift compile
+    unit(s): 1 compiled by this run, 8 read from recorded diagnostics."*
+  - Not covered: warnings with no source location, C-family compile units (reported only when
+    recompiled, as before), `xcode-build`, and a target removed from `Package.swift` whose build
+    products remain.
+  - The `.dia` reader and the compile-unit index are described under *Added*, with the
+    provenance of the vendored code.
+- **Compiler messages no longer carry half an escape sequence.** The compiler wraps a
+  diagnostic's group in an OSC 8 hyperlink, and only colour escapes were stripped, so every
+  report format printed
+  `[#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]`.
+  It now reads `[#NoUsage]`. This changes the message text of `build` and `xcode-build`
+  findings: a baseline or override keyed on the old text needs re-recording.
+- **`build` is no longer replayed from the result cache.** Its fingerprint omitted two real
+  inputs. The build directory: whether a `PASSED` or a `WARNING` was stored depended on what
+  `.build` looked like when the entry was written. And local path dependencies: a warning fixed
+  in a sibling package was reported, *"Replayed from cache"*, on every default run until the
+  build directory was deleted. `build` now runs every time — a no-op build is a few seconds,
+  and the build system tracks every input the cache did not. Existing `build` entries expire on
+  their own, since the gate binary's hash is in every fingerprint. `test` still uses the same
+  fingerprint and has the same path-dependency hole; that is not fixed here.
+- **`--no-cache` repairs the cache instead of leaving it alone.** The flag skipped the load and
+  the store alike, so the run that proved an entry stale left it in place and the next default
+  run replayed it. It now means *do not read*: every checker runs, a passing result replaces
+  the stored entry, and a failing one removes it (failures are still never stored). Help text:
+  *"Ignore cached results: run every checker and replace its cached entry. Does not force a
+  clean build — it does not need to."*
 - **A query item or header is a security sink only when its name says so.** The randomness
   rules (`weak-prng`, `seeded-secret`, `predictable-token`, `uuid-as-secret`) put every value
   written to a header, cookie or URL query item in a security context

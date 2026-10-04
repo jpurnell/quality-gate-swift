@@ -69,9 +69,12 @@ public struct CheckerRunner: Sendable {
     ///   - configuration: The gate configuration passed to each checker.
     ///   - strict: When `true`, a `.warning` result counts as failing for early-exit.
     ///   - continueOnFailure: When `false`, stop after the first failing result.
-    ///   - cache: Optional result cache consulted when `useCache` is `true`; `nil` disables caching.
+    ///   - cache: Optional result cache; `nil` disables caching altogether, reads and writes.
     ///   - gateHash: Identity hash of the gate build, mixed into each cache fingerprint so a gate rebuild invalidates stale entries.
-    ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged checker inputs.
+    ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged
+    ///     checker inputs. When `false`, nothing is read from `cache` — every checker runs — but
+    ///     a fresh passing result still replaces the stored entry, and a fresh failure removes
+    ///     it. That is `--no-cache`: do not read, rather than do not touch.
     ///   - digests: Per-run file-digest memo shared across every fingerprint this run computes.
     ///     Callers with post-run fingerprinting of their own (telemetry sidecars) pass theirs in
     ///     so the whole process hashes each input file once.
@@ -172,7 +175,7 @@ public struct CheckerRunner: Sendable {
         }
 
         @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
-            if useCache, let cache, let inputs = checker.cacheInputs(configuration: configuration) {
+            if let cache, let inputs = checker.cacheInputs(configuration: configuration) {
                 let fingerprint = CheckerFingerprint.compute(
                     checkerId: checker.id, inputs: inputs, gateHash: gateHash, digests: digests
                 )
@@ -193,7 +196,13 @@ public struct CheckerRunner: Sendable {
                 // an identical tree on purpose, so a poisoned entry stays invisible
                 // during ordinary editing and bites when someone is trying to get
                 // unstuck, and is least inclined to doubt a red result.
-                if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
+                //
+                // `useCache == false` skips only this read. It used to skip the store below
+                // as well, so the run that proved an entry stale left it in place: the next
+                // default run replayed the old verdict, and `--no-cache` — the flag people
+                // reach for when a cached result looks wrong — could show the truth and not
+                // repair anything.
+                if useCache, let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
                     if cached.status.isPassing {
                         let producedAt = cache.entryDate(checkerId: checker.id, fingerprint: fingerprint)
                         return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker).reconciled()
@@ -203,6 +212,11 @@ public struct CheckerRunner: Sendable {
                 let fresh = await runAndSynthesize(checker)
                 if fresh.status.isPassing {
                     cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
+                } else {
+                    // Still never stored. And whatever is stored for this fingerprint has just
+                    // been contradicted by a real run, so it goes: on a reading run there is
+                    // nothing left to remove, on a no-read run this is the stale pass.
+                    cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }
                 return clamped(transform(fresh), checker).reconciled()
             }

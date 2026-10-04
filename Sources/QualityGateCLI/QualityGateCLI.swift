@@ -109,7 +109,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Flag(name: .long, help: "Enforce the release-tag invariant at full strength, as a pre-push hook does (implied when git supplies a pushed-ref list on stdin)")
     var releaseBoundary: Bool = false
 
-    @Flag(name: .long, help: "Disable the incremental result cache (re-run every checker from scratch)")
+    @Flag(name: .long, help: "Ignore cached results: run every checker and replace its cached entry. Does not force a clean build — it does not need to.")
     var noCache: Bool = false
 
     @Flag(name: .long, help: "Never compile a project to produce an index store; index-backed checkers reuse an existing store or degrade to AST-only. Use for fast portfolio sweeps that must not build.")
