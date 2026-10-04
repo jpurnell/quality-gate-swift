@@ -623,6 +623,19 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`isolated deinit` is accepted in `@MainActor` classes and is the recommended fix.**
+  `concurrency.main-actor-deinit-touches-state` read only the enclosing type's isolation, so
+  a deinit the language had isolated (`isolated deinit`, or `@MainActor deinit` — SE-0371) was
+  reported like a plain one, and the only spelling the rule accepted was `nonisolated(unsafe)`.
+  It now reads the deinit's own modifiers and attributes. `nonisolated deinit` and a plain
+  `deinit` are reported as before. No severity change and no new rule id.
+  - The message said a plain deinit "will trap at runtime". It does not; it runs on whichever
+    thread drops the last reference, and the hazard is a race on state shared with main-actor
+    code. The message says that now, and the suggested fix names `isolated deinit` first.
+  - `lifecycle-task-no-deinit` suggested "Add a deinit that calls X.cancel()", which on a
+    `@MainActor` class produced exactly the deinit the concurrency rule reports. On a
+    `@MainActor` class it now suggests an `isolated deinit`, and calls through an optional
+    handle as `X?.cancel()`. Other classes keep the old text.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line

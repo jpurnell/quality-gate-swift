@@ -820,7 +820,8 @@ let package = Package(
         ),
         .testTarget(
             name: "MemoryLifecycleGuardTests",
-            dependencies: ["MemoryLifecycleGuard"]
+            // ConcurrencyAuditor: the round-trip test runs both checkers on one source.
+            dependencies: ["MemoryLifecycleGuard", "ConcurrencyAuditor"]
         ),
         .target(
             name: "ProcessSafetyAuditor",

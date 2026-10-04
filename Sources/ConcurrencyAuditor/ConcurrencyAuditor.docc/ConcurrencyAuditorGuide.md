@@ -169,31 +169,40 @@ This rule fires for any DispatchQueue method (`.async`, `.sync`, `.asyncAfter`) 
 
 ### `concurrency.main-actor-deinit-touches-state`
 
-In Swift 6, `deinit` is non-isolated even on `@MainActor` types. Touching instance stored properties from deinit will trap at runtime.
+A plain `deinit` is nonisolated, even on a `@MainActor` type: it runs on whichever thread releases the last reference. The compiler lets it read and write the type's stored properties anyway, and nothing traps — this guide used to say it would. The hazard is a race. A non-`Sendable` object reachable from a stored property may still be shared with main-actor code while the deinit touches it from another thread.
 
 ```swift
 // ❌ flagged
 @MainActor
-class DeinitTrap {
-    var x = 0
+final class PlainDeinitMonitor {
+    var task: Task<Void, Never>?
     deinit {
-        print(x)   // runtime trap in Swift 6
+        task?.cancel()   // runs wherever the last reference was dropped
     }
 }
 
 // ✅ accepted
 @MainActor
-class SafeDeinit {
-    var x = 0
-    deinit {
-        // empty — or only log static state
+final class IsolatedDeinitMonitor {
+    var task: Task<Void, Never>?
+    isolated deinit {
+        task?.cancel()   // runs on the main actor
     }
 }
 ```
 
-Static references via `Self.x` are excluded from the check because static storage is not actor-isolated.
+**The fix is `isolated deinit`** (SE-0371, Swift 6.2). It makes the deinit run on the type's actor, so touching the type's state is exactly what it is for. `@MainActor deinit` — the attribute on the deinit itself — is the same thing spelled differently, and the rule accepts both. `nonisolated deinit` is a plain deinit spelled out, and is reported like one.
 
-The recommended fix is to introduce an explicit isolated cleanup method that runs before deallocation.
+Availability, as measured on Swift 6.4:
+
+- On a `@MainActor` class, `isolated deinit` is back-deployed by the compiler: it compiles for macOS 14, iOS 17, watchOS 10 and visionOS 1. Below macOS 15.4 / iOS 18.4 / watchOS 11.4 / visionOS 2.4 the emitted shim runs the body inline when the release happens on the main thread and otherwise enqueues it on the main actor. That is what the compiler emits; it has not been exercised here on an iOS 17 runtime.
+- In an `actor`, or a class isolated to a custom global actor, `isolated deinit` needs macOS 15.4 / iOS 18.4 / watchOS 11.4 / visionOS 2.4, and the compiler says so. This rule only examines `@MainActor` classes, so it never asks for the gated form.
+
+The cost: when the last reference is dropped off the main actor, an isolated deinit schedules one main-actor hop and deallocation waits for it. Released on the main actor — the usual case for a view model — the body runs inline.
+
+The escape hatch still works: a property declared `nonisolated(unsafe)`, with a `// Justification:` comment, is not isolated state and a plain deinit may touch it. It is unchecked, so prefer `isolated deinit`.
+
+Static references via `Self.x` are excluded from the check because static storage is not instance state.
 
 ### `concurrency.preconcurrency-first-party-import`
 
@@ -262,7 +271,7 @@ The auditor is intentionally conservative on what it flags but pragmatic about s
 - **sendable-class-mutable-state, sendable-class-non-sendable-property**: switch to `@unchecked Sendable` with a justification, or refactor.
 - **task-captures-self-no-isolation**: use `await self.method()` to make the hop explicit.
 - **dispatch-queue-in-actor**: use `await MainActor.run` or refactor to stay on-actor.
-- **main-actor-deinit-touches-state**: move cleanup to an explicit isolated method called before deallocation.
+- **main-actor-deinit-touches-state**: declare the deinit `isolated deinit`. If its only access is cancelling a Task handle, `nonisolated(unsafe)` on that property with a `// Justification:` comment also works, unchecked.
 - **preconcurrency-first-party-import**: add the module to `allowPreconcurrencyImports:` during a transition, then fix the underlying warnings and remove it.
 - **cancellation-checkpoint-after-loop**: add `try Task.checkCancellation()` after the loop, or — if the post-loop code genuinely must run on both paths — put `// concurrency:exempt` on the loop line (recorded as a `DiagnosticOverride`, not silently dropped).
 

@@ -160,8 +160,12 @@ final class ConcurrencyVisitor: SyntaxVisitor {
 
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         isolationStack.append(currentIsolation)
-        // Rule: @MainActor deinit touches state
-        if currentTypeIsolation == .mainActor, let body = node.body {
+        // Rule: @MainActor deinit touches state. A deinit the language has isolated
+        // (`isolated deinit`, or `@MainActor deinit` — SE-0371) runs on the actor, so
+        // touching the type's state is what it is for and the rule does not apply.
+        if currentTypeIsolation == .mainActor,
+           !deinitIsIsolated(node),
+           let body = node.body {
             checkDeinitTouchesState(body: body, declStartLine: startLine(of: Syntax(node)))
         }
         return .visitChildren
@@ -380,12 +384,12 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         if walker.found {
             diagnostics.append(Diagnostic(
                 severity: .error,
-                message: "@MainActor class deinit touches isolated stored state; deinit is non-isolated in Swift 6 and will trap at runtime",
+                message: "Nonisolated deinit of a @MainActor class touches stored state; it runs on whichever thread releases the last reference, so state shared with main-actor code can race",
                 filePath: fileName,
                 lineNumber: declStartLine,
                 columnNumber: 1,
                 ruleId: "concurrency.main-actor-deinit-touches-state",
-                suggestedFix: "Move cleanup that touches isolated state into an explicit isolated method called before deallocation."
+                suggestedFix: "Declare it `isolated deinit` (SE-0371; back-deployed for @MainActor). If the only access is cancelling a Task handle you can also mark the property `nonisolated(unsafe)` with a // \(justificationKeyword) comment."
             ))
         }
     }
@@ -554,6 +558,18 @@ func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {
         }
     }
     return false
+}
+
+/// Whether a deinit carries its own isolation: the `isolated` modifier, or a
+/// `@MainActor` attribute on the deinit itself (SE-0371's two spellings).
+///
+/// Read from the declaration's modifier and attribute lists, never from text, so
+/// the word in a comment or a string is not the modifier.
+func deinitIsIsolated(_ node: DeinitializerDeclSyntax) -> Bool {
+    if node.modifiers.contains(where: { $0.name.tokenKind == .keyword(.isolated) }) {
+        return true
+    }
+    return hasMainActorAttribute(node.attributes)
 }
 
 func hasPreconcurrencyAttribute(_ attributes: AttributeListSyntax) -> Bool {

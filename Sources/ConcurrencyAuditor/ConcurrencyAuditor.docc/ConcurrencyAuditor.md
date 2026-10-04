@@ -18,7 +18,7 @@ This auditor is intentionally conservative on flagging and intentionally strict 
 | `concurrency.sendable-class-non-sendable-property` | error | A `Sendable` class with a stored closure property that is not `@Sendable` |
 | `concurrency.task-captures-self-no-isolation` | error | A `Task { … }` inside actor or `@MainActor` context that captures `self` without an explicit isolation hop |
 | `concurrency.dispatch-queue-in-actor` | error | `DispatchQueue.main.async` (or any DispatchQueue method) used inside actor-isolated context |
-| `concurrency.main-actor-deinit-touches-state` | error | A `@MainActor` class deinit that references an instance stored property |
+| `concurrency.main-actor-deinit-touches-state` | error | A nonisolated deinit of a `@MainActor` class that references an instance stored property. `isolated deinit` and `@MainActor deinit` are accepted |
 | `concurrency.preconcurrency-first-party-import` | error | `@preconcurrency import` of a first-party module that should be fixed instead |
 | `concurrency.cancellation-checkpoint-after-loop` | warning¹ | A `for await`/`for try await` loop, in a function that uses a cancellation checkpoint, followed by exit-reason-dependent code with no post-loop cancellation check |
 
@@ -64,7 +64,7 @@ The rules that consult isolation are:
 
 - `task-captures-self-no-isolation` — fires only when `currentIsolation.isIsolated`
 - `dispatch-queue-in-actor` — same
-- `main-actor-deinit-touches-state` — fires only when the enclosing type is `@MainActor`
+- `main-actor-deinit-touches-state` — fires only when the enclosing type is `@MainActor` and the deinit is not itself isolated (`isolated deinit`, or `@MainActor deinit`)
 
 Type decls (`class`, `struct`, `enum`) reset isolation to `.none` unless they have an explicit `@MainActor` attribute. So a class lexically nested inside an actor does not inherit actor isolation. Functions, initializers, and deinits inherit isolation from their parent unless they have their own `@MainActor` attribute.
 
