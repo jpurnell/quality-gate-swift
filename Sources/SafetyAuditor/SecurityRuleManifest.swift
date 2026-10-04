@@ -394,6 +394,32 @@ public enum SecurityRuleManifest {
             severity: "WARNING",
             lastReviewedDate: "2026-10-02"
         ),
+        SecurityRule(
+            ruleId: "security.bind-all-interfaces",
+            // 1327 is the Base; its parent 668 (Exposure of Resource to Wrong Sphere) is
+            // Discouraged. ERROR is the literal at the bind, which a caller cannot narrow; a
+            // default, assignment or argument is reported at warning by the rule.
+            // No Top 10 2021 category: MITRE's view lists neither 1327 nor its parents. The
+            // proposal's A05 was judgement, and this column is not.
+            cwes: ["CWE-1327"],
+            owaspMobile: "M8 Security Misconfiguration",
+            owaspAPI: "API8:2023 Security Misconfiguration",
+            description: "Listener bound to every interface by a literal, a default or an argument",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-03"
+        ),
+        SecurityRule(
+            ruleId: "security.listener-auth-optional",
+            // 1188, not 306: the code is not missing a check, it defaults out of one; 306 is the
+            // consequence and is named in the message. 306 stays a gap until a handler rule
+            // (`unprotected-handler`) reaches it. Not in MITRE's Top 10 2021 view either.
+            cwes: ["CWE-1188"],
+            owaspMobile: "M3 Insecure Authentication/Authorization",
+            owaspAPI: "API2:2023 Broken Authentication",
+            description: "Authentication off by default, or switchable off from the environment, in a target that listens",
+            severity: "WARNING",
+            lastReviewedDate: "2026-10-03"
+        ),
         // The randomness rules (ASeedIsNotASecret.md). Every CWE fetched from MITRE 4.20; 330 is
         // not used because MITRE marks it Discouraged. 335-338 and 340 are on A02:2021's mapped
         // list; 341 is not, and A02 is assigned to it by judgement, as the proposal says.

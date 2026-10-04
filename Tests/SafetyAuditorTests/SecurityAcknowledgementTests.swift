@@ -52,6 +52,12 @@ struct SecurityAcknowledgementTests {
         ("security.uuid-as-secret", "let sessionId = UUID().uuidString"),
         ("security.regex-catastrophic", #"let expression = try NSRegularExpression(pattern: "(a+)+$")"#),
         ("security.predicate-injection", "let predicate = NSPredicate(format: query)"),
+        ("security.bind-all-interfaces",
+         "_ = try await ServerBootstrap(group: g).bind(host: \"0.0.0.0\", port: 8080).get()"),
+        ("security.listener-auth-optional", """
+            _ = try await ServerBootstrap(group: g).bind(host: host, port: 8080).get()
+            init(port: Int, authenticator: Authenticator? = nil) {}
+            """),
     ]
 
     static let ruleIds = fixtures.map(\.rule)

@@ -45,6 +45,8 @@ import SwiftSyntax
 /// | `security.regex-catastrophic` | 1333 | Literal pattern with nested or overlapping unbounded repetition — see `SecurityVisitor+Pattern.swift` |
 /// | `security.regex-from-input` | 1333 | Pattern derived from external input (warning; acknowledgement must name a bound) |
 /// | `security.predicate-injection` | 943, 917 | `NSPredicate` / `NSExpression` format string assembled at runtime |
+/// | `security.bind-all-interfaces` | 1327 | Listener bound to every interface: literal at the bind or `INADDR_ANY` in a socket address (error); default, assignment or argument (warning) — see `ServerSurfaceRules.swift` |
+/// | `security.listener-auth-optional` | 1188 | Authenticator defaulting to off, or switchable off from the environment, in a target that listens |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String

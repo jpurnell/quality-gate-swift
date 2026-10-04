@@ -172,4 +172,22 @@ struct SecurityRuleManifestTests {
         #expect(rule.owaspTop10 == "A05:2021 Security Misconfiguration")
         #expect(rule.owaspMobile == "M4 Insufficient Input/Output Validation")
     }
+
+    /// MITRE CWE 4.20, fetched 2026-10-03: 1327 and 1188 are Base, Allowed, and members of no
+    /// OWASP Top Ten 2021 category — so the Top 10 column is empty rather than guessed. These
+    /// are the first rules where the API Security list plainly applies.
+    @Test("The listener rules carry their CWE, severity, and API Security category", arguments: [
+        ("security.bind-all-interfaces", "CWE-1327", "ERROR", "API8:2023 Security Misconfiguration",
+         "M8 Security Misconfiguration"),
+        ("security.listener-auth-optional", "CWE-1188", "WARNING", "API2:2023 Broken Authentication",
+         "M3 Insecure Authentication/Authorization"),
+    ])
+    func listenerRules(ruleId: String, cwe: String, severity: String, api: String, mobile: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == [cwe])
+        #expect(rule.severity == severity)
+        #expect(rule.owaspAPI == api)
+        #expect(rule.owaspMobile == mobile)
+        #expect(rule.owaspTop10 == nil)
+    }
 }

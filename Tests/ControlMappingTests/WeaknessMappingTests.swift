@@ -175,6 +175,24 @@ struct WeaknessMappingTests {
         #expect(row.rules == [rule])
     }
 
+    /// The listener rules close 1327 and 1188. 306, the consequence, stays a gap: only a
+    /// handler rule can say a handler is unauthenticated.
+    @Test("a weakness the listener rules reach is enforced, and names them", arguments: [
+        ("CWE-1327", "security.bind-all-interfaces"),
+        ("CWE-1188", "security.listener-auth-optional"),
+    ])
+    func listenerRowsAreEnforced(cwe: String, rule: String) throws {
+        let row = try #require(matrix().first { $0.controlId == cwe })
+        #expect(row.state == .enforced)
+        #expect(row.rules == [rule])
+    }
+
+    @Test("missing authentication stays a gap until a handler rule reaches it")
+    func missingAuthenticationIsAGap() throws {
+        let row = try #require(matrix().first { $0.controlId == "CWE-306" })
+        #expect(row.state == .gap)
+    }
+
     @Test("a listed weakness no rule reaches is reported as a gap")
     func gapRow() throws {
         // CWE-611 was the example until `security.xml-external-entities` reached it; 789 is
@@ -233,8 +251,9 @@ struct WeaknessMappingTests {
         // The catalogue itself must not shrink: 177 ids on 2026-10-03.
         #expect(ids.count >= 177)
         // 130, less the four the key rules close (321, 326, 329, 916), the three the randomness
-        // rules close (335, 338, 341) and the three the pattern rules close (1333, 943, 917).
-        // 1204, 323, 336, 337 and 340 arrived already covered, so they never counted as gaps.
-        #expect(matrix().filter { $0.state == .gap }.count >= 120)
+        // rules close (335, 338, 341), the three the pattern rules close (1333, 943, 917) and the
+        // two the listener rules close (1327, 1188). 1204, 323, 336, 337 and 340 arrived already
+        // covered, so they never counted as gaps.
+        #expect(matrix().filter { $0.state == .gap }.count >= 118)
     }
 }
