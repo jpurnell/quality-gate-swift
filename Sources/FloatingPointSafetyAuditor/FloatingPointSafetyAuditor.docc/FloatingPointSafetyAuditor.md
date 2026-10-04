@@ -37,7 +37,7 @@ Several sentinel-value comparisons are exempt because exact equality is intentio
 
 Division by a floating-point value that could be zero produces `inf` or `nan`, which propagate silently through calculations. This rule flags `/` and `/=` operators where the divisor appears to be floating-point and no zero guard is visible in the enclosing function scope.
 
-The auditor recognizes guard patterns of the form `variable != 0`, `variable != 0.0`, `variable != .zero`, and `variable > 0`. When the divisor variable appears in any of these patterns within the same function body, the division is considered guarded and is not flagged.
+The auditor reads the checks a function body makes and where it makes them. A division is not flagged when something *before it* asked whether its divisor is zero: `d != 0`, `d > 0`, `n >= 1`, `d == 0 ? 0 : x / d`, `abs(d) > .ulpOfOne`, `!d.isZero`, or — for a divisor of `xs.count` — any test of `xs.isEmpty`. A check on `values.count` covers `let count = Double(values.count)`. A check written after the division does not count. <doc:FloatingPointSafetyAuditorGuide> has the full list.
 
 ### Suppression
 

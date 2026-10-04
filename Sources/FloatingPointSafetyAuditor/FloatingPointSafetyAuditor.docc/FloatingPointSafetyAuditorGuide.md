@@ -143,20 +143,33 @@ func normalizeGuarded(_ values: [Double], by total: Double) -> [Double] {
     return values.map { $0 / total }
 }
 
-// accepted — the auditor recognizes these guard patterns:
-//   divisor != 0
-//   divisor != 0.0
-//   divisor != .zero
-//   divisor > 0
+// accepted — the auditor recognizes these guard patterns, written before the division:
+//   divisor != 0, divisor != 0.0, divisor != .zero     (and divisor == 0, in either branch)
+//   divisor > 0, 0 < divisor, divisor > 3              (a literal threshold)
+//   divisor >= 1, 4 <= divisor                         (>= needs a literal above zero)
+//   divisor <= 0                                       (the same question, asked the other way)
+//   abs(divisor) > .ulpOfOne, !divisor.isZero
+//   !values.isEmpty, values.isEmpty == false, values.isEmpty ? … : …   (guards values.count)
 func safeRatio(amount: Double, rate: Double) -> Double {
     guard rate != 0.0 else { return 0.0 }
     return amount / rate
 }
 ```
 
-The auditor collects guarded variable names per function body. If the divisor variable name appears in any recognized guard pattern within the same function — or any enclosing one — the division is not flagged.
+The auditor reads the checks each function body makes, and where it makes them. A division is not flagged when something **before it** — in the same body or an enclosing one — asked whether its divisor is zero. Four things follow from that:
 
-This rule holds a **higher evidence bar** than `fp-equality` for what counts as a floating-point operand: an annotation, a literal, a conversion at the site, or an allowlisted static member. It does not follow inference chains (a local bound from `Double(count)`, or from a call to a file-local function returning `Double`). The two rules ask different questions of the same operand. `fp-equality` asks which of three claims an `==` is making, and is worth raising whenever the operand is plausibly floating-point. `fp-division-unguarded` asks whether a divisor could be zero, and its answer is a guard added to shipping code.
+- **Order.** A check written after the division did not protect it. `let r = x / Double(n); if n > 0 { return r }` is flagged.
+- **Either sense.** `if d == 0 { return 0 }`, `d == 0 ? 0 : x / d` and `xs.isEmpty ? 0 : sum / Double(xs.count)` are guards. What is recorded is that the question was asked, not which way it was answered — `if d != 0 { log() }` has always cleared a later division, and still does. Whether the answer was acted on needs branch structure the auditor does not have.
+- **Aliases.** `let count = Double(values.count)` is `values.count` under another name, so a guard on either clears a division by either.
+- **A threshold is a literal.** `n > 0`, `n >= 2` and `abs(d) > .ulpOfOne` are guards; `n >= 0` is not, and neither is `segLen > n` or `d != 1` — a comparison between two values says nothing about zero. A named constant (`d > epsilon`) is not resolved.
+
+A divisor that cannot be zero needs no guard: a non-zero literal, a conversion of one (`Double(60)`), a product of them, or `max(n, 1)`. `max(n, -1)` can be zero and is flagged.
+
+This rule holds a **higher evidence bar** than `fp-equality` for what counts as a floating-point operand: an annotation, a literal, a conversion, an allowlisted static member — or a local bound to one of those. A name carries exactly the evidence of the expression it names, so `let d = Double(n); x / d` is examined just as `x / Double(n)` is. What the rule does not follow is a function's return type: a local bound from a call to a file-local function returning `Double` is unexamined. Nor is arithmetic evidence, on either side of the `=`: `x / (a - b)` and `let d = a - b; x / d` are both unexamined.
+
+The two rules ask different questions of the same operand. `fp-equality` asks which of three claims an `==` is making, and is worth raising whenever the operand is plausibly floating-point. `fp-division-unguarded` asks whether a divisor could be zero, and its answer is a guard added to shipping code.
+
+An earlier version of this page said the rule "does not follow inference chains" and named a local bound from `Double(count)` as one. That lumped two things together. The return-type chain is inference and is still refused. A conversion bound to a `let` one line above its use is a conversion written at the site, and refusing it meant a division was examined or not depending on whether its divisor had a name.
 
 ## Exemptions
 

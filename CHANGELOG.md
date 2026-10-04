@@ -520,6 +520,33 @@
 
 ### Changed
 
+- **`fp-division-unguarded` judges the division, not its spelling.** Two changes that ship
+  together, because either alone is worse than neither (`ALocalIsNotAGuard.md`).
+  - *A `let` carries the evidence of its initializer.* `x / Double(n)` was examined and
+    `let d = Double(n); x / d` was not: binding a conversion to a name demoted it to "inferred",
+    and the rule reads only direct evidence. A divisor escaped by having a name. Now both are
+    examined. A local bound from a file-local function's return type is still not followed, and
+    arithmetic (`let d = a - b`) is still not evidence on either side of the `=`.
+  - *A guard is read in the spellings people write, and in order.* The rule's own guard
+    collector is retired; it now reads the one `fallback.*` already used. Newly recognised:
+    `xs.isEmpty == false`, `xs.isEmpty ? 0 : s / Double(xs.count)` and `if xs.isEmpty { return }`
+    (any `isEmpty` is a question about `count`); `n >= 1`, `4 <= n`, `0 < n`; `d == 0 ? 0 : x / d`
+    and `if span <= 0 { … } else { … / span }`; a guard on `values.count` clearing a division by
+    `let count = Double(values.count)`; and a divisor of `max(n, 1)`. **Newly reported:** a
+    division whose only check comes *after* it. The old collector was order-blind, so
+    `let r = x / Double(n); if n > 0 { return r }` passed.
+  - Severity is unchanged (warning). Expect findings to move in both directions on arrival: a
+    conversion-bound divisor with no guard is new, and a `// fp-safety:disable` on a line whose
+    guard is now read no longer suppresses anything and can be deleted.
+- **`fallback.*` reads the same facts, tightened.** The shared collector used to record "safe to
+  divide by" for `x != e` and `x > e` with *any* `e`. `segLen > n` is a comparison, not a
+  threshold, and it was clearing divisions by `segLen` by coincidence. `!=` and `==` now need a
+  zero on the other side; `>` / `<` need a literal (bare, or in a conversion such as `T(0)`), a
+  product of literals, or `.ulpOfOne` / `.leastNonzeroMagnitude` / `.leastNormalMagnitude`; `>=`
+  needs a literal above zero. It also gains what the division rule gained — `isEmpty`, `>=`,
+  `== 0`, `<= 0` — so a quotient by a count that was checked for emptiness is no longer a new
+  place for a NaN to come from.
+
 - **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
   successful build with warnings was counted in the summary while the checker's line stayed
   green, so a run whose job is zero warnings could read as clean. The run still passes
@@ -623,6 +650,11 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **A ternary condition on the right of an assignment was not read as a condition.** In
+  `rate = interval > 0 ? 60_000 / interval : 0` the element left of `interval` is `=`, which the
+  guard collector took for part of a larger operand, so the check was dropped. Latent in
+  `fallback.*`; it would have been seven false `fp-division-unguarded` findings in one consumer
+  once the division rule moved onto the same collector.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
