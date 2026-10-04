@@ -67,6 +67,10 @@ Every successful result also carries the note `build.diagnostic-coverage`, the o
 - **Other configurations and platforms.** Code under `#if os(iOS)`, or compiled only in release, is not built by this run and has no current record.
 - **A target removed from `Package.swift` whose sources and build products remain.** Its map and records are still on disk, so its warnings are reported until the build directory is cleaned.
 
+### No Result Cache
+
+``BuildChecker/cacheInputs(configuration:)`` returns `nil`: a `build` verdict is never replayed from the gate's result cache. The build system is already a cache, a precise one, and a copy in front of it was keyed on less than the build system keys on — it omitted the build directory and local path dependencies, and was wrong in both directions because of it. A no-op build costs a few seconds, and with the recorded diagnostics read after it, it is a complete answer.
+
 ### Configuration
 
 Configure via `.quality-gate.yml`:
@@ -99,3 +103,4 @@ The `.dia` container is the LLVM bitstream format Clang and Swift share. The rea
 ### Configuration
 
 - ``BuildChecker/buildArguments(for:)``
+- ``BuildChecker/cacheInputs(configuration:)``

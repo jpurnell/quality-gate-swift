@@ -563,4 +563,11 @@ struct BuildCheckerTests {
         #expect(result.status == .failed)
         #expect(result.diagnostics.map(\.severity) == [.error])
     }
+
+    // MARK: - Result Cache
+
+    @Test("build declares no cache inputs: the build system is the cache")
+    func buildIsNotResultCached() {
+        #expect(BuildChecker().cacheInputs(configuration: Configuration()) == nil)
+    }
 }

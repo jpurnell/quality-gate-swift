@@ -1,5 +1,4 @@
 import Foundation
-import IndexStoreInfra
 import QualityGateLogging
 import QualityGateCore
 
@@ -67,20 +66,28 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Creates a new BuildChecker instance.
     public init() {}
 
-    /// Declares this checker cacheable on the whole source tree.
+    /// Declares no cache inputs: a `build` verdict is never replayed from the result cache.
     ///
-    /// "Does this package compile" is a function of the sources and the manifests, both in the
-    /// fingerprint, and of the toolchain, which `gateIdentityHash` salts in.
+    /// It used to declare the whole source tree, on the reasoning that "does this package
+    /// compile" is a function of the sources and the manifests. Two real inputs were missing
+    /// from that fingerprint, and each made the cache wrong in its own direction:
     ///
-    /// A cache hit means the compiler did not run. That is sound for *this* checker's verdict —
-    /// the same sources under the same toolchain still compile — but it is worth stating,
-    /// because a hit does not repopulate `.build`. Anything that needs artifacts rather than a
-    /// verdict must not infer their existence from this checker passing.
+    /// - **The build directory.** A warm build prints no warnings, so whether the stored verdict
+    ///   was a pass or a warning depended on what `.build` looked like when it was written.
+    /// - **Local path dependencies.** They are compiled, their warnings are reported, and they
+    ///   live outside the project root — so a warning fixed in a sibling package was replayed
+    ///   on every cached run until the build directory was deleted.
+    ///
+    /// Either could be patched into the fingerprint, and the next missing input (SDK,
+    /// environment, an `-Xswiftc` in the shell) would be found the same way those were. The
+    /// build system already tracks all of them, per file, and answers a no-op build in a few
+    /// seconds; with the recorded diagnostics read after it, that warm build is a complete
+    /// answer. So the build system is the cache, and the gate keeps no copy in front of it.
+    ///
+    /// A side effect worth having: with no hits, `.build` is populated whenever `build` has
+    /// run, which is what the index-backed checkers and the test runner want to be true.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSource(
-            projectRoot: configuration.resolvedProjectRoot,
-            configuration: configuration
-        )
+        nil
     }
 
     /// Run the build check.

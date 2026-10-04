@@ -677,6 +677,14 @@
   `[#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]`.
   It now reads `[#NoUsage]`. This changes the message text of `build` and `xcode-build`
   findings: a baseline or override keyed on the old text needs re-recording.
+- **`build` is no longer replayed from the result cache.** Its fingerprint omitted two real
+  inputs. The build directory: whether a `PASSED` or a `WARNING` was stored depended on what
+  `.build` looked like when the entry was written. And local path dependencies: a warning fixed
+  in a sibling package was reported, *"Replayed from cache"*, on every default run until the
+  build directory was deleted. `build` now runs every time — a no-op build is a few seconds,
+  and the build system tracks every input the cache did not. Existing `build` entries expire on
+  their own, since the gate binary's hash is in every fingerprint. `test` still uses the same
+  fingerprint and has the same path-dependency hole; that is not fixed here.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
