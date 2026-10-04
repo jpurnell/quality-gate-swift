@@ -243,29 +243,52 @@ final class ServerSurfaceCollector: SyntaxVisitor {
     }
 
     /// `MCPServer.builder()` — the listener is inside the library.
+    ///
+    /// Recorded with the current release's default, loopback. The assembly knows which release
+    /// the package builds against and whether the chain calls `listen(host:)`; one file does not.
     private func recordMCPBuilder(_ node: FunctionCallExprSyntax) {
         guard SyntaxReading.receiver(node)?.trimmedDescription == "MCPServer" else { return }
-        addListener(node, framework: .swiftMCPServer, construct: "MCPServer.builder",
-                    host: .inherited(library: "SwiftMCPServer", kind: .allInterfaces,
-                                     note: ServerSurfaceVocabulary.mcpBuilderNote))
+        addListener(node, framework: .swiftMCPServer, construct: ServerSurfaceVocabulary.mcpBuilderConstruct,
+                    host: .frameworkDefault(.loopback, note: ServerSurfaceVocabulary.builderNote(loopbackByDefault: true)))
     }
 
     /// `HTTPServerTransport(…)`, `SSHServer(…)` — a library listener constructed here.
     private func recordKnownListener(_ node: FunctionCallExprSyntax, type: String) {
+        let isTransport = type == ServerSurfaceVocabulary.mcpTransportConstruct
         let host: HostBinding
         if let hostExpr = SyntaxReading.argument(node, labelled: "host") {
             host = hostBinding(hostExpr)
+        } else if isTransport {
+            host = .frameworkDefault(.loopback, note: ServerSurfaceVocabulary.transportNote(loopbackByDefault: true))
         } else {
             host = .inherited(library: ServerSurfaceVocabulary.knownListenerTypes[type] ?? type,
                               kind: .allInterfaces,
                               note: ServerSurfaceVocabulary.knownListenerNotes[type] ?? "")
         }
-        let framework: ServerFramework = type == "HTTPServerTransport" ? .swiftMCPServer : .nio
-        addListener(node, framework: framework, construct: type, host: host,
+        addListener(node, framework: isTransport ? .swiftMCPServer : .nio, construct: type, host: host,
                     port: SyntaxReading.argument(node, labelled: "port")?.trimmedDescription)
         let finder = AuthArgumentFinder()
         finder.walk(node.arguments)
-        facts.knownListenerAuthOff.append((site: site(node), type: type, names: finder.offNames))
+        var enforcedBy: [String] = []
+        if isTransport {
+            recordTransportShape(node)
+            if let chosen = SyntaxReading.argument(node, labelled: "authentication"),
+               let enforcing = AuthReading.enforcingCase(chosen) {
+                enforcedBy = [enforcing]
+            }
+        }
+        facts.knownListenerAuth.append((site: site(node), type: type, off: finder.offNames, by: enforcedBy))
+    }
+
+    /// Which generation of `HTTPServerTransport.init` a construction site is written against.
+    private func recordTransportShape(_ node: FunctionCallExprSyntax) {
+        let labels = Set(node.arguments.compactMap { $0.label?.text })
+        if !labels.isDisjoint(with: ServerSurfaceVocabulary.transportLabelsRemovedInFive) {
+            facts.mcpReleaseShapes.insert(LibraryRelease.swiftMCPServerLoopbackMajor - 1)
+        }
+        if !labels.isDisjoint(with: ServerSurfaceVocabulary.transportLabelsAddedInFive) {
+            facts.mcpReleaseShapes.insert(LibraryRelease.swiftMCPServerLoopbackMajor)
+        }
     }
 
     private func recordTypeDeclaration(

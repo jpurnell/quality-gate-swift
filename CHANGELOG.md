@@ -2,6 +2,87 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The server-surface inventory reads SwiftMCPServer by release, because 5.0.0 changed what the
+  same call means.** The inventory encoded 4.x as if it were the library: "`HTTPServerTransport`
+  binds `0.0.0.0` and has no host parameter", "the builder cannot set the address", and
+  authentication off only when written `nil` or `.none`. SwiftMCPServer 5.0.0 — whose changes came
+  from this gate's own findings — binds `127.0.0.1` unless asked for more, made the address a
+  setting (`host:` on the transport, `listen(host:)` on the builder, `--host` at launch), and
+  replaced `authenticator:`/`oauthServer:` with one required `authentication:` whose "no
+  authentication" is spelled `.unauthenticated`. Read with the old facts, every 5.x consumer was
+  an all-interfaces listener that is not one, and an explicitly open 5.x server was not seen.
+  - **5.x, as now recorded.** A builder or transport that names no host is a loopback listener
+    (`frameworkDefault`, as Vapor's is) and is not counted as bound to all interfaces.
+    `.listen(host: <literal>)` and `HTTPServerTransport(host: <literal>, …)` bind that literal; a
+    non-literal host is an expression, the operator's, exactly as a NIO `bind(host: host)` is.
+    `authentication: .unauthenticated` on the transport and `.authentication(.unauthenticated)` on
+    the builder are `explicitlyNone`; `.apiKey`, `.oauth`, `.apiKeyOrOAuth`, and the builder's
+    `.authenticator(_:)` / `.oauthServer(_:)`, are the new `ListenerAuthentication.authenticated(by:)`
+    — reported only when nothing weaker (a default that is off, an environment switch) is visible
+    in the target. An enforcing `.authentication(…)` on the builder stands in front of its tools as
+    `.authenticator(…)` already did.
+  - **4.x, as before.** A builder or transport is `inherited` from the library, every interface,
+    hard-coded; counted in the coverage note; the library's finding and not the consumer's.
+    `authenticator: nil` to the transport is still reported.
+  - **`security.bind-all-interfaces`** reports `.listen(host: "0.0.0.0")` and
+    `HTTPServerTransport(host: "0.0.0.0", …)` as a **warning**. Not the error: that is for a
+    literal at the socket call, where the type that owns the socket gives a caller no way to
+    narrow it. These are arguments to an API whose parameter is the way to narrow it — the shape
+    `TournamentWebSocketServer(host: "0.0.0.0")` already had — and `listen(host:)` is itself
+    overridden by `--host`, so it is a default in every sense the rule uses the word.
+  - **`security.listener-auth-optional`** reports `authentication: .unauthenticated` and
+    `.authentication(.unauthenticated)` as a **warning**, worded and graded as `authenticator: nil`
+    to a listener type was. 5.0.0 made running open a named choice; the rule asks that the reason
+    be named too. `// SECURITY: <reason>` on the line above acknowledges it and is recorded — for
+    a builder, that is the line above `.authentication(…)` inside the chain, because the finding
+    is placed on the method name and not on the `MCPServer` the chain starts at.
+  - **Which release.** `Package.swift`'s requirement, when it admits one major (`from:`, `exact:`,
+    `.upToNextMajor`, `.upToNextMinor`, a range inside one major); else the `Package.resolved`
+    pin (a branch, a revision, a range across majors, a transitive dependency); else the calls —
+    `authenticator:`/`oauthServer:` on the transport compile only before 5.0.0, `host:`,
+    `listen(host:)` and `authentication` only from it; else 5.x, **assumed and said to be**. The
+    manifest outranks the pin because SwiftPM will not build against a pin the manifest excludes;
+    a stale pin is named in the evidence rather than believed. The calls are last, not first,
+    because `MCPServer.builder().tools(…).run()` — eight of the nine consumers measured — is
+    spelled identically in both generations and binds differently. Both files are read as text
+    (`PackageDependencies`); nothing is resolved or built. Anything below major 5 gets the pre-5
+    facts.
+  - **The coverage note names the release and the evidence**, and what follows from it:
+    `SwiftMCPServer read as 4.x (from: "4.4.1" in Package.swift, 4.4.3 in Package.resolved): binds
+    0.0.0.0 and takes no host`, or `… read as 5.x (…): binds 127.0.0.1 unless source says
+    otherwise; --host at launch is not visible`. The last clause is the limit: a unit file that
+    starts a 5.x server with `--host 0.0.0.0` is not source.
+  - New public API in `ServerSurface`: `LibraryRelease`, `PackageDependencies`,
+    `ServerSurfaceInventory.libraries`, `ListenerAuthentication.authenticated(by:)`, and a
+    `dependencies:` parameter on `ServerSurfaceInventory.init(files:targets:guardTypes:dependencies:)`
+    and `build(sources:…)`, defaulting to `.unknown`.
+
+  **Measured** with `origin/main`'s gate and this branch's, release builds, on scratch copies of
+  each repository's `main` (2026-10-04):
+
+  | Package | Release read as | Before | After |
+  |---|---|---|---|
+  | SwiftMCPServer 5.0.0 | — (the library: its own `bind(host: bindHost)` is the listener) | 1 listener, 0 all-interfaces, 0 findings, 2 acknowledged | the same, plus **1 new warning**: `ConformanceServer/main.swift:21`, `authentication: .unauthenticated` |
+  | businessMathMCP | 4.x — `from: "4.4.1"`, pinned 4.4.3 | 1 listener, 1 all-interfaces | unchanged |
+  | GeoSEOMCP | 4.x — `from: "4.4.1"`, pinned 4.4.3 | 1, 1 | unchanged |
+  | SearchOperatorMCP | 4.x — `from: "4.4.1"`, pinned 4.4.1 | 1, 1 | unchanged |
+  | ijs-mcp-server | 4.x — `exact: "4.5.0"` | 1, 1 | unchanged |
+  | VaultMCP | 4.x — `from: "4.5.0"` | 2 listeners, 1 all-interfaces; `Main.swift:61` and `WebOptions.swift:161` | unchanged |
+  | HockeySimMCP | 4.x — `from: "4.5.0"`, no pin committed | 1, 1 | unchanged |
+  | IconquerMCP | 1.x — `from: "1.0.0"`, no pin committed | 2, 2; `MatchHost.swift:142` (`authenticator: nil`) | unchanged |
+  | DevGuidelinesMCP | 5.x, **assumed** — `path: "../SwiftMCPServer"` | 1, 1 | 1, **0** |
+  | panLAN | 5.x, **assumed** — `path: "../SwiftMCPServer"` | 1, 1 | 1, **0** |
+
+  The seven that declare a release below 5 are reported exactly as before: that finding was true
+  and stays until they upgrade. The two `path:` dependents were wrong before — the checkout they
+  build against is 5.0.0 — and are right now, on an assumption the note states. The one new
+  finding is real by the rule and was invisible to it: SwiftMCPServer's conformance target opens
+  an unauthenticated listener, on loopback, with a comment explaining why and no `// SECURITY:`
+  marker to record it.
+
+
 ### Added
 
 - **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
@@ -679,6 +760,18 @@
   guard collector took for part of a larger operand, so the check was dropped. Latent in
   `fallback.*`; it would have been seven false `fp-division-unguarded` findings in one consumer
   once the division rule moved onto the same collector.
+- **A query item or header is a security sink only when its name says so.** The randomness
+  rules (`weak-prng`, `seeded-secret`, `predictable-token`, `uuid-as-secret`) put every value
+  written to a header, cookie or URL query item in a security context
+  (`ASeedIsNotASecret` §3.1(b)). The pre-deploy portfolio run found what that costs:
+  BusinessMathMarketData's Yahoo Finance URL sends `period1` and `period2`, two timestamps that
+  are a date range, and both were reported as `security.predictable-token` at error.
+  `SecurityContext.sinkCarriesSecurityValue(named:)` now decides from the sink's name when it is
+  a string literal: `token`, `nonce`, `Authorization`, `Cookie`, `X-API-Key`, `X-CSRF-Token`
+  are contexts; `period1`, `interval`, `Content-Type`, `If-Modified-Since` are not. A weak word
+  alone (`state`) is not enough. A name that is not a literal cannot be read and stays in
+  context. `SinkMatch` gains `nameArgumentIndex`. The repo was missed by the rule's own
+  measurement because it lives under `Playgrounds/`, which that run excluded.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line

@@ -141,16 +141,33 @@ struct SecurityContextTests {
     // MARK: - Clause (b): sinks
 
     @Test("header, cookie and query sinks are recognised with the value argument's index", arguments: [
-        ("setValue", [nil, "forHTTPHeaderField"] as [String?], SecurityContext.Sink.httpHeader, 0),
-        ("addValue", [nil, "forHTTPHeaderField"], .httpHeader, 0),
-        ("add", ["name", "value"], .httpHeader, 1),
-        ("replaceOrAdd", ["name", "value"], .httpHeader, 1),
-        ("HTTPCookie", ["properties"], .cookie, 0),
-        ("URLQueryItem", ["name", "value"], .urlQuery, 1),
+        ("setValue", [nil, "forHTTPHeaderField"] as [String?], SecurityContext.Sink.httpHeader, 0, 1 as Int?),
+        ("addValue", [nil, "forHTTPHeaderField"], .httpHeader, 0, 1),
+        ("add", ["name", "value"], .httpHeader, 1, 0),
+        ("replaceOrAdd", ["name", "value"], .httpHeader, 1, 0),
+        ("HTTPCookie", ["properties"], .cookie, 0, nil),
+        ("URLQueryItem", ["name", "value"], .urlQuery, 1, 0),
     ])
-    func sinkRecognised(callee: String, labels: [String?], kind: SecurityContext.Sink, index: Int) {
+    func sinkRecognised(callee: String, labels: [String?], kind: SecurityContext.Sink, index: Int, name: Int?) {
         let match = SecurityContext.sink(callee: callee, argumentLabels: labels)
-        #expect(match == SecurityContext.SinkMatch(kind: kind, valueArgumentIndex: index))
+        #expect(match == SecurityContext.SinkMatch(kind: kind, valueArgumentIndex: index, nameArgumentIndex: name))
+    }
+
+    /// What a sink is *called* decides whether its value is a security value. A name that
+    /// cannot be read (`nil`) is not evidence either way, so it stays in context.
+    @Test("a sink carries a security value when its name is a security word, or cannot be read", arguments: [
+        ("token", true), ("access_token", true), ("Authorization", true), ("X-API-Key", true),
+        ("X-CSRF-Token", true), ("nonce", true), ("state", false), ("Cookie", true),
+        ("period1", false), ("interval", false), ("Content-Type", false), ("User-Agent", false),
+        ("If-Modified-Since", false), ("email", false), ("tokenizer", false),
+    ])
+    func sinkName(name: String, carries: Bool) {
+        #expect(SecurityContext.sinkCarriesSecurityValue(named: name) == carries)
+    }
+
+    @Test("a sink whose name is not a literal carries a security value")
+    func unreadableSinkName() {
+        #expect(SecurityContext.sinkCarriesSecurityValue(named: nil) == true)
     }
 
     @Test("near-miss calls are not sinks", arguments: [

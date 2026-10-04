@@ -124,6 +124,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         // seen every file. See `ServerSurfaceRules`.
         let surface = Self.runServerSurface(
             facts: result.serverSurface, targets: targetTypes, configuration: configuration,
+            dependencies: PackageDependencies.reading(packageRoot: root.path),
             source: { try? String(contentsOfFile: $0, encoding: .utf8) }) // silent: an unreadable file has no line to acknowledge, and the walk above already logged it
         allDiagnostics.append(contentsOf: surface.diagnostics)
         allOverrides.append(contentsOf: surface.overrides)

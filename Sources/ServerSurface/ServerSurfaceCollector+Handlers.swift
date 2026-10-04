@@ -36,8 +36,9 @@ extension ServerSurfaceCollector {
         return finder.calls.lazy.compactMap { SyntaxReading.stringValue(SyntaxReading.argument($0, labelled: "name")) }.first
     }
 
-    /// `MCPHTTPRoute(…)`, `withMethodHandler(T.self)`, and `.authenticator(…)` /
-    /// `.oauthServer(…)` on a builder.
+    /// `MCPHTTPRoute(…)`, `withMethodHandler(T.self)`, and what a builder is told about its
+    /// address and its authentication: `.listen(host:)`, `.authenticator(…)`, `.oauthServer(…)`,
+    /// `.authentication(…)`.
     func recordMCPCall(_ node: FunctionCallExprSyntax) {
         guard let name = SyntaxReading.calleeName(node) else { return }
         switch name {
@@ -55,15 +56,55 @@ extension ServerSurfaceCollector {
         case "authenticator", "oauthServer":
             if let receiver = SyntaxReading.receiver(node), isBuilder(receiver) {
                 facts.mcpTransportAuth.append(name)
+                facts.mcpBuilderAuth.append((site: memberSite(node), name: name, enforced: true))
             }
+        case "authentication":
+            recordBuilderAuthentication(node)
+        case "listen":
+            recordBuilderListen(node)
         default:
             break
         }
     }
 
+    /// Where the method name of a chained call is written: the `.authentication` of a builder
+    /// chain, not the `MCPServer` the chain starts at — a finding belongs on the line that made
+    /// the choice, which is also the line an acknowledgement is written above.
+    private func memberSite(_ node: FunctionCallExprSyntax) -> SourceSite {
+        guard let member = node.calledExpression.as(MemberAccessExprSyntax.self) else { return site(node) }
+        return site(member.period)
+    }
+
+    /// `.authentication(…)` on a builder — SwiftMCPServer 5's one way to say, in code, what the
+    /// transport enforces, and its only way to ask for nothing.
+    private func recordBuilderAuthentication(_ node: FunctionCallExprSyntax) {
+        guard let receiver = SyntaxReading.receiver(node), isBuilder(receiver),
+              let chosen = node.arguments.first, chosen.label == nil else { return }
+        facts.mcpReleaseShapes.insert(LibraryRelease.swiftMCPServerLoopbackMajor)
+        let value = chosen.expression.trimmedDescription
+        let written = memberSite(node)
+        if AuthReading.isOff(name: "authentication", value: value) {
+            facts.mcpBuilderAuth.append((site: written, name: "authentication", enforced: false))
+            facts.authSettings.append(AuthSetting(
+                site: written, kind: .argument, names: ["authentication"], value: value, state: .off,
+                callee: ServerSurfaceVocabulary.mcpBuilderType))
+        } else if let enforcing = AuthReading.enforcingCase(chosen.expression) {
+            facts.mcpTransportAuth.append("authentication")
+            facts.mcpBuilderAuth.append((site: written, name: enforcing, enforced: true))
+        }
+    }
+
+    /// `.listen(host:)` on a builder: the address the server binds unless `--host` overrides it.
+    private func recordBuilderListen(_ node: FunctionCallExprSyntax) {
+        guard let receiver = SyntaxReading.receiver(node), isBuilder(receiver),
+              let host = SyntaxReading.argument(node, labelled: "host") else { return }
+        facts.mcpReleaseShapes.insert(LibraryRelease.swiftMCPServerLoopbackMajor)
+        facts.mcpListenHosts.append((binding: hostBinding(host), site: memberSite(node)))
+    }
+
     /// Whether `expr` is an MCP server builder: a chain from `MCPServer.builder()`, or a name
     /// bound to one.
-    private func isBuilder(_ expr: ExprSyntax) -> Bool {
+    func isBuilder(_ expr: ExprSyntax) -> Bool {
         if expr.trimmedDescription.contains("MCPServer.builder()") { return true }
         var root = expr
         while let next = Self.chainBase(root) { root = next }
