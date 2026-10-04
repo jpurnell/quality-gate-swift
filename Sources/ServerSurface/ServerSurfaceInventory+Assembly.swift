@@ -15,13 +15,18 @@ extension ServerSurfaceInventory {
     ///   - guardTypes: Middleware type names the project declares as guards
     ///     (`AHandlerSaysWhoMayCallIt.md` §3.2). Empty by default: a name heuristic would count
     ///     `UserAuthenticator` and be wrong in the direction that matters.
+    ///   - dependencies: The text of the package's `Package.swift` and `Package.resolved`, to
+    ///     say which release of a library its rows are read with. ``PackageDependencies/unknown``
+    ///     by default, which leaves the calls themselves to decide and otherwise assumes the
+    ///     current release — and says it assumed.
     public init(
         files: [ServerSurfaceFileFacts],
         targets: TargetTypeMap = TargetTypeMap(targets: []),
-        guardTypes: Set<String> = []
+        guardTypes: Set<String> = [],
+        dependencies: PackageDependencies = .unknown
     ) {
         let assembly = Assembly(files: files.sorted { $0.fileName < $1.fileName }, targets: targets,
-                                guardTypes: guardTypes)
+                                guardTypes: guardTypes, dependencies: dependencies)
         self = assembly.build()
     }
 
@@ -29,12 +34,14 @@ extension ServerSurfaceInventory {
     public static func build(
         sources: [(path: String, source: String)],
         targets: TargetTypeMap = TargetTypeMap(targets: []),
-        guardTypes: Set<String> = []
+        guardTypes: Set<String> = [],
+        dependencies: PackageDependencies = .unknown
     ) -> ServerSurfaceInventory {
         ServerSurfaceInventory(
             files: sources.map { ServerSurfaceFileFacts.collect(source: $0.source, fileName: $0.path) },
             targets: targets,
-            guardTypes: guardTypes)
+            guardTypes: guardTypes,
+            dependencies: dependencies)
     }
 
     /// Sets `column` on the handler registered at `site`.
@@ -65,12 +72,15 @@ private struct Assembly {
     let files: [ServerSurfaceFileFacts]
     let targets: TargetTypeMap
     let guardTypes: Set<String>
+    let dependencies: PackageDependencies
     let declaredTypes: Set<String>
 
-    init(files: [ServerSurfaceFileFacts], targets: TargetTypeMap, guardTypes: Set<String>) {
+    init(files: [ServerSurfaceFileFacts], targets: TargetTypeMap, guardTypes: Set<String>,
+         dependencies: PackageDependencies) {
         self.files = files
         self.targets = targets
         self.guardTypes = guardTypes
+        self.dependencies = dependencies
         self.declaredTypes = files.reduce(into: Set<String>()) { $0.formUnion($1.declaredTypes) }
     }
 
@@ -90,7 +100,11 @@ private struct Assembly {
             .filter { $0.kind != .argument || isAuthCarrier($0.callee, owningTypes: owningTypes) }
             .sorted { $0.site < $1.site }
         let vaporHost = files.flatMap(\.vaporHostnames).sorted { $0.site < $1.site }.first?.binding
+        let release = mcpRelease(listeners)
         for index in listeners.indices {
+            if let release, isMCPListener(listeners[index]) {
+                listeners[index].host = mcpHost(listeners[index], release: release)
+            }
             listeners[index].host = resolvedHost(listeners[index], hostSettings: hostSettings, vaporHost: vaporHost)
             listeners[index].authentication = authentication(of: listeners[index], settings: authSettings)
         }
@@ -103,7 +117,72 @@ private struct Assembly {
             authSettings: authSettings,
             examinedFiles: files.count,
             listenerOwningTypes: owningTypes,
-            listenerTargets: listenerTargets)
+            listenerTargets: listenerTargets,
+            libraries: release.map { [$0] } ?? [])
+    }
+
+    // MARK: - SwiftMCPServer's two generations
+
+    /// A listener the SwiftMCPServer library opens for this package.
+    func isMCPListener(_ listener: ServerListener) -> Bool {
+        listener.construct == ServerSurfaceVocabulary.mcpBuilderConstruct
+            || listener.construct == ServerSurfaceVocabulary.mcpTransportConstruct
+    }
+
+    /// Which release of SwiftMCPServer the package's listeners are read with, or `nil` when it
+    /// has none.
+    ///
+    /// What the package declares decides: a manifest requirement that admits one major, then
+    /// the pin. Where neither says — a `path:` dependency, a source audited alone — the calls
+    /// are evidence: `authenticator:` and `oauthServer:` on the transport exist only before
+    /// 5.0.0, and `host:`, `listen(host:)` and `authentication` only from it. Where the calls
+    /// do not say either, or say both, the current release is assumed and recorded as assumed.
+    func mcpRelease(_ listeners: [ServerListener]) -> LibraryRelease? {
+        guard listeners.contains(where: isMCPListener) else { return nil }
+        let library = ServerSurfaceVocabulary.swiftMCPServer
+        if let declared = dependencies.release(of: library) { return declared }
+        let current = LibraryRelease.swiftMCPServerLoopbackMajor
+        let shapes = files.reduce(into: Set<Int>()) { $0.formUnion($1.mcpReleaseShapes) }
+        if shapes == [current - 1] {
+            return LibraryRelease(library: library, major: current - 1, evidence: .apiShape,
+                                  detail: ServerSurfaceVocabulary.fourShapeDetail)
+        }
+        if shapes == [current] {
+            return LibraryRelease(library: library, major: current, evidence: .apiShape,
+                                  detail: ServerSurfaceVocabulary.fiveShapeDetail)
+        }
+        return LibraryRelease(library: library, major: current, evidence: .assumed,
+                              detail: ServerSurfaceVocabulary.assumedDetail)
+    }
+
+    /// Where a SwiftMCPServer listener binds, given the release.
+    ///
+    /// The collector records the current release's default. Before 5.0.0 a listener with no
+    /// address in source is the library's own `0.0.0.0`, which the caller cannot narrow; from
+    /// 5.0.0 a builder binds what `listen(host:)` says, when the chain says it.
+    func mcpHost(_ listener: ServerListener, release: LibraryRelease) -> HostBinding {
+        let isBuilder = listener.construct == ServerSurfaceVocabulary.mcpBuilderConstruct
+        guard release.bindsLoopbackByDefault else {
+            guard case .frameworkDefault = listener.host else { return listener.host }
+            let note = isBuilder
+                ? ServerSurfaceVocabulary.builderNote(loopbackByDefault: false)
+                : ServerSurfaceVocabulary.transportNote(loopbackByDefault: false)
+            return .inherited(library: release.library, kind: .allInterfaces, note: note)
+        }
+        guard isBuilder else { return listener.host }
+        let said = scoped(files.flatMap(\.mcpListenHosts), to: listener, site: \.site)
+            .sorted { $0.site < $1.site }
+        // Two `listen(host:)` calls are two branches: the wider one is what can happen.
+        let widest = said.first { $0.binding.kind == .allInterfaces } ?? said.first
+        return widest?.binding ?? listener.host
+    }
+
+    /// The entries written in `listener`'s file, or failing that in its target: a builder is
+    /// usually one chain, and sometimes a binding configured by a helper beside it.
+    func scoped<Entry>(_ entries: [Entry], to listener: ServerListener, site: KeyPath<Entry, SourceSite>) -> [Entry] {
+        let sameFile = entries.filter { $0[keyPath: site].file == listener.site.file }
+        guard sameFile.isEmpty else { return sameFile }
+        return entries.filter { targetKey(owner(of: $0[keyPath: site].file).name) == targetKey(listener.target) }
     }
 
     // MARK: - Placement
@@ -159,15 +238,23 @@ private struct Assembly {
         return .expression(text, defaultValue: HostDefault(value: declared.value, kind: declared.addressKind, site: declared.site))
     }
 
-    /// What decides authentication for `listener`, strongest evidence first.
+    /// What decides authentication for `listener`: whatever leaves it open first — an explicit
+    /// "none", a default that is off, an environment switch — and only then an authenticator
+    /// written where the listener is made.
     func authentication(of listener: ServerListener, settings: [AuthSetting]) -> ListenerAuthentication {
-        let explicit = files.flatMap(\.knownListenerAuthOff).first { $0.site == listener.site }
-        if let explicit, !explicit.names.isEmpty { return .explicitlyNone(names: explicit.names) }
+        let known = files.flatMap(\.knownListenerAuth).first { $0.site == listener.site }
+        let onBuilder = listener.construct == ServerSurfaceVocabulary.mcpBuilderConstruct
+            ? scoped(files.flatMap(\.mcpBuilderAuth), to: listener, site: \.site).sorted { $0.site < $1.site }
+            : []
+        let off = (known?.off ?? []) + onBuilder.filter { !$0.enforced }.map(\.name)
+        if !off.isEmpty { return .explicitlyNone(names: unique(off)) }
+        let enforced = (known?.by ?? []) + onBuilder.filter(\.enforced).map(\.name)
         let sameTarget = settings.filter { targetKey($0.target) == targetKey(listener.target) }
         let defaults = sameTarget.filter { $0.kind == .parameterDefault || $0.kind == .propertyDefault }
         if !defaults.isEmpty { return .optionalByDefault(names: unique(defaults.flatMap(\.names))) }
         let switches = sameTarget.filter { $0.kind == .environmentFlag }
         if !switches.isEmpty { return .environmentSwitch(keys: unique(switches.compactMap(\.environmentKey))) }
+        if !enforced.isEmpty { return .authenticated(by: unique(enforced)) }
         return .notVisible
     }
 
