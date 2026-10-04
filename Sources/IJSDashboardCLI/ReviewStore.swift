@@ -68,62 +68,99 @@ enum ReviewStore {
             .sorted { $0.submittedAt < $1.submittedAt }
     }
 
+    /// Submits a governed judgment to the queue, from the TUI's synchronous event loop.
+    ///
+    /// Blocks the calling thread. Legal only off the cooperative pool — see ``bridge(_:)``
+    /// for why, and prefer ``submit(corpusPath:ruleId:justification:by:)`` anywhere `await`
+    /// is available.
+    static func submitFromEventLoop(
+        corpusPath: String, ruleId: String, justification: String, by identity: String
+    ) -> String {
+        bridge {
+            await submit(
+                corpusPath: corpusPath, ruleId: ruleId,
+                justification: justification, by: identity)
+        }
+    }
+
     /// Submits a governed judgment to the queue. Returns the status line.
     static func submit(
         corpusPath: String, ruleId: String, justification: String, by identity: String
-    ) -> String {
+    ) async -> String {
         let queue = ReviewQueue(storePath: queuePath(corpusPath: corpusPath))
         let policy = policy(corpusPath: corpusPath)
-        return bridge { () -> String in
-            do {
-                let disposition = try await queue.submit(
-                    ruleId: ruleId, justification: justification,
-                    by: identity, policy: policy, now: Date())
-                switch disposition {
-                case .accepted:
-                    return "Accepted without review — the rule is not governed."
-                case .held:
-                    return "Held for review — a second identity approves in the Reviews view (v)."
-                }
-            } catch {
-                Self.logger.warning("Review submit failed: \(error.localizedDescription, privacy: .public)")
-                return "Review submit failed: \(error.localizedDescription)"
+        do {
+            let disposition = try await queue.submit(
+                ruleId: ruleId, justification: justification,
+                by: identity, policy: policy, now: Date())
+            switch disposition {
+            case .accepted:
+                return "Accepted without review — the rule is not governed."
+            case .held:
+                return "Held for review — a second identity approves in the Reviews view (v)."
             }
+        } catch {
+            Self.logger.warning("Review submit failed: \(error.localizedDescription, privacy: .public)")
+            return "Review submit failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Applies an approve/reject through the queue, from the TUI's synchronous event loop.
+    ///
+    /// Blocks the calling thread. Legal only off the cooperative pool — see ``bridge(_:)``
+    /// for why, and prefer ``apply(_:corpusPath:reviewer:)`` anywhere `await` is available.
+    static func applyFromEventLoop(
+        _ action: ReviewActionRequest, corpusPath: String, reviewer: String
+    ) -> String {
+        bridge { await apply(action, corpusPath: corpusPath, reviewer: reviewer) }
     }
 
     /// Applies an approve/reject through the queue (which enforces the
     /// distinct-second-identity rule). Returns the status line.
     static func apply(
         _ action: ReviewActionRequest, corpusPath: String, reviewer: String
-    ) -> String {
+    ) async -> String {
         let queue = ReviewQueue(storePath: queuePath(corpusPath: corpusPath))
-        return bridge { () -> String in
-            do {
-                switch action.action {
-                case .approve:
-                    let review = try await queue.approve(id: action.reviewID, by: reviewer, now: Date())
-                    return "Approved \(review.ruleId) — the submitter's next acknowledge writes the marker."
-                case .reject:
-                    let review = try await queue.reject(
-                        id: action.reviewID, by: reviewer,
-                        reason: action.reason ?? "", now: Date())
-                    return "Rejected \(review.ruleId) — recorded with your reason."
-                }
-            } catch let error as ReviewQueueError {
-                Self.logger.warning("Review action refused: \(String(describing: error), privacy: .public)")
-                if case .secondIdentityRequired = error {
-                    return "A DISTINCT second identity must decide — you submitted this judgment."
-                }
-                return "Review action failed: \(error)"
-            } catch {
-                Self.logger.warning("Review action failed: \(error.localizedDescription, privacy: .public)")
-                return "Review action failed: \(error.localizedDescription)"
+        do {
+            switch action.action {
+            case .approve:
+                let review = try await queue.approve(id: action.reviewID, by: reviewer, now: Date())
+                return "Approved \(review.ruleId) — the submitter's next acknowledge writes the marker."
+            case .reject:
+                let review = try await queue.reject(
+                    id: action.reviewID, by: reviewer,
+                    reason: action.reason ?? "", now: Date())
+                return "Rejected \(review.ruleId) — recorded with your reason."
             }
+        } catch let error as ReviewQueueError {
+            Self.logger.warning("Review action refused: \(String(describing: error), privacy: .public)")
+            if case .secondIdentityRequired = error {
+                return "A DISTINCT second identity must decide — you submitted this judgment."
+            }
+            return "Review action failed: \(error)"
+        } catch {
+            Self.logger.warning("Review action failed: \(error.localizedDescription, privacy: .public)")
+            return "Review action failed: \(error.localizedDescription)"
         }
     }
 
     /// Bridges one async actor call onto the TUI's synchronous event loop.
+    ///
+    /// **Precondition: the caller must not be running on the cooperative thread pool.** This
+    /// blocks its thread on a semaphore that only the spawned `Task` can signal, so if the
+    /// caller already occupies a cooperative thread it is competing with the task it is
+    /// waiting for. With the pool saturated the task never gets a thread, the wait burns its
+    /// full deadline, and the result is a timeout notice rather than a deadlock — which is
+    /// why it reads as flakiness instead of as a bug.
+    ///
+    /// That is exactly what happened: a *synchronous* test calling this from inside Swift
+    /// Testing's task, in a 3,596-test parallel run, timed out on Linux while passing on
+    /// macOS, whose wider pool nearly always wins the race. The TUI's own event loop is not
+    /// a cooperative thread, so production is within the precondition — but nothing enforced
+    /// it, and the only caller that broke it was a test.
+    ///
+    /// Prefer the `async` variants wherever `await` is available; these bridges exist for the
+    /// event loop alone, which cannot `await` because it threads `inout DashboardState`.
     private static func bridge(_ body: @escaping @Sendable () async -> String) -> String {
         let semaphore = DispatchSemaphore(value: 0)
         let result = Mutex<String>("")

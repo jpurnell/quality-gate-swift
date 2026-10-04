@@ -23,8 +23,10 @@ public struct KeychainSecretsConfig: Sendable, Codable, Equatable {
     /// matched writes are skipped.
     public var allowKeys: [String]
 
-    /// Project-specific secret nouns to add to the built-in vocabulary
-    /// (e.g. `"jwt"`, `"otp"`). Case-insensitive; matched like the defaults.
+    /// Project-specific secret nouns to add to this checker's built-in words
+    /// (``SensitiveName/Origin/keychainSecretsRule``), e.g. `"jwt"` or `"license_key"`.
+    /// Case-insensitive; matched like the built-ins, as a whole
+    /// word or a run of whole words.
     public var extraPatterns: [String]
 
     /// Creates a configuration; every knob defaults to the documented value.

@@ -10,6 +10,24 @@ import SwiftParser
 ///
 /// See `PointerEscapeAuditorGuide.md` for the full rule list and the
 /// canonical Accelerate FFT incident that motivated each rule.
+///
+/// ## Storing into a field of an outer variable
+///
+/// `pointer-escape.assigned-to-outer-member` covers `stream.next_in = buf.baseAddress` — a
+/// pointer derived from the block's parameter, assigned through a member or subscript chain
+/// (`outer.x`, `outer.a.b`, `outer[i]`) rooted at a variable not declared in the block. That
+/// assignment is legitimate C interop when everything that reads it runs inside the block, so
+/// it is reported only when the stored pointer can be read after the block returns:
+///
+/// - the root is not a local of the enclosing function (a parameter, property or global
+///   outlives the call), or
+/// - the scope that declares the root references it again textually after the call to the
+///   block that *lent* the pointer, or anywhere in a loop between that block and the
+///   declaration — excluding references whose member path is disjoint from the stored one
+///   (`stream.total_out`) and plain `=` overwrites of it.
+///
+/// A `defer` written before the block is not counted, so `defer { inflateEnd(&stream) }` stays
+/// clean. `self.…` roots stay under `pointer-escape.stored-in-property`, unconditionally.
 public struct PointerEscapeAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "PointerEscapeAuditor")
     /// Unique identifier for this checker, used in diagnostics and configuration.

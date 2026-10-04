@@ -26,10 +26,37 @@ struct SecurityAcknowledgementTests {
         ("security.tls-disabled", "config.allowsExpiredCertificates = true"),
         ("security.path-traversal", "let data = FileManager.default.contents(atPath: base.appendingPathComponent(name).path)"),
         ("security.ssrf", "let target = URL(string: input)"),
+        ("security.broken-cipher", "let algorithm = CCAlgorithm(kCCAlgorithmDES)"),
+        ("security.ecb-mode", "let options = CCOptions(kCCOptionECBMode)"),
+        ("security.homemade-digest", "func hashKey(_ key: String) -> String { String(key.reversed()) }"),
+        ("security.hardcoded-key", #"let key = SymmetricKey(data: Data("0123456789abcdef".utf8))"#),
+        ("security.static-iv", "let s = CCCrypt(CCOperation(kCCEncrypt), alg, opts, k, n, nil, i, il, o, ol, &m)"),
+        ("security.weak-kdf", "let s = CCKeyDerivationPBKDF(alg, pw, n, salt, m, prf, 1000, out, len)"),
+        ("security.weak-key-size", "let a = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 1024]"),
         ("security.command-injection", """
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/bin/sh")
             task.arguments = ["-c", "grep \\(pattern) \\(file)"]
+            """),
+        ("security.xml-external-entities", "parser.shouldResolveExternalEntities = true"),
+        ("security.xml-entity-expansion", "let flags = XML_PARSE_HUGE"),
+        ("security.archive-path-escape",
+         "for entry in archive.entries { try entry.data.write(to: dest.appendingPathComponent(entry.path)) }"),
+        ("security.archive-symlink", "try archive.extract(entry, to: dest, symlinksValidWithin: .rootFS)"),
+        ("security.weak-prng", "let token = String(drand48())"),
+        ("security.seeded-secret", """
+            var g = SplitMix64(seed: 1)
+            let token = generateToken(using: &g)
+            """),
+        ("security.predictable-token", #"let token = "\(Date().timeIntervalSince1970)""#),
+        ("security.uuid-as-secret", "let sessionId = UUID().uuidString"),
+        ("security.regex-catastrophic", #"let expression = try NSRegularExpression(pattern: "(a+)+$")"#),
+        ("security.predicate-injection", "let predicate = NSPredicate(format: query)"),
+        ("security.bind-all-interfaces",
+         "_ = try await ServerBootstrap(group: g).bind(host: \"0.0.0.0\", port: 8080).get()"),
+        ("security.listener-auth-optional", """
+            _ = try await ServerBootstrap(group: g).bind(host: host, port: 8080).get()
+            init(port: Int, authenticator: Authenticator? = nil) {}
             """),
     ]
 

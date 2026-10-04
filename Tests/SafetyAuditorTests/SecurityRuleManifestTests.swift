@@ -49,11 +49,87 @@ struct SecurityRuleManifestTests {
         ("security.tls-disabled", "A07:2021"),
         ("security.path-traversal", "A01:2021"),
         ("security.ssrf", "A10:2021"),
+        ("security.broken-cipher", "A02:2021"),
+        ("security.ecb-mode", "A02:2021"),
+        ("security.homemade-digest", "A02:2021"),
+        ("security.xml-external-entities", "A05:2021"),
+        ("security.xml-entity-expansion", "A05:2021"),
+        ("security.archive-path-escape", "A01:2021"),
+        ("security.archive-symlink", "A01:2021"),
+        ("security.weak-prng", "A02:2021"),
+        ("security.seeded-secret", "A02:2021"),
+        ("security.predictable-token", "A02:2021"),
+        ("security.uuid-as-secret", "A02:2021"),
     ])
     func top10Category(ruleId: String, category: String) throws {
         let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
         let top10 = try #require(rule.owaspTop10, "\(ruleId) has no Top 10 category")
         #expect(top10.hasPrefix(category))
+    }
+
+    /// MITRE CWE 4.20: 22 is the parent of relative (23) and absolute (36) traversal, and an entry
+    /// name can be either, so the parent is the accurate mapping. 59 is link following; 61 is the
+    /// attack-oriented composite and is not used.
+    @Test("The archive rules name the weaknesses they reach, at error", arguments: [
+        ("security.archive-path-escape", ["CWE-22"]),
+        ("security.archive-symlink", ["CWE-59"]),
+    ])
+    func archiveRules(ruleId: String, cwes: [String]) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == cwes)
+        #expect(rule.severity == "ERROR")
+        #expect(rule.owaspMobile == "M4 Insufficient Input/Output Validation")
+        #expect(rule.owaspAPI == nil)
+    }
+
+    /// Fetched from MITRE (CWE 4.20). 327 is a Class; its children were examined first and none
+    /// fits "DES" or "ECB" — 328 is hashes, 916 is password KDFs, 780 is RSA padding.
+    @Test("The cipher rules carry the CWE, severity and Mobile category the proposal fixed", arguments: [
+        ("security.broken-cipher", "CWE-327", "ERROR"),
+        ("security.ecb-mode", "CWE-327", "ERROR"),
+        ("security.homemade-digest", "CWE-1240", "WARNING"),
+    ])
+    func cipherRules(ruleId: String, cwe: String, severity: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == [cwe])
+        #expect(rule.severity == severity)
+        #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
+        #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
+    }
+
+    /// Fetched from MITRE (CWE 4.20) on 2026-10-03. `static-iv` is three weaknesses: a CBC IV
+    /// (329, primary), any other fixed IV (1204), and a reused AEAD nonce (323). 326 is a Class
+    /// with no Base child about key length, so it stays.
+    @Test("The key rules carry the CWEs and severity the proposal fixed", arguments: [
+        ("security.hardcoded-key", ["CWE-321"]),
+        ("security.static-iv", ["CWE-329", "CWE-1204", "CWE-323"]),
+        ("security.weak-kdf", ["CWE-916"]),
+        ("security.weak-key-size", ["CWE-326"]),
+    ])
+    func keyRules(ruleId: String, cwes: [String]) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == cwes)
+        #expect(rule.severity == "ERROR")
+        #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
+        #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
+    }
+
+    /// Fetched from MITRE (CWE 4.20) and in the committed snapshot. 330 is not used: MITRE marks it
+    /// Discouraged. 340 is a Class kept after review — 341 is about observable state and 342/343
+    /// about prediction from earlier values, and a v4 UUID is neither.
+    @Test("The randomness rules carry the CWEs, severity and categories the proposal fixed", arguments: [
+        ("security.weak-prng", ["CWE-338"], "ERROR"),
+        ("security.seeded-secret", ["CWE-335", "CWE-336", "CWE-337"], "ERROR"),
+        ("security.predictable-token", ["CWE-341"], "ERROR"),
+        ("security.uuid-as-secret", ["CWE-340"], "WARNING"),
+    ])
+    func randomnessRules(ruleId: String, cwes: [String], severity: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == cwes)
+        #expect(rule.severity == severity)
+        #expect(rule.owaspMobile == "M10 Insufficient Cryptography")
+        #expect(rule.owaspTop10 == "A02:2021 Cryptographic Failures")
+        #expect(rule.owaspAPI == nil)
     }
 
     @Test("The Mobile column keeps its value under its own name")
@@ -81,5 +157,37 @@ struct SecurityRuleManifestTests {
                 #expect(yaml.contains(top10))
             }
         }
+    }
+
+    /// The proposal's table, recorded so the API column is not re-derived from memory.
+    @Test("The XML rules carry their CWE, severity and API Security category", arguments: [
+        ("security.xml-external-entities", "CWE-611", "ERROR", "API8:2023 Security Misconfiguration"),
+        ("security.xml-entity-expansion", "CWE-776", "WARNING", "API4:2023 Unrestricted Resource Consumption"),
+    ])
+    func xmlRules(ruleId: String, cwe: String, severity: String, api: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == [cwe])
+        #expect(rule.severity == severity)
+        #expect(rule.owaspAPI == api)
+        #expect(rule.owaspTop10 == "A05:2021 Security Misconfiguration")
+        #expect(rule.owaspMobile == "M4 Insufficient Input/Output Validation")
+    }
+
+    /// MITRE CWE 4.20, fetched 2026-10-03: 1327 and 1188 are Base, Allowed, and members of no
+    /// OWASP Top Ten 2021 category — so the Top 10 column is empty rather than guessed. These
+    /// are the first rules where the API Security list plainly applies.
+    @Test("The listener rules carry their CWE, severity, and API Security category", arguments: [
+        ("security.bind-all-interfaces", "CWE-1327", "ERROR", "API8:2023 Security Misconfiguration",
+         "M8 Security Misconfiguration"),
+        ("security.listener-auth-optional", "CWE-1188", "WARNING", "API2:2023 Broken Authentication",
+         "M3 Insecure Authentication/Authorization"),
+    ])
+    func listenerRules(ruleId: String, cwe: String, severity: String, api: String, mobile: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == [cwe])
+        #expect(rule.severity == severity)
+        #expect(rule.owaspAPI == api)
+        #expect(rule.owaspMobile == mobile)
+        #expect(rule.owaspTop10 == nil)
     }
 }

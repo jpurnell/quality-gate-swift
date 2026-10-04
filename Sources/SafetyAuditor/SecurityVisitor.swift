@@ -1,3 +1,4 @@
+import ExternalInputSyntax
 import Foundation
 import QualityGateCore
 import SwiftSyntax
@@ -14,14 +15,38 @@ import SwiftSyntax
 /// |---------|-----|-----------------|
 /// | `security.hardcoded-secret` | 798 | Secret-named variable with string literal value |
 /// | `security.command-injection` | 78 | Process/NSTask with dynamic arguments |
-/// | `security.weak-crypto` | 327 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+/// | `security.weak-crypto` | 328 | CC_MD5, CC_SHA1, Insecure.* hash calls |
+/// | `security.broken-cipher` | 327 | DES/3DES/RC4/RC2/CAST/Blowfish constants; CryptoSwift Blowfish, Rabbit |
+/// | `security.ecb-mode` | 327 | kCCOptionECBMode, kCCModeECB; CryptoSwift ECB |
+/// | `security.homemade-digest` | 1240 | Digest-named function of a secret that calls no primitive |
+/// | `security.hardcoded-key` | 321 | Literal key bytes to SymmetricKey, CCCrypt/CCHmac, a PrivateKey; a PEM private key — see `SecurityVisitor+Keys.swift` |
+/// | `security.static-iv` | 329, 1204, 323 | nil or literal IV when encrypting; literal or held AEAD nonce |
+/// | `security.weak-kdf` | 916 | PBKDF2 below 210,000 rounds; unchecked PBKDF2; a bare digest of a password |
+/// | `security.weak-key-size` | 326 | RSA below 2048 bits, symmetric key below 128 bits |
 /// | `security.insecure-transport` | 319 | http:// URLs (excluding localhost) |
 /// | `security.eval-js` | 95 | evaluateJavaScript with non-literal argument |
 /// | `security.sql-injection` | 89 | Interpolation in SQL-executing function call |
-/// | `security.insecure-keychain` | 311 | Deprecated keychain accessibility constants |
-/// | `security.tls-disabled` | 295 | Certificate validation disabled |
-/// | `security.path-traversal` | 22 | FileManager with dynamic path |
+/// | `security.insecure-keychain` | 922 | Deprecated keychain accessibility constants |
+/// | `security.tls-disabled` | 295, 298 | Certificate validation switched off — see `SecurityVisitor+Trust.swift` |
+/// | `security.tls-no-hostname` | 297 | Certificate not checked against the host |
+/// | `security.trust-handler-accepts-all` | 295 | Trust challenge answered without an evaluation |
+/// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
+/// | `security.path-traversal` | 22 | Chosen segment joined onto a directory and used without containment |
 /// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
+/// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
+/// | `security.xml-entity-expansion` | 776 | `XML_PARSE_HUGE`; `XMLDocument` parse with no DTD refusal (warning) |
+/// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |
+/// | `security.archive-path-escape` | 22 | Archive entry name joined and written without containment; `unzip -:`, `tar -P` |
+/// | `security.archive-symlink` | 59 | Link target chosen by an archive entry, unchecked; ZIPFoundation containment switched off |
+/// | `security.weak-prng` | 338 | C `rand` family or GameplayKit making a security value — see `SecurityVisitor+Randomness.swift` |
+/// | `security.seeded-secret` | 335, 336, 337 | Security value drawn from a generator seeded in the same function |
+/// | `security.predictable-token` | 341 | Security value made only of the clock, the pid or a hash value |
+/// | `security.uuid-as-secret` | 340 | Security value made of `UUID()` (warning) |
+/// | `security.regex-catastrophic` | 1333 | Literal pattern with nested or overlapping unbounded repetition — see `SecurityVisitor+Pattern.swift` |
+/// | `security.regex-from-input` | 1333 | Pattern derived from external input (warning; acknowledgement must name a bound) |
+/// | `security.predicate-injection` | 943, 917 | `NSPredicate` / `NSExpression` format string assembled at runtime |
+/// | `security.bind-all-interfaces` | 1327 | Listener bound to every interface: literal at the bind or `INADDR_ANY` in a socket address (error); default, assignment or argument (warning) — see `ServerSurfaceRules.swift` |
+/// | `security.listener-auth-optional` | 1188 | Authenticator defaulting to off, or switchable off from the environment, in a target that listens |
 final class SecurityVisitor: SyntaxVisitor {
     let fileName: String
     let source: String
@@ -37,28 +62,55 @@ final class SecurityVisitor: SyntaxVisitor {
     let localStringConstants: Set<String>
     var diagnostics: [Diagnostic] = []
     var overrides: [DiagnosticOverride] = []
+    /// XML parse sites seen in this file, for the `security.xml-coverage` note.
+    var xmlSites = XMLSiteCounts()
+    /// What the randomness rules examined in this file, for the `security.randomness-coverage` note.
+    var randomnessSites = RandomnessSiteCounts()
     /// Holds `// SECURITY:` reasons to the bar `concurrency.*` justifications already meet.
-    private let justificationValidator = JustificationValidator()
+    let justificationValidator = JustificationValidator()
+    /// `secretPatterns` as terms for ``SensitiveName`` — built once per file, not per binding.
+    private let secretPatternTerms: [SensitiveName.Term]
+    /// The type of the target owning this file. The key rules (`SecurityVisitor+Keys.swift`) do
+    /// not report in a test target, where fixed key material is a known-answer vector.
+    let targetType: TargetType
+    /// `let` bindings whose literal `security.hardcoded-key` reported at a use as key material.
+    var claimedKeyBindings: Set<SyntaxIdentifier> = []
+    /// `security.hardcoded-secret` findings held until the file is walked, so one that
+    /// `hardcoded-key` claims is not reported twice — see ``visitPost(_:)``.
+    private var pendingSecrets: [(binding: SyntaxIdentifier, diagnostic: Diagnostic)] = []
+    /// The file's external-input reading, built on first use by a rule that needs it.
+    var externalInputFile: ExternalInputFile?
 
     init(
         fileName: String,
         source: String,
         converter: SourceLocationConverter,
         configuration: SecurityAuditorConfig,
-        sourceFile: SourceFileSyntax? = nil
+        sourceFile: SourceFileSyntax? = nil,
+        targetType: TargetType = .executable
     ) {
+        self.targetType = targetType
         self.localStringConstants = sourceFile.map(Self.stringLiteralConstants(in:)) ?? []
         self.fileName = fileName
         self.source = source
         self.converter = converter
         self.sourceLines = source.lines
         self.configuration = configuration
+        self.secretPatternTerms = configuration.secretPatterns.map { SensitiveName.customTerm($0) }
         super.init(viewMode: .sourceAccurate)
+    }
+
+    // MARK: - Source File Visitor (randomness — SecurityVisitor+Randomness.swift)
+
+    override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
+        checkRandomness(in: node)
+        return .visitChildren
     }
 
     // MARK: - Variable Declaration Visitor
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkTypedCertificateVerification(node)
         guard isRuleEnabled("security.hardcoded-secret") else {
             return .visitChildren
         }
@@ -68,24 +120,30 @@ final class SecurityVisitor: SyntaxVisitor {
                 continue
             }
 
-            let name = pattern.identifier.text.lowercased()
-
-            // Check if variable name matches secret patterns
-            let isSecretName = configuration.secretPatterns.contains { pattern in
-                name.contains(pattern.lowercased())
-            }
-            guard isSecretName else { continue }
+            // Whole words, through the gate's one sensitive-name matcher. This was
+            // `name.lowercased().contains(pattern)`, which made `tokenizer` and `secretary`
+            // credentials (`PublicIsAClaimAboutTheValue.md` §4.4). The rule keeps the words it
+            // shipped with: the union vocabulary added nineteen findings across the portfolio,
+            // all header names, grant-type constants and test fixtures, so widening it is left
+            // to a change that measures and argues for it.
+            let classification = SensitiveName.classify(
+                pattern.identifier.text,
+                restrictedTo: .hardcodedSecretRule,
+                additionalTerms: secretPatternTerms)
+            guard classification.namesSecret else { continue }
 
             // Check if assigned a string literal
             guard let initializer = binding.initializer,
-                  initializer.value.is(StringLiteralExprSyntax.self) else {
+                  let literal = initializer.value.as(StringLiteralExprSyntax.self) else {
                 continue
             }
+            // A PEM private key is key material: `hardcoded-key` reports the literal itself.
+            if keyRulesApply, isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(literal) { continue }
 
             let location = node.startLocation(
                 converter: converter
             )
-            report(Diagnostic(
+            pendingSecrets.append((pattern.id, Diagnostic(
                 severity: .warning,
                 message: "Hardcoded secret or credential detected in '\(pattern.identifier.text)'. [CWE-798]",
                 filePath: fileName,
@@ -93,10 +151,25 @@ final class SecurityVisitor: SyntaxVisitor {
                 columnNumber: location.column,
                 ruleId: "security.hardcoded-secret",
                 suggestedFix: "Load secrets from environment variables, keychain, or a secure configuration provider"
-            ))
+            )))
         }
 
         return .visitChildren
+    }
+
+    /// Reports the `hardcoded-secret` findings that `hardcoded-key` did not claim.
+    ///
+    /// One literal, one finding. `hardcoded-secret` (CWE-798) reads a *name*: a secret-named
+    /// binding assigned a string literal. `hardcoded-key` (CWE-321, a child of 798) reads a *use*:
+    /// literal bytes passed where a cipher, MAC or key initialiser takes its key. When a
+    /// secret-named literal is that key, the more specific rule reports it at the use, and this
+    /// one stays quiet. Held to the end of the file because the use may come after, or before,
+    /// the declaration.
+    override func visitPost(_ node: SourceFileSyntax) {
+        for pending in pendingSecrets where !claimedKeyBindings.contains(pending.binding) {
+            report(pending.diagnostic)
+        }
+        pendingSecrets.removeAll()
     }
 
     // MARK: - Function Call Visitor
@@ -112,12 +185,83 @@ final class SecurityVisitor: SyntaxVisitor {
         checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
+        checkArchivePathEscape(node)
+        checkArchiveSymlink(node)
+        checkCertificateVerificationArguments(node)
+        checkTrustCalls(node)
+        checkVerifyBlock(node)
+        checkKeyArguments(node)
+        countXMLParseSite(node)
+        for finding in XMLEntityRules.call(node) { reportXML(finding) }
+        checkPatternCalls(node)
         return .visitChildren
+    }
+
+    // MARK: - Regex Literal Visitor (catastrophic pattern)
+
+    override func visit(_ node: RegexLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        checkRegexLiteral(node)
+        return .visitChildren
+    }
+
+    // MARK: - Reference Visitor (broken cipher, ECB, XML entities)
+
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        checkCipherReference(node)
+        checkKeySizeAttribute(node)
+        checkDisabledEvaluator(node)
+        if let finding = XMLEntityRules.reference(node) { reportXML(finding) }
+        return .visitChildren
+    }
+
+    // MARK: - Function Declaration Visitor (homemade digest, XML resolver delegate)
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        checkHomemadeDigest(node)
+        checkTrustHandler(node)
+        if let finding = XMLEntityRules.function(node) { reportXML(finding) }
+        return .visitChildren
+    }
+
+    // MARK: - XML entities (CWE-611, CWE-776)
+
+    private var xmlRulesEnabled: Bool {
+        isRuleEnabled(XMLEntityRules.externalRule) || isRuleEnabled(XMLEntityRules.expansionRule)
+    }
+
+    /// Counts a parse site whether or not anything is wrong with it: the note's denominator.
+    private func countXMLParseSite(_ node: FunctionCallExprSyntax) {
+        guard xmlRulesEnabled else { return }
+        if XMLEntityRules.isXMLParserConstruction(node) {
+            xmlSites.xmlParser += 1
+        } else if XMLEntityRules.isParsingXMLDocument(node) {
+            xmlSites.xmlDocument += 1
+        } else if XMLEntityRules.isLibxml2Parse(node) {
+            xmlSites.libxml2 += 1
+        }
+    }
+
+    /// Locates an XML finding and sends it through `report(_:)`, so its acknowledgement is
+    /// validated and recorded like every other security rule's.
+    private func reportXML(_ finding: XMLEntityFinding) {
+        guard isRuleEnabled(finding.ruleId) else { return }
+        if finding.configuresExternalLoad { xmlSites.configuredToLoad += 1 }
+        let location = finding.anchor.startLocation(converter: converter)
+        report(Diagnostic(
+            severity: finding.severity,
+            message: finding.message,
+            filePath: fileName,
+            lineNumber: location.line,
+            columnNumber: location.column,
+            ruleId: finding.ruleId,
+            suggestedFix: finding.suggestedFix
+        ))
     }
 
     // MARK: - String Literal Visitor (insecure transport)
 
     override func visit(_ node: StringLiteralExprSyntax) -> SyntaxVisitorContinueKind {
+        checkPrivateKeyLiteral(node)
         guard isRuleEnabled("security.insecure-transport") else {
             return .visitChildren
         }
@@ -220,6 +364,7 @@ final class SecurityVisitor: SyntaxVisitor {
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         checkInsecureKeychain(node)
         checkTLSDisabled(node)
+        if let finding = XMLEntityRules.memberAccess(node) { reportXML(finding) }
         return .visitChildren
     }
 
@@ -229,10 +374,14 @@ final class SecurityVisitor: SyntaxVisitor {
 
     override func visit(_ node: SequenceExprSyntax) -> SyntaxVisitorContinueKind {
         checkTLSAssignment(node)
+        checkCertificateVerificationAssignment(node)
+        if let finding = XMLEntityRules.assignment(node) { reportXML(finding) }
         // Order matters and follows source order: the executable is assigned before the
         // arguments in every shape this rule recognises.
         noteExecutableAssignment(node)
         checkShellCommandAssembly(node)
+        noteExtractorAssignment(node)
+        checkExtractorFlags(node)
         return .visitChildren
     }
 
@@ -245,7 +394,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// The list is the point of the rule: injection needs an interpreter. A `Process` given an
     /// `arguments` array invokes none — each element arrives as one `argv` entry, so a filename
     /// containing `; rm -rf /` is passed as a filename and nothing parses it.
-    private static let shellNames: Set<String> = [
+    static let shellNames: Set<String> = [
         "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish"
     ]
 
@@ -259,25 +408,35 @@ final class SecurityVisitor: SyntaxVisitor {
     /// whichever happened to be written second.
     private var shellVariables: Set<String> = []
 
+    /// Variables whose executable is an archive extractor, by base identifier, to the tool's
+    /// name (`unzip`, `tar`). Correlated the same way as `shellVariables`.
+    var extractorVariables: [String: String] = [:]
+
     /// Records `x.executableURL = URL(fileURLWithPath: "/bin/sh")` and `x.launchPath = "/bin/sh"`.
     ///
     /// Called for every assignment; only shell paths are retained.
     func noteExecutableAssignment(_ node: SequenceExprSyntax) {
-        let elements = Array(node.elements)
-        guard elements.count >= 3,
-              elements[1].is(AssignmentExprSyntax.self),
-              let member = elements[0].as(MemberAccessExprSyntax.self),
-              let base = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text else { return }
-        let property = member.declName.baseName.text
-        guard property == "executableURL" || property == "launchPath" else { return }
-
-        guard let path = Self.firstStringLiteral(in: elements[2]) else { return }
+        guard let (base, path) = Self.executableAssignment(node) else { return }
         let name = (path as NSString).lastPathComponent
         // `env` defers the choice of interpreter to its first argument, so the decision moves to
         // the argument array; treating it as a shell here is what makes `env sh -c` reachable.
         if Self.shellNames.contains(name) || name == "env" {
             shellVariables.insert(base)
         }
+    }
+
+    /// `x.executableURL = URL(fileURLWithPath: "/bin/sh")` or `x.launchPath = "/bin/sh"`: the
+    /// variable and the literal path.
+    static func executableAssignment(_ node: SequenceExprSyntax) -> (String, String)? {
+        let elements = Array(node.elements)
+        guard elements.count >= 3,
+              elements[1].is(AssignmentExprSyntax.self),
+              let member = elements[0].as(MemberAccessExprSyntax.self),
+              let base = member.base?.as(DeclReferenceExprSyntax.self)?.baseName.text else { return nil }
+        let property = member.declName.baseName.text
+        guard property == "executableURL" || property == "launchPath",
+              let path = firstStringLiteral(in: elements[2]) else { return nil }
+        return (base, path)
     }
 
     /// The command-injection rule proper: a shell handed a command string it did not author.
@@ -353,7 +512,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// The first string literal inside `expression`, unwrapping one call layer.
     ///
     /// Unwraps so `URL(fileURLWithPath: "/bin/sh")` yields the path the same as a bare literal.
-    private static func firstStringLiteral(in expression: ExprSyntaxProtocol) -> String? {
+    static func firstStringLiteral(in expression: ExprSyntaxProtocol) -> String? {
         if let literal = expression.as(StringLiteralExprSyntax.self) {
             return literal.representedLiteralValue
         }
@@ -406,37 +565,15 @@ final class SecurityVisitor: SyntaxVisitor {
         emitWeakCryptoDiagnostic(node, algorithm: callee)
     }
 
+    /// Whether a weak hash is a defect depends on what it is for. Deriving a key for a file
+    /// format that names SHA-1 is not a security choice — the alternative is refusing to open
+    /// the file — and no property of the surrounding code says so. A stated reason does, which
+    /// is what `weakCryptoPolicy: justified` asks for; ``reportUnderCryptoPolicy(_:)`` decides.
     private func emitWeakCryptoDiagnostic(_ node: FunctionCallExprSyntax, algorithm: String) {
         let location = node.startLocation(
             converter: converter
         )
-        // Whether a weak hash is a defect depends on what it is for. Deriving a key for a
-        // file format that names SHA-1 is not a security choice — the alternative is
-        // refusing to open the file — and no property of the surrounding code says so. A
-        // stated reason does, which is what `justified` asks for.
-        switch configuration.weakCryptoPolicy.verdict(in: (), evidence: ()) {
-        case .count:
-            // Not reachable: the policy offers no aggregate level, deliberately. Reporting
-            // is the safe reading if one is ever added without revisiting this.
-            break
-        case .requireJustification:
-            guard !hasWeakCryptoJustification(line: location.line) else { return }
-            report(Diagnostic(
-                severity: .warning,
-                message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto")) "
-                    + "Add a `// Justification:` comment saying why it is correct here.",
-                filePath: fileName,
-                lineNumber: location.line,
-                columnNumber: location.column,
-                ruleId: "security.weak-crypto",
-                suggestedFix: "// Justification: <why this hash is dictated rather than chosen>"
-            ))
-            return
-        case .report:
-            break
-        }
-
-        report(Diagnostic(
+        reportUnderCryptoPolicy(Diagnostic(
             severity: .warning,
             message: "Use of weak cryptographic hash '\(algorithm)'. \(Self.citation("security.weak-crypto"))",
             filePath: fileName,
@@ -445,16 +582,6 @@ final class SecurityVisitor: SyntaxVisitor {
             ruleId: "security.weak-crypto",
             suggestedFix: "Use SHA256 or stronger from CryptoKit: SHA256.hash(data:)"
         ))
-    }
-
-    /// Whether the line above the call carries a `// Justification:` comment.
-    ///
-    /// Adjacent by design, matching how `@unchecked Sendable` is justified elsewhere: a
-    /// reason anywhere in the file would drift away from the thing it excuses, and the
-    /// reader who needs it is looking at this line.
-    private func hasWeakCryptoJustification(line: Int) -> Bool {
-        guard line >= 2, line - 2 < sourceLines.count else { return false }
-        return sourceLines[line - 2].contains("// Justification:")
     }
 
     // MARK: Eval JS (CWE-95)
@@ -704,6 +831,9 @@ final class SecurityVisitor: SyntaxVisitor {
         }
         guard Self.isJoinWithChosenSegment(joined, at: node) else { return }
         if let subject, hasSoundContainmentCheck(on: subject, before: node) { return }
+        // One defect, one diagnostic: an archive entry's name escaping is the more specific report.
+        if isRuleEnabled(Self.archiveEscapeRule), let join = joined.as(FunctionCallExprSyntax.self),
+           archiveEscape(of: join) != nil { return }
 
         let location = node.startLocation(converter: converter)
         report(Diagnostic(
@@ -721,7 +851,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// `x.path`, `x.standardizedFileURL`, `x.resolvingSymlinksInPath()` … down to `x`.
-    private static func strippingPathAccessors(_ expression: ExprSyntax) -> ExprSyntax {
+    static func strippingPathAccessors(_ expression: ExprSyntax) -> ExprSyntax {
         let accessors: Set<String> = [
             "path", "standardized", "standardizedFileURL", "resolvingSymlinksInPath", "absoluteURL",
         ]
@@ -749,21 +879,8 @@ final class SecurityVisitor: SyntaxVisitor {
     /// `"\(root)/telemetry"` joins a literal; `a ?? b` joins nothing.
     private static func isJoinWithChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
         if let call = expression.as(FunctionCallExprSyntax.self) {
-            let callee = call.calledExpression
-            // `appending` only with a path label: `String.appending(_:)` extends a string.
-            if let member = callee.as(MemberAccessExprSyntax.self),
-               let first = call.arguments.first,
-               member.declName.baseName.text == "appendingPathComponent"
-                || (member.declName.baseName.text == "appending"
-                    && ["path", "component"].contains(first.label?.text ?? "")) {
-                return isChosenSegment(first.expression, at: node)
-            }
-            if callee.trimmedDescription == "URL",
-               call.arguments.contains(where: { $0.label?.text == "relativeTo" }),
-               let segment = call.arguments.first?.expression {
-                return isChosenSegment(segment, at: node)
-            }
-            return false
+            guard let segment = joinSegment(of: call) else { return false }
+            return isChosenSegment(segment, at: node)
         }
         if let sequence = expression.as(SequenceExprSyntax.self) {
             let elements = Array(sequence.elements)
@@ -816,7 +933,7 @@ final class SecurityVisitor: SyntaxVisitor {
     ///
     /// Not a literal; not a loop variable over a collection of literals; not a name just listed
     /// from a directory — `contentsOfDirectory` never returns a name with `/` in it, or `..`.
-    private static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
+    static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
         if isLiteralSegment(expression) { return false }
         // A generated identifier — `UUID().uuidString`, a process's unique string — contains no
         // separator and nobody outside this code chose it.
@@ -847,7 +964,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// Whether a `for` pattern binds `name` — directly or inside a tuple.
-    private static func binds(_ pattern: PatternSyntax, _ name: String) -> Bool {
+    static func binds(_ pattern: PatternSyntax, _ name: String) -> Bool {
         if let identifier = pattern.as(IdentifierPatternSyntax.self) { return identifier.identifier.text == name }
         if let tuple = pattern.as(TuplePatternSyntax.self) {
             return tuple.elements.contains { binds($0.pattern, name) }
@@ -866,7 +983,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// A string literal with no interpolation, or an integer literal.
-    private static func isLiteralSegment(_ expression: ExprSyntax) -> Bool {
+    static func isLiteralSegment(_ expression: ExprSyntax) -> Bool {
         if let literal = expression.as(StringLiteralExprSyntax.self) {
             return !literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
         }
@@ -890,7 +1007,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// The function, initialiser, accessor or closure body that `node` sits in.
-    private static func enclosingBody(of node: some SyntaxProtocol) -> Syntax? {
+    static func enclosingBody(of node: some SyntaxProtocol) -> Syntax? {
         var current = node.parent
         while let candidate = current {
             if let function = candidate.as(FunctionDeclSyntax.self) { return function.body.map(Syntax.init) }
@@ -925,7 +1042,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     /// `hasPrefix(base + "/")` or `hasPrefix("\(base)/")` — a prefix test with the separator that
     /// makes it a containment test. `hasPrefix("/")` alone is not one.
-    private static func hasSeparatedPrefixTest(_ text: String) -> Bool {
+    static func hasSeparatedPrefixTest(_ text: String) -> Bool {
         let compact = text.replacingOccurrences(of: " ", with: "")
         return compact.contains("+\"/\")") || compact.range(of: #"hasPrefix\("\\\([^"]*\)/"\)"#, options: .regularExpression) != nil
     }
@@ -1008,7 +1125,7 @@ final class SecurityVisitor: SyntaxVisitor {
     }
 
     /// `baseURLPath` → `["base", "url", "path"]`; `base64Sentinel` → `["base64", "sentinel"]`.
-    private static func camelCaseWords(_ identifier: String) -> [String] {
+    static func camelCaseWords(_ identifier: String) -> [String] {
         var words: [String] = []
         var current = ""
         let characters = Array(identifier)
@@ -1119,7 +1236,7 @@ final class SecurityVisitor: SyntaxVisitor {
 
     // MARK: - Helpers
 
-    private func isRuleEnabled(_ ruleId: String) -> Bool {
+    func isRuleEnabled(_ ruleId: String) -> Bool {
         configuration.enabledRules.isEmpty || configuration.enabledRules.contains(ruleId)
     }
 
@@ -1131,7 +1248,7 @@ final class SecurityVisitor: SyntaxVisitor {
     ///
     /// Empty when the manifest does not list the rule: a message with no citation is honest,
     /// and one carrying a number nobody recorded is not.
-    private static func citation(_ ruleId: String) -> String {
+    static func citation(_ ruleId: String) -> String {
         guard let cwe = SecurityRuleManifest.cwe(for: ruleId) else { return "" }
         return "[\(cwe)]"
     }
@@ -1144,7 +1261,7 @@ final class SecurityVisitor: SyntaxVisitor {
     /// override and the finding is not reported. A marker that fails leaves the finding
     /// standing, at its own severity, with a sentence saying why the marker was not accepted.
     /// Silence and an unexplained exemption were the same thing to every report before this.
-    private func report(_ diagnostic: Diagnostic) {
+    func report(_ diagnostic: Diagnostic) {
         guard let line = diagnostic.lineNumber,
               let ruleId = diagnostic.ruleId,
               let marker = securityMarker(near: line) else {
@@ -1154,6 +1271,10 @@ final class SecurityVisitor: SyntaxVisitor {
 
         switch justificationValidator.validate(marker.text, keyword: Self.marker) {
         case .valid:
+            if let unmet = Self.unmetAcknowledgementRequirement(ruleId: ruleId, reason: Self.payload(of: marker.text)) {
+                diagnostics.append(Self.rejecting(diagnostic, markerLine: marker.line, because: unmet))
+                return
+            }
             overrides.append(DiagnosticOverride(
                 ruleId: ruleId,
                 justification: Self.payload(of: marker.text),

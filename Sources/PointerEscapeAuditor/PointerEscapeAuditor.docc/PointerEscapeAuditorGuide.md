@@ -106,9 +106,76 @@ withUnsafePointer(to: x) { ptr in
 }
 ```
 
+### `pointer-escape.assigned-to-outer-member`
+
+The C-interop form of the same escape: the pointer goes into a *field* of an outer struct —
+zlib's `z_stream`, an `iovec`, a `CBlas` descriptor — and the call that reads it is made after
+the block has returned. Every line compiles; the call reads memory that was lent only for the
+closure's duration.
+
+```swift
+/// Stands in for zlib's `z_stream`: a C struct driven by the pointers stored in it.
+struct ZStream {
+    var nextIn: UnsafePointer<UInt8>?
+    var availIn = 0
+    var totalOut = 0
+}
+
+/// Stands in for `deflate`: it reads `nextIn`.
+func drive(_ stream: inout ZStream) -> Int {
+    guard let nextIn = stream.nextIn, stream.availIn > 0 else { return 0 }
+    return Int(nextIn.pointee)
+}
+
+// ❌ flagged at `stream.nextIn = …` — drive reads nextIn after the block returns
+func compressLeaky(_ bytes: [UInt8]) -> Int {
+    var stream = ZStream()
+    bytes.withUnsafeBufferPointer { buffer in
+        stream.nextIn = buffer.baseAddress
+        stream.availIn = buffer.count
+    }
+    return drive(&stream)
+}
+
+// ✅ accepted — the call that reads the pointer runs inside the block
+func compress(_ bytes: [UInt8]) -> Int {
+    var stream = ZStream()
+    let status = bytes.withUnsafeBufferPointer { buffer in
+        stream.nextIn = buffer.baseAddress
+        stream.availIn = buffer.count
+        return drive(&stream)
+    }
+    return status + stream.totalOut   // a different field: not a read of nextIn
+}
+```
+
+With two buffers — zlib's input and output — the blocks nest, and the call goes in the
+innermost one.
+
+Storing a field is how C APIs are meant to be driven, so this rule is conditional where its
+bare-variable sibling is not. It reports the assignment when:
+
+- the root (`stream`) is **not a local** of the enclosing function — a parameter, a property
+  reached through implicit `self`, or a global outlives the call, so the escape is certain; or
+- the scope that declares the root **references it after** the call of the block that lent the
+  pointer (for a pointer bound by an outer block, that is the *outer* block's call), or anywhere
+  inside a loop lying between the block and the declaration, since the next iteration runs it
+  later.
+
+A later reference does not count when its member path is disjoint from the stored one
+(`stream.total_out` after storing `stream.next_in`), or when it is a plain `=` that overwrites
+the stored field. `&stream`, a bare `stream`, and `stream.method()` count: the whole value is
+handed over. A subscript (`buf[0] = p.baseAddress`) matches any element.
+
+A `defer` written *before* the block is not treated as a later read, although it runs at scope
+exit. `defer { inflateEnd(&stream) }` is teardown, and it is the idiom the correct shape uses; a
+rule that flagged it would flag every correct zlib caller. That is a known gap, chosen.
+
 ### `pointer-escape.stored-in-property`
 
-Same shape, with `self.x =` as the assignment target. This is the FFT incident exactly.
+Same shape, with `self.x =` as the assignment target. This is the FFT incident exactly. Deeper
+chains (`self.state.stream.next_in = …`) and subscripts (`self.slots[0] = …`) are the same
+rule, and are reported unconditionally: the instance outlives the block.
 
 ### `pointer-escape.appended-to-outer-collection`
 

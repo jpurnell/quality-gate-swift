@@ -21,6 +21,10 @@ let package = Package(
             targets: ["SafetyAuditor"]
         ),
         .library(
+            name: "ServerSurface",
+            targets: ["ServerSurface"]
+        ),
+        .library(
             name: "BuildChecker",
             targets: ["BuildChecker"]
         ),
@@ -272,6 +276,25 @@ let package = Package(
             dependencies: ["QualityGateCore"]
         ),
 
+        // MARK: - External-input source model (SwiftSyntax adapter)
+        .target(
+            name: "ExternalInputSyntax",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+            ],
+            resources: [.copy("ExternalInputSyntax.docc")]
+        ),
+        .testTarget(
+            name: "ExternalInputSyntaxTests",
+            dependencies: [
+                "ExternalInputSyntax",
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+
         // MARK: - Checker Modules
         .target(
             name: "SafetyAuditor",
@@ -279,6 +302,8 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                "ExternalInputSyntax",
+                "ServerSurface",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
@@ -288,6 +313,23 @@ let package = Package(
             name: "SafetyAuditorTests",
             dependencies: [
                 "IndexStoreInfra","SafetyAuditor"]
+        ),
+
+        // What a package exposes to a network — listeners and handlers — as data for rules.
+        // Shared infrastructure (TheGateIsNotYetAggressive.md §2.2 item 1): SafetyAuditor's
+        // listener rules read it now; the server-surface proposals add columns to it later.
+        .target(
+            name: "ServerSurface",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            resources: [.copy("ServerSurface.docc")]
+        ),
+        .testTarget(
+            name: "ServerSurfaceTests",
+            dependencies: ["ServerSurface", "QualityGateCore"]
         ),
 
         .target(
@@ -689,6 +731,9 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                // `SecurityValueSite`: where the security rules own a line, this checker stands
+                // down, and it must read "the value" exactly as they do (ASeedIsNotASecret.md §3.6).
+                "SafetyAuditor",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],

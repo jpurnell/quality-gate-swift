@@ -2,6 +2,7 @@ import Foundation
 import IndexStoreInfra
 import QualityGateLogging
 import QualityGateCore
+import ServerSurface
 import SwiftSyntax
 import SwiftParser
 
@@ -62,9 +63,10 @@ public struct SafetyAuditor: QualityChecker, Sendable {
     ///
     /// `wholeSource` is deliberately over-inclusive: over-including an input costs a cache miss,
     /// while under-including one serves a stale pass, which is the only way caching can be
-    /// *wrong* rather than merely slow.
+    /// *wrong* rather than merely slow. The `Info.plist` files `security.ats-disabled` reads are
+    /// inputs too, so they are fingerprinted with the sources.
     public func cacheInputs(configuration: Configuration) -> CacheInputs? {
-        SourceCacheInputs.wholeSource(
+        SourceCacheInputs.wholeSourceAndPropertyLists(
             projectRoot: configuration.resolvedProjectRoot,
             configuration: configuration
         )
@@ -110,6 +112,26 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         if let note = Self.trapNote(counted: result.countedTraps, targetKind: "library, test or plugin") {
             allDiagnostics.append(note)
         }
+        if let note = Self.xmlNote(sites: result.xmlSites, overrides: allOverrides,
+                                   security: configuration.security) {
+            allDiagnostics.append(note)
+        }
+        if let note = Self.randomnessNote(sites: result.randomnessSites, security: configuration.security) {
+            allDiagnostics.append(note)
+        }
+
+        // Listeners and handlers are package-wide facts, so these rules run once the walk has
+        // seen every file. See `ServerSurfaceRules`.
+        let surface = Self.runServerSurface(
+            facts: result.serverSurface, targets: targetTypes, configuration: configuration,
+            source: { try? String(contentsOfFile: $0, encoding: .utf8) }) // silent: an unreadable file has no line to acknowledge, and the walk above already logged it
+        allDiagnostics.append(contentsOf: surface.diagnostics)
+        allOverrides.append(contentsOf: surface.overrides)
+
+        // App Transport Security lives in property lists, not Swift. Same walk, same scope.
+        let ats = auditPropertyLists(scan.propertyLists, configuration: configuration.security)
+        allDiagnostics.append(contentsOf: ats.diagnostics)
+        allOverrides.append(contentsOf: ats.overrides)
 
         // Emitted pass or fail. A checker that examined nothing must not print what a checker
         // that found nothing prints — and this one spent its whole life examining one directory
@@ -154,15 +176,19 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             fileName: fileName,
             configuration: configuration
         )
+        let surface = Self.runServerSurface(
+            facts: result.serverSurface, targets: TargetTypeMap(targets: []),
+            configuration: configuration, includeNote: false, source: { $0 == fileName ? source : nil })
+        let diagnostics = result.diagnostics + surface.diagnostics
 
         let duration = ContinuousClock.now - startTime
-        let status: CheckResult.Status = result.diagnostics.contains { $0.isViolation } ? .failed : .passed
+        let status: CheckResult.Status = diagnostics.contains { $0.isViolation } ? .failed : .passed
 
         return CheckResult(
             checkerId: id,
             status: status,
-            diagnostics: result.diagnostics,
-            overrides: result.overrides,
+            diagnostics: diagnostics,
+            overrides: result.overrides + surface.overrides,
             duration: duration
         )
     }
@@ -181,10 +207,8 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         _ paths: [String],
         configuration: Configuration,
         targetTypes: TargetTypeMap = TargetTypeMap(targets: [])
-    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
-        var diagnostics: [Diagnostic] = []
-        var overrides: [DiagnosticOverride] = []
-        var countedTraps: [String: Int] = [:]
+    ) -> AuditOutcome {
+        var outcome = AuditOutcome()
 
         for path in paths {
             do {
@@ -195,24 +219,51 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                     configuration: configuration,
                     targetTypes: targetTypes
                 )
-                diagnostics.append(contentsOf: result.diagnostics)
-                overrides.append(contentsOf: result.overrides)
-                for (rule, n) in result.countedTraps { countedTraps[rule, default: 0] += n }
+                outcome.diagnostics.append(contentsOf: result.diagnostics)
+                outcome.overrides.append(contentsOf: result.overrides)
+                for (rule, n) in result.countedTraps { outcome.countedTraps[rule, default: 0] += n }
+                outcome.xmlSites.add(result.xmlSites)
+                outcome.serverSurface.append(contentsOf: result.serverSurface)
+                outcome.randomnessSites.add(result.randomnessSites)
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
 
-        return (diagnostics, overrides, countedTraps)
+        return outcome
     }
 
-    private func auditSourceCode(
+    /// Runs `security.ats-disabled` over each property list the walk found.
+    private func auditPropertyLists(
+        _ paths: [String],
+        configuration: SecurityAuditorConfig
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
+        for path in paths {
+            let data: Data
+            do {
+                data = try Data(contentsOf: URL(fileURLWithPath: path))
+            } catch {
+                // The error becomes a finding through `ATSPolicy` below as an unparseable plist
+                // would — an unexamined file must not look like a clean one.
+                Self.logger.warning("Could not read property list \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                data = Data()
+            }
+            let result = ATSPolicy.audit(path: path, data: data, configuration: configuration)
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
+        }
+        return (diagnostics, overrides)
+    }
+
+    func auditSourceCode(
         _ source: String,
         fileName: String,
         configuration: Configuration,
         targetTypes: TargetTypeMap = TargetTypeMap(targets: [])
-    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], countedTraps: [String: Int]) {
+    ) -> AuditOutcome {
         let sourceFile = Parser.parse(source: source)
         // One converter for the file, shared by both visitors. Each construction indexes every
         // line start in the tree, so building one per visited node was O(file) per node.
@@ -238,15 +289,82 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             source: source,
             converter: converter,
             configuration: configuration.security,
-            sourceFile: sourceFile
+            sourceFile: sourceFile,
+            targetType: targetTypes.targetType(forFile: fileName)
         )
         securityVisitor.walk(sourceFile)
 
-        return (
+        // One more visitor over the same tree, not a second parse: the server-surface facts
+        // this file contributes to the package inventory.
+        let surface = Self.serverSurfaceEnabled(configuration.security)
+            ? [ServerSurfaceFileFacts.collect(from: sourceFile, converter: converter, fileName: fileName)]
+            : []
+
+        return AuditOutcome(
             diagnostics: safetyVisitor.diagnostics + securityVisitor.diagnostics,
             overrides: safetyVisitor.overrides + securityVisitor.overrides,
-            countedTraps: safetyVisitor.countedTraps
+            countedTraps: safetyVisitor.countedTraps,
+            xmlSites: securityVisitor.xmlSites,
+            serverSurface: surface,
+            randomnessSites: securityVisitor.randomnessSites
         )
+    }
+
+    /// What auditing one file, or many, produced.
+    struct AuditOutcome {
+        var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
+        var countedTraps: [String: Int] = [:]
+        var xmlSites = XMLSiteCounts()
+        var serverSurface: [ServerSurfaceFileFacts] = []
+        var randomnessSites = RandomnessSiteCounts()
+    }
+
+    /// The `security.randomness-coverage` note (`ASeedIsNotASecret.md` §3.8): how many
+    /// security-named values drew on randomness, the clock or a UUID, and what each turned out to
+    /// be — including the two numbers that say where the rules stop: generators this file cannot
+    /// resolve, and credential-producing functions that take their caller's generator.
+    ///
+    /// Emitted with zeros too, for the reason `xmlNote` is: the rules are tripwires, and
+    /// *examined 0* is a different statement from silence. Not emitted when none of them runs.
+    static func randomnessNote(sites: RandomnessSiteCounts, security: SecurityAuditorConfig) -> Diagnostic? {
+        guard security.enabledRules.isEmpty
+            || SecurityVisitor.randomnessRules.contains(where: security.enabledRules.contains) else {
+            return nil
+        }
+        let values = sites.examined == 1 ? "value" : "values"
+        let seams = sites.generatorSeams == 1 ? "function accepts" : "functions accept"
+        return Diagnostic(
+            severity: .note,
+            message: "security examined \(sites.examined) security-named \(values) · \(sites.safe) from a safe source · "
+                + "\(sites.weak) weak · \(sites.predictable) predictable · \(sites.uuid) UUID · "
+                + "\(sites.unresolvedGenerator) from a generator this file cannot resolve · "
+                + "\(sites.generatorSeams) credential-producing \(seams) a caller's generator",
+            ruleId: "security.randomness-coverage")
+    }
+
+    /// The `security.xml-coverage` note: how many XML parse sites were examined, of which kind.
+    ///
+    /// Emitted with zero sites too. Both XML rules are tripwires that find nothing in the
+    /// portfolio they were written for, and *examined 0* is a different statement from silence.
+    /// Not emitted when neither rule runs, because then nothing was examined.
+    static func xmlNote(
+        sites: XMLSiteCounts,
+        overrides: [DiagnosticOverride],
+        security: SecurityAuditorConfig
+    ) -> Diagnostic? {
+        let rules: Set<String> = [XMLEntityRules.externalRule, XMLEntityRules.expansionRule]
+        guard security.enabledRules.isEmpty || rules.contains(where: security.enabledRules.contains) else {
+            return nil
+        }
+        let acknowledged = overrides.filter { rules.contains($0.ruleId) }.count
+        let plural = sites.total == 1 ? "" : "s"
+        return Diagnostic(
+            severity: .note,
+            message: "security.xml examined \(sites.total) XML parse site\(plural) · \(sites.xmlParser) XMLParser · "
+                + "\(sites.xmlDocument) XMLDocument · \(sites.libxml2) libxml2 · "
+                + "\(sites.configuredToLoad) configured to load external entities · \(acknowledged) acknowledged",
+            ruleId: "security.xml-coverage")
     }
 
     /// One line stating what was counted rather than reported.
