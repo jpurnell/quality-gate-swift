@@ -140,11 +140,31 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         storedPropertyStack.removeLast()
     }
 
-    // MARK: Function-level decls (inherit isolation unless explicit)
+    // MARK: Member-level decls (inherit isolation unless the member says otherwise)
+
+    /// The isolation of a member, read from its own declaration first.
+    ///
+    /// 1. `@MainActor` on the member — the main actor.
+    /// 2. `nonisolated` (plain or `(unsafe)`) — none.
+    /// 3. `static` / `class` inside an actor — none. A static member of an actor is not
+    ///    isolated to any instance; a static member of a global-actor type is isolated,
+    ///    and falls through to 4.
+    /// 4. Otherwise the enclosing isolation.
+    private func memberIsolation(
+        attributes: AttributeListSyntax,
+        modifiers: DeclModifierListSyntax
+    ) -> IsolationContext {
+        if hasMainActorAttribute(attributes) { return .mainActor }
+        if modifiers.contains(where: { $0.name.tokenKind == .keyword(.nonisolated) }) { return .none }
+        if case .actor = currentIsolation,
+           modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) || $0.name.tokenKind == .keyword(.class) }) {
+            return .none
+        }
+        return currentIsolation
+    }
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let isolation: IsolationContext = hasMainActorAttribute(node.attributes) ? .mainActor : currentIsolation
-        isolationStack.append(isolation)
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
         return .visitChildren
     }
     override func visitPost(_ node: FunctionDeclSyntax) {
@@ -152,10 +172,18 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        isolationStack.append(currentIsolation)
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
         return .visitChildren
     }
     override func visitPost(_ node: InitializerDeclSyntax) {
+        isolationStack.removeLast()
+    }
+
+    override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
+        return .visitChildren
+    }
+    override func visitPost(_ node: SubscriptDeclSyntax) {
         isolationStack.removeLast()
     }
 
@@ -184,6 +212,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     // MARK: Variable / accessor
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        // An accessor body or an initializer expression has the property's isolation:
+        // `nonisolated var description: String { … }` is not main-actor code.
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
         // Rule: nonisolated(unsafe)
         if hasNonisolatedUnsafeModifier(node.modifiers) {
             let line = startLine(of: Syntax(node))
@@ -203,12 +234,22 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         }
         return .visitChildren
     }
+    override func visitPost(_ node: VariableDeclSyntax) {
+        isolationStack.removeLast()
+    }
 
     // MARK: Function call expressions (Task / DispatchQueue)
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        // Rule: Task { ... } captures self in actor / @MainActor context
-        if currentIsolation.isIsolated, isTaskCall(node) {
+        // Rule: Task { ... } captures self in actor / @MainActor context.
+        //
+        // Also when the enclosing member is `nonisolated` but the closure hops back:
+        // `Task { @MainActor in self.x = 1 }` in a member of a @MainActor type. The
+        // member is not isolated; the closure says it is, and the state it touches
+        // belongs to a main-actor type — a deferred body touching isolated state.
+        let inIsolatedContext = currentIsolation.isIsolated
+            || (currentTypeIsolation == .mainActor && closureIsMainActor(node))
+        if inIsolatedContext, isTaskCall(node) {
             if let closure = node.trailingClosure {
                 if taskClosureTouchesState(call: node, closure: closure, storedProperties: currentStoredProperties) {
                     let line = startLine(of: Syntax(node))
@@ -377,6 +418,12 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                 suggestedFix: "Declare it `isolated deinit` (SE-0371; back-deployed for @MainActor). If the only access is cancelling a Task handle you can also mark the property `nonisolated(unsafe)` with a // \(justificationKeyword) comment."
             ))
         }
+    }
+
+    /// Whether a call's trailing closure is attributed `@MainActor` (`{ @MainActor in … }`).
+    private func closureIsMainActor(_ call: FunctionCallExprSyntax) -> Bool {
+        guard let attributes = call.trailingClosure?.signature?.attributes else { return false }
+        return hasMainActorAttribute(attributes)
     }
 
     private func isTaskCall(_ call: FunctionCallExprSyntax) -> Bool {

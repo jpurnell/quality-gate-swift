@@ -647,6 +647,15 @@
   reported.
   - The suggested fix no longer says "named apart from the properties". That described the
     rule's blind spot as though it were policy; the guide keeps it as advice.
+- **`nonisolated` members and actor statics are no longer treated as isolated.**
+  `dispatch-queue-in-actor` and `task-captures-self-no-isolation` gave every member its type's
+  isolation unless it carried `@MainActor`; the `nonisolated` modifier was never read, nor
+  `static` inside an actor, and a property or subscript body always inherited. A member's own
+  declaration now decides, for functions, initializers, properties and subscripts alike. A
+  `static` member of a `@MainActor` type stays isolated. One shape is kept on purpose:
+  `Task { @MainActor in self.x = 1 }` in a `nonisolated` member of a `@MainActor` type was
+  reported only because the member was mistaken for isolated, and is still reported, because
+  the closure is.
 - **`main-actor-deinit-touches-state` has the same correction.** Its walker matched names the
   same way, so `let x = 1; print(x)` in a deinit, a closure parameter, and `Registry.x` were
   reported when the class had a stored `x`. It now uses the same binding-aware walk.

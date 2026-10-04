@@ -66,7 +66,7 @@ The rules that consult isolation are:
 - `dispatch-queue-in-actor` — same
 - `main-actor-deinit-touches-state` — fires only when the enclosing type is `@MainActor` and the deinit is not itself isolated (`isolated deinit`, or `@MainActor deinit`)
 
-Type decls (`class`, `struct`, `enum`) reset isolation to `.none` unless they have an explicit `@MainActor` attribute. So a class lexically nested inside an actor does not inherit actor isolation. Functions and initializers inherit isolation from their parent unless they have their own `@MainActor` attribute. A deinit does not inherit: its body is nonisolated unless it is declared `isolated deinit` (the type's isolation) or `@MainActor deinit`.
+Type decls (`class`, `struct`, `enum`) reset isolation to `.none` unless they have an explicit `@MainActor` attribute. So a class lexically nested inside an actor does not inherit actor isolation. Functions, initializers, properties and subscripts inherit isolation from their parent unless the member says otherwise: `@MainActor` on the member makes it main-actor isolated, `nonisolated` makes it not isolated, and a `static` member of an actor is not isolated (a `static` member of a `@MainActor` type is). A deinit does not inherit: its body is nonisolated unless it is declared `isolated deinit` (the type's isolation) or `@MainActor deinit`.
 
 ### First-party imports
 

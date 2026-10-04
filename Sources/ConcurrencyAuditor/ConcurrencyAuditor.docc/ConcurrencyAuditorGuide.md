@@ -187,6 +187,8 @@ final class Pairing {
 
 `self?.member` and `self!.member` are `self.member` to this rule. `[weak self]` handles lifetime — the Task does not keep the object alive — and the rule is about ordering. An awaited call through `self?` is left alone, as an awaited call through `self` is; `await` on a synchronous member is the compiler's to report, and it does.
 
+In a `nonisolated` member the Task is not in an isolated context and is left alone — with one exception. `Task { @MainActor in self.x = 1 }` inside a `nonisolated` member of a `@MainActor` type is still reported: the member is not isolated, but the closure says it is, and the state it touches belongs to a main-actor type.
+
 `withTaskGroup`, `async let`, and `Task.detached` are intentionally NOT flagged by this rule. `Task.detached` will get its own rule in a future version.
 
 ### `concurrency.dispatch-queue-in-actor`
@@ -210,6 +212,8 @@ func refresh() {
 ```
 
 This rule fires for any DispatchQueue method (`.async`, `.sync`, `.asyncAfter`) when used inside isolated context.
+
+A member that says it is not isolated is not isolated: a `nonisolated` function, property, subscript or initializer, and a `static` member of an actor, are left alone. A `static` member of a `@MainActor` type is isolated and is examined.
 
 ### `concurrency.main-actor-deinit-touches-state`
 
