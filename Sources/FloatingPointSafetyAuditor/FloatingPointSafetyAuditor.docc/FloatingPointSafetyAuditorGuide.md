@@ -165,7 +165,22 @@ The auditor reads the checks each function body makes, and where it makes them. 
 
 A divisor that cannot be zero needs no guard: a non-zero literal, a conversion of one (`Double(60)`), a product of them, or `max(n, 1)`. `max(n, -1)` can be zero and is flagged.
 
-This rule holds a **higher evidence bar** than `fp-equality` for what counts as a floating-point operand: an annotation, a literal, a conversion, an allowlisted static member — or a local bound to one of those. A name carries exactly the evidence of the expression it names, so `let d = Double(n); x / d` is examined just as `x / Double(n)` is. What the rule does not follow is a function's return type: a local bound from a call to a file-local function returning `Double` is unexamined. Nor is arithmetic evidence, on either side of the `=`: `x / (a - b)` and `let d = a - b; x / d` are both unexamined.
+This rule holds a **higher evidence bar** than `fp-equality` for what counts as a floating-point operand. A **divisor** is examined when its type is written down: an annotation on a `let` or a stored property, a parameter's type in a signature (`Double`, `Float`, `CGFloat`, `Float16`, `Float80`, `Decimal` — through `inout`, `borrowing` and `consuming`, with or without a default value), a literal, a conversion, an allowlisted static member — or a local bound to one of those. A name carries exactly the evidence of the expression it names, so `let d = Double(n); x / d` is examined just as `x / Double(n)` is, and `let t = total; x / t` just as `x / total` is.
+
+What it does not read:
+
+- **A function's return type.** A local bound from a call to a file-local function returning `Double` is unexamined.
+- **Arithmetic**, on either side of the `=`. `x / (a - b)` and `let d = a - b; x / d` are both unexamined.
+- **A parameter in the numerator.** A literal or a conversion on the left of the `/` is evidence for the whole division — `100.0 / c.scale` is examined — but a parameter there is not: `x / c.scale` and `x / (a - b)` are unexamined. Counting it would report divisors that are arithmetic or calls, which no guard the auditor reads could clear without first giving them a name.
+- **A generic parameter** (`T: BinaryFloatingPoint`), **a typealias** (`TimeInterval`), and a stored property declared *below* its use, reached through `self.`, or used from an extension.
+
+`fp-equality` does not read a parameter's type either: `func f(x: Double, d: Double) -> Bool { x == d }` is not reported.
+
+**Where the guard has to be: in the function that divides.** A floating-point division by zero does not trap — it returns `inf` or `nan` and carries on — so a contract the function does not state in code is enforced by nothing. The auditor reads one file and no call graph: a check in the caller is invisible to it, and a `- Precondition:` line in a doc comment is a claim about callers, not a check. `precondition(d != 0)` and `assert(d > 0)` both count, because the bar is that the question was asked before dividing, not how the answer is handled. For a private helper whose callers have all checked, `assert` is the intended answer: it costs nothing in release and turns "validated by caller" from a comment into something a debug build verifies.
+
+**A declaration that is not floating-point shadows one that is.** Inside `func f(total: Int, rate: Int)`, `total / rate` is integer division even when the enclosing type has a stored `rate: Double`. An untyped closure parameter (`{ d in 10 / d }`) and a local annotated with another type shadow in the same way.
+
+**A declaration of `/` or `/=` is not a use of it.** A division inside `static func / (lhs: V, rhs: Double) -> V` is not examined: that function *is* division for the type, and the contract belongs to whoever writes `v / s`.
 
 The two rules ask different questions of the same operand. `fp-equality` asks which of three claims an `==` is making, and is worth raising whenever the operand is plausibly floating-point. `fp-division-unguarded` asks whether a divisor could be zero, and its answer is a guard added to shipping code.
 

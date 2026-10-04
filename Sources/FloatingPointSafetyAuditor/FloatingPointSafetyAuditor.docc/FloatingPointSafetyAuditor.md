@@ -6,7 +6,7 @@ Catches floating-point precision bugs: exact equality comparisons and unguarded 
 
 FloatingPointSafetyAuditor uses SwiftSyntax to walk Swift source files under `Sources/` and flag two classes of floating-point bugs that compile cleanly but produce incorrect results at runtime. Both rules emit warnings rather than errors because heuristic detection from syntax alone cannot guarantee operand types — false positives are preferable to silent precision bugs.
 
-The auditor uses conservative heuristics to determine whether an expression involves floating-point values. It recognizes float literals (`3.14`, `1.0`), explicit type annotations (`let x: Double`), variables initialized from float literals, member access on known FP type names (`Double.random(...)`), and constructor calls (`Double(someValue)`). The recognized type names are `Double`, `Float`, `CGFloat`, `Float16`, `Float80`, and `Decimal`.
+The auditor uses conservative heuristics to determine whether an expression involves floating-point values. It recognizes float literals (`3.14`, `1.0`), explicit type annotations (`let x: Double`), parameter types written in a signature (`func f(d: Double)` — read by the division rule, for the divisor), variables initialized from float literals, member access on known FP type names (`Double.random(...)`), and constructor calls (`Double(someValue)`). The recognized type names are `Double`, `Float`, `CGFloat`, `Float16`, `Float80`, and `Decimal`.
 
 Test files (paths containing `/Tests/` or starting with `Tests/`) are automatically excluded from analysis. The auditor only scans files under the `Sources/` directory.
 

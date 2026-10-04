@@ -538,6 +538,20 @@
   - Severity is unchanged (warning). Expect findings to move in both directions on arrival: a
     conversion-bound divisor with no guard is new, and a `// fp-safety:disable` on a line whose
     guard is now read no longer suppresses anything and can be deleted.
+- **`fp-division-unguarded` examines a division by a parameter** (`ParametersDivideToo.md`).
+  `func f(x: Double, d: Double) -> Double { x / d }` was never looked at: parameters were not
+  bound at all, so a division by one was examined only when its numerator happened to be a
+  literal or a conversion. The Guide's first example of a flagged division was not flagged. A
+  type written in a signature — `Double`, `Float`, `CGFloat`, `Float16`, `Float80`, `Decimal`,
+  through `inout` / `borrowing` / `consuming`, with or without a default — is now divisor
+  evidence in functions, initializers, subscripts and typed closures. Warning, as before.
+  - *The guard belongs in the function that divides.* Any check before the division counts,
+    `precondition` and `assert` included; a documented `- Precondition:` alone does not. For a
+    helper whose callers have all checked, the intended answer is `assert`, not a marker.
+  - *Deliberately not moved:* a parameter in the numerator is not evidence (`x / (a - b)` stays
+    unexamined), `fp-equality` does not read a signature, and generic parameters, typealiases
+    and stored properties below their use are as they were.
+  - *A declaration of `/` or `/=` is not a use of it* and is not examined.
 - **`fallback.*` reads the same facts, tightened.** The shared collector used to record "safe to
   divide by" for `x != e` and `x > e` with *any* `e`. `segLen > n` is a comparison, not a
   threshold, and it was clearing divisions by `segLen` by coincidence. `!=` and `==` now need a
@@ -650,6 +664,16 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **A parameter did not shadow.** A name bound `Double` in an outer scope stayed `Double`
+  inside a function that redeclared it `Int`, so `func f(total: Int, rate: Int) { total / rate }`
+  in a type with a stored `rate: Double` was integer division reported as floating-point. A
+  parameter, an untyped closure parameter and a local annotated with another type now shadow.
+- **A subscript's implicit getter was not a scope**, so a guard inside
+  `subscript(d: Double) -> Double { guard d != 0 … }` was never read and the guarded division
+  was reported.
+- **`fallback.*` read `inout Double` as an unknown type.** The parameter reader is now shared
+  with the division rule and unwraps ownership specifiers, so `Int(x)` on an `inout Double` is
+  examined.
 - **A ternary condition on the right of an assignment was not read as a condition.** In
   `rate = interval > 0 ? 60_000 / interval : 0` the element left of `interval` is `=`, which the
   guard collector took for part of a larger operand, so the check was dropped. Latent in
