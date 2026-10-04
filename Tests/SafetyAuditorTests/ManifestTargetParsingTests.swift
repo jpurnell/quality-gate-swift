@@ -199,8 +199,10 @@ struct ManifestParsingAgreementTests {
         // is expected to be edited whenever the manifest genuinely changes.
         // 118 from 2026-10-03: ServerSurface and its test target, the server-surface inventory,
         // on top of ExternalInputSyntax and its test target.
-        #expect(map.targetCount == 118,
-                "describe reported 118 targets on 2026-10-03; parser found \(map.targetCount)")
+        // 120 from 2026-10-04: SyntaxScope and its test target — the lexical-scope code
+        // RecursionAuditor and ConcurrencyAuditor share.
+        #expect(map.targetCount == 120,
+                "describe reported 120 targets on 2026-10-04; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

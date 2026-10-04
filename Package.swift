@@ -459,12 +459,31 @@ let package = Package(
             exclude: ["Fixtures"]
         ),
 
+        // Lexical binding resolution over SwiftSyntax: what a name is bound to at a
+        // point in a walk. SwiftSyntax only — no QualityGateCore — so any auditor that
+        // must tell a local from a member can depend on it.
+        .target(
+            name: "SyntaxScope",
+            dependencies: [
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "SyntaxScopeTests",
+            dependencies: [
+                "SyntaxScope",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+
         .target(
             name: "RecursionAuditor",
             dependencies: [
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 "IndexStoreInfra",
+                "SyntaxScope",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
