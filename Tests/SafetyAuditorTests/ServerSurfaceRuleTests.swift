@@ -183,10 +183,19 @@ struct ServerSurfaceRuleTests {
         #expect(findings(result, Self.bind).isEmpty)
     }
 
+    /// 4.x, where the library binds `0.0.0.0` itself: counted in the inventory, reported in the
+    /// library. `ServerSurfaceReleaseRuleTests` covers 5.x, where the same chain binds loopback.
     @Test("bind-all-interfaces: a library listener inherited through SwiftMCPServer is the library's finding, not the consumer's")
-    func inheritedIsNotReported() async throws {
-        let result = try await audit("import SwiftMCPServer\ntry await MCPServer.builder().tools(t).run()")
-        #expect(findings(result, Self.bind).isEmpty)
+    func inheritedIsNotReported() {
+        let manifest = "let package = Package(name: \"C\", dependencies: "
+            + "[.package(url: \"https://github.com/jpurnell/SwiftMCPServer.git\", exact: \"4.5.0\")])"
+        let outcome = SafetyAuditor.auditServerSurface(
+            sources: [("Sources/Server/main.swift", "import SwiftMCPServer\ntry await MCPServer.builder().tools(t).run()")],
+            targets: TargetTypeMap(targets: []), configuration: Configuration(),
+            dependencies: PackageDependencies(manifest: manifest))
+        #expect(outcome.diagnostics.filter { $0.ruleId == Self.bind }.isEmpty)
+        #expect(outcome.inventory.listeners.map(\.host.kind) == [.allInterfaces])
+        #expect(outcome.inventory.listeners.map(\.host.isHardCoded) == [true])
     }
 
     @Test("bind-all-interfaces: a test target is not a deployment")

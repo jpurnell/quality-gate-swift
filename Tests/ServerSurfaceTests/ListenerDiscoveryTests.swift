@@ -83,8 +83,9 @@ struct ListenerDiscoveryTests {
                 .tools(allToolHandlers())
                 .run()
             """, "MCPServer.builder", .swiftMCPServer,
-            .inherited(library: "SwiftMCPServer", kind: .allInterfaces,
-                       note: "HTTPServerTransport binds 0.0.0.0 and the builder cannot set the address")),
+            // With no manifest to say which release, the current one: loopback since 5.0.0.
+            // `SwiftMCPServerReleaseTests` pins the 4.x reading and how the two are told apart.
+            .frameworkDefault(.loopback, note: "SwiftMCPServer 5 binds 127.0.0.1 unless listen(host:) or --host at launch says otherwise")),
         ("BSD sockets, INADDR_ANY (swiftMoE)", """
             func start() throws {
                 serverFD = socket(AF_INET, SOCK_STREAM, 0)

@@ -31,6 +31,9 @@ enum ServerSurfaceRules {
     /// through an options struct.
     static let unambiguousBindLabels: Set<String> = ["bindAddress", "bindHost", "listenAddress"]
 
+    /// The callee the inventory records a choice made on an `MCPServer.builder()` chain under.
+    static let builderType = "MCPServerBuilder"
+
     /// One finding, before it is reported against its file.
     struct Finding {
         let ruleId: String
@@ -119,6 +122,12 @@ enum ServerSurfaceRules {
             case .environmentFlag:
                 guard inventory.targetHasListener(setting.target) else { return nil }
                 return authFinding(setting, what: environmentSentence(setting))
+            case .argument where setting.callee == builderType:
+                // SwiftMCPServer 5's `.authentication(.unauthenticated)`: a method on a chain,
+                // not an argument to an initialiser, and worded as what it is.
+                return authFinding(setting, what: "An MCPServer.builder() chain is given "
+                    + "\(setting.names.first ?? "authentication")(\(setting.value)): it will accept "
+                    + "requests from anyone who can reach it")
             case .argument:
                 return authFinding(setting, what: "\(setting.callee ?? "A listener") is constructed with "
                     + "'\(setting.names.joined(separator: "', '"))' passed as \(setting.value): it will accept "
@@ -181,16 +190,19 @@ extension SafetyAuditor {
     ///
     /// - Parameter source: The text of a file by name — read from disk for a package run,
     ///   from memory for a single-source audit.
+    /// - Parameter dependencies: The package's manifest and pins, which say which release of
+    ///   SwiftMCPServer its listeners are read with.
     static func runServerSurface(
         facts: [ServerSurfaceFileFacts],
         targets: TargetTypeMap,
         configuration: Configuration,
+        dependencies: PackageDependencies = .unknown,
         includeNote: Bool = true,
         source: (String) -> String?
     ) -> ServerSurfaceOutcome {
         var outcome = ServerSurfaceOutcome()
         guard serverSurfaceEnabled(configuration.security) else { return outcome }
-        outcome.inventory = ServerSurfaceInventory(files: facts, targets: targets)
+        outcome.inventory = ServerSurfaceInventory(files: facts, targets: targets, dependencies: dependencies)
         let security = configuration.security
         let found = ServerSurfaceRules.findings(in: outcome.inventory) {
             security.enabledRules.isEmpty || security.enabledRules.contains($0)
@@ -222,11 +234,34 @@ extension SafetyAuditor {
     static func auditServerSurface(
         sources: [(path: String, source: String)],
         targets: TargetTypeMap,
-        configuration: Configuration
+        configuration: Configuration,
+        dependencies: PackageDependencies = .unknown
     ) -> ServerSurfaceOutcome {
         let texts = Dictionary(sources.map { ($0.path, $0.source) }, uniquingKeysWith: { first, _ in first })
         return runServerSurface(
             facts: sources.map { ServerSurfaceFileFacts.collect(source: $0.source, fileName: $0.path) },
-            targets: targets, configuration: configuration, source: { texts[$0] })
+            targets: targets, configuration: configuration, dependencies: dependencies, source: { texts[$0] })
+    }
+}
+
+extension PackageDependencies {
+
+    /// Reads `Package.swift` and `Package.resolved` from a package root, as text.
+    ///
+    /// Read, not resolved: `swift package show-dependencies` would fetch and build to answer a
+    /// question both files already answer in writing (see `TargetTypeMap.parsingManifest`). A
+    /// file that is not there is `nil` without a log line — most packages a run sees commit no
+    /// `Package.resolved`, and its absence is an ordinary fact, recorded in the coverage note as
+    /// the evidence the release was read from.
+    ///
+    /// - Parameter packageRoot: Directory containing `Package.swift`.
+    /// - Returns: The two files' text, each `nil` when absent or unreadable.
+    static func reading(packageRoot: String) -> PackageDependencies {
+        func text(_ name: String) -> String? {
+            let path = (packageRoot as NSString).appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            return SourceFileReader.read(path, checker: "safety")
+        }
+        return PackageDependencies(manifest: text("Package.swift"), resolved: text("Package.resolved"))
     }
 }

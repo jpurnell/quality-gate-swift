@@ -7,7 +7,10 @@ extension ServerSurfaceInventory {
     /// `examined 4 files · 2 listeners (vapor 1, nio 1) · 1 bound to all interfaces · 1 with
     /// authentication off by default · 3 handlers (vapor 2, nio 1)`. The zeros are printed:
     /// *0 listeners* is how a reader tells "the listener rules passed" from "the listener rules
-    /// had nothing to look at", and in most packages it is the second.
+    /// had nothing to look at", and in most packages it is the second. A package with a
+    /// SwiftMCPServer listener also says which release it was read as and on what evidence:
+    /// `SwiftMCPServer read as 4.x (from: "4.4.1" in Package.swift): binds 0.0.0.0 and takes no
+    /// host`.
     public var summary: String {
         let listeners = productionListeners
         let handlers = productionHandlers
@@ -18,6 +21,9 @@ extension ServerSurfaceInventory {
             "\(authenticationOffByDefault.count) with authentication off by default",
             Self.count(handlers.count, "handler") + Self.breakdown(handlers.map(\.framework)),
         ]
+        // The release a library's rows were read with, because the same call means a different
+        // bind before and after it — and "assumed" has to be visible where the count is.
+        parts += libraries.map(\.summary)
         let testListeners = self.listeners.count - listeners.count
         let testHandlers = self.handlers.count - handlers.count
         if testListeners > 0 || testHandlers > 0 {
@@ -37,7 +43,7 @@ extension ServerSurfaceInventory {
         productionListeners.filter {
             switch $0.authentication {
             case .optionalByDefault, .explicitlyNone: return true
-            case .environmentSwitch, .notVisible: return false
+            case .environmentSwitch, .authenticated, .notVisible: return false
             }
         }
     }

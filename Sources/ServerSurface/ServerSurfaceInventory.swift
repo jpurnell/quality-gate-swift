@@ -12,7 +12,7 @@ import Foundation
 ///
 /// Built in two steps so a checker that already walks every file pays for one more visitor and
 /// no second parse: ``ServerSurfaceFileFacts/collect(from:converter:fileName:)`` per file, then
-/// ``init(files:targets:guardTypes:)`` once per package, which joins what one file cannot see
+/// ``init(files:targets:guardTypes:dependencies:)`` once per package, which joins what one file cannot see
 /// alone — a host default declared in an initialiser and bound in another method, a
 /// `RouteCollection` registered in one file and declared in another, an authenticator parameter
 /// in the same target as a socket.
@@ -27,7 +27,8 @@ import Foundation
 /// - Registration at runtime — handlers built from a list, `buildToolHandlers()`, paths that are
 ///   not literals (recorded as `<dynamic>`).
 /// - Dispatch written as a chain of `if request.path == …`.
-/// - The deployed configuration: a `--hostname` flag, a reverse proxy, a launchd environment.
+/// - The deployed configuration: a `--hostname` or `--host` flag, a reverse proxy, a launchd
+///   environment.
 public struct ServerSurfaceInventory: Sendable, Codable, Equatable {
 
     /// Every socket the package opens, in source order.
@@ -55,8 +56,13 @@ public struct ServerSurfaceInventory: Sendable, Codable, Equatable {
     /// Targets containing at least one listener outside a test target.
     public var listenerTargets: Set<String>
 
+    /// The library releases the rows were read with, for libraries whose facts depend on the
+    /// release — SwiftMCPServer, whose listener binds `0.0.0.0` before 5.0.0 and `127.0.0.1`
+    /// from it. Empty when the package has no listener from such a library.
+    public var libraries: [LibraryRelease]
+
     /// Creates an inventory from already-assembled parts. Most callers want
-    /// ``init(files:targets:guardTypes:)``.
+    /// ``init(files:targets:guardTypes:dependencies:)``.
     public init(
         listeners: [ServerListener] = [],
         handlers: [ServerHandler] = [],
@@ -64,7 +70,8 @@ public struct ServerSurfaceInventory: Sendable, Codable, Equatable {
         authSettings: [AuthSetting] = [],
         examinedFiles: Int = 0,
         listenerOwningTypes: Set<String> = [],
-        listenerTargets: Set<String> = []
+        listenerTargets: Set<String> = [],
+        libraries: [LibraryRelease] = []
     ) {
         self.listeners = listeners
         self.handlers = handlers
@@ -73,6 +80,7 @@ public struct ServerSurfaceInventory: Sendable, Codable, Equatable {
         self.examinedFiles = examinedFiles
         self.listenerOwningTypes = listenerOwningTypes
         self.listenerTargets = listenerTargets
+        self.libraries = libraries
     }
 
     /// Listeners outside test targets — the ones a deployment can expose.
@@ -201,10 +209,12 @@ public enum HostBinding: Sendable, Codable, Hashable {
     /// literal default of the parameter or property the expression names, when the owning type
     /// declares one: `SSHServer.init(host: String = "0.0.0.0")` then `bind(host: host)`.
     case expression(String, defaultValue: HostDefault?)
-    /// No address in source; the framework's own default applies. Vapor binds `127.0.0.1`;
-    /// an `NWListener` with no `requiredLocalEndpoint` accepts on every interface.
+    /// No address in source; the framework's own default applies. Vapor binds `127.0.0.1`, and
+    /// so does SwiftMCPServer from 5.0.0; an `NWListener` with no `requiredLocalEndpoint`
+    /// accepts on every interface.
     case frameworkDefault(HostAddressKind, note: String)
-    /// A listener started inside a dependency, whose address this package cannot set.
+    /// A listener started inside a dependency, whose address this package cannot set —
+    /// SwiftMCPServer before 5.0.0, which wrote `0.0.0.0` into its own bind.
     case inherited(library: String, kind: HostAddressKind?, note: String)
     /// A Unix-domain socket — no host to be `0.0.0.0`.
     case unixSocket
@@ -307,8 +317,15 @@ public enum ListenerAuthentication: Sendable, Codable, Hashable {
     case optionalByDefault(names: [String])
     /// An environment variable can switch authentication off at launch.
     case environmentSwitch(keys: [String])
-    /// The listener is constructed with its authenticator passed as `nil` / `.none`.
+    /// The listener is constructed with its authenticator passed as `nil` / `.none`, or told
+    /// in so many words to run open: `authentication: .unauthenticated` on a SwiftMCPServer
+    /// transport, `.authentication(.unauthenticated)` on its builder.
     case explicitlyNone(names: [String])
+    /// An authenticator is written where the listener is made: `authentication: .apiKey(…)` on
+    /// a transport (`by` is the case), `.authenticator(…)`, `.oauthServer(…)` or
+    /// `.authentication(.oauth(…))` on a builder. Reported only when nothing weaker is visible
+    /// in the target — a default that is off or an environment switch outranks it.
+    case authenticated(by: [String])
     /// Nothing in source decides it either way.
     case notVisible
 }
@@ -506,7 +523,9 @@ public struct HostSetting: Sendable, Codable, Hashable {
     /// ``Kind/argument``; `bind`, `hostPort`, `sockaddr_in` or `sockaddr_in6` for a
     /// ``Kind/bindArgument``.
     public var callee: String?
-    /// For ``Kind/argument``: whether the file also constructs a listener.
+    /// For ``Kind/argument``: whether the file also constructs a listener, or the call is
+    /// itself a library listener's address — `HTTPServerTransport(host:)`, `listen(host:)` on
+    /// an MCP builder.
     public var fileHasListener: Bool
     /// The type the declaration sits in.
     public var owningType: String?
@@ -547,7 +566,8 @@ public struct AuthSetting: Sendable, Codable, Hashable {
         case propertyDefault = "property-default"
         /// A flag read from the process environment.
         case environmentFlag = "environment-flag"
-        /// An authenticator argument passed as `nil` / `.none` when constructing a listener.
+        /// An authenticator argument passed as `nil` / `.none` / `.unauthenticated` when
+        /// constructing a listener, or `.authentication(.unauthenticated)` on an MCP builder.
         case argument
     }
 
@@ -577,7 +597,8 @@ public struct AuthSetting: Sendable, Codable, Hashable {
     public var state: State
     /// For ``Kind/environmentFlag``: the variable's name, when it is a literal.
     public var environmentKey: String?
-    /// For ``Kind/argument``: the callee's last name component.
+    /// For ``Kind/argument``: the callee's last name component, or `MCPServerBuilder` for a
+    /// choice made on a builder chain.
     public var callee: String?
 
     /// Creates an auth setting.
