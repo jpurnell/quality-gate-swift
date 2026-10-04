@@ -1,6 +1,7 @@
 import Foundation
 import QualityGateCore
 import SwiftSyntax
+import SyntaxScope
 
 // MARK: - Isolation context
 
@@ -19,8 +20,12 @@ enum IsolationContext: Equatable {
 
 // MARK: - Visitor
 
-/// The single visitor that walks a Swift source file, tracks isolation context,
-/// and applies all eight ConcurrencyAuditor rules.
+/// The visitor that walks one Swift source file, tracks isolation context, and applies
+/// the syntactic ConcurrencyAuditor rules.
+///
+/// It is per-file, but not self-contained: an extension takes its isolation from the
+/// type it extends, which may be declared in another file. That comes from the
+/// ``IsolationTable`` built over the whole run before any file is walked.
 final class ConcurrencyVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
@@ -28,6 +33,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     let firstPartyModules: Set<String>
     let allowPreconcurrencyImports: Set<String>
     let justificationKeyword: String
+    /// Every type declaration in the run, for resolving what an extension extends.
+    let isolationTable: IsolationTable
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
@@ -48,8 +55,10 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         sourceLines: [String],
         firstPartyModules: Set<String>,
         allowPreconcurrencyImports: Set<String>,
-        justificationKeyword: String
+        justificationKeyword: String,
+        isolationTable: IsolationTable
     ) {
+        self.isolationTable = isolationTable
         self.fileName = fileName
         self.converter = converter
         self.sourceLines = sourceLines
@@ -126,10 +135,10 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let isolation: IsolationContext = hasMainActorAttribute(node.attributes) ? .mainActor : .none
-        isolationStack.append(isolation)
-        typeIsolationStack.append(isolation)
-        storedPropertyStack.append([])
+        let extended = extensionFacts(node)
+        isolationStack.append(extended.isolation)
+        typeIsolationStack.append(extended.isolation)
+        storedPropertyStack.append(extended.storedProperties)
         checkUncheckedSendableInheritance(node.inheritanceClause, declStartLine: startLine(of: Syntax(node)))
         return .visitChildren
     }
@@ -139,11 +148,57 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         storedPropertyStack.removeLast()
     }
 
-    // MARK: Function-level decls (inherit isolation unless explicit)
+    /// The isolation an extension's members start from, and the stored properties
+    /// implicit `self` can reach inside it.
+    ///
+    /// An extension has the isolation of the type it extends. What the extension itself
+    /// says comes first; then the type's declaration, if the run can read it; and when
+    /// it cannot, the extension is treated as non-isolated, which reports nothing.
+    private func extensionFacts(_ node: ExtensionDeclSyntax) -> (isolation: IsolationContext, storedProperties: Set<String>) {
+        let extended = isolationTable.resolve(node.extendedType, fromFile: fileName)
+        if hasMainActorAttribute(node.attributes) {
+            return (.mainActor, extended?.storedProperties ?? [])
+        }
+        // `nonisolated extension` (SE-0449).
+        if node.modifiers.contains(where: { $0.name.tokenKind == .keyword(.nonisolated) }) {
+            return (.none, [])
+        }
+        // Any attribute this visitor does not know to be harmless may name another
+        // global actor, and the rules know only `MainActor`.
+        if hasUnrecognisedAttribute(node.attributes) {
+            return (.none, [])
+        }
+        if let extended, extended.isolation.isIsolated {
+            return (extended.isolation, extended.storedProperties)
+        }
+        return (.none, [])
+    }
+
+    // MARK: Member-level decls (inherit isolation unless the member says otherwise)
+
+    /// The isolation of a member, read from its own declaration first.
+    ///
+    /// 1. `@MainActor` on the member — the main actor.
+    /// 2. `nonisolated` (plain or `(unsafe)`) — none.
+    /// 3. `static` / `class` inside an actor — none. A static member of an actor is not
+    ///    isolated to any instance; a static member of a global-actor type is isolated,
+    ///    and falls through to 4.
+    /// 4. Otherwise the enclosing isolation.
+    private func memberIsolation(
+        attributes: AttributeListSyntax,
+        modifiers: DeclModifierListSyntax
+    ) -> IsolationContext {
+        if hasMainActorAttribute(attributes) { return .mainActor }
+        if modifiers.contains(where: { $0.name.tokenKind == .keyword(.nonisolated) }) { return .none }
+        if case .actor = currentIsolation,
+           modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) || $0.name.tokenKind == .keyword(.class) }) {
+            return .none
+        }
+        return currentIsolation
+    }
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let isolation: IsolationContext = hasMainActorAttribute(node.attributes) ? .mainActor : currentIsolation
-        isolationStack.append(isolation)
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
         return .visitChildren
     }
     override func visitPost(_ node: FunctionDeclSyntax) {
@@ -151,17 +206,32 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        isolationStack.append(currentIsolation)
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
         return .visitChildren
     }
     override func visitPost(_ node: InitializerDeclSyntax) {
         isolationStack.removeLast()
     }
 
+    override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
+        return .visitChildren
+    }
+    override func visitPost(_ node: SubscriptDeclSyntax) {
+        isolationStack.removeLast()
+    }
+
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        isolationStack.append(currentIsolation)
-        // Rule: @MainActor deinit touches state
-        if currentTypeIsolation == .mainActor, let body = node.body {
+        // The body has the deinit's isolation, not the type's: a plain or `nonisolated`
+        // deinit runs wherever the last reference is dropped, an `isolated deinit` on
+        // the type's actor, and a `@MainActor deinit` on the main actor.
+        isolationStack.append(deinitIsolation(node, typeIsolation: currentTypeIsolation))
+        // Rule: @MainActor deinit touches state. A deinit the language has isolated
+        // (`isolated deinit`, or `@MainActor deinit` — SE-0371) runs on the actor, so
+        // touching the type's state is what it is for and the rule does not apply.
+        if currentTypeIsolation == .mainActor,
+           !deinitIsIsolated(node),
+           let body = node.body {
             checkDeinitTouchesState(body: body, declStartLine: startLine(of: Syntax(node)))
         }
         return .visitChildren
@@ -176,6 +246,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     // MARK: Variable / accessor
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
+        // An accessor body or an initializer expression has the property's isolation:
+        // `nonisolated var description: String { … }` is not main-actor code.
+        isolationStack.append(memberIsolation(attributes: node.attributes, modifiers: node.modifiers))
         // Rule: nonisolated(unsafe)
         if hasNonisolatedUnsafeModifier(node.modifiers) {
             let line = startLine(of: Syntax(node))
@@ -195,14 +268,24 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         }
         return .visitChildren
     }
+    override func visitPost(_ node: VariableDeclSyntax) {
+        isolationStack.removeLast()
+    }
 
     // MARK: Function call expressions (Task / DispatchQueue)
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        // Rule: Task { ... } captures self in actor / @MainActor context
-        if currentIsolation.isIsolated, isTaskCall(node) {
-            if let closure = trailingClosureBody(of: node) {
-                if closureCapturesEnclosingSelf(body: closure, storedProperties: currentStoredProperties) {
+        // Rule: Task { ... } captures self in actor / @MainActor context.
+        //
+        // Also when the enclosing member is `nonisolated` but the closure hops back:
+        // `Task { @MainActor in self.x = 1 }` in a member of a @MainActor type. The
+        // member is not isolated; the closure says it is, and the state it touches
+        // belongs to a main-actor type — a deferred body touching isolated state.
+        let inIsolatedContext = currentIsolation.isIsolated
+            || (currentTypeIsolation == .mainActor && closureIsMainActor(node))
+        if inIsolatedContext, isTaskCall(node) {
+            if let closure = node.trailingClosure {
+                if taskClosureTouchesState(call: node, closure: closure, storedProperties: currentStoredProperties) {
                     let line = startLine(of: Syntax(node))
                     diagnostics.append(Diagnostic(
                         severity: .error,
@@ -211,7 +294,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                         lineNumber: line,
                         columnNumber: 1,
                         ruleId: "concurrency.task-captures-self-no-isolation",
-                        suggestedFix: "Do the isolated work before the Task, snapshot what the Task needs into locals named apart from the properties, or move a multi-step sequence into one isolated method the Task awaits. Adding 'await' alone does not help: a non-detached Task inherits the actor's isolation, so awaiting a synchronous member is redundant and the compiler says so."
+                        suggestedFix: "Do the isolated work before the Task, snapshot what the Task needs into locals or a capture list, or move a multi-step sequence into one isolated method the Task awaits. Adding 'await' alone does not help: a non-detached Task inherits the actor's isolation, so awaiting a synchronous member is redundant and the compiler says so."
                     ))
                 }
             }
@@ -348,46 +431,33 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         let propertyNames = currentStoredProperties
         guard !propertyNames.isEmpty else { return }
 
-        final class Walker: SyntaxVisitor {
-            let names: Set<String>
-            var found = false
-            init(names: Set<String>) {
-                self.names = names
-                super.init(viewMode: .sourceAccurate)
-            }
-            override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-                if names.contains(node.baseName.text) {
-                    found = true
-                }
-                return .skipChildren
-            }
-            override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                // Exclude Self.x (static)
-                if let base = node.base, base.trimmedDescription == "Self" {
-                    return .skipChildren
-                }
-                // self.x or implicit
-                if names.contains(node.declName.baseName.text) {
-                    if let base = node.base, base.trimmedDescription == "self" {
-                        found = true
-                    }
-                }
-                return .visitChildren
-            }
-        }
-        let walker = Walker(names: propertyNames)
+        // The same resolution the Task rule uses: a bare name is the property only when
+        // nothing nearer binds it, and a member of another base belongs to that base.
+        // A deinit has no parameters, so nothing is bound outside its body.
+        let walker = StateReferenceWalker(
+            storedProperties: propertyNames,
+            boundOutside: [],
+            selfMembers: .storedProperties,
+            skipsHopsAndNestedTasks: false
+        )
         walker.walk(body)
         if walker.found {
             diagnostics.append(Diagnostic(
                 severity: .error,
-                message: "@MainActor class deinit touches isolated stored state; deinit is non-isolated in Swift 6 and will trap at runtime",
+                message: "Nonisolated deinit of a @MainActor class touches stored state; it runs on whichever thread releases the last reference, so state shared with main-actor code can race",
                 filePath: fileName,
                 lineNumber: declStartLine,
                 columnNumber: 1,
                 ruleId: "concurrency.main-actor-deinit-touches-state",
-                suggestedFix: "Move cleanup that touches isolated state into an explicit isolated method called before deallocation."
+                suggestedFix: "Declare it `isolated deinit` (SE-0371; back-deployed for @MainActor). If the only access is cancelling a Task handle you can also mark the property `nonisolated(unsafe)` with a // \(justificationKeyword) comment."
             ))
         }
+    }
+
+    /// Whether a call's trailing closure is attributed `@MainActor` (`{ @MainActor in … }`).
+    private func closureIsMainActor(_ call: FunctionCallExprSyntax) -> Bool {
+        guard let attributes = call.trailingClosure?.signature?.attributes else { return false }
+        return hasMainActorAttribute(attributes)
     }
 
     private func isTaskCall(_ call: FunctionCallExprSyntax) -> Bool {
@@ -395,48 +465,25 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         return ident.baseName.text == "Task"
     }
 
-    private func trailingClosureBody(of call: FunctionCallExprSyntax) -> CodeBlockItemListSyntax? {
-        if let trailing = call.trailingClosure {
-            return trailing.statements
-        }
-        return nil
-    }
-
-    private func closureCapturesEnclosingSelf(body: CodeBlockItemListSyntax, storedProperties: Set<String>) -> Bool {
-        final class Walker: SyntaxVisitor {
-            let names: Set<String>
-            var found = false
-            init(names: Set<String>) {
-                self.names = names
-                super.init(viewMode: .sourceAccurate)
-            }
-            override func visit(_ node: AwaitExprSyntax) -> SyntaxVisitorContinueKind {
-                // Properly hopped — skip the entire await subtree.
-                return .skipChildren
-            }
-            override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-                // Skip nested Task calls — they get their own diagnostic at their own visit.
-                if let ident = node.calledExpression.as(DeclReferenceExprSyntax.self),
-                   ident.baseName.text == "Task" {
-                    return .skipChildren
-                }
-                return .visitChildren
-            }
-            override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                if let base = node.base, base.trimmedDescription == "self" {
-                    found = true
-                }
-                return .visitChildren
-            }
-            override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-                if names.contains(node.baseName.text) {
-                    found = true
-                }
-                return .visitChildren
-            }
-        }
-        let walker = Walker(names: storedProperties)
-        walker.walk(body)
+    /// Whether a Task's closure touches the enclosing instance's state: any member
+    /// through `self`, or a stored property named bare that nothing nearer binds.
+    ///
+    /// The names bound outside the closure body — its own capture list and parameters,
+    /// and every local visible at the call — are resolved before the name match, so a
+    /// value that merely shares a property's spelling is not reported.
+    private func taskClosureTouchesState(
+        call: FunctionCallExprSyntax,
+        closure: ClosureExprSyntax,
+        storedProperties: Set<String>
+    ) -> Bool {
+        let boundOutside = visibleBindings(at: call).union(boundNames(of: closure))
+        let walker = StateReferenceWalker(
+            storedProperties: storedProperties,
+            boundOutside: boundOutside,
+            selfMembers: .all,
+            skipsHopsAndNestedTasks: true
+        )
+        walker.walk(closure.statements)
         return walker.found
     }
 
@@ -552,6 +599,62 @@ func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {
            attribute.attributeName.trimmedDescription == "MainActor" {
             return true
         }
+    }
+    return false
+}
+
+/// Whether a deinit carries its own isolation: the `isolated` modifier, or a
+/// `@MainActor` attribute on the deinit itself (SE-0371's two spellings).
+///
+/// Read from the declaration's modifier and attribute lists, never from text, so
+/// the word in a comment or a string is not the modifier.
+func deinitIsIsolated(_ node: DeinitializerDeclSyntax) -> Bool {
+    if node.modifiers.contains(where: { $0.name.tokenKind == .keyword(.isolated) }) {
+        return true
+    }
+    return hasMainActorAttribute(node.attributes)
+}
+
+/// The isolation a deinit's body runs with.
+///
+/// `@MainActor deinit` names its actor; `isolated deinit` takes the enclosing type's;
+/// anything else is nonisolated, whatever the type is.
+func deinitIsolation(_ node: DeinitializerDeclSyntax, typeIsolation: IsolationContext) -> IsolationContext {
+    if hasMainActorAttribute(node.attributes) { return .mainActor }
+    if node.modifiers.contains(where: { $0.name.tokenKind == .keyword(.isolated) }) {
+        return typeIsolation
+    }
+    return .none
+}
+
+/// `self`, `self?`, `self!` or `(self)` — the receiver is the enclosing instance
+/// however it was captured and however it was unwrapped.
+func isSelfReference(_ expr: ExprSyntax) -> Bool {
+    if let reference = expr.as(DeclReferenceExprSyntax.self) {
+        return reference.baseName.tokenKind == .keyword(.self)
+    }
+    if let chain = expr.as(OptionalChainingExprSyntax.self) {
+        return isSelfReference(chain.expression)
+    }
+    if let unwrap = expr.as(ForceUnwrapExprSyntax.self) {
+        return isSelfReference(unwrap.expression)
+    }
+    if let tuple = expr.as(TupleExprSyntax.self),
+       tuple.elements.count == 1,
+       let only = tuple.elements.first,
+       only.label == nil {
+        return isSelfReference(only.expression)
+    }
+    return false
+}
+
+/// Whether an attribute list carries anything other than attributes known to say
+/// nothing about isolation. Conditional attributes count as unrecognised.
+func hasUnrecognisedAttribute(_ attributes: AttributeListSyntax) -> Bool {
+    let harmless: Set<String> = ["available", "objc", "nonobjc", "_spi", "_documentation", "preconcurrency"]
+    for element in attributes {
+        guard let attribute = element.as(AttributeSyntax.self) else { return true }
+        if !harmless.contains(attribute.attributeName.trimmedDescription) { return true }
     }
     return false
 }

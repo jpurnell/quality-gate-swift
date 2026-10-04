@@ -3,6 +3,7 @@ import Testing
 import SwiftSyntax
 import SwiftParser
 @testable import MemoryLifecycleGuard
+import ConcurrencyAuditor
 @testable import QualityGateCore
 
 // MARK: - Test Helper
@@ -328,5 +329,81 @@ struct CheckMethodTests {
         let result = try await guard_.check(configuration: Configuration())
         #expect(result.checkerId == "memory-lifecycle")
         #expect(result.status == .passed || result.status == .warning)
+    }
+}
+
+// MARK: - Agreement with ConcurrencyAuditor on `isolated deinit`
+
+/// `lifecycle-task-no-deinit` asks for a deinit; `concurrency.main-actor-deinit-touches-state`
+/// reads the deinit that results. These tests pin that following either checker's advice does
+/// not walk into the other's finding.
+@Suite("MemoryLifecycleGuard: isolated deinit agreement")
+struct IsolatedDeinitAgreementTests {
+    private let noDeinit = "lifecycle-task-no-deinit"
+    private let noCancel = "lifecycle-task-no-cancel"
+    private let concurrencyRule = "concurrency.main-actor-deinit-touches-state"
+
+    /// A stored Task and no deinit, with the class attributes supplied by the caller.
+    private func storedTaskClass(attributes: String, deinitDecl: String = "") -> String {
+        """
+        \(attributes)
+        final class Monitor {
+            var task: Task<Void, Never>?
+            \(deinitDecl)
+        }
+        """
+    }
+
+    @Test("An isolated deinit that cancels satisfies both lifecycle rules")
+    func isolatedDeinitCountsAsDeinit() {
+        let code = storedTaskClass(
+            attributes: "@MainActor",
+            deinitDecl: "isolated deinit { task?.cancel() }"
+        )
+        let results = diagnose(code)
+        #expect(results.filter { $0.ruleId == noDeinit }.count == 0)
+        #expect(results.filter { $0.ruleId == noCancel }.count == 0)
+    }
+
+    @Test("On a @MainActor class the suggested deinit is an isolated one")
+    func suggestsIsolatedDeinitOnMainActorClass() {
+        let isolated = diagnose(storedTaskClass(attributes: "@MainActor"))
+            .filter { $0.ruleId == noDeinit }
+        #expect(isolated.count == 1)
+        #expect(isolated.first?.suggestedFix == "Add an `isolated deinit` that calls task?.cancel().")
+
+        let plain = diagnose(storedTaskClass(attributes: ""))
+            .filter { $0.ruleId == noDeinit }
+        #expect(plain.count == 1)
+        #expect(plain.first?.suggestedFix == "Add a deinit that calls task.cancel().")
+    }
+
+    @Test("A non-optional Task handle is cancelled without optional chaining")
+    func suggestsPlainCallForNonOptionalHandle() {
+        let code = """
+        @MainActor
+        final class Monitor {
+            var task: Task<Void, Never>
+            init() { task = Task {} }
+        }
+        """
+        let results = diagnose(code).filter { $0.ruleId == noDeinit }
+        #expect(results.count == 1)
+        #expect(results.first?.suggestedFix == "Add an `isolated deinit` that calls task.cancel().")
+    }
+
+    @Test("Following the lifecycle advice literally leaves both checkers with nothing to say")
+    func roundTripProducesNoFindings() async throws {
+        // What the advice in `suggestsIsolatedDeinitOnMainActorClass` produces when followed.
+        let code = storedTaskClass(
+            attributes: "@MainActor",
+            deinitDecl: "isolated deinit { task?.cancel() }"
+        )
+        let lifecycle = diagnose(code)
+        #expect(lifecycle.count == 0)
+
+        let concurrency = try await ConcurrencyAuditor()
+            .auditSource(code, fileName: "test.swift", configuration: Configuration())
+        #expect(concurrency.diagnostics.count == 0)
     }
 }

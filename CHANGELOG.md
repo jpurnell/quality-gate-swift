@@ -623,6 +623,32 @@
 
 ### Changed
 
+- **`task-captures-self-no-isolation` and `dispatch-queue-in-actor` apply inside unannotated
+  extensions of `@MainActor` types and actors declared in the same package.** An extension took
+  its isolation from its own attribute list, so an extension of an actor was never isolated,
+  an extension of a `@MainActor` class was isolated only if it repeated the attribute, and even
+  then implicit-`self` property access was invisible because the property set was empty. A
+  pre-pass now reads every type declaration in the run, and an extension resolves the type it
+  extends by name: its own module first, then the modules its file imports. A rule widening:
+  code that passed can now fail.
+  - Unknown means unchanged. A type declared in the SDK or a dependency, a module the file does
+    not import, a typealias, and a name whose declarations disagree on isolation all leave the
+    extension non-isolated, as before. So does an attribute that may name another global actor.
+  - `nonisolated extension` (SE-0449) is honoured; a type nested in an isolated extension does
+    not inherit.
+  - Not covered: isolation inherited from a superclass or a `@MainActor` protocol, default
+    main-actor isolation (SE-0466), and custom global actors.
+- **`SyntaxScope`, a new target, holds the lexical-scope code.** `LexicalScope` and the
+  pattern-name finder move out of `RecursionAuditor` unchanged, joined by
+  `visibleBindings(at:)`, which answers "what local names can code at this node see?" by
+  walking up to the enclosing type. SwiftSyntax only. `RecursionAuditor` depends on it and
+  behaves as before; its suite is unchanged. 120 targets, 60 source and 60 test.
+- **`task-captures-self-no-isolation` recognises `self?.` and `self!.` receivers.** Previously
+  only `self.` and stored-property names. `Task { [weak self] in self?.sync() }` passed while
+  `Task { self.sync() }` was reported, though a weak capture changes how long the object lives
+  and not when the body runs. A rule widening: code that passed can now fail. An awaited call
+  through `self?` is still left alone. The guide's suppression list no longer recommends
+  `await self.method()`, which the same guide explains is not a fix.
 - **`--strict` fails on every warning the summary counts.** The summary counted warning
   *diagnostics*; the exit code read checker *statuses*. Nineteen checkers compute their status
   from errors alone, so a warning from one of them (`recursion`, `consistency` above its
@@ -796,6 +822,51 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`task-captures-self-no-isolation` reports the property, not its namesake.** The rule matched
+  any identifier in the Task closure spelled like a stored property, with no notion of what the
+  name was bound to. A capture-list entry (`[log]`, `[log = self.log]`), a parameter, a local
+  bound before or inside the Task, an `if let` / `guard let` / `for` / `case let` binding, a
+  nested or enclosing closure's parameter, and a member of another base (`AppLog.device`,
+  `peer.device`) were all reported as touching actor state. Bindings are now resolved first,
+  using the scope code shared with `RecursionAuditor`. Lexical order and scope are honoured: a
+  read before a later `let` of the same name, and a `let` in a sibling block, are still the
+  property. `self.x` is always the member. A narrowing — it removes findings that were never
+  true — with one addition: shorthand `if let x` *inside* the Task reads the property and is
+  reported.
+  - The suggested fix no longer says "named apart from the properties". That described the
+    rule's blind spot as though it were policy; the guide keeps it as advice.
+- **`nonisolated` members and actor statics are no longer treated as isolated.**
+  `dispatch-queue-in-actor` and `task-captures-self-no-isolation` gave every member its type's
+  isolation unless it carried `@MainActor`; the `nonisolated` modifier was never read, nor
+  `static` inside an actor, and a property or subscript body always inherited. A member's own
+  declaration now decides, for functions, initializers, properties and subscripts alike. A
+  `static` member of a `@MainActor` type stays isolated. One shape is kept on purpose:
+  `Task { @MainActor in self.x = 1 }` in a `nonisolated` member of a `@MainActor` type was
+  reported only because the member was mistaken for isolated, and is still reported, because
+  the closure is.
+- **`main-actor-deinit-touches-state` has the same correction.** Its walker matched names the
+  same way, so `let x = 1; print(x)` in a deinit, a closure parameter, and `Registry.x` were
+  reported when the class had a stored `x`. It now uses the same binding-aware walk.
+  `self.x`, a bare `x` that nothing shadows, and a property used as the base of another member
+  (`task?.cancel()`) are reported as before.
+- **`isolated deinit` is accepted in `@MainActor` classes and is the recommended fix.**
+  `concurrency.main-actor-deinit-touches-state` read only the enclosing type's isolation, so
+  a deinit the language had isolated (`isolated deinit`, or `@MainActor deinit` — SE-0371) was
+  reported like a plain one, and the only spelling the rule accepted was `nonisolated(unsafe)`.
+  It now reads the deinit's own modifiers and attributes. `nonisolated deinit` and a plain
+  `deinit` are reported as before. No severity change and no new rule id.
+  - The message said a plain deinit "will trap at runtime". It does not; it runs on whichever
+    thread drops the last reference, and the hazard is a race on state shared with main-actor
+    code. The message says that now, and the suggested fix names `isolated deinit` first.
+  - `lifecycle-task-no-deinit` suggested "Add a deinit that calls X.cancel()", which on a
+    `@MainActor` class produced exactly the deinit the concurrency rule reports. On a
+    `@MainActor` class it now suggests an `isolated deinit`, and calls through an optional
+    handle as `X?.cancel()`. Other classes keep the old text.
+- **A deinit's body has the deinit's isolation, not the type's.** The analyzer treated every
+  deinit body as isolated like its type, so `task-captures-self-no-isolation` and
+  `dispatch-queue-in-actor` ran inside a plain deinit — which is nonisolated — as though it
+  were actor code. A plain or `nonisolated` deinit body is now nonisolated; an `isolated deinit`
+  takes the type's isolation and a `@MainActor deinit` the main actor's.
 - **`build` reports compiler warnings in files the build did not recompile.** An incremental
   `swift build` prints a diagnostic only for the files it compiles, so a warm build directory
   reported zero warnings: the same tree gave `WARNING`, `PASSED`, `WARNING` on three runs,
