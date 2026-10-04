@@ -428,6 +428,40 @@ struct RandomnessRulesTests {
         #expect(found.first?.message.contains("header") == true)
     }
 
+    /// A query item or header is a sink for a *named* thing. `period1` is a date range, not a
+    /// credential: BusinessMathMarketData's Yahoo Finance URL was reported as a predictable
+    /// token for sending two timestamps (found by the pre-deploy portfolio run).
+    @Test("A timestamp in a query item or header whose name is not a security word is not a token", arguments: [
+        #"let item = URLQueryItem(name: "period1", value: "\(Int(from.timeIntervalSince1970))")"#,
+        #"let item = URLQueryItem(name: "interval", value: "\(Int(Date().timeIntervalSince1970))")"#,
+        #"request.setValue("\(Int(Date().timeIntervalSince1970))", forHTTPHeaderField: "X-Request-Time")"#,
+        #"headers.add(name: "If-Modified-Since", value: "\(Int(Date().timeIntervalSince1970))")"#,
+    ])
+    func unnamedSinkIsNotAContext(code: String) async throws {
+        #expect(try await randomnessFindings(in: code).count == 0)
+    }
+
+    @Test("The same timestamp under a security-named query item or header is a predictable token", arguments: [
+        (#"let item = URLQueryItem(name: "token", value: "\(Int(Date().timeIntervalSince1970))")"#, "a URL query value"),
+        (#"let item = URLQueryItem(name: "nonce", value: "\(Int(Date().timeIntervalSince1970))")"#, "a URL query value"),
+        (#"request.setValue("\(Int(Date().timeIntervalSince1970))", forHTTPHeaderField: "X-CSRF-Token")"#, "an HTTP header value"),
+        (#"headers.add(name: "Authorization", value: "\(Int(Date().timeIntervalSince1970))")"#, "an HTTP header value"),
+    ])
+    func namedSinkIsAContext(code: String, phrase: String) async throws {
+        let found = try await findings(Self.predictable, in: code)
+        #expect(found.count == 1)
+        #expect(found.first?.message.contains(phrase) == true)
+    }
+
+    /// A name the rule cannot read is not evidence that the value is harmless.
+    @Test("A sink whose name is not a literal is still a context")
+    func unreadableSinkNameIsAContext() async throws {
+        let found = try await findings(
+            Self.predictable,
+            in: #"let item = URLQueryItem(name: parameterName, value: "\(Int(Date().timeIntervalSince1970))")"#)
+        #expect(found.count == 1)
+    }
+
     // MARK: - Vocabulary
 
     @Test("27. @State var state is not a context")

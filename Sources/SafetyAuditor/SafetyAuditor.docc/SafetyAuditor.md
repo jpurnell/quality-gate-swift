@@ -215,18 +215,39 @@ then reported, and acknowledged, in its own file.
 | Rule ID | CWE | Severity | Detects |
 |---------|-----|----------|---------|
 | `security.bind-all-interfaces` | 1327 | error | `"0.0.0.0"`, `"::"`, `"[::]"` or `""` as the host of a `bind`, or of the `.hostPort` a `requiredLocalEndpoint` is set to; `INADDR_ANY` / `in6addr_any` as the address of a `sockaddr_in` / `sockaddr_in6`: a caller cannot narrow it |
-| `security.bind-all-interfaces` | 1327 | warning | The same literal as a `host`-named parameter or property default (`@Option` included), an assignment to `hostname`/`host`, or a `host:`/`hostname:`/`bindAddress:` argument that reaches a listener; an `NWListener` with no `requiredLocalEndpoint` |
-| `security.listener-auth-optional` | 1188 | warning | In a target that opens a listener: an authenticator parameter or property defaulting to `nil`/`.none`, an `authRequired`-style flag defaulting to `false`, a flag read from the environment; anywhere, an authenticator passed as `nil` to a listener type |
+| `security.bind-all-interfaces` | 1327 | warning | The same literal as a `host`-named parameter or property default (`@Option` included), an assignment to `hostname`/`host`, or a `host:`/`hostname:`/`bindAddress:` argument that reaches a listener — SwiftMCPServer 5's `HTTPServerTransport(host: "0.0.0.0", …)` and `.listen(host: "0.0.0.0")` on an `MCPServer.builder()` included; an `NWListener` with no `requiredLocalEndpoint` |
+| `security.listener-auth-optional` | 1188 | warning | In a target that opens a listener: an authenticator parameter or property defaulting to `nil`/`.none`, an `authRequired`-style flag defaulting to `false`, a flag read from the environment; anywhere, an authenticator passed as `nil` — or SwiftMCPServer 5's `authentication: .unauthenticated` — to a listener type, and `.authentication(.unauthenticated)` on an `MCPServer.builder()` chain |
 
 A literal that is compared against, listed, subscripted or written in a comment chooses nothing
 and is not reported. A loopback or non-literal address clears `bind-all-interfaces`; a
-non-optional authenticator with no default clears `listener-auth-optional`. A listener started
-inside a dependency (`MCPServer.builder()`) is the library's finding, not the caller's: the
-caller cannot narrow it. Test targets are not deployments and are skipped.
+non-optional authenticator with no default clears `listener-auth-optional`, as does
+`authentication: .apiKey(…)`, `.oauth(…)` or `.apiKeyOrOAuth(…)`. Test targets are not deployments
+and are skipped.
+
+**SwiftMCPServer is read by release.** Before 5.0.0 the library bound `0.0.0.0` itself and a
+consumer could not narrow it: an `MCPServer.builder()` or `HTTPServerTransport(…)` there is
+recorded as inheriting an all-interfaces bind and counted in the coverage note, and is the
+library's finding rather than the caller's. From 5.0.0 the same calls bind `127.0.0.1` and are
+clean; what is reported is what the caller wrote down:
+
+- `.listen(host: "0.0.0.0")` and `HTTPServerTransport(host: "0.0.0.0", …)` — a **warning**, not an
+  error. The error is for a literal at the socket call itself, where the type that owns the
+  socket offers no way to narrow it. These are arguments to an API whose parameter *is* the way
+  to narrow it — the shape of `TournamentWebSocketServer(host: "0.0.0.0")` — and `listen(host:)`
+  is further overridden by `--host` at launch, so it is a default in every sense.
+- `authentication: .unauthenticated` and `.authentication(.unauthenticated)` — a **warning**,
+  worded and graded as `authenticator: nil` to a listener type always was. Running open is a
+  named choice in 5.0.0; the rule asks that the reason be named too, with `// SECURITY:` on the
+  line above (inside a builder chain, above the `.authentication(…)` line).
+
+Which release applies is read from `Package.swift`, then `Package.resolved`, then the calls, and
+is otherwise assumed to be 5.x; the coverage note says which and on what evidence. A `--host`
+flag at launch is not source and is not seen.
 
 Each run states what was examined, zeros included, in a `security.server-surface-coverage` note:
 listeners and handlers by framework, how many bind every interface, how many have authentication
-off by default, and how many findings were acknowledged.
+off by default, the SwiftMCPServer release the listeners were read as (when there is one), and
+how many findings were acknowledged.
 
 ### What it scans
 
