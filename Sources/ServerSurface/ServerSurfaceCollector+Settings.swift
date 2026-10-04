@@ -4,13 +4,15 @@ import SwiftSyntax
 /// Host and authentication settings: defaults, assignments, arguments, environment flags.
 extension ServerSurfaceCollector {
 
+    /// - Parameter configuresListener: The call the literal is an argument of is itself a
+    ///   listener's address — `HTTPServerTransport(host:)`, `listen(host:)` on an MCP builder.
     func addHostSetting(
         at node: some SyntaxProtocol, kind: HostSetting.Kind, name: String, value: String,
-        addressKind: HostAddressKind, callee: String? = nil
+        addressKind: HostAddressKind, callee: String? = nil, configuresListener: Bool = false
     ) {
         facts.hostSettings.append(HostSetting(
             site: site(node), kind: kind, name: name, value: value, addressKind: addressKind,
-            callee: callee, fileHasListener: prescan.hasListenerConstruction,
+            callee: callee, fileHasListener: prescan.hasListenerConstruction || configuresListener,
             owningType: SyntaxReading.enclosingTypeName(node)))
     }
 
@@ -20,14 +22,17 @@ extension ServerSurfaceCollector {
     /// string more often means "unset" than "any". A literal that is neither all-interfaces nor
     /// loopback is recorded only when it is the whole expression, so a subscript key or a
     /// message fragment is not mistaken for an address.
-    func recordHostLiterals(in expr: ExprSyntax, kind: HostSetting.Kind, name: String, callee: String? = nil) {
+    func recordHostLiterals(
+        in expr: ExprSyntax, kind: HostSetting.Kind, name: String, callee: String? = nil,
+        configuresListener: Bool = false
+    ) {
         let whole = expr.as(StringLiteralExprSyntax.self) != nil
         for literal in SyntaxReading.chosenLiterals(in: expr) {
             guard let value = literal.representedLiteralValue, !value.isEmpty else { continue }
             let addressKind = HostAddressKind.classify(value)
             guard addressKind != .specific || whole else { continue }
             addHostSetting(at: literal, kind: kind, name: name, value: value,
-                           addressKind: addressKind, callee: callee)
+                           addressKind: addressKind, callee: callee, configuresListener: configuresListener)
         }
     }
 
@@ -90,15 +95,28 @@ extension ServerSurfaceCollector {
 
     // MARK: - Arguments
 
-    /// `TournamentWebSocketServer(host: "0.0.0.0", …)`, `WebOptions(bindAddress: …)`.
+    /// `TournamentWebSocketServer(host: "0.0.0.0", …)`, `WebOptions(bindAddress: …)`,
+    /// `HTTPServerTransport(host: "0.0.0.0", …)`, `builder.listen(host: "0.0.0.0")`.
     func recordHostArguments(_ node: FunctionCallExprSyntax) {
         guard let callee = SyntaxReading.calleeName(node),
               !ServerSurfaceVocabulary.clientCallees.contains(callee) else { return }
+        let configuresListener = isLibraryListenerAddress(node, callee: callee)
         for argument in node.arguments {
             guard let label = argument.label?.text,
                   ServerSurfaceVocabulary.hostArgumentLabels.contains(label) else { continue }
-            recordHostLiterals(in: argument.expression, kind: .argument, name: label, callee: callee)
+            recordHostLiterals(in: argument.expression, kind: .argument, name: label, callee: callee,
+                               configuresListener: configuresListener)
         }
+    }
+
+    /// Whether `node`'s `host:` is a library listener's address: a transport constructed
+    /// directly, or `listen(host:)` on an MCP builder.
+    private func isLibraryListenerAddress(_ node: FunctionCallExprSyntax, callee: String) -> Bool {
+        if callee == ServerSurfaceVocabulary.mcpTransportConstruct {
+            return node.calledExpression.is(DeclReferenceExprSyntax.self)
+        }
+        guard callee == "listen", let receiver = SyntaxReading.receiver(node) else { return false }
+        return isBuilder(receiver)
     }
 
     /// An authenticator passed as `nil`/`.none`. Kept by the assembly only when the callee is a
@@ -141,7 +159,7 @@ enum AuthReading {
     /// Whether `value` turns off the authentication `name` stands for.
     static func isOff(name: String, value: String) -> Bool {
         if ServerSurfaceVocabulary.authenticatorNames.contains(name) {
-            return value == "nil" || value == ".none"
+            return ServerSurfaceVocabulary.offAuthenticators.contains(value)
         }
         if ServerSurfaceVocabulary.modeNames.contains(name) {
             return ServerSurfaceVocabulary.offModes.contains(value)
@@ -149,6 +167,18 @@ enum AuthReading {
         if ServerSurfaceVocabulary.onFlagNames.contains(name) { return value == "false" }
         if ServerSurfaceVocabulary.offFlagNames.contains(name) { return value == "true" }
         return false
+    }
+
+    /// The enforcing `HTTPAuthentication` case `expr` names — `apiKey` for `.apiKey(a)` or
+    /// `HTTPAuthentication.apiKey(a)` — or `nil` for `.unauthenticated` and for anything that
+    /// is not a case written out, which decides nothing in source.
+    static func enforcingCase(_ expr: ExprSyntax) -> String? {
+        let callee = expr.as(FunctionCallExprSyntax.self)?.calledExpression ?? expr
+        guard let member = callee.as(MemberAccessExprSyntax.self) else { return nil }
+        let base = member.base?.trimmedDescription
+        guard base == nil || base == "HTTPAuthentication" else { return nil }
+        let name = member.declName.baseName.text
+        return ServerSurfaceVocabulary.enforcingAuthenticationCases.contains(name) ? name : nil
     }
 
     /// A flag whose value comes from the process environment, and what it is when unset.

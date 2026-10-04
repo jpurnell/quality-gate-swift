@@ -94,11 +94,16 @@ public enum SecurityContext {
         public let kind: Sink
         /// Index into the call's argument list of the value argument.
         public let valueArgumentIndex: Int
+        /// Index of the argument that names what the value is — the header field, the query
+        /// item's name — or `nil` for a sink with no name argument (a cookie's properties).
+        /// See ``SecurityContext/sinkCarriesSecurityValue(named:)``.
+        public let nameArgumentIndex: Int?
 
         /// Creates a match.
-        public init(kind: Sink, valueArgumentIndex: Int) {
+        public init(kind: Sink, valueArgumentIndex: Int, nameArgumentIndex: Int? = nil) {
             self.kind = kind
             self.valueArgumentIndex = valueArgumentIndex
+            self.nameArgumentIndex = nameArgumentIndex
         }
     }
 
@@ -208,17 +213,37 @@ public enum SecurityContext {
         // A `where` clause binds only the last pattern of a multi-pattern `case`, so each
         // callee is spelled with its own condition.
         if (callee == "setValue" || callee == "addValue") && labels == headerValueLabels {
-            return SinkMatch(kind: .httpHeader, valueArgumentIndex: 0)
+            return SinkMatch(kind: .httpHeader, valueArgumentIndex: 0, nameArgumentIndex: 1)
         }
         if (callee == "add" || callee == "replaceOrAdd") && labels == nameValueLabels {
-            return SinkMatch(kind: .httpHeader, valueArgumentIndex: 1)
+            return SinkMatch(kind: .httpHeader, valueArgumentIndex: 1, nameArgumentIndex: 0)
         }
         if callee == "HTTPCookie" && labels == propertiesLabels {
             return SinkMatch(kind: .cookie, valueArgumentIndex: 0)
         }
         if callee == "URLQueryItem" && labels == nameValueLabels {
-            return SinkMatch(kind: .urlQuery, valueArgumentIndex: 1)
+            return SinkMatch(kind: .urlQuery, valueArgumentIndex: 1, nameArgumentIndex: 0)
         }
         return nil
+    }
+
+    /// Whether a header or query sink with this name carries a security value.
+    ///
+    /// A sink is a destination for a *named* thing, and the name says what the thing is.
+    /// `URLQueryItem(name: "period1", …)` and `forHTTPHeaderField: "If-Modified-Since"` send a
+    /// date; `name: "token"` and `"Authorization"` send a credential. So a name written as a
+    /// literal decides it: the sink is a context only when the name carries a strong security
+    /// word (``SensitiveName``; a weak word such as `state` or `key` alone is not enough, and
+    /// personal data is not a security context).
+    ///
+    /// `nil` — the name is not a literal, so it cannot be read — keeps the sink in context:
+    /// an unreadable name is not evidence that the value is harmless.
+    ///
+    /// This narrows `ASeedIsNotASecret` §3.1(b), which put every sink value in context. That
+    /// reported BusinessMathMarketData's Yahoo Finance URL as a predictable token for sending
+    /// two timestamps as a date range.
+    public static func sinkCarriesSecurityValue(named name: String?) -> Bool {
+        guard let name else { return true }
+        return SensitiveName.classify(name).categories.contains(where: \.isSecurityRelevant)
     }
 }

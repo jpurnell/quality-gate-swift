@@ -6,7 +6,7 @@ import SwiftSyntax
 /// What one file contributes to a ``ServerSurfaceInventory``, before the package is joined.
 ///
 /// Opaque on purpose: a caller collects one per file and hands the array to
-/// ``ServerSurfaceInventory/init(files:targets:guardTypes:)``. The parts are the rows the file
+/// ``ServerSurfaceInventory/init(files:targets:guardTypes:dependencies:)``. The parts are the rows the file
 /// can decide alone and the loose ends only the package can tie — a bind whose host names a
 /// parameter declared elsewhere, a `RouteCollection` registered in another file.
 public struct ServerSurfaceFileFacts: Sendable {
@@ -25,7 +25,17 @@ public struct ServerSurfaceFileFacts: Sendable {
     var serverHandlerTypes: Set<String> = []
     var channelReads: [(type: String, site: SourceSite)] = []
     var vaporHostnames: [(binding: HostBinding, site: SourceSite)] = []
-    var knownListenerAuthOff: [(site: SourceSite, type: String, names: [String])] = []
+    /// Per library listener constructed here: the authentication arguments passed as off, and
+    /// the enforcing `HTTPAuthentication` case passed, if either is written at the call.
+    var knownListenerAuth: [(site: SourceSite, type: String, off: [String], by: [String])] = []
+    /// `listen(host:)` on an MCP builder chain or a name bound to one.
+    var mcpListenHosts: [(binding: HostBinding, site: SourceSite)] = []
+    /// Authentication chosen on an MCP builder: `.authenticator(…)`, `.oauthServer(…)`,
+    /// `.authentication(.apiKey(…))` enforce; `.authentication(.unauthenticated)` does not.
+    var mcpBuilderAuth: [(site: SourceSite, name: String, enforced: Bool)] = []
+    /// Major versions of SwiftMCPServer whose spellings this file uses: 4 for the labels 5.0.0
+    /// removed, 5 for the ones it added.
+    var mcpReleaseShapes: Set<Int> = []
 
     init(fileName: String) {
         self.fileName = fileName
