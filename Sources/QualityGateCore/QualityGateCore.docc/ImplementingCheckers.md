@@ -153,6 +153,18 @@ Diagnostic(
 | `.warning` | Issue should be addressed but isn't blocking |
 | `.note` | Informational message or suggestion |
 
+### Status Follows Severity
+
+The severity you give a diagnostic is what the user sees and what the gate acts on. The
+runner reconciles every result's status with its diagnostics, and it only ever raises: a
+result returned as `.passed` that carries a `.warning` diagnostic becomes `.warning`, and
+the run fails under `--strict`. The summary's `N warning(s)` and the `--strict` exit code
+are read from one tally, so a warning cannot be printed and not gated.
+
+So a finding you do not want to gate on is a `.note`, not a `.warning` with a `.passed`
+status. And a result returned as `.warning` needs a warning-severity diagnostic to back it;
+without one the gate adds a `gate.status-without-finding` warning that names your checker.
+
 ## Thread Safety
 
 All checkers must be `Sendable` because they may run concurrently:

@@ -165,6 +165,66 @@ struct ReporterTests {
         #expect(defaultOutput.contains("\"status\" : \"passed\""))
     }
 
+    @Test("Under --strict the verdict names the warning count the summary prints")
+    func terminalReporterStrictGatesOnTheCountItPrints() throws {
+        // A checker whose status ignores its own warning (`recursion`, and eighteen more).
+        // The count line has always seen that warning; the verdict line must read the
+        // same number, not the checker's status.
+        let results = [
+            CheckResult(
+                checkerId: "recursion", status: .passed,
+                diagnostics: [Diagnostic(
+                    severity: .warning, message: "function 'walk(_:)' calls itself with no guard-driven base case",
+                    ruleId: "recursion.unconditional-self-call")],
+                duration: .zero),
+        ]
+
+        var strictOutput = ""
+        try TerminalReporter(strict: true).report(results, to: &strictOutput)
+        #expect(strictOutput.contains("❌ Quality Gate: FAILED (--strict: 1 warning)\n"))
+        #expect(strictOutput.contains("   0 error(s), 1 warning(s)\n"))
+        #expect(!strictOutput.contains("Quality Gate: PASSED"))
+
+        var defaultOutput = ""
+        try TerminalReporter().report(results, to: &defaultOutput)
+        #expect(defaultOutput.contains("✅ Quality Gate: PASSED\n"))
+        #expect(defaultOutput.contains("   0 error(s), 1 warning(s)\n"))
+    }
+
+    @Test("Under --strict the verdict pluralises the count it gated on")
+    func terminalReporterStrictVerdictPluralises() throws {
+        let warning = Diagnostic(severity: .warning, message: "unused", ruleId: "swift-compiler")
+        let results = [
+            CheckResult(checkerId: "build", status: .warning, diagnostics: [warning, warning], duration: .zero),
+            CheckResult(checkerId: "recursion", status: .passed, diagnostics: [warning], duration: .zero),
+        ]
+        var output = ""
+        try TerminalReporter(strict: true).report(results, to: &output)
+        #expect(output.contains("❌ Quality Gate: FAILED (--strict: 3 warnings)\n"))
+        #expect(output.contains("   0 error(s), 3 warning(s)\n"))
+    }
+
+    @Test("Under --strict the JSON summary gates on the warning count it reports")
+    func jsonReporterStrictGatesOnTheCountItReports() throws {
+        let results = [
+            CheckResult(
+                checkerId: "recursion", status: .passed,
+                diagnostics: [Diagnostic(
+                    severity: .warning, message: "function 'walk(_:)' calls itself with no guard-driven base case",
+                    ruleId: "recursion.unconditional-self-call")],
+                duration: .zero),
+        ]
+        var output = ""
+        try JSONReporter(strict: true).report(results, to: &output)
+
+        let parsed = try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        let summary = try #require(parsed?["summary"] as? [String: Any])
+        #expect(summary["status"] as? String == "failed")
+        #expect(summary["totalWarnings"] as? Int == 1)
+        #expect(summary["warnings"] as? Int == 1)
+        #expect(summary["passed"] as? Int == 0)
+    }
+
     @Test("A complete narrowed run still reads as a selection, not a truncation")
     func terminalReporterNarrowedRun() throws {
         let reporter = TerminalReporter(rosterSize: 45)

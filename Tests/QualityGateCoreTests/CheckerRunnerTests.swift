@@ -620,4 +620,76 @@ struct CheckerRunnerCacheTests {
         #expect(carried == original)
     }
 
+    // MARK: - Reconciliation: status follows the diagnostics the summary counts
+
+    /// One warning-severity finding, as `recursion` emits it with a `.passed` status.
+    private static let countedWarning = Diagnostic(
+        severity: .warning,
+        message: "function 'walk(_:)' calls itself with no guard-driven base case",
+        ruleId: "recursion.unconditional-self-call")
+
+    @Test("Strict mode stops at a checker that passed while carrying a warning")
+    func strictStopsAtAPassedCheckerCarryingAWarning() async {
+        // Companion to `strictWarningTruncates`. The summary counts this warning, so the
+        // early stop under --strict has to see it too — whatever status the checker chose.
+        let checkers: [any QualityChecker] = [
+            FakeChecker(id: "A", isParallelSafe: false, diagnostics: [Self.countedWarning]),
+            FakeChecker(id: "B", isParallelSafe: false),
+        ]
+        let outcome = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers,
+            configuration: Configuration(),
+            strict: true,
+            continueOnFailure: false
+        )
+        #expect(outcome.truncation?.stoppedAt == "A")
+        #expect(outcome.truncation?.unreached == ["B"])
+        #expect(outcome.results.map(\.status) == [.warning])
+    }
+
+    @Test("A replayed result is reconciled exactly as a fresh one is")
+    func replayedResultIsReconciled() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+        let counter = CallCounter()
+        let checker = FakeChecker(
+            id: "cacheable", cacheInputFiles: [input.path], callCounter: counter,
+            diagnostics: [Self.countedWarning])
+
+        let fresh = await run(checker, cache: cache, useCache: true)
+        let replayed = await run(checker, cache: cache, useCache: true)
+
+        #expect(await counter.count == 1, "The second run must be a cache hit for this to test replay")
+        #expect(fresh.map(\.status) == [.warning])
+        #expect(replayed.map(\.status) == [.warning])
+    }
+
+    @Test("An unrelated override in the configuration does not decide the verdict (R3)")
+    func unrelatedOverrideDoesNotChangeTheVerdict() async {
+        // R2 vs R3: `OverrideProcessor.apply` recomputes status from diagnostics, but
+        // returns early when nothing is configured — so the same warning failed --strict
+        // only in a repository that happened to configure some override, any override.
+        let checkers: [any QualityChecker] = [
+            FakeChecker(id: "recursion", diagnostics: [Self.countedWarning])
+        ]
+        let withOverride = OverrideProcessor(overrides: ["some-rule-that-never-fires": .warning])
+        let withoutOverride = OverrideProcessor(overrides: [:])
+
+        let overridden = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers, configuration: Configuration(),
+            strict: true, continueOnFailure: true,
+            transform: { withOverride.apply(to: $0) }
+        ).results
+        let plain = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers, configuration: Configuration(),
+            strict: true, continueOnFailure: true,
+            transform: { withoutOverride.apply(to: $0) }
+        ).results
+
+        #expect(overridden.map(\.status) == [.warning])
+        #expect(plain.map(\.status) == [.warning])
+    }
+
 }

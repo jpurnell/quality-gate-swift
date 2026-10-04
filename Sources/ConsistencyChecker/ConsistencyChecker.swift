@@ -232,9 +232,19 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
             calibrations: recentCalibrations
         ))
 
-        let status: CheckResult.Status = report.consistencyScore < config.consistencyThreshold
-            ? .warning
-            : .passed
+        // The score note above stays a note: telemetry parses the score out of its message.
+        // A score below the threshold is this checker's one gating verdict, so it gets a
+        // warning of its own — otherwise the status is WARNING while every finding is a
+        // note, and a run fails `--strict` over a summary that prints `0 warning(s)`.
+        let belowThreshold = report.consistencyScore < config.consistencyThreshold
+        if belowThreshold {
+            diagnostics.append(Diagnostic(
+                severity: .warning,
+                message: "Institutional consistency score \(scoreFormatted) is below the threshold \(thresholdFormatted)",
+                ruleId: "consistency-below-threshold"
+            ))
+        }
+        let status: CheckResult.Status = belowThreshold ? .warning : .passed
 
         return makeResult(startTime: startTime, status: status, diagnostics: diagnostics)
     }
