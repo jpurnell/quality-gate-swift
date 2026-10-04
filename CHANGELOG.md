@@ -4,6 +4,28 @@
 
 ### Added
 
+- **A reader for the compiler's serialized diagnostics, and an index of a build's compile
+  units.** Both are in the `BuildChecker` target, and are the groundwork for `build` reporting
+  warnings in files a build did not recompile.
+  - `SerializedDiagnosticsReader` decodes a `.dia` file — what each compile job writes beside
+    its object file — into the gate's `Diagnostic`, rendering a message as the compiler prints
+    it (`text [#Group]`). Malformed input throws; nothing traps.
+  - `CompileUnitIndex` reads a build directory's output file maps for one configuration and
+    returns the live, first-party compile units and where each records its diagnostics. It
+    reads the map, not the directory: a `.dia` left behind by a deleted source file is not a
+    unit. Handles the `swiftbuild` layout (per-file records and the `""`-keyed emit-module
+    record in debug; the `""`-keyed whole-module record in release) and the native one.
+  - The decoder is `TSCUtility.SerializedDiagnostics`, vendored from
+    [swift-tools-support-core](https://github.com/swiftlang/swift-tools-support-core) at commit
+    `c574915fe88e942e4c4c93376f022daa2ecf05f9` (Apache-2.0 with Runtime Library Exception):
+    `Sources/TSCUtility/Bits.swift`, `Bitstream.swift`, `BitstreamReader.swift` and
+    `SerializedDiagnostics.swift`, now under `Sources/BuildChecker/SerializedDiagnostics/`.
+    `ByteString` became `[UInt8]`, so there is no new package dependency. Every trap in the
+    upstream code (`precondition`, `fatalError`, force unwraps, unchecked integer conversions)
+    became a thrown error, because this copy reads whatever is on disk; records own their
+    fields instead of borrowing an unsafe buffer; and the recursive readers are depth-bounded.
+    Source ranges, fix-its and the writer-side declarations were dropped. Each file's header
+    keeps the upstream licence notice and lists its changes.
 - **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
   `excludedCheckers:`. Before this, the only way to opt a checker in from config was
   `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
