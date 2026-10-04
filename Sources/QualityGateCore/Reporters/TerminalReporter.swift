@@ -22,10 +22,11 @@ public struct TerminalReporter: Reporter, Sendable {
     /// read as clean — the mechanism that hid one package's false positives for months.
     public let truncation: RunTruncation?
 
-    /// Whether the run is under `--strict`, where a checker that warned fails the run.
+    /// Whether the run is under `--strict`, where a counted warning fails the run.
     ///
-    /// The CLI's exit code already applied that rule; the summary did not, so a `--strict`
-    /// run that exited 1 on a warning printed `✅ Quality Gate: PASSED` above it.
+    /// The verdict line and the `N warning(s)` line are both read off one ``RunTally``, so
+    /// under `--strict` a run that prints a non-zero warning count prints FAILED — whatever
+    /// status the checker that emitted the warning chose for itself.
     public let strict: Bool
 
     /// Creates a new TerminalReporter instance.
@@ -34,7 +35,7 @@ public struct TerminalReporter: Reporter, Sendable {
     ///   - rosterSize: Total registered checkers, so the summary can state its
     ///     denominator. `nil` omits the line rather than guessing.
     ///   - truncation: How the run stopped early; `nil` for a complete run.
-    ///   - strict: Whether a `.warning` result fails the run, as under `--strict`.
+    ///   - strict: Whether a counted warning fails the run, as under `--strict`.
     public init(rosterSize: Int? = nil, truncation: RunTruncation? = nil, strict: Bool = false) {
         self.rosterSize = rosterSize
         self.truncation = truncation
@@ -52,10 +53,12 @@ public struct TerminalReporter: Reporter, Sendable {
         output.write("  Quality Gate Results\n")
         output.write("==========================================\n\n")
 
-        var totalErrors = 0
-        var totalWarnings = 0
-        var allPassed = true
-        var failedOnlyByStrictWarnings = false
+        // Reconciled here as well as in the runner, so the status printed beside each
+        // checker is the one the verdict below was computed from, whoever built the list.
+        let results = results.map { $0.reconciled() }
+        // One tally. The verdict line and the count line both read it, so the number
+        // after "warning(s)" is the number `--strict` gated on.
+        let tally = RunTally(results)
 
         for result in results {
             let statusSymbol = statusSymbol(for: result.status)
@@ -63,16 +66,6 @@ public struct TerminalReporter: Reporter, Sendable {
 
             output.write("\(statusSymbol) [\(result.checkerId)] \(statusText)")
             output.write(" (\(formatDuration(result.duration)))\n")
-
-            if result.status == .failed {
-                allPassed = false
-            } else if strict && result.status == .warning {
-                allPassed = false
-                failedOnlyByStrictWarnings = true
-            }
-
-            totalErrors += result.errorCount
-            totalWarnings += result.warningCount
 
             // Print diagnostics
             for diagnostic in result.diagnostics {
@@ -86,36 +79,33 @@ public struct TerminalReporter: Reporter, Sendable {
 
         // Summary
         output.write("==========================================\n")
-        // Truncation is asked about FIRST, and deliberately. `allPassed` is computed over
-        // the checkers that *ran*, so a truncated run whose executed subset is green used
-        // to satisfy it and print a tick over an unexamined majority. That is reachable in
-        // any repository holding a baseline ledger: the runner stops at a checker that
-        // genuinely failed, then `BaselineLedger.apply` turns that checker's errors into
-        // notes and recomputes its verdict to `.passed`, leaving every result green and
-        // the truncation still recorded. The honest verdict for "some checkers never ran"
-        // is neither pass nor fail — it is that the question was not answered.
-        if let truncation, allPassed {
-            // Truncated, yet everything that ran is green — reachable in any repository
-            // holding a baseline ledger. The runner stops at a checker that genuinely
-            // failed, then `BaselineLedger.apply` turns that checker's errors into notes
-            // and recomputes its verdict to `.passed`, leaving every result green with the
-            // truncation still recorded. Neither pass nor fail is true here: the run did
-            // not answer the question, and saying so is the only honest verdict.
-            output.write(
-                "⚠️  Quality Gate: INCOMPLETE (run stopped at [\(truncation.stoppedAt)]"
-                + ", \(truncation.unreached.count) checker(s) never ran)\n")
-        } else if let truncation {
-            output.write("❌ Quality Gate: FAILED (run stopped at [\(truncation.stoppedAt)])\n")
-        } else if allPassed {
+        let stoppedAt = truncation.map { "run stopped at [\($0.stoppedAt)]" }
+        switch tally.verdict(strict: strict, truncated: truncation != nil) {
+        case .passed:
             output.write("✅ Quality Gate: PASSED\n")
-        } else if failedOnlyByStrictWarnings && !results.contains(where: { $0.status == .failed }) {
-            output.write("❌ Quality Gate: FAILED (--strict: a checker warned)\n")
-        } else {
-            output.write("❌ Quality Gate: FAILED\n")
+        case .failed:
+            output.write("❌ Quality Gate: FAILED\(stoppedAt.map { " (\($0))" } ?? "")\n")
+        case .failedByStrictWarnings:
+            // Names the count it gated on — the same stored number the line below prints.
+            let counted = "\(tally.warnings) warning\(tally.warnings == 1 ? "" : "s")"
+            output.write(
+                "❌ Quality Gate: FAILED (--strict: \(counted)\(stoppedAt.map { "; \($0)" } ?? ""))\n")
+        case .incomplete:
+            // Truncated, yet nothing that ran failed — reachable in any repository holding
+            // a baseline ledger. The runner stops at a checker that genuinely failed, then
+            // `BaselineLedger.apply` turns that checker's errors into notes and recomputes
+            // its verdict to `.passed`, leaving every result green with the truncation
+            // still recorded. A tick there would sit over an unexamined majority. Neither
+            // pass nor fail is true: the run did not answer the question, and saying so is
+            // the only honest verdict.
+            let unreached = truncation?.unreached.count ?? 0
+            output.write(
+                "⚠️  Quality Gate: INCOMPLETE (\(stoppedAt ?? "run stopped early")"
+                + ", \(unreached) checker(s) never ran)\n")
         }
 
-        if totalErrors > 0 || totalWarnings > 0 {
-            output.write("   \(totalErrors) error(s), \(totalWarnings) warning(s)\n")
+        if tally.errors > 0 || tally.warnings > 0 {
+            output.write("   \(tally.errors) error(s), \(tally.warnings) warning(s)\n")
         }
         // Every run states its denominator, and states it in three parts when they
         // differ: ran, deliberately not selected, and never reached. The last two must

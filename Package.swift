@@ -334,12 +334,12 @@ let package = Package(
 
         .target(
             name: "BuildChecker",
-            dependencies: ["QualityGateCore", "IndexStoreInfra", .product(name: "QualityGateLogging", package: "quality-gate-types")],
+            dependencies: ["QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types")],
             resources: [.copy("BuildChecker.docc")]
         ),
         .testTarget(
             name: "BuildCheckerTests",
-            dependencies: ["BuildChecker", "IndexStoreInfra"]
+            dependencies: ["BuildChecker", "QualityGateCore"]
         ),
 
         .testTarget(

@@ -186,6 +186,11 @@ public struct BaselineLedger: Sendable, Equatable {
     ///   - now: The instant expiry is judged against.
     /// - Returns: The result with baselined diagnostics downgraded and its verdict recomputed.
     public func applying(to result: CheckResult, now: Date) -> CheckResult {
+        // Reconciled first, so the status this reads is the one the diagnostics imply. A
+        // checker that reports `.passed` while carrying a warning used to be skipped here
+        // whole; `adopt` had recorded that warning as debt, and it would now gate under
+        // `--strict` with its record unread.
+        let result = result.reconciled()
         guard result.status == .failed || result.status == .warning else { return result }
 
         let dateFormatter = DateFormatter()

@@ -444,4 +444,130 @@ struct BuildCheckerTests {
         #expect(diagnostic.message.contains("cannot find") ||
                 diagnostic.message.contains("NetworkManager"))
     }
+
+    // MARK: - Hyperlink Escapes
+
+    @Test("An OSC 8 hyperlink around the diagnostic group is removed from the message")
+    func stripsHyperlinkEscapes() throws {
+        // Exactly what Swift 6.4 prints through a pipe: SGR colour around the severity, and the
+        // diagnostic group wrapped in an OSC 8 hyperlink to its documentation.
+        let esc = "\u{1B}"
+        let output = "/path/to/Warns.swift:6:9: \(esc)[1;33mwarning: \(esc)[1;39mresult of call to 'loud()' is unused\(esc)[0;0m "
+            + "[#\(esc)]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\(esc)\\NoUsage\(esc)]8;;\(esc)\\]"
+
+        let diagnostic = try #require(BuildChecker.parseBuildOutput(output).first)
+
+        #expect(diagnostic.message == "result of call to 'loud()' is unused [#NoUsage]")
+        #expect(!diagnostic.message.contains(esc))
+        #expect(!diagnostic.message.contains("]8;;"))
+        #expect(!diagnostic.message.contains("https://"))
+    }
+
+    @Test("A BEL-terminated OSC 8 hyperlink is removed too")
+    func stripsBellTerminatedHyperlinkEscapes() throws {
+        let esc = "\u{1B}"
+        let bel = "\u{07}"
+        let output = "/path/to/Warns.swift:6:9: warning: result of call to 'loud()' is unused "
+            + "[#\(esc)]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\(bel)NoUsage\(esc)]8;;\(bel)]"
+
+        let diagnostic = try #require(BuildChecker.parseBuildOutput(output).first)
+
+        #expect(diagnostic.message == "result of call to 'loud()' is unused [#NoUsage]")
+    }
+
+    // MARK: - Recorded Diagnostics
+
+    private static func unusedResultWarning() -> Diagnostic {
+        Diagnostic(
+            severity: .warning,
+            message: "result of call to 'loud()' is unused [#NoUsage]",
+            filePath: "/path/to/Warns.swift",
+            lineNumber: 6,
+            columnNumber: 9,
+            ruleId: "swift-compiler"
+        )
+    }
+
+    private static func recorded(_ diagnostics: [Diagnostic], compiled: Int, read: Int) -> RecordedDiagnostics {
+        RecordedDiagnostics(
+            diagnostics: diagnostics,
+            coverage: RecordedDiagnostics.Coverage(
+                mapCount: 1, unitCount: compiled + read, compiledByThisRun: compiled, readFromRecord: read)
+        )
+    }
+
+    @Test("The same warning in the transcript and the record is one diagnostic")
+    func transcriptAndRecordAreMergedOnce() {
+        let output = "/path/to/Warns.swift:6:9: warning: result of call to 'loud()' is unused [#NoUsage]"
+
+        let result = BuildChecker.createResult(
+            output: output,
+            exitCode: 0,
+            duration: .seconds(1),
+            recorded: Self.recorded([Self.unusedResultWarning()], compiled: 1, read: 0)
+        )
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning } == [Self.unusedResultWarning()])
+    }
+
+    @Test("A warning the transcript prints twice is one diagnostic")
+    func transcriptDuplicatesAreMergedOnce() {
+        let line = "/path/to/Decl.swift:7:23: warning: 'Old' is deprecated: use something else [#DeprecatedDeclaration]"
+
+        let result = BuildChecker.createResult(output: line + "\n" + line, exitCode: 0, duration: .seconds(1))
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning }.count == 1)
+    }
+
+    @Test("A warning only the record holds makes the result a warning")
+    func recordedOnlyWarningIsReported() {
+        let result = BuildChecker.createResult(
+            output: "Build complete! (0.41s)",
+            exitCode: 0,
+            duration: .seconds(1),
+            recorded: Self.recorded([Self.unusedResultWarning()], compiled: 0, read: 1)
+        )
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning } == [Self.unusedResultWarning()])
+        #expect(result.diagnostics.last?.ruleId == "build.diagnostic-coverage")
+    }
+
+    @Test("Unverified units make a clean build a warning, never a pass")
+    func unverifiedUnitsAreAWarning() {
+        let recorded = RecordedDiagnostics(
+            diagnostics: [],
+            coverage: RecordedDiagnostics.Coverage(
+                mapCount: 1, unitCount: 2, compiledByThisRun: 0, readFromRecord: 1,
+                unverified: ["Sources/Fixture/Warns.swift"])
+        )
+
+        let result = BuildChecker.createResult(
+            output: "Build complete! (0.41s)", exitCode: 0, duration: .seconds(1), recorded: recorded)
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.contains { $0.ruleId == "build.warnings-unverified" && $0.severity == .warning })
+    }
+
+    @Test("A failed build ignores the record: the transcript has the errors")
+    func failedBuildIgnoresTheRecord() {
+        let result = BuildChecker.createResult(
+            output: "/path/to/Clean.swift:2:37: error: cannot convert value of type 'String' to specified type 'Int'",
+            exitCode: 1,
+            duration: .seconds(1),
+            recorded: Self.recorded([Self.unusedResultWarning()], compiled: 0, read: 1)
+        )
+
+        #expect(result.status == .failed)
+        #expect(result.diagnostics.map(\.severity) == [.error])
+    }
+
+    // MARK: - Result Cache
+
+    @Test("build declares no cache inputs: the build system is the cache")
+    func buildIsNotResultCached() {
+        #expect(BuildChecker().cacheInputs(configuration: Configuration()) == nil)
+    }
 }
