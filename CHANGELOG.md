@@ -4,6 +4,139 @@
 
 ### Added
 
+- **What a cipher is keyed with: `security.hardcoded-key` (CWE-321), `security.static-iv`
+  (CWE-329, 1204, 323), `security.weak-kdf` (CWE-916) and `security.weak-key-size` (CWE-326), all
+  error.** The rest of `ACipherIsItsArguments.md`; `broken-cipher` and `ecb-mode` read the
+  algorithm and mode, these read the key, the IV, the round count and the key length.
+  - `hardcoded-key`: literal-derived bytes given to `SymmetricKey(data:)`, the key argument of
+    `CCCrypt` / `CCCryptorCreate` / `CCHmac`, a `P256` / `P384` / `P521` / `Curve25519` / `_RSA`
+    `PrivateKey(raw|pem|derRepresentation:)`, or a CryptoSwift `key:`; and a string literal holding
+    a PEM private key *with a body* — a header alone is what a PEM parser matches against.
+  - `static-iv`: a `nil` or literal IV to `CCCrypt` / `CCCryptorCreate` when encrypting outside ECB
+    (CommonCrypto turns `nil` into zeros) and `AES._CBC.encrypt` with a literal IV (329); a literal
+    CryptoSwift `iv:` in a non-CBC mode (1204); a literal `AES.GCM` / `ChaChaPoly` nonce, or one
+    held in a `static let` or file-scope `let` and passed to `seal` (323) — random once is still
+    once. A literal `kCCDecrypt`, `_CBC.decrypt` and a nonce rebuilding a `SealedBox` are the
+    decrypt side and are not reported.
+  - `weak-kdf`: `CCKeyDerivationPBKDF` with a literal round count below 210,000 (swift-crypto's
+    floor; OWASP's higher figure was not fetched); `unsafeUncheckedRounds:` — a warning, an error
+    below the floor; and `SHA256` / `384` / `512.hash` or `CC_SHA*` of a password-named value. A
+    digest of a token, key or secret is not reported: a random token has no dictionary.
+  - `weak-key-size`: `kSecAttrKeySizeInBits` below 2048 in a dictionary literal that does not ask
+    for an EC key; `_RSA` keys below 2048 bits; `SymmetricKey` below 128 bits.
+  - "Literal-derived" is syntactic and one file deep: a literal, the same through `Data(…)`,
+    `.utf8`, `.data(using:)`, `Data(base64Encoded:)`, or a `let` bound to one. The `let` is found
+    lexically (`LetResolver`), so a parameter that shadows a literal constant is not the constant.
+    A key copied into a buffer is not followed; the proposal's test 18 pins that miss (SwiftITL).
+  - Every name-based decision goes through `SensitiveName`: a CryptoSwift label is a key if it
+    classifies as key material and an IV if it is a security parameter; a digest's input is a
+    password if any identifier in it is password-class, the weak `pin` included.
+  - **One literal, one finding.** `hardcoded-secret` (CWE-798) reads a name; `hardcoded-key`
+    (321, a child of 798) reads a use. A secret-named literal that is used as a key, or that is a
+    PEM private key, is reported by `hardcoded-key` only; with `hardcoded-key` off, or in a test
+    target, `hardcoded-secret` reports it as before.
+  - **Test targets are not reported.** A known-answer test needs a fixed key and IV, and the
+    gate's determinism rules require fixed test inputs; the proposal names `Tests/` as the remedy
+    for a test vector, and a remedy has to clear the finding. The security visitor now receives
+    the file's target type, as the safety visitor already did.
+  - `weakCryptoPolicy: justified` governs `hardcoded-key` and `static-iv` as well, as the proposal
+    specifies (a published format can dictate a key). `weak-kdf` and `weak-key-size` are not under
+    it; `// SECURITY: <reason>` acknowledges any of the four and is recorded.
+  - CWE-321, 326, 329 and 916 move from `gap` to covered; CWE-323 and CWE-1204 are catalogued
+    (titles fetched from MITRE, CWE 4.20) and covered.
+
+  **Portfolio, measured with this branch's gate** on scratch copies, every security rule enabled
+  (131 package roots; 121 package directories whose git remote is somebody else's excluded):
+  `hardcoded-key` 1 — Quorum `quorum-tones/main.swift:279`, a demonstration HMAC share built with
+  `Data(repeating:count:)` in an executable, the site the proposal predicted, real by the rule's
+  definition and fixable by generating the share; `static-iv` 0, `weak-kdf` 0, `weak-key-size` 0.
+  Seven literal keys in test targets (Quorum ×6, swift-oauth ×1) are fixtures and not reported.
+  Every other security finding is identical to `main`'s. The three zero-population rules land at
+  error as tripwires; `hardcoded-key` lands at error because its one finding is real.
+- **A seed is not a secret: `security.weak-prng` (error, CWE-338), `security.seeded-secret`
+  (error, CWE-335/336/337), `security.predictable-token` (error, CWE-341) and
+  `security.uuid-as-secret` (warning, CWE-340).** A value that has to be unpredictable — named for
+  a token, nonce, salt, session, key, challenge, verifier, CSRF value or OTP by `SecurityContext`,
+  or written to a header, cookie or query item — and made by something predictable.
+  - `weak-prng`: `rand`, `random()`, `drand48` and the `*rand48` family, `rand_r`, any
+    GameplayKit source or distribution.
+  - `seeded-secret`: `using: &g` or `g.next()` where `g` is bound in the same function to a
+    generator given `seed:` / `state:` / `seeds:` or an integer literal, or whose type name says
+    it is deterministic (`SplitMix`, `Xoshiro`, `PCG`, `Mock`, `Seeded`…). CWE-336 for a literal
+    seed, 337 for a clock or pid seed, 335 otherwise. A generator the function cannot show — a
+    parameter, a stored property — is counted, not judged. Not reported in `Tests/`, where a seed
+    pins a credential's bytes on purpose (proposal §8).
+  - `predictable-token`: only literals and the clock, `getpid()`, `processIdentifier`,
+    `hashValue`, `Hasher`, `ObjectIdentifier`. The clock counts only once it is converted —
+    interpolated, `Int(…)`, encoded — so `Date()`, `now - start` and `sessionStart = start` are
+    times and durations, not tokens.
+  - `uuid-as-secret`: only literals and `UUID()`, including as a `??` default and a parameter's
+    default value. A warning permanently; `weakCryptoPolicy: justified` clears it with a
+    `// Justification:` on the line above, recorded as an override. Not reported in `Tests/`.
+  - "The value" is read by a new `SecurityValueSite`: through conversions, encoders,
+    interpolation, arithmetic and `map` closures, and through up to three locals, so
+    `let bytes = …; return bytes.hexEncoded()` inside `generateToken()` is a token and
+    `var g = SystemRandomNumberGenerator()` is known to be making one. A source under some other
+    call's label (`issue(name:, now: Date())`) is that call's business.
+  - **`stochastic-no-seed` and `stochastic-global-state` stand down** on
+    `SystemRandomNumberGenerator`, `.random(in:)` and `arc4random*` where the value is in a
+    security context (§3.6): their remedy, an injectable generator, is the defect for a
+    credential. They read the context through the same `SecurityValueSite`, so the two checkers
+    cannot both claim a line. `StochasticDeterminismAuditor` now depends on `SafetyAuditor`.
+    `drand48` keeps both findings.
+  - A `security.randomness-coverage` note on every run: values examined, safe, weak,
+    predictable, UUID, drawn from an unresolvable generator, and credential-producing functions
+    that take their caller's generator.
+  - CWE-336, 337 and 340 added to the MITRE 4.20 snapshot and catalogue (fetched from MITRE);
+    335, 336, 337, 338, 340 and 341 are covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (131 owned package roots, scratch copies,
+  third-party clones excluded): `weak-prng` 0, `seeded-secret` 0, `predictable-token` 0 — so all
+  three land at error. The first run found 21 `seeded-secret` in SwiftIdentity and both OAuth
+  repositories' tests and 4 `predictable-token` on HRVKit/NarbisKit's training-session clock;
+  each was a false positive and the rule was narrowed with a test for it. `uuid-as-secret` 9:
+  the four MCP session ids the proposal predicted (SwiftMCPServer ×3, swiftMoE), the swift-sdk
+  fork's session id ×2 and OAuth `state`, a book exercise's `token`, and sim-tap's XPC request
+  token. Note totals: 59 examined · 35 safe · 10 UUID · 8 unresolved generator · 10 seams. See
+  `ASeedIsNotASecret.md`.
+- **One external-input source model (`ExternalInput`, `QualityGateCore`) and its SwiftSyntax
+  adapter (`ExternalInputFile`, new target `ExternalInputSyntax`).** Five proposals each defined a
+  partial copy of "this value came from outside" (`TheGateIsNotYetAggressive.md` §2.2 item 3).
+  The model is their union — request content (Vapor accessors, `Content` parameters), MCP tool
+  arguments (SwiftMCPServer's `get…` accessors, argument dictionaries), command line (including
+  ArgumentParser properties), environment, file bytes, network bytes (URLSession, NIO
+  `ByteBuffer`), workbook cells (`CellValue`) and untraced decodes — each kind tagged with its
+  reach (network / local / unknown) and the proposals it came from. Propagation is one function
+  wide: binding chains up to 8 hops, member access, subscript, conversions, method calls,
+  interpolation and operators, with a *direct* flag for "the source under a name". A plain
+  parameter is answered as `.parameter` with its index — the extension point for a one-call hop.
+  Not tracked, and tested as not tracked: anything across a function boundary (86 of 120 MCP
+  integer arguments in businessMathMCP leave the function they arrive in), reassignment,
+  properties, a subscript's index, callback parameters. No shipped rule was migrated onto it.
+- **A pattern is a program: `security.regex-catastrophic` (error, CWE-1333),
+  `security.regex-from-input` (warning, CWE-1333) and `security.predicate-injection` (error,
+  CWE-943 and CWE-917).** `RegexStructure` (`QualityGateCore`) reads an ICU pattern far enough to
+  find a group quantified by `+`/`*`/`{n,}` whose body repeats with no mandatory literal
+  (`(a+)+`, `(\w+\s?)*`) or whose alternatives overlap (`(a|ab)+`, `(\w|\d)+`); `\d+(?:\.\d+)*`
+  stays clean. `regex-catastrophic` applies it at `NSRegularExpression(pattern:)`, `Regex(_:)`,
+  `of:` passed with `.regularExpression`, regex literals, and same-file `let` constants (reported
+  at the literal, once). `regex-from-input` reports a pattern — or an `NSPredicate` `MATCHES`
+  operand — that the external-input model traces to a source, naming the kind and the binding
+  path; its `// SECURITY:` acknowledgement must also **name a bound** (cap, limit, maximum,
+  ceiling, deadline, timeout, "at most") per §2.3. `predicate-injection` reports an
+  `NSPredicate`/`NSExpression` format that is interpolated or not a literal, citing 943 for a
+  predicate and 917 for an expression, one rule per §2.1. CWE-1333, 943 and 917 move from `gap`
+  to covered; all three ids are in this repository's `enabledRules`.
+
+  **Portfolio, measured with this branch's gate** (130 package roots, 11,241 Swift files, copied to
+  a scratch directory; third-party clones excluded by remote): `regex-catastrophic` 0;
+  `predicate-injection` 1 — SwiftMCPServer `CrossPlatformExpression.swift:18`,
+  `NSExpression(format: formula)` reached by businessMathMCP tool arguments, a real defect, so
+  the rule lands at error; `regex-from-input` 1 — SwiftExcelFunctions
+  `BuiltinTextConversionFunctions.swift:335`, a `REGEXTEST`/`REGEXEXTRACT`/`REGEXREPLACE`
+  pattern taken from a worksheet cell, real and a warning by design. Sites whose pattern
+  arrives through a parameter of a public helper (Shelfmark's search field, SwiftCLIKit's
+  `.pattern(String)`) are not seen: the model is one function wide. See `APatternIsAProgram.md`.
 - **The server-surface inventory (`ServerSurface`, new target): what a package exposes to a
   network, as data.** Shared infrastructure from `TheGateIsNotYetAggressive.md` §2.2 item 1 —
   three proposals add columns to it and none built it. Per package, syntactically:
@@ -374,6 +507,12 @@
   80 repositories then reports **no new security finding anywhere**.
 
 ### Changed
+
+- **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
+  (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
+  is gone; a parameter is secret-named when it names a strong credential, password or
+  key-material term, or the weak `pin` / `key` the old list carried. Portfolio findings before and
+  after: the same one (SwiftMCPServer `APIKeyAuthenticator.swift:176`, `hashKey`).
 
 - **`security.hardcoded-secret` and `keychain-secrets` now use `SensitiveName`.** Both keep
   the words they shipped with, selected by origin. Widening them to the union vocabulary

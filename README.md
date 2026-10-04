@@ -10,10 +10,13 @@
 
 - **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
 - **Swift 6.2+** — the manifest is `swift-tools-version: 6.2`; earlier toolchains cannot parse it.
-- **Linux: builds, tests and runs on Swift 6.2.** 3,595 of the 3,596 tests pass in the
-  official `swift:6.2` container; the one gap is noted under [Honest limits](#honest-limits). macOS is still the
+- **Linux: builds, tests and runs on Swift 6.2.** The suite runs in the official `swift:6.2`
+  container, and the [Linux job](../../actions/workflows/linux.yml) is the live answer to how
+  much of it passes — this sentence deliberately does not carry a number, because the first
+  draft of it did and the next CI run falsified it within the hour. macOS is still the
   platform every release is cut against, and the one to pick if you have a choice. See
-  [Install on Linux](#linux) for the two build flags it needs and what is known to differ.
+  [Install on Linux](#linux) for the two build flags it needs and
+  [Honest limits](#honest-limits) for what is known to differ.
 
   This entry used to read "macOS only, today — Linux is not supported and not tested", on the
   grounds that `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. That
@@ -444,10 +447,9 @@ Each checker is an independent module — depend on only what you need:
 **One checker is weaker on Linux than on macOS.** `unreachable`'s cross-module pass does not
 yet flag an unreferenced symbol in an *executable* target there: the same symbol is still
 caught by the intra-file rule, so it is not missed, but it arrives as a warning about one file
-rather than as "unreachable from any entry point". Library targets are unaffected. This is the
-single failing test in the Linux suite, and it is listed here rather than left for a reader to
-discover because a checker that is quieter on one platform is exactly the kind of thing this
-tool exists to make visible.
+rather than as "unreachable from any entry point". Library targets are unaffected. It is
+listed here rather than left for a reader to discover, because a checker that is quieter on
+one platform is exactly the kind of thing this tool exists to make visible.
 
 **Linux is newer than the rest of this.** It builds, the suite runs, and the checkers work —
 but macOS has years of use behind it and Linux has days. The Linux job is

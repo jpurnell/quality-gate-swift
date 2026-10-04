@@ -463,6 +463,36 @@
     "posture": "partial"
   },
   {
+    "ruleId": "security.hardcoded-key",
+    "satisfies": [
+      "cwe/CWE-321"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.static-iv",
+    "satisfies": [
+      "cwe/CWE-329",
+      "cwe/CWE-1204",
+      "cwe/CWE-323"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.weak-kdf",
+    "satisfies": [
+      "cwe/CWE-916"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.weak-key-size",
+    "satisfies": [
+      "cwe/CWE-326"
+    ],
+    "posture": "partial"
+  },
+  {
     "ruleId": "security.insecure-transport",
     "satisfies": [
       "cwe/CWE-319"
@@ -573,6 +603,58 @@
     "ruleId": "security.archive-symlink",
     "satisfies": [
       "cwe/CWE-59"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.weak-prng",
+    "satisfies": [
+      "cwe/CWE-338"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.seeded-secret",
+    "satisfies": [
+      "cwe/CWE-335",
+      "cwe/CWE-336",
+      "cwe/CWE-337"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.predictable-token",
+    "satisfies": [
+      "cwe/CWE-341"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.uuid-as-secret",
+    "satisfies": [
+      "cwe/CWE-340"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.regex-catastrophic",
+    "satisfies": [
+      "cwe/CWE-1333"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.regex-from-input",
+    "satisfies": [
+      "cwe/CWE-1333"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "security.predicate-injection",
+    "satisfies": [
+      "cwe/CWE-943",
+      "cwe/CWE-917"
     ],
     "posture": "partial"
   },

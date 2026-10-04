@@ -276,6 +276,25 @@ let package = Package(
             dependencies: ["QualityGateCore"]
         ),
 
+        // MARK: - External-input source model (SwiftSyntax adapter)
+        .target(
+            name: "ExternalInputSyntax",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+            ],
+            resources: [.copy("ExternalInputSyntax.docc")]
+        ),
+        .testTarget(
+            name: "ExternalInputSyntaxTests",
+            dependencies: [
+                "ExternalInputSyntax",
+                "QualityGateCore",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ]
+        ),
+
         // MARK: - Checker Modules
         .target(
             name: "SafetyAuditor",
@@ -283,6 +302,7 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                "ExternalInputSyntax",
                 "ServerSurface",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
@@ -711,6 +731,9 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "IndexStoreInfra",
                 "QualityGateCore",
+                // `SecurityValueSite`: where the security rules own a line, this checker stands
+                // down, and it must read "the value" exactly as they do (ASeedIsNotASecret.md §3.6).
+                "SafetyAuditor",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
