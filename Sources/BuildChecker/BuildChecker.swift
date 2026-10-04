@@ -8,6 +8,12 @@ import QualityGateCore
 /// BuildChecker runs the Swift compiler and parses its output into structured
 /// diagnostics. It detects errors, warnings, and notes from the build process.
 ///
+/// An incremental build prints a diagnostic only for the files it recompiles, so after a
+/// successful build the checker also reads what the compiler *recorded* for every first-party
+/// compile unit — see ``RecordedDiagnostics``. The same tree gives the same warnings on a cold
+/// build directory and a warm one, and when the checker cannot establish that, it reports
+/// `build.warnings-unverified` instead of passing.
+///
 /// ## Usage
 ///
 /// ```swift
@@ -79,8 +85,10 @@ public struct BuildChecker: QualityChecker, Sendable {
 
     /// Run the build check.
     ///
-    /// Executes `swift build` and parses any compiler diagnostics.
-    /// Skips automatically when no Package.swift is present (Xcode-only projects).
+    /// Executes `swift build`, parses any compiler diagnostics it printed, and — when the build
+    /// succeeded — merges in the diagnostics the compiler recorded for the compile units the
+    /// build left alone. Skips automatically when no Package.swift is present (Xcode-only
+    /// projects).
     public func check(configuration: Configuration) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
@@ -104,10 +112,23 @@ public struct BuildChecker: QualityChecker, Sendable {
         }
 
         let args = buildArguments(for: configuration)
+        // Wall-clock, because it is compared with file modification dates: a record written
+        // since this moment was written by this build.
+        let buildStarted = Date()
         let (output, exitCode) = try await runSwiftBuild(arguments: args, in: projectRoot)
 
+        // Success only. After a failure the transcript has the errors, the verdict is already
+        // `.failed`, and not every unit ran — the failing file's record is the previous build's.
+        let recorded: RecordedDiagnostics? = exitCode == 0
+            ? RecordedDiagnostics.collect(
+                projectRoot: projectRoot,
+                buildConfiguration: configuration.buildConfiguration,
+                buildStarted: buildStarted
+            )
+            : nil
+
         let duration = ContinuousClock.now - startTime
-        return Self.createResult(output: output, exitCode: exitCode, duration: duration)
+        return Self.createResult(output: output, exitCode: exitCode, duration: duration, recorded: recorded)
     }
 
     // MARK: - Public API for Testing
@@ -233,25 +254,71 @@ public struct BuildChecker: QualityChecker, Sendable {
         return diagnostics
     }
 
-    /// Create a CheckResult from build output.
+    /// Removes repeated diagnostics, keeping the first of each.
+    ///
+    /// Two diagnostics are the same finding when they agree on path, line, column, severity
+    /// and message — at which point no reader could tell them apart either. It exists for one
+    /// diagnostic reported by two jobs: emit-module and the compile job both report a warning
+    /// in a declaration, so two warnings were counted as four; and a file this run compiled is
+    /// in both the transcript and its record.
+    ///
+    /// - Parameter diagnostics: Diagnostics in reporting order.
+    /// - Returns: The same diagnostics with later repeats removed, order preserved.
+    static func uniqued(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
+        var seen = Set<String>()
+        return diagnostics.filter { diagnostic in
+            let key = [
+                diagnostic.filePath ?? "",
+                diagnostic.lineNumber.map(String.init) ?? "",
+                diagnostic.columnNumber.map(String.init) ?? "",
+                diagnostic.severity.rawValue,
+                diagnostic.message,
+            ].joined(separator: "\u{0}")
+            return seen.insert(key).inserted
+        }
+    }
+
+    /// Create a CheckResult from build output and the compiler's recorded diagnostics.
+    ///
+    /// A successful build's findings are the union of what the build printed and what the
+    /// compiler recorded for every first-party compile unit, each reported once: transcript
+    /// order first, then recorded. When `recorded` says some unit could not be vouched for,
+    /// the result carries `build.warnings-unverified` and is at best a warning; it always
+    /// carries the `build.diagnostic-coverage` note. A failed build ignores `recorded`.
     ///
     /// - Parameters:
     ///   - output: The raw build output
     ///   - exitCode: The exit code from `swift build`
     ///   - duration: How long the build took
+    ///   - recorded: The recorded diagnostics read after a successful build, or `nil` to judge
+    ///     the transcript alone.
     /// - Returns: A CheckResult summarizing the build
     public static func createResult(
         output: String,
         exitCode: Int32,
-        duration: Duration
+        duration: Duration,
+        recorded: RecordedDiagnostics? = nil
     ) -> CheckResult {
-        var diagnostics = parseBuildOutput(output)
+        let succeeded = exitCode == 0
+        var diagnostics = uniqued(parseBuildOutput(output) + (succeeded ? recorded?.diagnostics ?? [] : []))
+        // The checker's own statements about what it read. Kept apart from compiler
+        // diagnostics until after first-party scoping, which is about where a compiler
+        // diagnostic points and has nothing to say about these.
+        var coverage: [Diagnostic] = []
 
         let status: CheckResult.Status
-        if exitCode == 0 {
+        if succeeded {
+            if let recorded {
+                if let unverified = recorded.unverifiedDiagnostic {
+                    coverage.append(unverified)
+                }
+                coverage.append(recorded.coverageDiagnostic)
+            }
             // A compiler warning is a finding, and the verdict says so. As `.passed` it was
-            // counted in the summary and nowhere else: the tick stayed green.
-            status = diagnostics.contains { $0.severity == .warning } ? .warning : .passed
+            // counted in the summary and nowhere else: the tick stayed green. A pass that
+            // cannot be vouched for is not a pass either.
+            let warned = (diagnostics + coverage).contains { $0.severity == .warning }
+            status = warned ? .warning : .passed
         } else {
             let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
             if !hasCompilationErrors && isCodeSigningError(output) {
@@ -290,7 +357,7 @@ public struct BuildChecker: QualityChecker, Sendable {
         return CheckResult(
             checkerId: "build",
             status: status,
-            diagnostics: diagnostics.scopedToFirstParty(),
+            diagnostics: diagnostics.scopedToFirstParty() + coverage,
             duration: duration
         )
     }

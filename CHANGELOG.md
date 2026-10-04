@@ -549,6 +549,12 @@
   Caveats: an incremental build re-emits a warning only when its file recompiles, so the
   status appears on the run that compiles the file. Local path dependencies' warnings
   count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
+  The first caveat no longer holds for `build` — see *Fixed*, "`build` reports compiler
+  warnings in files the build did not recompile". It still holds for `xcode-build`.
+- **A warning printed by two compile jobs is counted once.** Emit-module and the compile job
+  both report a warning in a declaration, so two deprecation warnings were counted as four.
+  `build` findings are now keyed on path, line, column, severity and message. Expect counts to
+  fall where they were doubled.
 - **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
   (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
   is gone; a parameter is secret-named when it names a strong credential, password or
@@ -645,6 +651,26 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`build` reports compiler warnings in files the build did not recompile.** An incremental
+  `swift build` prints a diagnostic only for the files it compiles, so a warm build directory
+  reported zero warnings: the same tree gave `WARNING`, `PASSED`, `WARNING` on three runs,
+  depending on which files each run happened to rebuild, and `--strict --no-cache` exited 0 over
+  warnings that a clean build printed. After a successful build the checker now also reads the
+  serialized diagnostics (`.dia`) the compiler recorded for every first-party compile unit, found
+  through the build's output file maps, and reports the union. A unit counts only if a current
+  map names it and its source exists (a deleted file's record is not replayed), a record older
+  than its source is not trusted, and nothing is read after a failed build. Works on the
+  `swiftbuild` debug and release layouts and the native one.
+  - When a unit's record is missing, unreadable or stale — or no output file map is found at
+    all — the result carries `build.warnings-unverified`, a warning, instead of passing: *"N of
+    M compile units were up to date and their recorded diagnostics could not be read"*.
+  - Every successful result carries the note `build.diagnostic-coverage`: *"9 Swift compile
+    unit(s): 1 compiled by this run, 8 read from recorded diagnostics."*
+  - Not covered: warnings with no source location, C-family compile units (reported only when
+    recompiled, as before), `xcode-build`, and a target removed from `Package.swift` whose build
+    products remain.
+  - The `.dia` reader and the compile-unit index are described under *Added*, with the
+    provenance of the vendored code.
 - **Compiler messages no longer carry half an escape sequence.** The compiler wraps a
   diagnostic's group in an OSC 8 hyperlink, and only colour escapes were stripped, so every
   report format printed
