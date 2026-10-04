@@ -645,6 +645,12 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **Compiler messages no longer carry half an escape sequence.** The compiler wraps a
+  diagnostic's group in an OSC 8 hyperlink, and only colour escapes were stripped, so every
+  report format printed
+  `[#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]`.
+  It now reads `[#NoUsage]`. This changes the message text of `build` and `xcode-build`
+  findings: a baseline or override keyed on the old text needs re-recording.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line

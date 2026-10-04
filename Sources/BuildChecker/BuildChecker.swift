@@ -112,7 +112,8 @@ public struct BuildChecker: QualityChecker, Sendable {
 
     // MARK: - Public API for Testing
 
-    /// Strips ANSI SGR escape sequences (`ESC[…m`) from compiler output.
+    /// Strips terminal escape sequences from compiler output: ANSI SGR colour (`ESC[…m`) and
+    /// OSC 8 hyperlinks (`ESC]8;…;URI` terminated by `ESC\` or BEL).
     ///
     /// `swift build` colourises diagnostics even when its output is a pipe rather than
     /// a terminal, so a real warning arrives as
@@ -121,15 +122,29 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// pattern expects nothing — and they would also travel into any report built from
     /// the message.
     ///
+    /// The compiler also wraps a diagnostic's group in a hyperlink to its documentation:
+    /// `[#ESC]8;;https://docs.swift.org/…ESC\NoUsageESC]8;;ESC\]`. Stripping colour alone
+    /// left the link's payload behind, so every report printed
+    /// `[#]8;;https://docs.swift.org/…\NoUsage]8;;\]`. A message is text: with both removed
+    /// it reads `[#NoUsage]`, which is also the form a recorded diagnostic is rendered in —
+    /// the two must compare equal for a warning that is both printed and recorded to be
+    /// reported once.
+    ///
     /// - Parameter text: Raw compiler output, possibly colourised.
-    /// - Returns: The same text with SGR escape sequences removed.
+    /// - Returns: The same text with SGR and OSC 8 escape sequences removed.
     private static func strippingANSIEscapes(_ text: String) -> String {
         guard text.contains("\u{1B}") else { return text }
-        return text.replacingOccurrences(
-            of: "\u{1B}\\[[0-9;]*m",
-            with: "",
-            options: .regularExpression
-        )
+        return text
+            .replacingOccurrences(
+                of: "\u{1B}\\]8;[^\u{1B}\u{07}]*(?:\u{1B}\\\\|\u{07})",
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: "\u{1B}\\[[0-9;]*m",
+                with: "",
+                options: .regularExpression
+            )
     }
 
     /// The last `lines` lines of `text`, for reporting a failure no pattern matched.
@@ -148,8 +163,8 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// Parse Swift compiler output into diagnostics.
     ///
     /// This method is exposed for testing purposes. It extracts file locations,
-    /// severity levels, and messages from compiler output, after removing any ANSI
-    /// colour escapes the compiler emitted around the severity token.
+    /// severity levels, and messages from compiler output, after removing the ANSI colour
+    /// and hyperlink escapes the compiler emits around the severity and the diagnostic group.
     ///
     /// - Parameter rawOutput: The raw output from `swift build`, as emitted.
     /// - Returns: An array of diagnostics parsed from the output

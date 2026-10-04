@@ -444,4 +444,34 @@ struct BuildCheckerTests {
         #expect(diagnostic.message.contains("cannot find") ||
                 diagnostic.message.contains("NetworkManager"))
     }
+
+    // MARK: - Hyperlink Escapes
+
+    @Test("An OSC 8 hyperlink around the diagnostic group is removed from the message")
+    func stripsHyperlinkEscapes() throws {
+        // Exactly what Swift 6.4 prints through a pipe: SGR colour around the severity, and the
+        // diagnostic group wrapped in an OSC 8 hyperlink to its documentation.
+        let esc = "\u{1B}"
+        let output = "/path/to/Warns.swift:6:9: \(esc)[1;33mwarning: \(esc)[1;39mresult of call to 'loud()' is unused\(esc)[0;0m "
+            + "[#\(esc)]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\(esc)\\NoUsage\(esc)]8;;\(esc)\\]"
+
+        let diagnostic = try #require(BuildChecker.parseBuildOutput(output).first)
+
+        #expect(diagnostic.message == "result of call to 'loud()' is unused [#NoUsage]")
+        #expect(!diagnostic.message.contains(esc))
+        #expect(!diagnostic.message.contains("]8;;"))
+        #expect(!diagnostic.message.contains("https://"))
+    }
+
+    @Test("A BEL-terminated OSC 8 hyperlink is removed too")
+    func stripsBellTerminatedHyperlinkEscapes() throws {
+        let esc = "\u{1B}"
+        let bel = "\u{07}"
+        let output = "/path/to/Warns.swift:6:9: warning: result of call to 'loud()' is unused "
+            + "[#\(esc)]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\(bel)NoUsage\(esc)]8;;\(bel)]"
+
+        let diagnostic = try #require(BuildChecker.parseBuildOutput(output).first)
+
+        #expect(diagnostic.message == "result of call to 'loud()' is unused [#NoUsage]")
+    }
 }
