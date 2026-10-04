@@ -4,6 +4,431 @@
 
 ### Added
 
+- **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
+  `excludedCheckers:`. Before this, the only way to opt a checker in from config was
+  `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
+  (`doc-run`, `doc-claims`, `doc-comment-code`, `doc-generated`). The new key is added to
+  `enabledCheckers` when that is set. It changes neither `--check all` nor an explicit
+  `--check`, and an exclusion still wins over it. It is a new schema key, so an older binary
+  rejects a file that uses it: ratchet `minimumGateVersion` when you adopt it.
+- **`xcode-build` builds plain Swift packages.** With no workspace or project in the root but
+  a `Package.swift`, it runs `xcodebuild` from the package directory with no container
+  arguments. A workspace or project still wins when present, so nothing that built before
+  builds something different now. Prompted by BioFeedbackKit-HealthKit, whose watchOS-only
+  HealthKit adapter the macOS `build` checker has never compiled.
+- **What a cipher is keyed with: `security.hardcoded-key` (CWE-321), `security.static-iv`
+  (CWE-329, 1204, 323), `security.weak-kdf` (CWE-916) and `security.weak-key-size` (CWE-326), all
+  error.** The rest of `ACipherIsItsArguments.md`; `broken-cipher` and `ecb-mode` read the
+  algorithm and mode, these read the key, the IV, the round count and the key length.
+  - `hardcoded-key`: literal-derived bytes given to `SymmetricKey(data:)`, the key argument of
+    `CCCrypt` / `CCCryptorCreate` / `CCHmac`, a `P256` / `P384` / `P521` / `Curve25519` / `_RSA`
+    `PrivateKey(raw|pem|derRepresentation:)`, or a CryptoSwift `key:`; and a string literal holding
+    a PEM private key *with a body* — a header alone is what a PEM parser matches against.
+  - `static-iv`: a `nil` or literal IV to `CCCrypt` / `CCCryptorCreate` when encrypting outside ECB
+    (CommonCrypto turns `nil` into zeros) and `AES._CBC.encrypt` with a literal IV (329); a literal
+    CryptoSwift `iv:` in a non-CBC mode (1204); a literal `AES.GCM` / `ChaChaPoly` nonce, or one
+    held in a `static let` or file-scope `let` and passed to `seal` (323) — random once is still
+    once. A literal `kCCDecrypt`, `_CBC.decrypt` and a nonce rebuilding a `SealedBox` are the
+    decrypt side and are not reported.
+  - `weak-kdf`: `CCKeyDerivationPBKDF` with a literal round count below 210,000 (swift-crypto's
+    floor; OWASP's higher figure was not fetched); `unsafeUncheckedRounds:` — a warning, an error
+    below the floor; and `SHA256` / `384` / `512.hash` or `CC_SHA*` of a password-named value. A
+    digest of a token, key or secret is not reported: a random token has no dictionary.
+  - `weak-key-size`: `kSecAttrKeySizeInBits` below 2048 in a dictionary literal that does not ask
+    for an EC key; `_RSA` keys below 2048 bits; `SymmetricKey` below 128 bits.
+  - "Literal-derived" is syntactic and one file deep: a literal, the same through `Data(…)`,
+    `.utf8`, `.data(using:)`, `Data(base64Encoded:)`, or a `let` bound to one. The `let` is found
+    lexically (`LetResolver`), so a parameter that shadows a literal constant is not the constant.
+    A key copied into a buffer is not followed; the proposal's test 18 pins that miss (SwiftITL).
+  - Every name-based decision goes through `SensitiveName`: a CryptoSwift label is a key if it
+    classifies as key material and an IV if it is a security parameter; a digest's input is a
+    password if any identifier in it is password-class, the weak `pin` included.
+  - **One literal, one finding.** `hardcoded-secret` (CWE-798) reads a name; `hardcoded-key`
+    (321, a child of 798) reads a use. A secret-named literal that is used as a key, or that is a
+    PEM private key, is reported by `hardcoded-key` only; with `hardcoded-key` off, or in a test
+    target, `hardcoded-secret` reports it as before.
+  - **Test targets are not reported.** A known-answer test needs a fixed key and IV, and the
+    gate's determinism rules require fixed test inputs; the proposal names `Tests/` as the remedy
+    for a test vector, and a remedy has to clear the finding. The security visitor now receives
+    the file's target type, as the safety visitor already did.
+  - `weakCryptoPolicy: justified` governs `hardcoded-key` and `static-iv` as well, as the proposal
+    specifies (a published format can dictate a key). `weak-kdf` and `weak-key-size` are not under
+    it; `// SECURITY: <reason>` acknowledges any of the four and is recorded.
+  - CWE-321, 326, 329 and 916 move from `gap` to covered; CWE-323 and CWE-1204 are catalogued
+    (titles fetched from MITRE, CWE 4.20) and covered.
+
+  **Portfolio, measured with this branch's gate** on scratch copies, every security rule enabled
+  (131 package roots; 121 package directories whose git remote is somebody else's excluded):
+  `hardcoded-key` 1 — Quorum `quorum-tones/main.swift:279`, a demonstration HMAC share built with
+  `Data(repeating:count:)` in an executable, the site the proposal predicted, real by the rule's
+  definition and fixable by generating the share; `static-iv` 0, `weak-kdf` 0, `weak-key-size` 0.
+  Seven literal keys in test targets (Quorum ×6, swift-oauth ×1) are fixtures and not reported.
+  Every other security finding is identical to `main`'s. The three zero-population rules land at
+  error as tripwires; `hardcoded-key` lands at error because its one finding is real.
+- **A seed is not a secret: `security.weak-prng` (error, CWE-338), `security.seeded-secret`
+  (error, CWE-335/336/337), `security.predictable-token` (error, CWE-341) and
+  `security.uuid-as-secret` (warning, CWE-340).** A value that has to be unpredictable — named for
+  a token, nonce, salt, session, key, challenge, verifier, CSRF value or OTP by `SecurityContext`,
+  or written to a header, cookie or query item — and made by something predictable.
+  - `weak-prng`: `rand`, `random()`, `drand48` and the `*rand48` family, `rand_r`, any
+    GameplayKit source or distribution.
+  - `seeded-secret`: `using: &g` or `g.next()` where `g` is bound in the same function to a
+    generator given `seed:` / `state:` / `seeds:` or an integer literal, or whose type name says
+    it is deterministic (`SplitMix`, `Xoshiro`, `PCG`, `Mock`, `Seeded`…). CWE-336 for a literal
+    seed, 337 for a clock or pid seed, 335 otherwise. A generator the function cannot show — a
+    parameter, a stored property — is counted, not judged. Not reported in `Tests/`, where a seed
+    pins a credential's bytes on purpose (proposal §8).
+  - `predictable-token`: only literals and the clock, `getpid()`, `processIdentifier`,
+    `hashValue`, `Hasher`, `ObjectIdentifier`. The clock counts only once it is converted —
+    interpolated, `Int(…)`, encoded — so `Date()`, `now - start` and `sessionStart = start` are
+    times and durations, not tokens.
+  - `uuid-as-secret`: only literals and `UUID()`, including as a `??` default and a parameter's
+    default value. A warning permanently; `weakCryptoPolicy: justified` clears it with a
+    `// Justification:` on the line above, recorded as an override. Not reported in `Tests/`.
+  - "The value" is read by a new `SecurityValueSite`: through conversions, encoders,
+    interpolation, arithmetic and `map` closures, and through up to three locals, so
+    `let bytes = …; return bytes.hexEncoded()` inside `generateToken()` is a token and
+    `var g = SystemRandomNumberGenerator()` is known to be making one. A source under some other
+    call's label (`issue(name:, now: Date())`) is that call's business.
+  - **`stochastic-no-seed` and `stochastic-global-state` stand down** on
+    `SystemRandomNumberGenerator`, `.random(in:)` and `arc4random*` where the value is in a
+    security context (§3.6): their remedy, an injectable generator, is the defect for a
+    credential. They read the context through the same `SecurityValueSite`, so the two checkers
+    cannot both claim a line. `StochasticDeterminismAuditor` now depends on `SafetyAuditor`.
+    `drand48` keeps both findings.
+  - A `security.randomness-coverage` note on every run: values examined, safe, weak,
+    predictable, UUID, drawn from an unresolvable generator, and credential-producing functions
+    that take their caller's generator.
+  - CWE-336, 337 and 340 added to the MITRE 4.20 snapshot and catalogue (fetched from MITRE);
+    335, 336, 337, 338, 340 and 341 are covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (131 owned package roots, scratch copies,
+  third-party clones excluded): `weak-prng` 0, `seeded-secret` 0, `predictable-token` 0 — so all
+  three land at error. The first run found 21 `seeded-secret` in SwiftIdentity and both OAuth
+  repositories' tests and 4 `predictable-token` on HRVKit/NarbisKit's training-session clock;
+  each was a false positive and the rule was narrowed with a test for it. `uuid-as-secret` 9:
+  the four MCP session ids the proposal predicted (SwiftMCPServer ×3, swiftMoE), the swift-sdk
+  fork's session id ×2 and OAuth `state`, a book exercise's `token`, and sim-tap's XPC request
+  token. Note totals: 59 examined · 35 safe · 10 UUID · 8 unresolved generator · 10 seams. See
+  `ASeedIsNotASecret.md`.
+- **One external-input source model (`ExternalInput`, `QualityGateCore`) and its SwiftSyntax
+  adapter (`ExternalInputFile`, new target `ExternalInputSyntax`).** Five proposals each defined a
+  partial copy of "this value came from outside" (`TheGateIsNotYetAggressive.md` §2.2 item 3).
+  The model is their union — request content (Vapor accessors, `Content` parameters), MCP tool
+  arguments (SwiftMCPServer's `get…` accessors, argument dictionaries), command line (including
+  ArgumentParser properties), environment, file bytes, network bytes (URLSession, NIO
+  `ByteBuffer`), workbook cells (`CellValue`) and untraced decodes — each kind tagged with its
+  reach (network / local / unknown) and the proposals it came from. Propagation is one function
+  wide: binding chains up to 8 hops, member access, subscript, conversions, method calls,
+  interpolation and operators, with a *direct* flag for "the source under a name". A plain
+  parameter is answered as `.parameter` with its index — the extension point for a one-call hop.
+  Not tracked, and tested as not tracked: anything across a function boundary (86 of 120 MCP
+  integer arguments in businessMathMCP leave the function they arrive in), reassignment,
+  properties, a subscript's index, callback parameters. No shipped rule was migrated onto it.
+- **A pattern is a program: `security.regex-catastrophic` (error, CWE-1333),
+  `security.regex-from-input` (warning, CWE-1333) and `security.predicate-injection` (error,
+  CWE-943 and CWE-917).** `RegexStructure` (`QualityGateCore`) reads an ICU pattern far enough to
+  find a group quantified by `+`/`*`/`{n,}` whose body repeats with no mandatory literal
+  (`(a+)+`, `(\w+\s?)*`) or whose alternatives overlap (`(a|ab)+`, `(\w|\d)+`); `\d+(?:\.\d+)*`
+  stays clean. `regex-catastrophic` applies it at `NSRegularExpression(pattern:)`, `Regex(_:)`,
+  `of:` passed with `.regularExpression`, regex literals, and same-file `let` constants (reported
+  at the literal, once). `regex-from-input` reports a pattern — or an `NSPredicate` `MATCHES`
+  operand — that the external-input model traces to a source, naming the kind and the binding
+  path; its `// SECURITY:` acknowledgement must also **name a bound** (cap, limit, maximum,
+  ceiling, deadline, timeout, "at most") per §2.3. `predicate-injection` reports an
+  `NSPredicate`/`NSExpression` format that is interpolated or not a literal, citing 943 for a
+  predicate and 917 for an expression, one rule per §2.1. CWE-1333, 943 and 917 move from `gap`
+  to covered; all three ids are in this repository's `enabledRules`.
+
+  **Portfolio, measured with this branch's gate** (130 package roots, 11,241 Swift files, copied to
+  a scratch directory; third-party clones excluded by remote): `regex-catastrophic` 0;
+  `predicate-injection` 1 — SwiftMCPServer `CrossPlatformExpression.swift:18`,
+  `NSExpression(format: formula)` reached by businessMathMCP tool arguments, a real defect, so
+  the rule lands at error; `regex-from-input` 1 — SwiftExcelFunctions
+  `BuiltinTextConversionFunctions.swift:335`, a `REGEXTEST`/`REGEXEXTRACT`/`REGEXREPLACE`
+  pattern taken from a worksheet cell, real and a warning by design. Sites whose pattern
+  arrives through a parameter of a public helper (Shelfmark's search field, SwiftCLIKit's
+  `.pattern(String)`) are not seen: the model is one function wide. See `APatternIsAProgram.md`.
+- **The server-surface inventory (`ServerSurface`, new target): what a package exposes to a
+  network, as data.** Shared infrastructure from `TheGateIsNotYetAggressive.md` §2.2 item 1 —
+  three proposals add columns to it and none built it. Per package, syntactically:
+  - **Listeners**, with where they bind: NIO `bind(host:…)` (a host expression resolved to the
+    owning type's parameter or property default — `SSHServer.init(host: String = "0.0.0.0")`),
+    `NWListener` (its `requiredLocalEndpoint`, or every interface when there is none), Vapor
+    `Application.make` (127.0.0.1 unless a `hostname` is assigned), `MCPServer.builder()` and
+    library listeners (`HTTPServerTransport`, `SSHServer`) constructed outside their package;
+    BSD sockets by hand — a `sockaddr_in`/`sockaddr_in6` whose address is `INADDR_ANY` or
+    `in6addr_any`, or any address in a file that calls `listen(2)`.
+  - **Handlers**: Vapor routes with method, path and group lineage — guards, authenticators,
+    other middleware, `app.middleware.use`, `req.auth.require` — through `grouped`, `group`
+    closures and `RouteCollection`s registered in other files (the weaker of two registrations;
+    *unknown* when never registered); SwiftMCPServer tools, providers and `MCPHTTPRoute`s with
+    the builder's `.authenticator`/`.oauthServer`; SDK `withMethodHandler`; hand-written
+    `switch (method, path)` cases in NIOHTTP1 files; `channelRead` on handlers a bootstrap
+    installs; WebSocket upgrades.
+  - **Settings**: every host literal chosen in source, and every authentication switch — an
+    authenticator defaulting to `nil`/`.none`, a flag defaulting to `false`, a flag read from the
+    environment, an authenticator passed as `nil` to a listener type.
+  - Columns for the later proposals (`bodyCeiling`, `admission`, `credential`, `cors`,
+    `responseHeaders`, `errorDetail`) are named keys set by site, so adding one reshapes nothing.
+  - Not seen, and said so in the DocC: route composition across helper functions, dynamic
+    registration, `if request.path ==` dispatch (pinned as a miss), anything decided at deploy.
+  - Built from per-file facts collected in the safety walk's existing parse — one more visitor,
+    no second parse — and independent of file order.
+
+  Measured on 109 owned packages: 21 have a listener or a handler — 23 listeners (NIO 7,
+  `MCPServer.builder` 9, Vapor 3, `NWListener` 2, `HTTPServerTransport` 1, BSD sockets 1) and 387
+  handlers. LedgeOS 6 routes, StockOpt 9, geo-audit 31 (10 behind a guard or `require`, 16 behind
+  only an authenticator, 5 behind middleware the inventory cannot classify); 267 MCP tool rows
+  across the builder-based servers, one (VaultMCP) with its authenticator in source;
+  SwiftMCPServer's 11 dispatch cases.
+- **`security.bind-all-interfaces` (CWE-1327) and `security.listener-auth-optional`
+  (CWE-1188): the inventory's first consumers.** `AHandlerThatAnyoneCanCall.md` §3.1,
+  reconciled with `AHandlerSaysWhoMayCallIt.md` per §2.1 of the assessment: one bind rule, the
+  authenticator *parameter* rule, and the fail-open *function* rule reduced to the one case only
+  it could see — a flag read from the environment.
+  - `bind-all-interfaces` is an **error** for `"0.0.0.0"`, `"::"`, `"[::]"` or `""` at a `bind`
+    or a `requiredLocalEndpoint = .hostPort(…)`, and for `INADDR_ANY`/`in6addr_any` in a socket
+    address, where no caller can narrow it; a **warning** for
+    the same literal as a `host`-named default (`@Option` included), a `hostname` assignment, or a
+    `host:`/`bindAddress:` argument that reaches a listener, and for an `NWListener` with no
+    endpoint. Compared, listed, subscripted and commented literals choose nothing.
+  - `listener-auth-optional` is a **warning**, target-wide: an authenticator, `authMode` or
+    `authRequired`-style flag defaulting to off, or read from the environment, in a target that
+    opens a listener; an authenticator passed as `nil` to a listener type anywhere. Names are
+    exact — `author`, `authorization` (a client's credential) and an empty `apiKeys` list, which
+    rejects everyone, are not authentication left off.
+  - Both report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is validated
+    and recorded. A `security.server-surface-coverage` note states the inventory every run,
+    zeros included. A listener inherited from SwiftMCPServer is the library's finding, not each
+    consumer's. Test targets are skipped.
+  - CWE-1327 and CWE-1188 move from `gap` to covered; CWE-306 stays a gap until a handler rule
+    reaches it. First rules with an `owaspAPI` column that plainly applies (API8, API2); no Top 10
+    2021 column, because MITRE's view lists neither CWE.
+
+  **Portfolio, measured with this branch's gate** (109 owned packages, scratch copies): 14
+  findings, no false positives. `bind-all-interfaces` 7 — SwiftMCPServer
+  `HTTPServerTransport.swift:215` (error, real), swiftMoE `HTTPServer.swift:61` (error, real: a
+  hand-written BSD-socket server on `INADDR_ANY` whose log line says `localhost` — no `grep` for
+  `ServerBootstrap(` or `"0.0.0.0"` finds it, and the first measurement of this rule did not
+  either), SwiftCLIKit `SSHServer.swift:59` (real),
+  IconquerServer, IconquerTournament ×2 and VaultMCP `WebOptions.swift:161` (intended, to be
+  acknowledged). `listener-auth-optional` 7 — SwiftMCPServer `HTTPServerTransport.swift:108`,
+  `:109`, SwiftCLIKit `SSHConfiguration.swift:46`, IconquerMCP `MatchHost.swift:142` (real); the
+  `MCP_AUTH_REQUIRED` switch at SwiftMCPServer `MCPServer.swift:585`,
+  `APIKeyAuthenticator.swift:212` and VaultMCP `Main.swift:61` (intended, to be acknowledged).
+  `server-surface.unprotected-handler` is not implemented: its population is in the hundreds.
+
+- **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
+  and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
+  names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose
+  name is fine, and produced no finding.
+  - `broken-cipher` reports the constant wherever it appears — `kCCAlgorithmDES`, `3DES`,
+    `RC4`, `RC2`, `CAST`, `Blowfish`, `kCCModeRC4` — and CryptoSwift `Blowfish(key:…)` /
+    `Rabbit(key:…)`. A qualified reference is one finding, not two.
+  - `ecb-mode` reports `kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`, and `.ECB` /
+    `.ecb` passed as `blockMode:` (only there: `.ecb` is an ordinary case name elsewhere).
+  - Neither reports inside a CommonCrypto call whose operation is literally `kCCDecrypt`: the
+    algorithm and mode on the decrypt side were chosen by whoever encrypted. This is what keeps
+    SwiftITL's AES-128-ECB `.itl` reader quiet; the proposal excludes decrypt from `static-iv`
+    for the same reason.
+  - `homemade-digest` reports a function whose name claims a digest (`hash`, `digest`, `hmac`,
+    `mac`, `checksum`, `sha…`, as whole words) and which takes a secret-named parameter, when its
+    body names no primitive — read from identifier tokens, so a comment that says "SHA-256" or
+    "bcrypt" calls nothing. Delegating to another digest-named function clears it; so does a
+    *weak* primitive, which is `weak-crypto`'s finding at the call — one defect, one finding.
+  - `weakCryptoPolicy: justified` now governs the two cipher rules as well as `weak-crypto`. A
+    `// Justification:` on the line above must pass `JustificationValidator` — the bar
+    `// SECURITY:` is held to — and is recorded as an override. Before, `weak-crypto` accepted
+    any line containing the marker and recorded nothing.
+  - CWE-327 and CWE-1240 move from `gap` to covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (94 owned packages, third-party clones
+  excluded): `broken-cipher` 0, `ecb-mode` 0, `homemade-digest` 1 — SwiftMCPServer's
+  `APIKeyAuthenticator.hashKey`, an XOR fold documented as SHA-256 on the API-key path, a real
+  defect. The one `weak-crypto` justification in the portfolio (SwiftExcelFunctions,
+  ECMA-376) passes the stronger bar. See `ACipherIsItsArguments.md`.
+- **`security.xml-external-entities` (error, CWE-611) and `security.xml-entity-expansion`
+  (CWE-776): an XML entity is a file read.** On macOS, `XMLDocument(data:)` with no options loads
+  every external entity that does not need the network, so a document that declares
+  `<!ENTITY x SYSTEM "file:///…">` gets that file's bytes as its text. No `XMLNode` option stops
+  internal expansion: 512 bytes of nested entities expanded to 10⁹ bytes in 1.6 s. `XMLParser`
+  refused both in every configuration probed. The portfolio is safe only because it happened to
+  use `XMLParser`.
+
+  `xml-external-entities` reports at **error**:
+  - `shouldResolveExternalEntities` set to anything but the literal `false`.
+  - `externalEntityResolvingPolicy` set to anything but `.never`. This includes `.noNetwork`,
+    because a local file is what XXE reads.
+  - An `XMLDocument(data:|contentsOf:|xmlString:)` whose `options:` is absent, or is a literal
+    without `.nodeLoadExternalEntitiesNever`.
+  - `.nodeLoadExternalEntitiesAlways` / `…SameOriginOnly` anywhere. Inside a parse call's options
+    this is still one diagnostic for the call.
+  - The libxml2 flags `XML_PARSE_NOENT`, `DTDLOAD`, `DTDATTR`, `DTDVALID`, `XINCLUDE`, and
+    `xmlSubstituteEntitiesDefault(<non-zero>)`.
+
+  It reports at **warning**:
+  - Options the rule cannot see.
+  - A `parser(_:resolveExternalEntityName:systemID:)` delegate whose body is not `nil`.
+
+  `xml-entity-expansion` reports `XML_PARSE_HUGE` at **error**. It reports an `XMLDocument` parse
+  with no `"<!DOCTYPE"`/`"<!ENTITY"` refusal before it (a `guard`, or an `if` that exits) at
+  **warning**, and that half stays a warning: no option clears it, and the rule cannot see trust.
+
+  Both rules report through `report(_:)`, so a `// SECURITY:` reason is validated and recorded as
+  an override like every other security rule's. They are on by default, like every security rule
+  when `security.enabledRules` is empty, and are added to this repository's own allow-list. A new
+  `security.xml-coverage` note states what was examined:
+  *examined N XML parse sites · X XMLParser · D XMLDocument · L libxml2 · K configured to load
+  external entities · J acknowledged*. The CWE catalogue's 611 and 776 rows move from `gap` to
+  enforced.
+
+  **Error on arrival, measured.** The release build ran over copies of 107 of the author's own
+  package roots, with forks of third-party code and book samples excluded by origin. It examined
+  7,864 files and found **0** findings for either rule. The coverage notes add up to 9 XML
+  parse sites, all `XMLParser`: SwiftXLSX 6, SwiftExcelFunctions 1, geo-audit 1, Shelfmark 1.
+  There were 0 `XMLDocument` and 0 libxml2 sites, which matches the proposal's hand count
+  exactly. A tripwire that finds nothing has nothing to stage. See `AnEntityIsAFileRead.md`.
+- **Trust has more than three off switches: `security.tls-disabled` widened, four rules beside
+  it.** The rule matched `disableEvaluation`, `allowsExpiredCertificates` and
+  `allowsExpiredRoots`. None of them appears in any owned repository, and none is URLSession,
+  Network.framework, SwiftNIO or AsyncHTTPClient API. The one way certificate validation *is*
+  switched off in owned code is NIOSSL's `tlsConfig.certificateVerification = .none`, behind a
+  "trust self-signed certificates" flag in three SwiftMCPClient transports. The rule had never
+  heard of it.
+
+  | Rule | CWE | Severity | Detects |
+  |---|---|---|---|
+  | `security.tls-disabled` (widened) | 295, 298 | error | a client's `certificateVerification` set or passed as `.none` / `.none(…)`, including either arm of a ternary and a typed `CertificateVerification` local; `SecTrustSetExceptions`; Alamofire's `DisabledTrustEvaluator` |
+  | `security.tls-no-hostname` | 297 | error | `.noHostnameVerification` on a *client* configuration; `validateHost: false` on an evaluator; `SecPolicyCreateSSL(true, nil)`; a basic X.509 policy given to `SecTrustSetPolicies` |
+  | `security.trust-handler-accepts-all` | 295 | error | A `urlSession`/`webView` handler with a `URLAuthenticationChallenge` parameter that answers `.useCredential` with `URLCredential(trust:)` and uses the result of no `SecTrustEvaluate*` / `evaluate` call (`_ =`, `try?` and bare statements count as unused); a `sec_protocol_options_set_verify_block` closure that only ever completes `true` |
+  | `security.trust-anchors-widened` | 295 | warning | `SecTrustSetAnchorCertificatesOnly(_, false)`. A warning permanently: it undoes pinning, which is a defect only when pinning was the point |
+  | `security.ats-disabled` | 319 | error / warning | `Info.plist` App Transport Security exceptions: `NSAllowsArbitraryLoads` (error; a warning when a key that makes the system ignore it is present), web-content and media arbitrary loads, an exception domain allowing cleartext HTTP, an exception domain's minimum TLS below 1.2 (warnings) |
+
+  The Swift rules report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is
+  validated and recorded like every other security acknowledgement. A property list keeps no
+  comments, so `ats-disabled` is acknowledged per domain with the new
+  `security.atsAllowedInsecureDomains`, recorded as an override. There is deliberately no
+  acknowledgement for the global key.
+
+  `ats-disabled` is CWE-319, not 295. ATS decides whether cleartext and weak TLS are
+  *permitted*, and switching it off leaves certificate validation on an `https` request intact.
+  The plist pass reads every `Info.plist` and `*-Info.plist` that `SourceWalker` reaches. The
+  walk now returns them as `propertyLists`, so `Pods/`, `.build/`, git-ignored trees and nested
+  packages are skipped for the same reasons a `.swift` file there is. The safety checker's
+  cache fingerprint includes them through
+  `SourceCacheInputs.wholeSourceAndPropertyLists`; leaving them out would let an edited
+  `Info.plist` replay a stale pass.
+
+  **Two departures from the proposal, both from reading the libraries rather than recalling
+  them.**
+  - A *server* configuration is exempt from both mode findings. On a server
+    `certificateVerification` governs client certificates. `.none` is NIOSSL's own server
+    default, and VaultMCP and SwiftMCPServer both build one. `.noHostnameVerification` is what
+    NIOSSL's `makeServerConfigurationWithMTLS` sets. A receiver initialised from
+    `makeServerConfiguration…` / `forServer…`, or a call so named, is a server.
+  - `performDefaultValidation: false` is not a hostname finding. Alamofire documents
+    `validateHost` as validating the host "even if `performDefaultValidation` is `false`", and
+    its evaluators do exactly that. Run against Alamofire's own tests, the label produced 27
+    findings, and in none of them was the host left unchecked.
+
+  CWE-297 moves from `gap` to `enforced` in the CWE catalogue. 295 and 319 were already
+  covered. Titles were checked against the committed MITRE 4.20 snapshot. Proposal:
+  `TrustHasMoreThanThreeOffSwitches.md`.
+
+  **Measured before choosing severities.** The branch's safety checker ran read-only
+  (`--foreign`, every rule on) over every directory under the development root with a
+  `Package.swift` or `.xcodeproj`. Archived projects, playgrounds, `.build` and worktrees were
+  excluded. That was 253 owned or unremoted roots and 204 third-party clones.
+  - **Owned: 8 findings, all accurate.**
+    - `tls-disabled` ×3 in SwiftMCPClient (`HTTPSSETransport.swift:394`,
+      `StreamableHTTPTransport.swift:685`, `WebSocketTransport.swift:66`). These are the
+      proposal's three: a "trust self-signed certificates" flag that verifies nothing. They are
+      real defects with a one-line fix (`additionalTrustRoots`, keep `.fullVerification`).
+    - `ats-disabled` ×5. Four copies of the *iOS Programming* 6th edition Photorama solution, and
+      an unremoted copy of KexpTVStream. In each `NSAllowsArbitraryLoads` really is `true`.
+      Neither tree adopts the gate.
+    - `tls-no-hostname`, `trust-handler-accepts-all` and `trust-anchors-widened`: 0. VaultMCP,
+      SwiftMCPServer, swift-oauth, geo-audit and GeoSEOMCP build NIOSSL *server* configurations
+      with the defaults and implement no URLSession trust delegate.
+  - **Third-party, as false-positive evidence.**
+    - `ats-disabled` ×6, all accurate: KexpTVStream, NetNewsWire for Mac and iOS, OpenEmu,
+      seeso-appletv, and TCA's case studies.
+    - `tls-disabled` ×3, Alamofire's tests of `DisabledTrustEvaluator`.
+    - `tls-no-hostname` ×17, all accurate. One is Alamofire's own `SecPolicyCreateSSL(true,
+      nil)`, the policy it uses when told not to validate the host. Sixteen are its tests'
+      `validateHost: false`.
+    - The 27 `performDefaultValidation: false` findings described above were wrong and are gone.
+
+  Every finding is accurate, so the destination severities apply on arrival: error, with
+  `trust-anchors-widened` a warning. A rule called `tls-disabled` that stayed silent about
+  disabled TLS should not then spend a release being polite about it.
+  SwiftMCPClient's three are the expected red.
+- **`security.archive-path-escape` (error, CWE-22) and `security.archive-symlink` (error,
+  CWE-59): zip-slip, as a tripwire.** An archive entry's name is a claim its author made.
+  `archive-path-escape` reports that name joined onto a destination (`appendingPathComponent`,
+  `appending(path:)`, `appending(component:)`, `URL(fileURLWithPath:relativeTo:)`, or
+  `NSString.appendingPathComponent`) inside a loop over an archive, and then written in the
+  same loop (`write(to:)`, `createFile`, `createDirectory`, `FileHandle(forWriting…)`,
+  `copyItem`, `moveItem`, `createSymbolicLink`, `extract`, or `fopen` with a write mode).
+  A loop is "over an archive" in one of two ways. A `for` loop or `forEach`/`map` closure counts
+  when the identifiers of its sequence (and of that sequence's declaration) contain an archive
+  word: `zip`, `archive`, `unarchive`, `unzip`, `tar`, `tarball`, `minizip` or `cpio`, as whole
+  camel-case words, so `target` is not `tar`. A `while`/`repeat` loop counts when it calls a
+  minizip or libarchive cursor. It also reports `unzip -:` and `tar -P` / `--absolute-paths` /
+  `--insecure` / `--absolute-names`. Each is correlated to its executable by variable, so
+  unzip's `-P` (a password) is not tar's.
+
+  The rule is cleared by a check before the write on the joined path. `isContained(in:)` or a
+  function in `security.containmentCheckers` clears it on its own, because both standardise by
+  contract. `pathComponents.starts(with:)` or a separated prefix clears it only on a path
+  that was standardised, since `a/b/../../etc` has components that start with `a`. A finding
+  says which half is missing. Where `path-traversal` would report the same join, only the archive
+  rule reports.
+
+  `archive-symlink` reports `createSymbolicLink` in an archive loop whose target the entry chose,
+  with no such check on the target. It also reports `symlinksValidWithin: .rootFS` and
+  `allowUncontainedSymlinks: true`, which switch ZIPFoundation's own check off.
+
+  Both are on by default, like every `security.*` rule (an empty `enabledRules` enables all),
+  and both are enabled in this repository's allow-list. They are new ids, so the deployed
+  binary has no old mechanism for the name to bind to. CWE-59 moves from `gap` to `enforced`.
+  **Measured before release:** the branch binary ran `--check safety` with every rule enabled
+  over scratch copies of 131 of the author's package roots (9,133 Swift files; third-party
+  clones excluded by remote) and found **zero findings**. The first run found 20, all one
+  false positive: `development-guidelines/setup.swift` loops over literal directory names, one
+  of them `"05_99_ARCHIVE"`. Now only identifiers count as vocabulary, and a regression test
+  pins it. The rules fire on the
+  real defect: marmelroy/Zip 2.1.2's `unzipFile` (`Zip.swift:179`, GHSA-g454-wj9r-jpg4).
+  ZIPFoundation's extraction code is clean, because it uses `isContained(in:)`. Its one finding is a test
+  that passes `allowUncontainedSymlinks: true` deliberately. That also confirms the spelling,
+  which the proposal had marked unverified. The proposal's size and decompression rules are
+  Phase 3 and not part of this change. See `AnArchiveDescribesItself.md` §4.1, §4.2.
+- **`SensitiveName` and `SecurityContext` in `QualityGateCore`: one sensitive-name matcher and
+  one security-context predicate** (`ideas/TheGateIsNotYetAggressive.md` §2.1 last row, §2.2
+  item 5). This is shared infrastructure for the Wave B rules, and adds no rules itself.
+  - `SensitiveName.classify(_:restrictedTo:additionalTerms:)` splits an identifier or key in
+    any spelling (`apiKey`, `API_KEY`, `x-api-key`, `auth.token`, `"api_key"`) into whole
+    words. It matches terms as runs of whole words, never as substrings: `tokenizer`,
+    `secretary`, `keyboard`, `passwordless` and `apiKeyboard` match nothing. It answers three
+    questions:
+    - `namesSecret`: a secret word anywhere in the name, which is what the shipped rules ask.
+    - `headCategory`: whether the secret is the head of the name. `accessToken` is a token;
+      `tokenCount` and `inputTokens` are not. `PublicIsAClaimAboutTheValue` needs this.
+    - `descriptor`: `keyName`, `sessionExpiry`, `maxTokens`. `ASeedIsNotASecret` needs this.
+  - The vocabulary is the union of every list the gate shipped or a proposal defined. It
+    has 48 terms in five categories: credential, password, key material, security
+    parameter and personal data. Every term records its origin, and `key`, `state` and
+    `pin` are weak.
+  - `SecurityContext.evaluate(_:)` is `ASeedIsNotASecret` §3.1, made syntax-free and
+    decidable. A value is in a security context when its binding, argument label or
+    returning function carries a strong security word and no descriptor. A weak word
+    counts only inside an auth- or crypto-named function or type. Separately, the value
+    argument of a header, cookie or query sink is always in context. An enclosing scope
+    alone is not enough.
+  - Tested by 36 table-driven tests covering every term, the substring traps, both clauses
+    of the predicate and the proposals' own corpus cases.
+
 - **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
   `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
   a fixture string that contains an XCTest file is never rewritten. That was the failure of
@@ -40,7 +465,8 @@
   `cwe.catalog.json` and `rule-to-cwe.mapping.json` go through the machinery that already maps
   rules to SOC 2, ISO 27001 and HIPAA, so nothing new validates them: a mapping to a rule that
   does not exist, or to a CWE the catalogue does not list, is the same `control-mapping` error it
-  always was. 69 rules are mapped to 38 weaknesses.
+  always was. 69 rules were mapped to 38 weaknesses when this entry was written; 70 now, with
+  `pointer-escape.assigned-to-outer-member` (below) mapped to CWE-825 like its siblings.
 
   The half that matters is the other one. The catalogue also lists **48 weaknesses no rule
   reaches** — XXE, deserialisation, integer overflow, unchecked loop bounds, output encoding,
@@ -52,6 +478,30 @@
   memory. Ids MITRE marks *Discouraged* or *Prohibited* for mapping are not used.
 
 ### Added
+
+- **`pointer-escape.assigned-to-outer-member` (error, CWE-825): a pointer stored into a field of
+  an outer variable that is read after the with-block returns.** SwiftZIP's zlib path set
+  `stream.next_in = srcBuf.baseAddress` inside `withUnsafeMutableBufferPointer` and called
+  `deflate(&stream, …)` after it — undefined behaviour that passed the gate, because the
+  auditor only modelled a *bare* outer variable, `self.x` and `Type.x` as assignment targets.
+  `stream.next_in`, `outer.a.b` and `buf[0]` fell through as "unknown".
+
+  Storing a field is how C APIs are driven, so the rule is conditional. It reports when the root
+  is not a local of the enclosing function (parameter, property, global — it outlives the call),
+  or when the scope declaring the root references it after the call of the block that *lent*
+  the pointer, or anywhere in a loop between the two. References to a disjoint field
+  (`stream.total_out` after `stream.next_in`) and plain overwrites do not count; `&stream`, a
+  bare `stream` and `stream.method()` do. A `defer` written before the block is not counted, so
+  the correct shape's `defer { inflateEnd(&stream) }` stays clean — a known gap, chosen. The
+  full rule is in the auditor's doc comment and the guide.
+
+  **Measured.** SwiftZIP before its fix (`Deflate.swift` as shipped in 0.8.0): **4 findings**,
+  lines 136 and 143 (`compressWithZlib`) and 189 and 194 (`decompressWithZlib`); `ZlibStream`,
+  which nests the call inside both blocks, is clean, as is SwiftZIP after its fix. swiftMoE,
+  IconquerAI, SwiftCLIKit, VaultMCP, BusinessMath and edge-firmware-swift, plus swift-nio and
+  swift-collections as heavy third-party users of `withUnsafe*`: **no new finding**. The one
+  false positive the first measurement found (IconquerAI, `dest[i] = floatBuf[i]` — an element
+  copy) is fixed below and pinned by a test.
 
 - **`security.path-containment-by-prefix` (error, CWE-22 and CWE-187).** A containment check
   written `path.hasPrefix(base)` admits `/base-evil`, and a prefix test does not follow a
@@ -69,6 +519,43 @@
   80 repositories then reports **no new security finding anywhere**.
 
 ### Changed
+
+- **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
+  successful build with warnings was counted in the summary while the checker's line stayed
+  green, so a run whose job is zero warnings could read as clean. The run still passes
+  without `--strict` and fails under it, the same as every other checker that warns.
+  Caveats: an incremental build re-emits a warning only when its file recompiles, so the
+  status appears on the run that compiles the file. Local path dependencies' warnings
+  count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
+- **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
+  (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
+  is gone; a parameter is secret-named when it names a strong credential, password or
+  key-material term, or the weak `pin` / `key` the old list carried. Portfolio findings before and
+  after: the same one (SwiftMCPServer `APIKeyAuthenticator.swift:176`, `hashKey`).
+
+- **`security.hardcoded-secret` and `keychain-secrets` now use `SensitiveName`.** Both keep
+  the words they shipped with, selected by origin. Widening them to the union vocabulary
+  was measured and declined: over the portfolio it added 19 `hardcoded-secret` findings,
+  all of them OAuth constants, header names, a regex and test fixtures, and removed none.
+  - `hardcoded-secret` matches whole words instead of `name.lowercased().contains(pattern)`.
+    `tokenizer`, `BPETokenizer`, `secretary`, `secretly`, `credentialed` and
+    `kSecReturnData` are no longer credentials. `token1`, `secret123` and run-together
+    `accesstoken` still are, because letters and digits now split.
+  - `keychain-secrets` finds compounds as whole-word runs, not substrings of the joined
+    name, so `apiKeyboardLayout` is no longer a secret. `token1` now is.
+    - Plurals behave as before: `apiKeys` and `access_tokens` match. `tokens` and
+      `maxTokens` do not.
+    - An `extraPatterns` compound such as `license_key` now matches `licenseKey`.
+  - `secretPatterns` is now additive. Listing fewer words no longer removes any, so a
+    security rule cannot be weakened by configuration.
+  - **Portfolio sweep:** 101 first-party packages, `safety` + `keychain-secrets` +
+    `logging`, run before and after on read-only copies. The findings are identical.
+  - **Predicate sweep:** the old and new predicates were run over all 111,209 distinct
+    identifiers and string literals in those packages.
+    - Every `hardcoded-secret` name the new code drops is a substring false positive from
+      the list above.
+    - Its three additions are hyphenated strings, which can't be Swift identifiers.
+    - `keychain-secrets` gains 14 digit-suffixed names (`token1`, `secret123`) and loses none.
 
 - **A `// SECURITY:` acknowledgement must give a reason, and is always recorded.** Any security
   finding used to be silenced by the bare marker on its line or the one above — no reason
@@ -136,6 +623,30 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
+  exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
+  `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
+  reads `❌ Quality Gate: FAILED (--strict: a checker warned)` when warnings alone caused it.
+- **`complexity` costed two non-loops as O(n).** An implicit member (`case .first:`,
+  `return .last`) has no receiver, so it is an enum case or a static member, never a
+  collection method. And `map` on an `as?` result is `Optional.map`, which runs once. Both
+  were matched by name alone. In BioFeedbackKit-HealthKit each one made a function read as
+  O(n²) from its caller. Collection `first` and `map` are still costed as before.
+- **`xcode-build` reported "nothing to build" as PASSED.** It now reports SKIPPED. Configured
+  with a scheme and a watchOS destination on a plain package, it printed
+  `✓ [xcode-build] PASSED (0ms)` having compiled nothing.
+- **`pointer-escape` no longer reports an assignment as a return, or an element as a pointer.**
+  A with-block whose last statement was an assignment (`{ buffer, count in …; count = 0 }`,
+  `{ _ = f(ptr) }`) had that statement treated as the implicit return value, so a closure
+  returning `()` was reported under `return-from-with-block`. And `buf[i]` was treated as the
+  buffer itself, where it is one element — a value, like `.pointee`; a range subscript
+  (`buf[0..<n]`) is still a pointer, since the slice refers to the same memory. Across
+  swift-collections and swift-nio this removes **46 findings**, every one read and every one
+  of these two shapes; nothing that was a real escape is lost.
+- **`pointer-escape` now analyses with-blocks nested in a `repeat` loop, in a `let`
+  initialiser, or behind `try`.** `let n = chunk.withUnsafeMutableBufferPointer { … }` inside
+  `repeat { … } while` — `ZlibStream`'s shape — was never visited, so nothing inside it could be
+  reported. `self.a.b = ptr` and `self[i] = ptr` are now `stored-in-property` like `self.x`.
 - **`control-mapping` logs when it cannot list its own resources.** Its `try?` carried a
   three-line `// silent:` justification that the logging auditor does not read, so the gate
   reported it. It now catches and logs, as `decode` beside it already did, and still returns

@@ -10,10 +10,13 @@
 
 - **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
 - **Swift 6.2+** — the manifest is `swift-tools-version: 6.2`; earlier toolchains cannot parse it.
-- **Linux: builds, tests and runs on Swift 6.2.** 3,595 of the 3,596 tests pass in the
-  official `swift:6.2` container; the one gap is noted under [Honest limits](#honest-limits). macOS is still the
+- **Linux: builds, tests and runs on Swift 6.2.** The suite runs in the official `swift:6.2`
+  container, and the [Linux job](../../actions/workflows/linux.yml) is the live answer to how
+  much of it passes — this sentence deliberately does not carry a number, because the first
+  draft of it did and the next CI run falsified it within the hour. macOS is still the
   platform every release is cut against, and the one to pick if you have a choice. See
-  [Install on Linux](#linux) for the two build flags it needs and what is known to differ.
+  [Install on Linux](#linux) for the two build flags it needs and
+  [Honest limits](#honest-limits) for what is known to differ.
 
   This entry used to read "macOS only, today — Linux is not supported and not tested", on the
   grounds that `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. That
@@ -164,7 +167,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **114 targets** — 57 source, 57 test
+- **118 targets** — 59 source, 59 test
 - **46 registered checkers**
 <!-- /generated:scale -->
 
@@ -274,7 +277,7 @@ swift package plugin quality-gate
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 | `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
-| `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
+| `xcode-build` | XcodeBuildChecker | Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in) |
 <!-- /generated:checker-table-specialty -->
 
 ## CLI reference
@@ -331,6 +334,23 @@ security:
   secretPatterns: [password, secret, apiKey, token, credential, privateKey]
   allowedHTTPHosts: [localhost, 127.0.0.1]
 ```
+
+To add one opt-in checker to the default run without enabling the rest, list it under
+`includedCheckers:` (the mirror of `excludedCheckers:`). For example, a package whose code is
+gated `#if os(watchOS)` can build it on every run:
+
+```yaml
+includedCheckers:
+  - xcode-build
+
+xcodeBuild:
+  scheme: MyPackage
+  destinations:
+    - "generic/platform=watchOS"
+```
+
+`xcode-build` builds a plain Swift package from its directory, with no `.xcodeproj` needed.
+When it finds no workspace, project or `Package.swift`, it reports SKIPPED, not PASSED.
 
 Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, `keychain-secrets`, `privacy-manifest`, and `consistency`.
 
@@ -444,10 +464,9 @@ Each checker is an independent module — depend on only what you need:
 **One checker is weaker on Linux than on macOS.** `unreachable`'s cross-module pass does not
 yet flag an unreferenced symbol in an *executable* target there: the same symbol is still
 caught by the intra-file rule, so it is not missed, but it arrives as a warning about one file
-rather than as "unreachable from any entry point". Library targets are unaffected. This is the
-single failing test in the Linux suite, and it is listed here rather than left for a reader to
-discover because a checker that is quieter on one platform is exactly the kind of thing this
-tool exists to make visible.
+rather than as "unreachable from any entry point". Library targets are unaffected. It is
+listed here rather than left for a reader to discover, because a checker that is quieter on
+one platform is exactly the kind of thing this tool exists to make visible.
 
 **Linux is newer than the rest of this.** It builds, the suite runs, and the checkers work —
 but macOS has years of use behind it and Linux has days. The Linux job is

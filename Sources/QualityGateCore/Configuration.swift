@@ -338,12 +338,19 @@ extension PointerEscapeAuditorConfig: Codable {
 ///   secretPatterns: ["password", "secret", "apiKey", "token"]
 ///   allowedHTTPHosts: ["localhost", "127.0.0.1"]
 ///   sqlFunctionNames: ["execute", "prepare", "query"]
+///   atsAllowedInsecureDomains: ["legacy.example.com"]
 /// ```
 public struct SecurityAuditorConfig: Sendable, Equatable {
     /// Which security rules to enable. Empty means all rules are enabled.
     public var enabledRules: [String]
 
-    /// Regex patterns for variable names that indicate secrets.
+    /// Extra secret nouns for `security.hardcoded-secret`, matched by ``SensitiveName`` as a
+    /// whole word or a run of whole words (`connectionString` matches `dbConnectionString`;
+    /// `token` no longer matches `tokenizer`).
+    ///
+    /// Additive: the rule's built-in words (``SensitiveName/Origin/hardcodedSecretRule``) always
+    /// apply, so listing fewer words does not remove any. The defaults are exactly those words
+    /// and are kept for compatibility.
     public var secretPatterns: [String]
 
     /// Hosts allowed to use http:// (e.g. localhost test servers).
@@ -368,6 +375,15 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// catch it.
     public var containmentCheckers: [String]
 
+    /// Domains whose App Transport Security exception for cleartext HTTP is accepted.
+    ///
+    /// A property list has no comments the serialiser preserves, so `security.ats-disabled`
+    /// cannot be acknowledged with `// SECURITY:`. An entry here records the domain-level
+    /// finding as an override instead. Each entry is a sentence a reviewer can disagree with,
+    /// in a file with history. There is deliberately no equivalent for the global
+    /// `NSAllowsArbitraryLoads`: an app that needs it disables the rule in `enabledRules`.
+    public var atsAllowedInsecureDomains: [String]
+
     /// Creates a security auditor configuration with the given options.
     public init(
         enabledRules: [String] = [],
@@ -381,7 +397,8 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
             "sqlite3_exec", "sqlite3_prepare"
         ],
         weakCryptoPolicy: WeakCryptoPolicy = .default,
-        containmentCheckers: [String] = ["PathContainment.isContained"]
+        containmentCheckers: [String] = ["PathContainment.isContained"],
+        atsAllowedInsecureDomains: [String] = []
     ) {
         self.enabledRules = enabledRules
         self.secretPatterns = secretPatterns
@@ -389,6 +406,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
         self.sqlFunctionNames = sqlFunctionNames
         self.weakCryptoPolicy = weakCryptoPolicy
         self.containmentCheckers = containmentCheckers
+        self.atsAllowedInsecureDomains = atsAllowedInsecureDomains
     }
 
     /// Default security auditor configuration.
@@ -398,7 +416,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
 extension SecurityAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames, weakCryptoPolicy
-        case containmentCheckers
+        case containmentCheckers, atsAllowedInsecureDomains
     }
 
     /// Creates a security auditor configuration by decoding from the given decoder.
@@ -412,6 +430,8 @@ extension SecurityAuditorConfig: Codable {
         weakCryptoPolicy = try container.decodeIfPresent(WeakCryptoPolicy.self, forKey: .weakCryptoPolicy) ?? defaults.weakCryptoPolicy
         containmentCheckers = try container.decodeIfPresent([String].self, forKey: .containmentCheckers)
             ?? defaults.containmentCheckers
+        atsAllowedInsecureDomains = try container.decodeIfPresent([String].self, forKey: .atsAllowedInsecureDomains)
+            ?? defaults.atsAllowedInsecureDomains
     }
 }
 
@@ -1782,6 +1802,8 @@ public struct CustomRuleConfig: Sendable, Equatable, Codable {
 ///   - pointer-escape
 /// excludedCheckers:
 ///   - doc-comment-code
+/// includedCheckers:
+///   - xcode-build
 /// concurrency:
 ///   justificationKeyword: "Justification:"
 ///   allowPreconcurrencyImports:
@@ -1864,6 +1886,18 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// claim from "this package's documentation is fine", and only the first is true there.
     /// An entry that means the second is a suppression and belongs nowhere.
     public var excludedCheckers: [String]
+
+    /// Opt-in checkers to add to the default run, by id — the mirror of
+    /// ``excludedCheckers``, and the config-file form of `--full` for one checker.
+    ///
+    /// Before this, the only config route to an opt-in checker was
+    /// `enabledCheckers: [all]`, which also opts in every convention-gated doc checker.
+    /// BioFeedbackKit-HealthKit needs `xcode-build` — its HealthKit adapter is compiled
+    /// only for watchOS, which the macOS `build` checker never compiles — and nothing else.
+    ///
+    /// Added to `enabledCheckers` when that is set. Has no effect on `--check all` or an
+    /// explicit `--check`, and an exclusion still wins over it.
+    public var includedCheckers: [String]
 
     /// Build configuration to use (debug or release). Defaults to debug.
     public var buildConfiguration: String?
@@ -2033,6 +2067,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         trapPolicy: TrapPolicy = .default,
         enabledCheckers: [String] = [],
         excludedCheckers: [String] = [],
+        includedCheckers: [String] = [],
         buildConfiguration: String? = nil,
         testFilter: String? = nil,
         docTarget: String? = nil,
@@ -2087,6 +2122,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.trapPolicy = trapPolicy
         self.enabledCheckers = enabledCheckers
         self.excludedCheckers = excludedCheckers
+        self.includedCheckers = includedCheckers
         self.buildConfiguration = buildConfiguration
         self.testFilter = testFilter
         self.docTarget = docTarget
@@ -2200,6 +2236,7 @@ extension Configuration {
         case trapPolicy
         case enabledCheckers
         case excludedCheckers
+        case includedCheckers
         case buildConfiguration
         case testFilter
         case docTarget
@@ -2285,6 +2322,7 @@ extension Configuration {
         trapPolicy = try container.decodeIfPresent(TrapPolicy.self, forKey: .trapPolicy) ?? .default
         enabledCheckers = try container.decodeIfPresent([String].self, forKey: .enabledCheckers) ?? []
         excludedCheckers = try container.decodeIfPresent([String].self, forKey: .excludedCheckers) ?? []
+        includedCheckers = try container.decodeIfPresent([String].self, forKey: .includedCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
         docTarget = try container.decodeIfPresent(String.self, forKey: .docTarget)

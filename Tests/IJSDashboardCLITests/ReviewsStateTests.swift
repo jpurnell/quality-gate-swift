@@ -191,9 +191,9 @@ struct ReviewStoreTests {
     }
 
     @Test("submit holds a governed judgment; a distinct identity approves; the submitter cannot")
-    func governedLifecycle() throws {
+    func governedLifecycle() async throws {
         let corpus = try makeCorpus()
-        let submitStatus = ReviewStore.submit(
+        let submitStatus = await ReviewStore.submit(
             corpusPath: corpus, ruleId: "safety.force-unwrap",
             justification: "guarded upstream", by: "jpurnell")
         #expect(submitStatus.contains("Held for review"))
@@ -202,13 +202,13 @@ struct ReviewStoreTests {
         #expect(pending.count == 1)
         let review = try #require(pending.first)
 
-        let selfApprove = ReviewStore.apply(
+        let selfApprove = await ReviewStore.apply(
             ReviewActionRequest(reviewID: review.id, action: .approve, reason: nil),
             corpusPath: corpus, reviewer: "jpurnell")
         #expect(selfApprove.contains("DISTINCT second identity"))
         #expect(ReviewStore.pending(corpusPath: corpus).count == 1)
 
-        let approve = ReviewStore.apply(
+        let approve = await ReviewStore.apply(
             ReviewActionRequest(reviewID: review.id, action: .approve, reason: nil),
             corpusPath: corpus, reviewer: "contributor")
         #expect(approve.contains("Approved safety.force-unwrap"))
@@ -223,9 +223,9 @@ struct ReviewStoreTests {
     }
 
     @Test("an ungoverned rule submits as accepted, never queues")
-    func ungovernedAccepted() throws {
+    func ungovernedAccepted() async throws {
         let corpus = try makeCorpus()
-        let status = ReviewStore.submit(
+        let status = await ReviewStore.submit(
             corpusPath: corpus, ruleId: "idiom.empty-count",
             justification: "fine", by: "jpurnell")
         #expect(status.contains("Accepted without review"))

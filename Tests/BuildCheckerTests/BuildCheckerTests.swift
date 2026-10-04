@@ -241,8 +241,10 @@ struct BuildCheckerTests {
             duration: .seconds(1)
         )
 
-        // Even with warnings, build succeeded so status is passed but has warnings
-        #expect(result.status == .passed)
+        // The build succeeded, but a compiler warning is a finding, and the verdict line
+        // must say so. As `.passed` it was counted in the summary and nothing else: the
+        // tick stayed green, and a run whose job is "zero warnings" read as clean.
+        #expect(result.status == .warning)
         #expect(result.diagnostics.count == 1)
         #expect(result.diagnostics.first?.severity == .warning)
     }
