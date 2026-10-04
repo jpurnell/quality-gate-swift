@@ -124,7 +124,18 @@ actor A {
     var x = 0
     func f() {
         Task {
-            self.x += 1   // unsafe — runs off-actor
+            self.x += 1   // deferred: runs after f() has returned
+        }
+    }
+}
+
+// ❌ flagged — a weak capture changes how long the object lives, not when this runs
+@MainActor
+final class WeaklyCaptured {
+    var x = 0
+    func f() {
+        Task { [weak self] in
+            self?.x += 1
         }
     }
 }
@@ -142,6 +153,8 @@ actor BumpActor {
 ```
 
 Bare references to stored property names (without `self.`) are also flagged when they match the actor's stored properties.
+
+`self?.member` and `self!.member` are `self.member` to this rule. `[weak self]` handles lifetime — the Task does not keep the object alive — and the rule is about ordering. An awaited call through `self?` is left alone, as an awaited call through `self` is; `await` on a synchronous member is the compiler's to report, and it does.
 
 `withTaskGroup`, `async let`, and `Task.detached` are intentionally NOT flagged by this rule. `Task.detached` will get its own rule in a future version.
 
@@ -269,7 +282,7 @@ The auditor is intentionally conservative on what it flags but pragmatic about s
 
 - **unchecked-sendable, nonisolated-unsafe**: add a `// Justification:` comment.
 - **sendable-class-mutable-state, sendable-class-non-sendable-property**: switch to `@unchecked Sendable` with a justification, or refactor.
-- **task-captures-self-no-isolation**: use `await self.method()` to make the hop explicit.
+- **task-captures-self-no-isolation**: do the work before the Task, snapshot what the Task needs into locals named apart from the properties, or await one isolated method. Adding `await` to a synchronous member is not a fix, and neither is `[weak self]` with `self?.`.
 - **dispatch-queue-in-actor**: use `await MainActor.run` or refactor to stay on-actor.
 - **main-actor-deinit-touches-state**: declare the deinit `isolated deinit`. If its only access is cancelling a Task handle, `nonisolated(unsafe)` on that property with a `// Justification:` comment also works, unchecked.
 - **preconcurrency-first-party-import**: add the module to `allowPreconcurrencyImports:` during a transition, then fix the underlying warnings and remove it.

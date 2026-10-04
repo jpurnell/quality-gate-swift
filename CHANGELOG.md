@@ -520,6 +520,12 @@
 
 ### Changed
 
+- **`task-captures-self-no-isolation` recognises `self?.` and `self!.` receivers.** Previously
+  only `self.` and stored-property names. `Task { [weak self] in self?.sync() }` passed while
+  `Task { self.sync() }` was reported, though a weak capture changes how long the object lives
+  and not when the body runs. A rule widening: code that passed can now fail. An awaited call
+  through `self?` is still left alone. The guide's suppression list no longer recommends
+  `await self.method()`, which the same guide explains is not a fix.
 - **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
   successful build with warnings was counted in the summary while the checker's line stayed
   green, so a run whose job is zero warnings could read as clean. The run still passes

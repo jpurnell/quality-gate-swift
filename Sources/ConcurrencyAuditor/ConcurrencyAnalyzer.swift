@@ -430,7 +430,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                 return .visitChildren
             }
             override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                if let base = node.base, base.trimmedDescription == "self" {
+                // `[weak self]` changes how long the object lives, not when the body
+                // runs: `self?.member` is the same deferred access as `self.member`.
+                if let base = node.base, isSelfReference(base) {
                     found = true
                 }
                 return .visitChildren
@@ -585,6 +587,23 @@ func deinitIsolation(_ node: DeinitializerDeclSyntax, typeIsolation: IsolationCo
         return typeIsolation
     }
     return .none
+}
+
+/// `self`, `self?` or `self!` — the receiver is the enclosing instance however it was
+/// captured and however it was unwrapped.
+///
+/// Decided on the token, not on the text, so trivia cannot change the answer.
+func isSelfReference(_ expr: ExprSyntax) -> Bool {
+    if let reference = expr.as(DeclReferenceExprSyntax.self) {
+        return reference.baseName.tokenKind == .keyword(.self)
+    }
+    if let chain = expr.as(OptionalChainingExprSyntax.self) {
+        return isSelfReference(chain.expression)
+    }
+    if let unwrap = expr.as(ForceUnwrapExprSyntax.self) {
+        return isSelfReference(unwrap.expression)
+    }
+    return false
 }
 
 func hasPreconcurrencyAttribute(_ attributes: AttributeListSyntax) -> Bool {
