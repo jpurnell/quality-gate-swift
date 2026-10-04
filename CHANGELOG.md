@@ -601,6 +601,70 @@
 
 ### Changed
 
+- **`--strict` fails on every warning the summary counts.** The summary counted warning
+  *diagnostics*; the exit code read checker *statuses*. Nineteen checkers compute their status
+  from errors alone, so a warning from one of them (`recursion`, `consistency` above its
+  threshold, and others) was printed, counted, and did not gate — unless the repository
+  configured any override at all, which recomputed the status as a side effect.
+  BioFeedbackKit-HRBLE printed `0 error(s), 4 warning(s)` under `--strict` and exited 0. Proposal:
+  `plans/proposals/StrictMeansTheExitCode.md` in the companion repository.
+  - `CheckResult.reconciled()` raises a result's status to what its diagnostics say: `.passed`
+    carrying a warning becomes `.warning`. It never lowers, and `.skipped` and `.failed` are
+    left alone. The runner applies it to every result, fresh or replayed from cache, and the
+    CLI applies it to the post-run `consistency` result.
+  - `RunTally` computes the counts and the verdict once. The terminal summary, the JSON summary
+    and the exit code all read it, and under `--strict` the verdict reads `warnings` — the same
+    stored number the summary prints. The verdict line names it:
+    `❌ Quality Gate: FAILED (--strict: 4 warnings)`.
+  - A `.warning` status with no warning-severity finding gains one,
+    `gate.status-without-finding`, so that run no longer fails `--strict` over a summary that
+    prints `0 warning(s)`. `consistency` was its one producer and now emits its own warning,
+    `consistency-below-threshold`, when the score is under the threshold. The `consistency-score`
+    note is unchanged; telemetry parses it. With any override configured, a below-threshold
+    `consistency` result used to be recomputed to `.passed`; it now stays `.warning`.
+  - **A warning on a skipped checker counts.** `doc-code` and `doc-comment-code` skip with a
+    `module-unavailable` warning when the module they compile against is not built. The status
+    stays `SKIPPED`, but the warning is in the count, so **`quality-gate --strict --check doc-code`
+    on a cold `.build` now fails**; it used to exit 0 having examined no fence. Run `build`
+    first. The decision is one constant, `RunTally.countsWarningsOnSkippedResults`.
+  - The baseline ledger reconciles before it reads a result's status, so a warning that
+    `quality-gate adopt` recorded on a checker reporting `PASSED` is covered as debt instead of
+    gating under `--strict` with its record unread.
+  - Statuses in telemetry move from `passed` to `warning` for the errors-only checkers that
+    warn, so per-checker pass rates step on the day this deploys. No schema change. JSON field
+    names are unchanged: `warnings` is the number of checkers that warned, `totalWarnings` the
+    number of warning findings.
+  - Not changed: `safety` and `concurrency` still fail on warnings without `--strict`. A
+    warning the compiler did not re-emit on a warm build is still not seen.
+- **A checker that carries an error fails, whatever status it reported.** The remaining rows of
+  `CheckResult.reconciled()`: a `.passed` or `.warning` result with an error-severity diagnostic
+  becomes `.failed`. `1 error(s)` above `✅ Quality Gate: PASSED` is the same disagreement as a
+  counted warning that does not gate. **This is the one part of the `--strict` work that changes
+  a run without `--strict`**: such a run now exits 1 and, without `--continue-on-failure`, stops
+  at that checker. A skipped result is left alone. It is its own commit so it can be reverted
+  without the rest; the portfolio count of such results (the proposal's §4.3 (b)) has not been
+  measured.
+- **`--check a,b` works, and a selection the gate cannot honour is an error.** `--check a,b`
+  arrived as the one id `a,b`, matched nothing, printed `No checkers enabled. Nothing to do.`
+  and exited 0. That is the form `coding_rules.md` documents for the security audit
+  (`--check safety,fp-safety,stochastic-determinism`), so every audit run as written examined
+  nothing.
+  - Values of `--check`, `--exclude`, `enabledCheckers`, `excludedCheckers` and
+    `includedCheckers` are split on commas. `--check a,b`, `--check a b` and
+    `--check a --check b` mean the same thing.
+  - An id in `--check` or `--exclude` that names no checker exits **64** and names the id, with
+    the nearest real id when one is close. Nothing runs: `--check recursion --check bogus` used
+    to run `recursion` alone and pass.
+  - An unknown id in `enabledCheckers` exits 1, when that list is what selects. An unknown id in
+    `excludedCheckers` or `includedCheckers` is a notice on stderr.
+  - An empty selection is never exit 0: 64 when `--exclude` emptied it, 1 when the
+    configuration or a `--profile` did.
+  - **`--exclude` now narrows an explicit `--check`.** `--check a b --exclude b` runs `a`; it
+    used to run both. `excludedCheckers` in the configuration still does not refuse a checker
+    named with `--check`.
+  - `--check disk-clean` keeps its message and exit 1. `--exclude disk-clean` is accepted with
+    a notice.
+
 - **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
   successful build with warnings was counted in the summary while the checker's line stayed
   green, so a run whose job is zero warnings could read as clean. The run still passes

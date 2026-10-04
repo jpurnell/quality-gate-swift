@@ -196,7 +196,7 @@ public struct CheckerRunner: Sendable {
                 if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
                     if cached.status.isPassing {
                         let producedAt = cache.entryDate(checkerId: checker.id, fingerprint: fingerprint)
-                        return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker)
+                        return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker).reconciled()
                     }
                     cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }
@@ -204,13 +204,13 @@ public struct CheckerRunner: Sendable {
                 if fresh.status.isPassing {
                     cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
                 }
-                return clamped(transform(fresh), checker)
+                return clamped(transform(fresh), checker).reconciled()
             }
-            return clamped(transform(await runAndSynthesize(checker)), checker)
+            return clamped(transform(await runAndSynthesize(checker)), checker).reconciled()
         }
 
         func isFailing(_ result: CheckResult) -> Bool {
-            result.status == .failed || (strict && result.status == .warning)
+            result.failsRun(strict: strict)
         }
 
         // Preserve each checker's original position so results report in checker order,
