@@ -85,6 +85,28 @@
 
 ### Added
 
+- **A reader for the compiler's serialized diagnostics, and an index of a build's compile
+  units.** Both are in the `BuildChecker` target, and are the groundwork for `build` reporting
+  warnings in files a build did not recompile.
+  - `SerializedDiagnosticsReader` decodes a `.dia` file — what each compile job writes beside
+    its object file — into the gate's `Diagnostic`, rendering a message as the compiler prints
+    it (`text [#Group]`). Malformed input throws; nothing traps.
+  - `CompileUnitIndex` reads a build directory's output file maps for one configuration and
+    returns the live, first-party compile units and where each records its diagnostics. It
+    reads the map, not the directory: a `.dia` left behind by a deleted source file is not a
+    unit. Handles the `swiftbuild` layout (per-file records and the `""`-keyed emit-module
+    record in debug; the `""`-keyed whole-module record in release) and the native one.
+  - The decoder is `TSCUtility.SerializedDiagnostics`, vendored from
+    [swift-tools-support-core](https://github.com/swiftlang/swift-tools-support-core) at commit
+    `c574915fe88e942e4c4c93376f022daa2ecf05f9` (Apache-2.0 with Runtime Library Exception):
+    `Sources/TSCUtility/Bits.swift`, `Bitstream.swift`, `BitstreamReader.swift` and
+    `SerializedDiagnostics.swift`, now under `Sources/BuildChecker/SerializedDiagnostics/`.
+    `ByteString` became `[UInt8]`, so there is no new package dependency. Every trap in the
+    upstream code (`precondition`, `fatalError`, force unwraps, unchecked integer conversions)
+    became a thrown error, because this copy reads whatever is on disk; records own their
+    fields instead of borrowing an unsafe buffer; and the recursive readers are depth-bounded.
+    Source ranges, fix-its and the writer-side declarations were dropped. Each file's header
+    keeps the upstream licence notice and lists its changes.
 - **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
   `excludedCheckers:`. Before this, the only way to opt a checker in from config was
   `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
@@ -641,6 +663,95 @@
   needs a literal above zero. It also gains what the division rule gained — `isEmpty`, `>=`,
   `== 0`, `<= 0` — so a quotient by a count that was checked for emptiness is no longer a new
   place for a NaN to come from.
+- **`task-captures-self-no-isolation` and `dispatch-queue-in-actor` apply inside unannotated
+  extensions of `@MainActor` types and actors declared in the same package.** An extension took
+  its isolation from its own attribute list, so an extension of an actor was never isolated,
+  an extension of a `@MainActor` class was isolated only if it repeated the attribute, and even
+  then implicit-`self` property access was invisible because the property set was empty. A
+  pre-pass now reads every type declaration in the run, and an extension resolves the type it
+  extends by name: its own module first, then the modules its file imports. A rule widening:
+  code that passed can now fail.
+  - Unknown means unchanged. A type declared in the SDK or a dependency, a module the file does
+    not import, a typealias, and a name whose declarations disagree on isolation all leave the
+    extension non-isolated, as before. So does an attribute that may name another global actor.
+  - `nonisolated extension` (SE-0449) is honoured; a type nested in an isolated extension does
+    not inherit.
+  - Not covered: isolation inherited from a superclass or a `@MainActor` protocol, default
+    main-actor isolation (SE-0466), and custom global actors.
+- **`SyntaxScope`, a new target, holds the lexical-scope code.** `LexicalScope` and the
+  pattern-name finder move out of `RecursionAuditor` unchanged, joined by
+  `visibleBindings(at:)`, which answers "what local names can code at this node see?" by
+  walking up to the enclosing type. SwiftSyntax only. `RecursionAuditor` depends on it and
+  behaves as before; its suite is unchanged. 120 targets, 60 source and 60 test.
+- **`task-captures-self-no-isolation` recognises `self?.` and `self!.` receivers.** Previously
+  only `self.` and stored-property names. `Task { [weak self] in self?.sync() }` passed while
+  `Task { self.sync() }` was reported, though a weak capture changes how long the object lives
+  and not when the body runs. A rule widening: code that passed can now fail. An awaited call
+  through `self?` is still left alone. The guide's suppression list no longer recommends
+  `await self.method()`, which the same guide explains is not a fix.
+- **`--strict` fails on every warning the summary counts.** The summary counted warning
+  *diagnostics*; the exit code read checker *statuses*. Nineteen checkers compute their status
+  from errors alone, so a warning from one of them (`recursion`, `consistency` above its
+  threshold, and others) was printed, counted, and did not gate — unless the repository
+  configured any override at all, which recomputed the status as a side effect.
+  BioFeedbackKit-HRBLE printed `0 error(s), 4 warning(s)` under `--strict` and exited 0. Proposal:
+  `plans/proposals/StrictMeansTheExitCode.md` in the companion repository.
+  - `CheckResult.reconciled()` raises a result's status to what its diagnostics say: `.passed`
+    carrying a warning becomes `.warning`. It never lowers, and `.skipped` and `.failed` are
+    left alone. The runner applies it to every result, fresh or replayed from cache, and the
+    CLI applies it to the post-run `consistency` result.
+  - `RunTally` computes the counts and the verdict once. The terminal summary, the JSON summary
+    and the exit code all read it, and under `--strict` the verdict reads `warnings` — the same
+    stored number the summary prints. The verdict line names it:
+    `❌ Quality Gate: FAILED (--strict: 4 warnings)`.
+  - A `.warning` status with no warning-severity finding gains one,
+    `gate.status-without-finding`, so that run no longer fails `--strict` over a summary that
+    prints `0 warning(s)`. `consistency` was its one producer and now emits its own warning,
+    `consistency-below-threshold`, when the score is under the threshold. The `consistency-score`
+    note is unchanged; telemetry parses it. With any override configured, a below-threshold
+    `consistency` result used to be recomputed to `.passed`; it now stays `.warning`.
+  - **A warning on a skipped checker counts.** `doc-code` and `doc-comment-code` skip with a
+    `module-unavailable` warning when the module they compile against is not built. The status
+    stays `SKIPPED`, but the warning is in the count, so **`quality-gate --strict --check doc-code`
+    on a cold `.build` now fails**; it used to exit 0 having examined no fence. Run `build`
+    first. The decision is one constant, `RunTally.countsWarningsOnSkippedResults`.
+  - The baseline ledger reconciles before it reads a result's status, so a warning that
+    `quality-gate adopt` recorded on a checker reporting `PASSED` is covered as debt instead of
+    gating under `--strict` with its record unread.
+  - Statuses in telemetry move from `passed` to `warning` for the errors-only checkers that
+    warn, so per-checker pass rates step on the day this deploys. No schema change. JSON field
+    names are unchanged: `warnings` is the number of checkers that warned, `totalWarnings` the
+    number of warning findings.
+  - Not changed: `safety` and `concurrency` still fail on warnings without `--strict`. A
+    warning the compiler did not re-emit on a warm build is still not seen.
+- **A checker that carries an error fails, whatever status it reported.** The remaining rows of
+  `CheckResult.reconciled()`: a `.passed` or `.warning` result with an error-severity diagnostic
+  becomes `.failed`. `1 error(s)` above `✅ Quality Gate: PASSED` is the same disagreement as a
+  counted warning that does not gate. **This is the one part of the `--strict` work that changes
+  a run without `--strict`**: such a run now exits 1 and, without `--continue-on-failure`, stops
+  at that checker. A skipped result is left alone. It is its own commit so it can be reverted
+  without the rest; the portfolio count of such results (the proposal's §4.3 (b)) has not been
+  measured.
+- **`--check a,b` works, and a selection the gate cannot honour is an error.** `--check a,b`
+  arrived as the one id `a,b`, matched nothing, printed `No checkers enabled. Nothing to do.`
+  and exited 0. That is the form `coding_rules.md` documents for the security audit
+  (`--check safety,fp-safety,stochastic-determinism`), so every audit run as written examined
+  nothing.
+  - Values of `--check`, `--exclude`, `enabledCheckers`, `excludedCheckers` and
+    `includedCheckers` are split on commas. `--check a,b`, `--check a b` and
+    `--check a --check b` mean the same thing.
+  - An id in `--check` or `--exclude` that names no checker exits **64** and names the id, with
+    the nearest real id when one is close. Nothing runs: `--check recursion --check bogus` used
+    to run `recursion` alone and pass.
+  - An unknown id in `enabledCheckers` exits 1, when that list is what selects. An unknown id in
+    `excludedCheckers` or `includedCheckers` is a notice on stderr.
+  - An empty selection is never exit 0: 64 when `--exclude` emptied it, 1 when the
+    configuration or a `--profile` did.
+  - **`--exclude` now narrows an explicit `--check`.** `--check a b --exclude b` runs `a`; it
+    used to run both. `excludedCheckers` in the configuration still does not refuse a checker
+    named with `--check`.
+  - `--check disk-clean` keeps its message and exit 1. `--exclude disk-clean` is accepted with
+    a notice.
 
 - **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
   successful build with warnings was counted in the summary while the checker's line stayed
@@ -649,6 +760,12 @@
   Caveats: an incremental build re-emits a warning only when its file recompiles, so the
   status appears on the run that compiles the file. Local path dependencies' warnings
   count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
+  The first caveat no longer holds for `build` — see *Fixed*, "`build` reports compiler
+  warnings in files the build did not recompile". It still holds for `xcode-build`.
+- **A warning printed by two compile jobs is counted once.** Emit-module and the compile job
+  both report a warning in a declaration, so two deprecation warnings were counted as four.
+  `build` findings are now keyed on path, line, column, severity and message. Expect counts to
+  fall where they were doubled.
 - **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
   (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
   is gone; a parameter is secret-named when it names a strong credential, password or
@@ -760,6 +877,91 @@
   guard collector took for part of a larger operand, so the check was dropped. Latent in
   `fallback.*`; it would have been seven false `fp-division-unguarded` findings in one consumer
   once the division rule moved onto the same collector.
+- **`task-captures-self-no-isolation` reports the property, not its namesake.** The rule matched
+  any identifier in the Task closure spelled like a stored property, with no notion of what the
+  name was bound to. A capture-list entry (`[log]`, `[log = self.log]`), a parameter, a local
+  bound before or inside the Task, an `if let` / `guard let` / `for` / `case let` binding, a
+  nested or enclosing closure's parameter, and a member of another base (`AppLog.device`,
+  `peer.device`) were all reported as touching actor state. Bindings are now resolved first,
+  using the scope code shared with `RecursionAuditor`. Lexical order and scope are honoured: a
+  read before a later `let` of the same name, and a `let` in a sibling block, are still the
+  property. `self.x` is always the member. A narrowing — it removes findings that were never
+  true — with one addition: shorthand `if let x` *inside* the Task reads the property and is
+  reported.
+  - The suggested fix no longer says "named apart from the properties". That described the
+    rule's blind spot as though it were policy; the guide keeps it as advice.
+- **`nonisolated` members and actor statics are no longer treated as isolated.**
+  `dispatch-queue-in-actor` and `task-captures-self-no-isolation` gave every member its type's
+  isolation unless it carried `@MainActor`; the `nonisolated` modifier was never read, nor
+  `static` inside an actor, and a property or subscript body always inherited. A member's own
+  declaration now decides, for functions, initializers, properties and subscripts alike. A
+  `static` member of a `@MainActor` type stays isolated. One shape is kept on purpose:
+  `Task { @MainActor in self.x = 1 }` in a `nonisolated` member of a `@MainActor` type was
+  reported only because the member was mistaken for isolated, and is still reported, because
+  the closure is.
+- **`main-actor-deinit-touches-state` has the same correction.** Its walker matched names the
+  same way, so `let x = 1; print(x)` in a deinit, a closure parameter, and `Registry.x` were
+  reported when the class had a stored `x`. It now uses the same binding-aware walk.
+  `self.x`, a bare `x` that nothing shadows, and a property used as the base of another member
+  (`task?.cancel()`) are reported as before.
+- **`isolated deinit` is accepted in `@MainActor` classes and is the recommended fix.**
+  `concurrency.main-actor-deinit-touches-state` read only the enclosing type's isolation, so
+  a deinit the language had isolated (`isolated deinit`, or `@MainActor deinit` — SE-0371) was
+  reported like a plain one, and the only spelling the rule accepted was `nonisolated(unsafe)`.
+  It now reads the deinit's own modifiers and attributes. `nonisolated deinit` and a plain
+  `deinit` are reported as before. No severity change and no new rule id.
+  - The message said a plain deinit "will trap at runtime". It does not; it runs on whichever
+    thread drops the last reference, and the hazard is a race on state shared with main-actor
+    code. The message says that now, and the suggested fix names `isolated deinit` first.
+  - `lifecycle-task-no-deinit` suggested "Add a deinit that calls X.cancel()", which on a
+    `@MainActor` class produced exactly the deinit the concurrency rule reports. On a
+    `@MainActor` class it now suggests an `isolated deinit`, and calls through an optional
+    handle as `X?.cancel()`. Other classes keep the old text.
+- **A deinit's body has the deinit's isolation, not the type's.** The analyzer treated every
+  deinit body as isolated like its type, so `task-captures-self-no-isolation` and
+  `dispatch-queue-in-actor` ran inside a plain deinit — which is nonisolated — as though it
+  were actor code. A plain or `nonisolated` deinit body is now nonisolated; an `isolated deinit`
+  takes the type's isolation and a `@MainActor deinit` the main actor's.
+- **`build` reports compiler warnings in files the build did not recompile.** An incremental
+  `swift build` prints a diagnostic only for the files it compiles, so a warm build directory
+  reported zero warnings: the same tree gave `WARNING`, `PASSED`, `WARNING` on three runs,
+  depending on which files each run happened to rebuild, and `--strict --no-cache` exited 0 over
+  warnings that a clean build printed. After a successful build the checker now also reads the
+  serialized diagnostics (`.dia`) the compiler recorded for every first-party compile unit, found
+  through the build's output file maps, and reports the union. A unit counts only if a current
+  map names it and its source exists (a deleted file's record is not replayed), a record older
+  than its source is not trusted, and nothing is read after a failed build. Works on the
+  `swiftbuild` debug and release layouts and the native one.
+  - When a unit's record is missing, unreadable or stale — or no output file map is found at
+    all — the result carries `build.warnings-unverified`, a warning, instead of passing: *"N of
+    M compile units were up to date and their recorded diagnostics could not be read"*.
+  - Every successful result carries the note `build.diagnostic-coverage`: *"9 Swift compile
+    unit(s): 1 compiled by this run, 8 read from recorded diagnostics."*
+  - Not covered: warnings with no source location, C-family compile units (reported only when
+    recompiled, as before), `xcode-build`, and a target removed from `Package.swift` whose build
+    products remain.
+  - The `.dia` reader and the compile-unit index are described under *Added*, with the
+    provenance of the vendored code.
+- **Compiler messages no longer carry half an escape sequence.** The compiler wraps a
+  diagnostic's group in an OSC 8 hyperlink, and only colour escapes were stripped, so every
+  report format printed
+  `[#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]`.
+  It now reads `[#NoUsage]`. This changes the message text of `build` and `xcode-build`
+  findings: a baseline or override keyed on the old text needs re-recording.
+- **`build` is no longer replayed from the result cache.** Its fingerprint omitted two real
+  inputs. The build directory: whether a `PASSED` or a `WARNING` was stored depended on what
+  `.build` looked like when the entry was written. And local path dependencies: a warning fixed
+  in a sibling package was reported, *"Replayed from cache"*, on every default run until the
+  build directory was deleted. `build` now runs every time — a no-op build is a few seconds,
+  and the build system tracks every input the cache did not. Existing `build` entries expire on
+  their own, since the gate binary's hash is in every fingerprint. `test` still uses the same
+  fingerprint and has the same path-dependency hole; that is not fixed here.
+- **`--no-cache` repairs the cache instead of leaving it alone.** The flag skipped the load and
+  the store alike, so the run that proved an entry stale left it in place and the next default
+  run replayed it. It now means *do not read*: every checker runs, a passing result replaces
+  the stored entry, and a failing one removes it (failures are still never stored). Help text:
+  *"Ignore cached results: run every checker and replace its cached entry. Does not force a
+  clean build — it does not need to."*
 - **A query item or header is a security sink only when its name says so.** The randomness
   rules (`weak-prng`, `seeded-secret`, `predictable-token`, `uuid-as-secret`) put every value
   written to a header, cookie or URL query item in a security context

@@ -105,7 +105,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         // root safe — it refuses build output, Xcode containers and git-ignored trees — and it
         // repairs a second defect the private enumerator had: `excludePatterns` was never
         // consulted, so a path the configuration excluded was audited anyway.
-        let result = auditFiles(scan.files)
+        let result = auditFiles(scan.files, root: root.path)
         allDiagnostics.append(contentsOf: result.diagnostics)
         allOverrides.append(contentsOf: result.overrides)
 
@@ -149,7 +149,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let result = auditSourceCode(source, fileName: fileName)
+        let result = auditParsedSources([(path: fileName, source: source)], root: "")
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
         return CheckResult(checkerId: id, status: status, diagnostics: result.diagnostics, overrides: result.overrides, duration: duration)
@@ -162,25 +162,71 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
     /// Takes the list rather than a directory because deciding which files a run owns is
     /// `SourceWalker`'s job; duplicating that decision here is what produced two different
     /// answers to the same question.
-    private func auditFiles(_ paths: [String]) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        var diagnostics: [Diagnostic] = []
-        var overrides: [DiagnosticOverride] = []
+    private func auditFiles(_ paths: [String], root: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        var sources: [(path: String, source: String)] = []
         for path in paths {
             do {
-                let source = try String(contentsOfFile: path, encoding: .utf8)
-                let result = auditSourceCode(source, fileName: path)
-                diagnostics.append(contentsOf: result.diagnostics)
-                overrides.append(contentsOf: result.overrides)
+                sources.append((path: path, source: try String(contentsOfFile: path, encoding: .utf8)))
             } catch {
                 Self.logger.warning("Failed to read source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
+        return auditParsedSources(sources, root: root)
+    }
+
+    /// Audits several sources as one run, so an extension in one file can take its
+    /// isolation from a type declared in another. `files` maps path to source.
+    func auditSources(_ files: [String: String]) -> CheckResult {
+        let startTime = ContinuousClock.now
+        let sources = files.keys.sorted().map { (path: $0, source: files[$0] ?? "") }
+        let result = auditParsedSources(sources, root: "")
+        let status: CheckResult.Status = result.diagnostics.isEmpty ? .passed : .failed
+        return CheckResult(
+            checkerId: id,
+            status: status,
+            diagnostics: result.diagnostics,
+            overrides: result.overrides,
+            duration: ContinuousClock.now - startTime
+        )
+    }
+
+    /// The isolation table for a set of sources, as a run over them would build it.
+    static func isolationTable(forSources files: [String: String]) -> IsolationTable {
+        var table = IsolationTable()
+        for path in files.keys.sorted() {
+            table.add(Parser.parse(source: files[path] ?? ""), file: path)
+        }
+        return table
+    }
+
+    /// Pass 0 then Pass 1: every file is parsed once, the isolation table is built from
+    /// all of them, and only then is each file walked.
+    private func auditParsedSources(
+        _ sources: [(path: String, source: String)],
+        root: String
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        let parsed = sources.map { (path: $0.path, source: $0.source, tree: Parser.parse(source: $0.source)) }
+        var table = IsolationTable()
+        for file in parsed {
+            table.add(file.tree, file: file.path, root: root)
+        }
+        var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
+        for file in parsed {
+            let result = auditSourceCode(file.source, tree: file.tree, fileName: file.path, isolationTable: table)
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
+        }
         return (diagnostics, overrides)
     }
 
-    private func auditSourceCode(_ source: String, fileName: String) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let tree = Parser.parse(source: source)
+    private func auditSourceCode(
+        _ source: String,
+        tree: SourceFileSyntax,
+        fileName: String,
+        isolationTable: IsolationTable
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
         let sourceLines = source.lines
         let visitor = ConcurrencyVisitor(
@@ -189,7 +235,8 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
             sourceLines: sourceLines,
             firstPartyModules: firstPartyModules,
             allowPreconcurrencyImports: allowPreconcurrencyImports,
-            justificationKeyword: justificationKeyword
+            justificationKeyword: justificationKeyword,
+            isolationTable: isolationTable
         )
         visitor.walk(tree)
         // cancellation-checkpoint-after-loop runs from VigilKit (Phase 4

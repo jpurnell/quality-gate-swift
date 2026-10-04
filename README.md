@@ -167,7 +167,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **118 targets** — 59 source, 59 test
+- **120 targets** — 60 source, 60 test
 - **46 registered checkers**
 <!-- /generated:scale -->
 
@@ -284,12 +284,12 @@ swift package plugin quality-gate
 
 | Flag | Description |
 |------|-------------|
-| `--check <name>` | Run specific checker(s) by ID. Use `all` for every checker |
-| `--exclude <name>` | Skip checker(s) when using `--check all` |
+| `--check <name>` | Run specific checker(s) by ID, separated by spaces or commas. Use `all` for every checker. An unknown ID is an error (exit 64) |
+| `--exclude <name>` | Skip checker(s) — from the default set, `--check all`, or an explicit `--check` |
 | `--format <fmt>` | Output format: `terminal` (default), `json`, `sarif`, `xcode` |
 | `--config <path>` | Config file path (default: `.quality-gate.yml`) |
 | `--continue-on-failure` | Run all checks even if one fails |
-| `--strict` | Treat warnings as failures (exit code 1) |
+| `--strict` | Treat warnings as failures (exit code 1): the run fails when the summary's warning count is above zero |
 | `--verbose` | Show detailed progress |
 | `--fix` | Apply auto-fixes for `FixableChecker` conformers |
 | `--dry-run` | Preview `--fix` changes without writing (requires `--fix`) |

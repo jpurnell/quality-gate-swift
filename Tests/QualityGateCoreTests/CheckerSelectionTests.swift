@@ -323,4 +323,36 @@ struct CheckerSelectionTests {
             full: false, allIDs: allIDs
         ) == allIDs)
     }
+
+    // MARK: - Comma lists
+
+    @Test("--check a,b means --check a b")
+    func commaListIsSplit() {
+        // `coding_rules.md` documents the security audit as
+        // `--check safety,fp-safety,stochastic-determinism`. ArgumentParser delivers that
+        // as one string, which matched no checker id and ran nothing, exiting 0.
+        #expect(CheckerSelection.resolve(
+            requested: ["safety,logging"], excluded: [], configuredEnabled: [], full: false,
+            allIDs: allIDs
+        ) == ["safety", "logging"])
+    }
+
+    @Test("the all sentinel survives splitting")
+    func allSurvivesSplitting() {
+        #expect(CheckerSelection.resolve(
+            requested: ["all,build"], excluded: [], configuredEnabled: [], full: false, allIDs: allIDs
+        ) == allIDs)
+    }
+
+    @Test("a comma list in --exclude and in enabledCheckers is split the same way")
+    func commaListIsSplitEverywhere() {
+        #expect(CheckerSelection.resolve(
+            requested: ["all"], excluded: ["safety,logging"], configuredEnabled: [], full: false,
+            allIDs: allIDs
+        ) == ["build", "unreachable", "hig-auditor", "xcode-build"])
+        #expect(CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: ["build, safety"], full: false,
+            allIDs: allIDs
+        ) == ["build", "safety"])
+    }
 }

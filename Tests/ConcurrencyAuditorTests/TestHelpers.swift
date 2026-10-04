@@ -18,4 +18,10 @@ enum TestHelpers {
         )
         return try await auditor.auditSource(code, fileName: "test.swift", configuration: Configuration())
     }
+
+    /// Audit several files as one run. `files` maps a path — `Sources/Module/File.swift`
+    /// — to its source, so cross-file and cross-module resolution can be exercised.
+    static func audit(files: [String: String]) -> CheckResult {
+        ConcurrencyAuditor().auditSources(files)
+    }
 }

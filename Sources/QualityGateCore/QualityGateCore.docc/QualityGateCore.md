@@ -60,6 +60,12 @@ QualityGateCore defines the contract that all quality checkers implement, along 
 - ``OutputFormat``
 - ``ReporterFactory``
 
+### Verdict and Selection
+
+- ``RunTally``
+- ``CheckerSelection``
+- ``CheckerSelectionError``
+
 ### Guides
 
 - <doc:ImplementingCheckers>

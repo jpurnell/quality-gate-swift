@@ -107,9 +107,11 @@ The fixes that work:
 - **Do the isolated work before the `Task`.** If it must happen first, it must happen first —
   a comment saying "before sending" above a deferred task is a claim the scheduler is free to
   falsify.
-- **Snapshot what the Task needs into locals**, named *apart* from the properties they came
-  from. A local shadowing the property it snapshots reads, three lines later, as though it were
-  still the live value.
+- **Snapshot what the Task needs** into locals or a capture list (`Task { [session] in … }`).
+  The rule resolves bindings, so a snapshot may share its property's name and is not reported.
+  Consider naming it apart anyway: a local that shadows the property it copies reads, three
+  lines later, as though it were still the live value. That is advice about legibility, not
+  something the rule enforces.
 - **Move a multi-step sequence into one isolated method the Task awaits.** Two statements in a
   deferred task can be interleaved between; one method cannot.
 
@@ -124,7 +126,18 @@ actor A {
     var x = 0
     func f() {
         Task {
-            self.x += 1   // unsafe — runs off-actor
+            self.x += 1   // deferred: runs after f() has returned
+        }
+    }
+}
+
+// ❌ flagged — a weak capture changes how long the object lives, not when this runs
+@MainActor
+final class WeaklyCaptured {
+    var x = 0
+    func f() {
+        Task { [weak self] in
+            self?.x += 1
         }
     }
 }
@@ -141,7 +154,42 @@ actor BumpActor {
 }
 ```
 
-Bare references to stored property names (without `self.`) are also flagged when they match the actor's stored properties.
+A bare reference to a stored property (without `self.`) is flagged too — when it *is* the property. Swift resolves an unqualified name to the nearest lexical binding before it tries implicit `self`, and so does the rule: a capture-list entry, a parameter, a local, or an `if let` / `guard let` / `for` / `case let` binding of the same name is that binding, and a member reached through another base (`AppLog.device`, `peer.device`) belongs to that base. None of those is reported. `self.device` always is, whatever local shares the name.
+
+```swift
+struct Peer { let device: String }
+
+@MainActor
+final class Pairing {
+    var device: String?
+    var count = 0
+
+    // ✅ accepted — each `device` here is a value fixed before the Task ran
+    func remember(_ peer: Peer) {
+        let device = peer.device
+        Task { print(device) }
+        Task { print(peer.device) }
+    }
+    func announce() {
+        if let device { Task { print(device) } }
+    }
+
+    // ❌ flagged — these are the property, read after the call has returned
+    func later() {
+        Task { print(device ?? "") }
+        Task { [weak self] in
+            guard let self else { return }
+            count += 1
+        }
+    }
+}
+```
+
+`self?.member` and `self!.member` are `self.member` to this rule. `[weak self]` handles lifetime — the Task does not keep the object alive — and the rule is about ordering. An awaited call through `self?` is left alone, as an awaited call through `self` is; `await` on a synchronous member is the compiler's to report, and it does.
+
+In a `nonisolated` member the Task is not in an isolated context and is left alone — with one exception. `Task { @MainActor in self.x = 1 }` inside a `nonisolated` member of a `@MainActor` type is still reported: the member is not isolated, but the closure says it is, and the state it touches belongs to a main-actor type.
+
+The rule applies wherever the code is isolated, and an extension is isolated like the type it extends. `extension Pairing { func f() { Task { count += 1 } } }` is reported exactly as it would be inside the class, whether or not the extension repeats `@MainActor` and whether or not it is in the same file — provided the type is declared in the same package, in the extension's module or one its file imports. An extension of a type declared elsewhere (an SDK class, a dependency) is not examined.
 
 `withTaskGroup`, `async let`, and `Task.detached` are intentionally NOT flagged by this rule. `Task.detached` will get its own rule in a future version.
 
@@ -167,33 +215,48 @@ func refresh() {
 
 This rule fires for any DispatchQueue method (`.async`, `.sync`, `.asyncAfter`) when used inside isolated context.
 
+Isolation is taken from the enclosing type, and for an extension from the type it extends: an unannotated extension of a `@MainActor` type or of an actor declared in the same package is isolated. An extension of a type declared outside the package is not examined.
+
+A member that says it is not isolated is not isolated: a `nonisolated` function, property, subscript or initializer, and a `static` member of an actor, are left alone. A `static` member of a `@MainActor` type is isolated and is examined.
+
 ### `concurrency.main-actor-deinit-touches-state`
 
-In Swift 6, `deinit` is non-isolated even on `@MainActor` types. Touching instance stored properties from deinit will trap at runtime.
+A plain `deinit` is nonisolated, even on a `@MainActor` type: it runs on whichever thread releases the last reference. The compiler lets it read and write the type's stored properties anyway, and nothing traps — this guide used to say it would. The hazard is a race. A non-`Sendable` object reachable from a stored property may still be shared with main-actor code while the deinit touches it from another thread.
 
 ```swift
 // ❌ flagged
 @MainActor
-class DeinitTrap {
-    var x = 0
+final class PlainDeinitMonitor {
+    var task: Task<Void, Never>?
     deinit {
-        print(x)   // runtime trap in Swift 6
+        task?.cancel()   // runs wherever the last reference was dropped
     }
 }
 
 // ✅ accepted
 @MainActor
-class SafeDeinit {
-    var x = 0
-    deinit {
-        // empty — or only log static state
+final class IsolatedDeinitMonitor {
+    var task: Task<Void, Never>?
+    isolated deinit {
+        task?.cancel()   // runs on the main actor
     }
 }
 ```
 
-Static references via `Self.x` are excluded from the check because static storage is not actor-isolated.
+**The fix is `isolated deinit`** (SE-0371, Swift 6.2). It makes the deinit run on the type's actor, so touching the type's state is exactly what it is for. `@MainActor deinit` — the attribute on the deinit itself — is the same thing spelled differently, and the rule accepts both. `nonisolated deinit` is a plain deinit spelled out, and is reported like one.
 
-The recommended fix is to introduce an explicit isolated cleanup method that runs before deallocation.
+Availability, as measured on Swift 6.4:
+
+- On a `@MainActor` class, `isolated deinit` is back-deployed by the compiler: it compiles for macOS 14, iOS 17, watchOS 10 and visionOS 1. Below macOS 15.4 / iOS 18.4 / watchOS 11.4 / visionOS 2.4 the emitted shim runs the body inline when the release happens on the main thread and otherwise enqueues it on the main actor. That is what the compiler emits; it has not been exercised here on an iOS 17 runtime.
+- In an `actor`, or a class isolated to a custom global actor, `isolated deinit` needs macOS 15.4 / iOS 18.4 / watchOS 11.4 / visionOS 2.4, and the compiler says so. This rule only examines `@MainActor` classes, so it never asks for the gated form.
+
+The cost: when the last reference is dropped off the main actor, an isolated deinit schedules one main-actor hop and deallocation waits for it. Released on the main actor — the usual case for a view model — the body runs inline.
+
+The escape hatch still works: a property declared `nonisolated(unsafe)`, with a `// Justification:` comment, is not isolated state and a plain deinit may touch it. It is unchecked, so prefer `isolated deinit`.
+
+Static references via `Self.x` are excluded from the check because static storage is not instance state.
+
+As in the Task rule, a name is the property only when nothing nearer binds it: a local or a closure parameter in the deinit that shares a property's name is that binding, and `Registry.x` is `Registry`'s member. `self.x` is always the property.
 
 ### `concurrency.preconcurrency-first-party-import`
 
@@ -260,9 +323,9 @@ The auditor is intentionally conservative on what it flags but pragmatic about s
 
 - **unchecked-sendable, nonisolated-unsafe**: add a `// Justification:` comment.
 - **sendable-class-mutable-state, sendable-class-non-sendable-property**: switch to `@unchecked Sendable` with a justification, or refactor.
-- **task-captures-self-no-isolation**: use `await self.method()` to make the hop explicit.
+- **task-captures-self-no-isolation**: do the work before the Task, snapshot what the Task needs into locals or a capture list, or await one isolated method. Adding `await` to a synchronous member is not a fix, and neither is `[weak self]` with `self?.`.
 - **dispatch-queue-in-actor**: use `await MainActor.run` or refactor to stay on-actor.
-- **main-actor-deinit-touches-state**: move cleanup to an explicit isolated method called before deallocation.
+- **main-actor-deinit-touches-state**: declare the deinit `isolated deinit`. If its only access is cancelling a Task handle, `nonisolated(unsafe)` on that property with a `// Justification:` comment also works, unchecked.
 - **preconcurrency-first-party-import**: add the module to `allowPreconcurrencyImports:` during a transition, then fix the underlying warnings and remove it.
 - **cancellation-checkpoint-after-loop**: add `try Task.checkCancellation()` after the loop, or — if the post-loop code genuinely must run on both paths — put `// concurrency:exempt` on the loop line (recorded as a `DiagnosticOverride`, not silently dropped).
 
