@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
+  `excludedCheckers:`. Before this, the only way to opt a checker in from config was
+  `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
+  (`doc-run`, `doc-claims`, `doc-comment-code`, `doc-generated`). The new key is added to
+  `enabledCheckers` when that is set. It changes neither `--check all` nor an explicit
+  `--check`, and an exclusion still wins over it. It is a new schema key, so an older binary
+  rejects a file that uses it: ratchet `minimumGateVersion` when you adopt it.
+- **`xcode-build` builds plain Swift packages.** With no workspace or project in the root but
+  a `Package.swift`, it runs `xcodebuild` from the package directory with no container
+  arguments. A workspace or project still wins when present, so nothing that built before
+  builds something different now. Prompted by BioFeedbackKit-HealthKit, whose watchOS-only
+  HealthKit adapter the macOS `build` checker has never compiled.
 - **What a cipher is keyed with: `security.hardcoded-key` (CWE-321), `security.static-iv`
   (CWE-329, 1204, 323), `security.weak-kdf` (CWE-916) and `security.weak-key-size` (CWE-326), all
   error.** The rest of `ACipherIsItsArguments.md`; `broken-cipher` and `ecb-mode` read the
@@ -508,6 +520,13 @@
 
 ### Changed
 
+- **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
+  successful build with warnings was counted in the summary while the checker's line stayed
+  green, so a run whose job is zero warnings could read as clean. The run still passes
+  without `--strict` and fails under it, the same as every other checker that warns.
+  Caveats: an incremental build re-emits a warning only when its file recompiles, so the
+  status appears on the run that compiles the file. Local path dependencies' warnings
+  count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
 - **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
   (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
   is gone; a parameter is secret-named when it names a strong credential, password or
@@ -604,6 +623,18 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
+  exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
+  `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
+  reads `❌ Quality Gate: FAILED (--strict: a checker warned)` when warnings alone caused it.
+- **`complexity` costed two non-loops as O(n).** An implicit member (`case .first:`,
+  `return .last`) has no receiver, so it is an enum case or a static member, never a
+  collection method. And `map` on an `as?` result is `Optional.map`, which runs once. Both
+  were matched by name alone. In BioFeedbackKit-HealthKit each one made a function read as
+  O(n²) from its caller. Collection `first` and `map` are still costed as before.
+- **`xcode-build` reported "nothing to build" as PASSED.** It now reports SKIPPED. Configured
+  with a scheme and a watchOS destination on a plain package, it printed
+  `✓ [xcode-build] PASSED (0ms)` having compiled nothing.
 - **`pointer-escape` no longer reports an assignment as a return, or an element as a pointer.**
   A with-block whose last statement was an assignment (`{ buffer, count in …; count = 0 }`,
   `{ _ = f(ptr) }`) had that statement treated as the implicit return value, so a closure

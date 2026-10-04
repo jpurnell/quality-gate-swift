@@ -234,7 +234,9 @@ public struct BuildChecker: QualityChecker, Sendable {
 
         let status: CheckResult.Status
         if exitCode == 0 {
-            status = .passed
+            // A compiler warning is a finding, and the verdict says so. As `.passed` it was
+            // counted in the summary and nowhere else: the tick stayed green.
+            status = diagnostics.contains { $0.severity == .warning } ? .warning : .passed
         } else {
             let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
             if !hasCompilationErrors && isCodeSigningError(output) {
