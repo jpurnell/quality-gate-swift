@@ -620,4 +620,67 @@ struct CheckerRunnerCacheTests {
         #expect(carried == original)
     }
 
+    // MARK: - `--no-cache` writes through
+    //
+    // The flag used to skip the load and the store alike, so the entry that a `--no-cache` run
+    // had just proved stale survived it: the next default run replayed the old verdict, and the
+    // only repair was deleting the cache. Not reading is what the flag is for; not writing was
+    // never the point. See `AWarmBuildForgetsItsWarnings.md` §3.5.
+
+    private func note(_ text: String) -> Diagnostic {
+        Diagnostic(severity: .note, message: text, ruleId: "fake.marker")
+    }
+
+    @Test("A no-read run executes the checker and replaces the stored entry")
+    func noReadRunReplacesTheEntry() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+
+        // The same checker id over the same inputs — one fingerprint — reporting something
+        // different each time, as a checker with an undeclared input does.
+        let stale = FakeChecker(id: "drifting", cacheInputFiles: [input.path], diagnostics: [note("stale")])
+        _ = await run(stale, cache: cache, useCache: true)
+
+        let counter = CallCounter()
+        let current = FakeChecker(
+            id: "drifting", cacheInputFiles: [input.path], callCounter: counter, diagnostics: [note("current")])
+        let forced = await run(current, cache: cache, useCache: false)
+        let afterwards = await run(stale, cache: cache, useCache: true)
+
+        let count = await counter.count
+        #expect(count == 1, "a no-read run must execute the checker")
+        #expect(forced[0].diagnostics.map(\.message) == ["current"])
+        // The default run that follows replays what the forced run found, not what it replaced.
+        #expect(afterwards[0].diagnostics.contains { $0.ruleId == "cache.replayed" })
+        #expect(afterwards[0].diagnostics.filter { $0.ruleId == "fake.marker" }.map(\.message) == ["current"])
+    }
+
+    @Test("A no-read run that fails stores nothing, and the entry it disproved is gone")
+    func noReadRunDoesNotStoreAFailure() async throws {
+        let dir = try tempDir()
+        let input = dir.appendingPathComponent("in.txt")
+        try "v1".write(to: input, atomically: true, encoding: .utf8)
+        let cache = ResultCache(directory: dir.appendingPathComponent("cache"))
+
+        let passing = FakeChecker(id: "drifting", cacheInputFiles: [input.path], diagnostics: [note("stale pass")])
+        _ = await run(passing, cache: cache, useCache: true)
+
+        let failing = FakeChecker(id: "drifting", status: .failed, cacheInputFiles: [input.path])
+        let forced = await run(failing, cache: cache, useCache: false)
+        #expect(forced[0].status == .failed)
+
+        let counter = CallCounter()
+        let rerun = FakeChecker(
+            id: "drifting", cacheInputFiles: [input.path], callCounter: counter, diagnostics: [note("fresh")])
+        let afterwards = await run(rerun, cache: cache, useCache: true)
+
+        let count = await counter.count
+        // Neither the failure nor the pass it contradicted is replayed: the checker runs.
+        #expect(count == 1)
+        #expect(afterwards[0].status == .passed)
+        #expect(afterwards[0].diagnostics.map(\.message) == ["fresh"])
+    }
+
 }

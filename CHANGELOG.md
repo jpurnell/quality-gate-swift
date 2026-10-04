@@ -685,6 +685,12 @@
   and the build system tracks every input the cache did not. Existing `build` entries expire on
   their own, since the gate binary's hash is in every fingerprint. `test` still uses the same
   fingerprint and has the same path-dependency hole; that is not fixed here.
+- **`--no-cache` repairs the cache instead of leaving it alone.** The flag skipped the load and
+  the store alike, so the run that proved an entry stale left it in place and the next default
+  run replayed it. It now means *do not read*: every checker runs, a passing result replaces
+  the stored entry, and a failing one removes it (failures are still never stored). Help text:
+  *"Ignore cached results: run every checker and replace its cached entry. Does not force a
+  clean build — it does not need to."*
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
