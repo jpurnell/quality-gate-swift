@@ -520,6 +520,21 @@
 
 ### Changed
 
+- **`task-captures-self-no-isolation` and `dispatch-queue-in-actor` apply inside unannotated
+  extensions of `@MainActor` types and actors declared in the same package.** An extension took
+  its isolation from its own attribute list, so an extension of an actor was never isolated,
+  an extension of a `@MainActor` class was isolated only if it repeated the attribute, and even
+  then implicit-`self` property access was invisible because the property set was empty. A
+  pre-pass now reads every type declaration in the run, and an extension resolves the type it
+  extends by name: its own module first, then the modules its file imports. A rule widening:
+  code that passed can now fail.
+  - Unknown means unchanged. A type declared in the SDK or a dependency, a module the file does
+    not import, a typealias, and a name whose declarations disagree on isolation all leave the
+    extension non-isolated, as before. So does an attribute that may name another global actor.
+  - `nonisolated extension` (SE-0449) is honoured; a type nested in an isolated extension does
+    not inherit.
+  - Not covered: isolation inherited from a superclass or a `@MainActor` protocol, default
+    main-actor isolation (SE-0466), and custom global actors.
 - **`SyntaxScope`, a new target, holds the lexical-scope code.** `LexicalScope` and the
   pattern-name finder move out of `RecursionAuditor` unchanged, joined by
   `visibleBindings(at:)`, which answers "what local names can code at this node see?" by

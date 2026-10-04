@@ -189,6 +189,8 @@ final class Pairing {
 
 In a `nonisolated` member the Task is not in an isolated context and is left alone — with one exception. `Task { @MainActor in self.x = 1 }` inside a `nonisolated` member of a `@MainActor` type is still reported: the member is not isolated, but the closure says it is, and the state it touches belongs to a main-actor type.
 
+The rule applies wherever the code is isolated, and an extension is isolated like the type it extends. `extension Pairing { func f() { Task { count += 1 } } }` is reported exactly as it would be inside the class, whether or not the extension repeats `@MainActor` and whether or not it is in the same file — provided the type is declared in the same package, in the extension's module or one its file imports. An extension of a type declared elsewhere (an SDK class, a dependency) is not examined.
+
 `withTaskGroup`, `async let`, and `Task.detached` are intentionally NOT flagged by this rule. `Task.detached` will get its own rule in a future version.
 
 ### `concurrency.dispatch-queue-in-actor`
@@ -212,6 +214,8 @@ func refresh() {
 ```
 
 This rule fires for any DispatchQueue method (`.async`, `.sync`, `.asyncAfter`) when used inside isolated context.
+
+Isolation is taken from the enclosing type, and for an extension from the type it extends: an unannotated extension of a `@MainActor` type or of an actor declared in the same package is isolated. An extension of a type declared outside the package is not examined.
 
 A member that says it is not isolated is not isolated: a `nonisolated` function, property, subscript or initializer, and a `static` member of an actor, are left alone. A `static` member of a `@MainActor` type is isolated and is examined.
 

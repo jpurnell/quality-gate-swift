@@ -20,8 +20,12 @@ enum IsolationContext: Equatable {
 
 // MARK: - Visitor
 
-/// The single visitor that walks a Swift source file, tracks isolation context,
-/// and applies all eight ConcurrencyAuditor rules.
+/// The visitor that walks one Swift source file, tracks isolation context, and applies
+/// the syntactic ConcurrencyAuditor rules.
+///
+/// It is per-file, but not self-contained: an extension takes its isolation from the
+/// type it extends, which may be declared in another file. That comes from the
+/// ``IsolationTable`` built over the whole run before any file is walked.
 final class ConcurrencyVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
@@ -29,6 +33,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     let firstPartyModules: Set<String>
     let allowPreconcurrencyImports: Set<String>
     let justificationKeyword: String
+    /// Every type declaration in the run, for resolving what an extension extends.
+    let isolationTable: IsolationTable
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
@@ -49,8 +55,10 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         sourceLines: [String],
         firstPartyModules: Set<String>,
         allowPreconcurrencyImports: Set<String>,
-        justificationKeyword: String
+        justificationKeyword: String,
+        isolationTable: IsolationTable
     ) {
+        self.isolationTable = isolationTable
         self.fileName = fileName
         self.converter = converter
         self.sourceLines = sourceLines
@@ -127,10 +135,10 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let isolation: IsolationContext = hasMainActorAttribute(node.attributes) ? .mainActor : .none
-        isolationStack.append(isolation)
-        typeIsolationStack.append(isolation)
-        storedPropertyStack.append([])
+        let extended = extensionFacts(node)
+        isolationStack.append(extended.isolation)
+        typeIsolationStack.append(extended.isolation)
+        storedPropertyStack.append(extended.storedProperties)
         checkUncheckedSendableInheritance(node.inheritanceClause, declStartLine: startLine(of: Syntax(node)))
         return .visitChildren
     }
@@ -138,6 +146,32 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         isolationStack.removeLast()
         typeIsolationStack.removeLast()
         storedPropertyStack.removeLast()
+    }
+
+    /// The isolation an extension's members start from, and the stored properties
+    /// implicit `self` can reach inside it.
+    ///
+    /// An extension has the isolation of the type it extends. What the extension itself
+    /// says comes first; then the type's declaration, if the run can read it; and when
+    /// it cannot, the extension is treated as non-isolated, which reports nothing.
+    private func extensionFacts(_ node: ExtensionDeclSyntax) -> (isolation: IsolationContext, storedProperties: Set<String>) {
+        let extended = isolationTable.resolve(node.extendedType, fromFile: fileName)
+        if hasMainActorAttribute(node.attributes) {
+            return (.mainActor, extended?.storedProperties ?? [])
+        }
+        // `nonisolated extension` (SE-0449).
+        if node.modifiers.contains(where: { $0.name.tokenKind == .keyword(.nonisolated) }) {
+            return (.none, [])
+        }
+        // Any attribute this visitor does not know to be harmless may name another
+        // global actor, and the rules know only `MainActor`.
+        if hasUnrecognisedAttribute(node.attributes) {
+            return (.none, [])
+        }
+        if let extended, extended.isolation.isIsolated {
+            return (extended.isolation, extended.storedProperties)
+        }
+        return (.none, [])
     }
 
     // MARK: Member-level decls (inherit isolation unless the member says otherwise)
@@ -610,6 +644,17 @@ func isSelfReference(_ expr: ExprSyntax) -> Bool {
        let only = tuple.elements.first,
        only.label == nil {
         return isSelfReference(only.expression)
+    }
+    return false
+}
+
+/// Whether an attribute list carries anything other than attributes known to say
+/// nothing about isolation. Conditional attributes count as unrecognised.
+func hasUnrecognisedAttribute(_ attributes: AttributeListSyntax) -> Bool {
+    let harmless: Set<String> = ["available", "objc", "nonobjc", "_spi", "_documentation", "preconcurrency"]
+    for element in attributes {
+        guard let attribute = element.as(AttributeSyntax.self) else { return true }
+        if !harmless.contains(attribute.attributeName.trimmedDescription) { return true }
     }
     return false
 }
