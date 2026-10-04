@@ -65,6 +65,33 @@ struct RunTallyTests {
         #expect(disagreements == [])
     }
 
+    @Test("a counted error on a checker that ran is never under a PASSED verdict")
+    func countedErrorFailsTheRun() {
+        // The error rows of reconciliation, stated over every run: if a checker that ran
+        // (not a skipped one) carries an error, the verdict is failed, strict or not.
+        var disagreements: [String] = []
+        for run in Self.everyRun {
+            let ranWithError = run.contains { $0.status != .skipped && $0.errorCount > 0 }
+            guard ranWithError else { continue }
+            let tally = RunTally(run)
+            if tally.verdict(strict: false, truncated: false) != .failed
+                || tally.verdict(strict: true, truncated: false) != .failed {
+                disagreements.append(run.map(\.checkerId).joined(separator: " + "))
+            }
+        }
+        #expect(disagreements == [])
+
+        let passedWithError = [
+            CheckResult(
+                checkerId: "sloppy", status: .passed,
+                diagnostics: [Diagnostic(severity: .error, message: "x", ruleId: "r")], duration: .zero)
+        ]
+        let tally = RunTally(passedWithError)
+        #expect(tally.failedCheckers == ["sloppy"])
+        #expect(tally.passedCheckers == [])
+        #expect(tally.errors == 1)
+    }
+
     @Test("without --strict, warnings never fail the run")
     func lenientPassesOnWarnings() {
         let results = [

@@ -647,6 +647,23 @@ struct CheckerRunnerCacheTests {
         #expect(outcome.results.map(\.status) == [.warning])
     }
 
+    @Test("A default run stops at a checker that passed while carrying an error")
+    func runStopsAtAPassedCheckerCarryingAnError() async {
+        let error = Diagnostic(severity: .error, message: "broken", ruleId: "r")
+        let checkers: [any QualityChecker] = [
+            FakeChecker(id: "A", isParallelSafe: false, diagnostics: [error]),
+            FakeChecker(id: "B", isParallelSafe: false),
+        ]
+        let outcome = await CheckerRunner(maxConcurrency: 4).run(
+            checkers: checkers,
+            configuration: Configuration(),
+            strict: false,
+            continueOnFailure: false
+        )
+        #expect(outcome.truncation?.stoppedAt == "A")
+        #expect(outcome.results.map(\.status) == [.failed])
+    }
+
     @Test("A replayed result is reconciled exactly as a fresh one is")
     func replayedResultIsReconciled() async throws {
         let dir = try tempDir()

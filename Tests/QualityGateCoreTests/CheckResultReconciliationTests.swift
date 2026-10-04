@@ -22,6 +22,32 @@ struct CheckResultReconciliationTests {
         #expect(reconciled.diagnostics == [diagnostic(.warning)])
     }
 
+    // MARK: - The error rows
+
+    @Test("a passed result carrying an error becomes failed")
+    func passedWithErrorBecomesFailed() {
+        // "1 error(s)" above "✅ PASSED" is the same disagreement as a counted warning that
+        // does not gate, and this is the one row that changes a non-strict exit code.
+        let reconciled = result(.passed, [diagnostic(.error)]).reconciled()
+        #expect(reconciled.status == .failed)
+        #expect(reconciled.diagnostics == [diagnostic(.error)])
+        #expect(reconciled.failsRun(strict: false))
+    }
+
+    @Test("a warning result carrying an error becomes failed")
+    func warningWithErrorBecomesFailed() {
+        #expect(result(.warning, [diagnostic(.error)]).reconciled().status == .failed)
+        #expect(result(.warning, [diagnostic(.warning), diagnostic(.error)]).reconciled().status == .failed)
+        // No finding is synthesized: the error is the finding.
+        #expect(result(.warning, [diagnostic(.error)]).reconciled().diagnostics == [diagnostic(.error)])
+    }
+
+    @Test("a skipped result carrying an error stays skipped")
+    func skippedWithErrorStaysSkipped() {
+        let original = result(.skipped, [diagnostic(.error)])
+        #expect(original.reconciled() == original)
+    }
+
     @Test("a passed result carrying only notes is unchanged")
     func passedWithNotesIsUnchanged() {
         let original = result(.passed, [diagnostic(.note), diagnostic(.note, "other")])

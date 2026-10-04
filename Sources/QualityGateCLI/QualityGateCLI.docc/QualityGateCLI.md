@@ -236,6 +236,8 @@ and the verdict are read from one tally (`RunTally`), so a run that prints
 Which checker emitted the warning does not matter, and neither does the status that checker
 chose for itself. Each result's status is reconciled with its diagnostics as it leaves the
 runner: a checker that reports `PASSED` while carrying a warning is shown as `WARNING`.
+A checker that carries an error is shown as `FAILED` and fails the run, with or without
+`--strict`.
 
 A skipped checker's warning counts too. `doc-code` and `doc-comment-code` skip with a
 `module-unavailable` warning when the module they compile against has not been built. The

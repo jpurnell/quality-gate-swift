@@ -204,6 +204,30 @@ struct ReporterTests {
         #expect(output.contains("   0 error(s), 3 warning(s)\n"))
     }
 
+    @Test("A checker that reported PASSED while carrying an error fails the run, strict or not")
+    func terminalReporterCountedErrorIsFailed() throws {
+        let results = [
+            CheckResult(
+                checkerId: "sloppy", status: .passed,
+                diagnostics: [Diagnostic(severity: .error, message: "broken", ruleId: "r")],
+                duration: .zero),
+        ]
+        var output = ""
+        try TerminalReporter().report(results, to: &output)
+        #expect(output.contains("✗ [sloppy] FAILED"))
+        #expect(output.contains("❌ Quality Gate: FAILED\n"))
+        #expect(output.contains("   1 error(s), 0 warning(s)\n"))
+        #expect(!output.contains("Quality Gate: PASSED"))
+
+        var json = ""
+        try JSONReporter().report(results, to: &json)
+        let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        let summary = try #require(parsed?["summary"] as? [String: Any])
+        #expect(summary["status"] as? String == "failed")
+        #expect(summary["failed"] as? Int == 1)
+        #expect(summary["totalErrors"] as? Int == 1)
+    }
+
     @Test("Under --strict the JSON summary gates on the warning count it reports")
     func jsonReporterStrictGatesOnTheCountItReports() throws {
         let results = [

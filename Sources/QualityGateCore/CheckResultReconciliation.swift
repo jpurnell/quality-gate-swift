@@ -25,7 +25,9 @@ extension CheckResult {
     /// |---|---|---|
     /// | `.skipped` | any | unchanged |
     /// | `.failed` | any | unchanged |
-    /// | `.passed` | a warning | `.warning` |
+    /// | `.passed` | an error | `.failed` |
+    /// | `.passed` | a warning, no error | `.warning` |
+    /// | `.warning` | an error | `.failed` |
     /// | `.warning` | no warning, no error | `.warning`, plus one `gate.status-without-finding` warning |
     /// | otherwise | | unchanged |
     ///
@@ -33,7 +35,11 @@ extension CheckResult {
     /// `--strict`; that is a severity policy those checkers chose, and loosening a default
     /// gate is a different change.
     ///
-    /// The `.warning` row keeps the agreement two-way. A `.warning` status the count cannot
+    /// The two error rows are the only ones that change a run without `--strict`: a result
+    /// that carries an error fails, whatever status it reported. `1 error(s)` above
+    /// `✅ PASSED` is the same disagreement as a counted warning that does not gate.
+    ///
+    /// The last row keeps the agreement two-way. A `.warning` status the count cannot
     /// see is the same disagreement in the other direction: the run fails under `--strict`
     /// while printing `0 warning(s)`. The synthesized finding makes that visible, and names
     /// the checker that owes a warning of its own.
@@ -44,10 +50,12 @@ extension CheckResult {
         case .skipped, .failed:
             return self
         case .passed:
+            if errorCount > 0 { return replacing(status: .failed, diagnostics: diagnostics) }
             guard warningCount > 0 else { return self }
             return replacing(status: .warning, diagnostics: diagnostics)
         case .warning:
-            guard warningCount == 0, errorCount == 0 else { return self }
+            if errorCount > 0 { return replacing(status: .failed, diagnostics: diagnostics) }
+            guard warningCount == 0 else { return self }
             let synthesized = Diagnostic(
                 severity: .warning,
                 message: "[\(checkerId)] reported WARNING without a warning-severity finding",

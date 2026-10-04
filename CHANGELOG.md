@@ -555,6 +555,14 @@
     number of warning findings.
   - Not changed: `safety` and `concurrency` still fail on warnings without `--strict`. A
     warning the compiler did not re-emit on a warm build is still not seen.
+- **A checker that carries an error fails, whatever status it reported.** The remaining rows of
+  `CheckResult.reconciled()`: a `.passed` or `.warning` result with an error-severity diagnostic
+  becomes `.failed`. `1 error(s)` above `✅ Quality Gate: PASSED` is the same disagreement as a
+  counted warning that does not gate. **This is the one part of the `--strict` work that changes
+  a run without `--strict`**: such a run now exits 1 and, without `--continue-on-failure`, stops
+  at that checker. A skipped result is left alone. It is its own commit so it can be reverted
+  without the rest; the portfolio count of such results (the proposal's §4.3 (b)) has not been
+  measured.
 - **`--check a,b` works, and a selection the gate cannot honour is an error.** `--check a,b`
   arrived as the one id `a,b`, matched nothing, printed `No checkers enabled. Nothing to do.`
   and exited 0. That is the form `coding_rules.md` documents for the security audit
