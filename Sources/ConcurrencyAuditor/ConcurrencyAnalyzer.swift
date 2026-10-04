@@ -159,7 +159,10 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        isolationStack.append(currentIsolation)
+        // The body has the deinit's isolation, not the type's: a plain or `nonisolated`
+        // deinit runs wherever the last reference is dropped, an `isolated deinit` on
+        // the type's actor, and a `@MainActor deinit` on the main actor.
+        isolationStack.append(deinitIsolation(node, typeIsolation: currentTypeIsolation))
         // Rule: @MainActor deinit touches state. A deinit the language has isolated
         // (`isolated deinit`, or `@MainActor deinit` — SE-0371) runs on the actor, so
         // touching the type's state is what it is for and the rule does not apply.
@@ -570,6 +573,18 @@ func deinitIsIsolated(_ node: DeinitializerDeclSyntax) -> Bool {
         return true
     }
     return hasMainActorAttribute(node.attributes)
+}
+
+/// The isolation a deinit's body runs with.
+///
+/// `@MainActor deinit` names its actor; `isolated deinit` takes the enclosing type's;
+/// anything else is nonisolated, whatever the type is.
+func deinitIsolation(_ node: DeinitializerDeclSyntax, typeIsolation: IsolationContext) -> IsolationContext {
+    if hasMainActorAttribute(node.attributes) { return .mainActor }
+    if node.modifiers.contains(where: { $0.name.tokenKind == .keyword(.isolated) }) {
+        return typeIsolation
+    }
+    return .none
 }
 
 func hasPreconcurrencyAttribute(_ attributes: AttributeListSyntax) -> Bool {

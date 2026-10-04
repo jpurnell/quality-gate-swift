@@ -636,6 +636,11 @@
     `@MainActor` class produced exactly the deinit the concurrency rule reports. On a
     `@MainActor` class it now suggests an `isolated deinit`, and calls through an optional
     handle as `X?.cancel()`. Other classes keep the old text.
+- **A deinit's body has the deinit's isolation, not the type's.** The analyzer treated every
+  deinit body as isolated like its type, so `task-captures-self-no-isolation` and
+  `dispatch-queue-in-actor` ran inside a plain deinit — which is nonisolated — as though it
+  were actor code. A plain or `nonisolated` deinit body is now nonisolated; an `isolated deinit`
+  takes the type's isolation and a `@MainActor deinit` the main actor's.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
