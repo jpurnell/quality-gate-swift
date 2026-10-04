@@ -248,6 +248,8 @@ The escape hatch still works: a property declared `nonisolated(unsafe)`, with a 
 
 Static references via `Self.x` are excluded from the check because static storage is not instance state.
 
+As in the Task rule, a name is the property only when nothing nearer binds it: a local or a closure parameter in the deinit that shares a property's name is that binding, and `Registry.x` is `Registry`'s member. `self.x` is always the property.
+
 ### `concurrency.preconcurrency-first-party-import`
 
 `@preconcurrency import SomeModule` tells the compiler to suppress strict-concurrency warnings from that module. This is a reasonable transition strategy for third-party dependencies you can't fix. It is **not** a reasonable strategy for your own code — fix the underlying warnings instead.

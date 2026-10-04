@@ -328,4 +328,116 @@ struct MainActorDeinitTests {
         #expect(flagged.first?.message.contains("race") == true)
         #expect(flagged.first?.suggestedFix?.contains("isolated deinit") == true)
     }
+
+    // MARK: - A name is the property only when nothing nearer binds it
+
+    private func flaggedCount(_ code: String) async throws -> Int {
+        try await TestHelpers.audit(code).diagnostics.filter { $0.ruleId == ruleId }.count
+    }
+
+    @Test("A local in the deinit named like a property is the local")
+    func ignoresLocalShadowInDeinit() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            deinit {
+                let x = 1
+                print(x)
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 0)
+    }
+
+    @Test("A member of another value named like a property is that value's")
+    func ignoresMemberOfOtherBaseInDeinit() async throws {
+        let code = """
+        enum Registry { static var x = 0 }
+        @MainActor
+        class A {
+            var x = 0
+            deinit {
+                print(Registry.x)
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 0)
+    }
+
+    @Test("A closure parameter in the deinit named like a property is the parameter")
+    func ignoresClosureParameterInDeinit() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            deinit {
+                [1, 2].forEach { x in print(x) }
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 0)
+    }
+
+    @Test("self.property is the property, whatever local shares its name")
+    func flagsSelfMemberDespiteLocalInDeinit() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            deinit {
+                let x = 1
+                print(self.x, x)
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 1)
+    }
+
+    @Test("A read before a later local of the same name is the property")
+    func flagsReadBeforeLaterShadowInDeinit() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            deinit {
+                print(x)
+                let x = 1
+                print(x)
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 1)
+    }
+
+    @Test("A property used as the base of another member is the state touched")
+    func flagsPropertyAsBaseInDeinit() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var task: Task<Void, Never>?
+            deinit {
+                task?.cancel()
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 1)
+    }
+
+    @Test("A method called through self is not stored state")
+    func ignoresSelfMethodNamedUnlikeAnyProperty() async throws {
+        // Calling an isolated method from a nonisolated deinit is the compiler's to
+        // reject. This rule reads storage.
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            nonisolated func log() {}
+            deinit {
+                self.log()
+            }
+        }
+        """
+        #expect(try await flaggedCount(code) == 0)
+    }
 }

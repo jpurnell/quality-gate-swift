@@ -647,6 +647,11 @@
   reported.
   - The suggested fix no longer says "named apart from the properties". That described the
     rule's blind spot as though it were policy; the guide keeps it as advice.
+- **`main-actor-deinit-touches-state` has the same correction.** Its walker matched names the
+  same way, so `let x = 1; print(x)` in a deinit, a closure parameter, and `Registry.x` were
+  reported when the class had a stored `x`. It now uses the same binding-aware walk.
+  `self.x`, a bare `x` that nothing shadows, and a property used as the base of another member
+  (`task?.cancel()`) are reported as before.
 - **`isolated deinit` is accepted in `@MainActor` classes and is the recommended fix.**
   `concurrency.main-actor-deinit-touches-state` read only the enclosing type's isolation, so
   a deinit the language had isolated (`isolated deinit`, or `@MainActor deinit` — SE-0371) was

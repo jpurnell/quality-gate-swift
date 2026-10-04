@@ -356,34 +356,15 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         let propertyNames = currentStoredProperties
         guard !propertyNames.isEmpty else { return }
 
-        final class Walker: SyntaxVisitor {
-            let names: Set<String>
-            var found = false
-            init(names: Set<String>) {
-                self.names = names
-                super.init(viewMode: .sourceAccurate)
-            }
-            override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-                if names.contains(node.baseName.text) {
-                    found = true
-                }
-                return .skipChildren
-            }
-            override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                // Exclude Self.x (static)
-                if let base = node.base, base.trimmedDescription == "Self" {
-                    return .skipChildren
-                }
-                // self.x or implicit
-                if names.contains(node.declName.baseName.text) {
-                    if let base = node.base, base.trimmedDescription == "self" {
-                        found = true
-                    }
-                }
-                return .visitChildren
-            }
-        }
-        let walker = Walker(names: propertyNames)
+        // The same resolution the Task rule uses: a bare name is the property only when
+        // nothing nearer binds it, and a member of another base belongs to that base.
+        // A deinit has no parameters, so nothing is bound outside its body.
+        let walker = StateReferenceWalker(
+            storedProperties: propertyNames,
+            boundOutside: [],
+            selfMembers: .storedProperties,
+            skipsHopsAndNestedTasks: false
+        )
         walker.walk(body)
         if walker.found {
             diagnostics.append(Diagnostic(
