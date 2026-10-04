@@ -634,6 +634,19 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`task-captures-self-no-isolation` reports the property, not its namesake.** The rule matched
+  any identifier in the Task closure spelled like a stored property, with no notion of what the
+  name was bound to. A capture-list entry (`[log]`, `[log = self.log]`), a parameter, a local
+  bound before or inside the Task, an `if let` / `guard let` / `for` / `case let` binding, a
+  nested or enclosing closure's parameter, and a member of another base (`AppLog.device`,
+  `peer.device`) were all reported as touching actor state. Bindings are now resolved first,
+  using the scope code shared with `RecursionAuditor`. Lexical order and scope are honoured: a
+  read before a later `let` of the same name, and a `let` in a sibling block, are still the
+  property. `self.x` is always the member. A narrowing — it removes findings that were never
+  true — with one addition: shorthand `if let x` *inside* the Task reads the property and is
+  reported.
+  - The suggested fix no longer says "named apart from the properties". That described the
+    rule's blind spot as though it were policy; the guide keeps it as advice.
 - **`isolated deinit` is accepted in `@MainActor` classes and is the recommended fix.**
   `concurrency.main-actor-deinit-touches-state` read only the enclosing type's isolation, so
   a deinit the language had isolated (`isolated deinit`, or `@MainActor deinit` — SE-0371) was

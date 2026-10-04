@@ -1,6 +1,7 @@
 import Foundation
 import QualityGateCore
 import SwiftSyntax
+import SyntaxScope
 
 // MARK: - Isolation context
 
@@ -208,8 +209,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
         // Rule: Task { ... } captures self in actor / @MainActor context
         if currentIsolation.isIsolated, isTaskCall(node) {
-            if let closure = trailingClosureBody(of: node) {
-                if closureCapturesEnclosingSelf(body: closure, storedProperties: currentStoredProperties) {
+            if let closure = node.trailingClosure {
+                if taskClosureTouchesState(call: node, closure: closure, storedProperties: currentStoredProperties) {
                     let line = startLine(of: Syntax(node))
                     diagnostics.append(Diagnostic(
                         severity: .error,
@@ -218,7 +219,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                         lineNumber: line,
                         columnNumber: 1,
                         ruleId: "concurrency.task-captures-self-no-isolation",
-                        suggestedFix: "Do the isolated work before the Task, snapshot what the Task needs into locals named apart from the properties, or move a multi-step sequence into one isolated method the Task awaits. Adding 'await' alone does not help: a non-detached Task inherits the actor's isolation, so awaiting a synchronous member is redundant and the compiler says so."
+                        suggestedFix: "Do the isolated work before the Task, snapshot what the Task needs into locals or a capture list, or move a multi-step sequence into one isolated method the Task awaits. Adding 'await' alone does not help: a non-detached Task inherits the actor's isolation, so awaiting a synchronous member is redundant and the compiler says so."
                     ))
                 }
             }
@@ -402,50 +403,25 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         return ident.baseName.text == "Task"
     }
 
-    private func trailingClosureBody(of call: FunctionCallExprSyntax) -> CodeBlockItemListSyntax? {
-        if let trailing = call.trailingClosure {
-            return trailing.statements
-        }
-        return nil
-    }
-
-    private func closureCapturesEnclosingSelf(body: CodeBlockItemListSyntax, storedProperties: Set<String>) -> Bool {
-        final class Walker: SyntaxVisitor {
-            let names: Set<String>
-            var found = false
-            init(names: Set<String>) {
-                self.names = names
-                super.init(viewMode: .sourceAccurate)
-            }
-            override func visit(_ node: AwaitExprSyntax) -> SyntaxVisitorContinueKind {
-                // Properly hopped — skip the entire await subtree.
-                return .skipChildren
-            }
-            override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-                // Skip nested Task calls — they get their own diagnostic at their own visit.
-                if let ident = node.calledExpression.as(DeclReferenceExprSyntax.self),
-                   ident.baseName.text == "Task" {
-                    return .skipChildren
-                }
-                return .visitChildren
-            }
-            override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                // `[weak self]` changes how long the object lives, not when the body
-                // runs: `self?.member` is the same deferred access as `self.member`.
-                if let base = node.base, isSelfReference(base) {
-                    found = true
-                }
-                return .visitChildren
-            }
-            override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-                if names.contains(node.baseName.text) {
-                    found = true
-                }
-                return .visitChildren
-            }
-        }
-        let walker = Walker(names: storedProperties)
-        walker.walk(body)
+    /// Whether a Task's closure touches the enclosing instance's state: any member
+    /// through `self`, or a stored property named bare that nothing nearer binds.
+    ///
+    /// The names bound outside the closure body — its own capture list and parameters,
+    /// and every local visible at the call — are resolved before the name match, so a
+    /// value that merely shares a property's spelling is not reported.
+    private func taskClosureTouchesState(
+        call: FunctionCallExprSyntax,
+        closure: ClosureExprSyntax,
+        storedProperties: Set<String>
+    ) -> Bool {
+        let boundOutside = visibleBindings(at: call).union(boundNames(of: closure))
+        let walker = StateReferenceWalker(
+            storedProperties: storedProperties,
+            boundOutside: boundOutside,
+            selfMembers: .all,
+            skipsHopsAndNestedTasks: true
+        )
+        walker.walk(closure.statements)
         return walker.found
     }
 
@@ -589,10 +565,8 @@ func deinitIsolation(_ node: DeinitializerDeclSyntax, typeIsolation: IsolationCo
     return .none
 }
 
-/// `self`, `self?` or `self!` — the receiver is the enclosing instance however it was
-/// captured and however it was unwrapped.
-///
-/// Decided on the token, not on the text, so trivia cannot change the answer.
+/// `self`, `self?`, `self!` or `(self)` — the receiver is the enclosing instance
+/// however it was captured and however it was unwrapped.
 func isSelfReference(_ expr: ExprSyntax) -> Bool {
     if let reference = expr.as(DeclReferenceExprSyntax.self) {
         return reference.baseName.tokenKind == .keyword(.self)
@@ -602,6 +576,12 @@ func isSelfReference(_ expr: ExprSyntax) -> Bool {
     }
     if let unwrap = expr.as(ForceUnwrapExprSyntax.self) {
         return isSelfReference(unwrap.expression)
+    }
+    if let tuple = expr.as(TupleExprSyntax.self),
+       tuple.elements.count == 1,
+       let only = tuple.elements.first,
+       only.label == nil {
+        return isSelfReference(only.expression)
     }
     return false
 }

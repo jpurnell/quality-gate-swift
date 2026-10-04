@@ -107,9 +107,11 @@ The fixes that work:
 - **Do the isolated work before the `Task`.** If it must happen first, it must happen first —
   a comment saying "before sending" above a deferred task is a claim the scheduler is free to
   falsify.
-- **Snapshot what the Task needs into locals**, named *apart* from the properties they came
-  from. A local shadowing the property it snapshots reads, three lines later, as though it were
-  still the live value.
+- **Snapshot what the Task needs** into locals or a capture list (`Task { [session] in … }`).
+  The rule resolves bindings, so a snapshot may share its property's name and is not reported.
+  Consider naming it apart anyway: a local that shadows the property it copies reads, three
+  lines later, as though it were still the live value. That is advice about legibility, not
+  something the rule enforces.
 - **Move a multi-step sequence into one isolated method the Task awaits.** Two statements in a
   deferred task can be interleaved between; one method cannot.
 
@@ -152,7 +154,36 @@ actor BumpActor {
 }
 ```
 
-Bare references to stored property names (without `self.`) are also flagged when they match the actor's stored properties.
+A bare reference to a stored property (without `self.`) is flagged too — when it *is* the property. Swift resolves an unqualified name to the nearest lexical binding before it tries implicit `self`, and so does the rule: a capture-list entry, a parameter, a local, or an `if let` / `guard let` / `for` / `case let` binding of the same name is that binding, and a member reached through another base (`AppLog.device`, `peer.device`) belongs to that base. None of those is reported. `self.device` always is, whatever local shares the name.
+
+```swift
+struct Peer { let device: String }
+
+@MainActor
+final class Pairing {
+    var device: String?
+    var count = 0
+
+    // ✅ accepted — each `device` here is a value fixed before the Task ran
+    func remember(_ peer: Peer) {
+        let device = peer.device
+        Task { print(device) }
+        Task { print(peer.device) }
+    }
+    func announce() {
+        if let device { Task { print(device) } }
+    }
+
+    // ❌ flagged — these are the property, read after the call has returned
+    func later() {
+        Task { print(device ?? "") }
+        Task { [weak self] in
+            guard let self else { return }
+            count += 1
+        }
+    }
+}
+```
 
 `self?.member` and `self!.member` are `self.member` to this rule. `[weak self]` handles lifetime — the Task does not keep the object alive — and the rule is about ordering. An awaited call through `self?` is left alone, as an awaited call through `self` is; `await` on a synchronous member is the compiler's to report, and it does.
 
@@ -282,7 +313,7 @@ The auditor is intentionally conservative on what it flags but pragmatic about s
 
 - **unchecked-sendable, nonisolated-unsafe**: add a `// Justification:` comment.
 - **sendable-class-mutable-state, sendable-class-non-sendable-property**: switch to `@unchecked Sendable` with a justification, or refactor.
-- **task-captures-self-no-isolation**: do the work before the Task, snapshot what the Task needs into locals named apart from the properties, or await one isolated method. Adding `await` to a synchronous member is not a fix, and neither is `[weak self]` with `self?.`.
+- **task-captures-self-no-isolation**: do the work before the Task, snapshot what the Task needs into locals or a capture list, or await one isolated method. Adding `await` to a synchronous member is not a fix, and neither is `[weak self]` with `self?.`.
 - **dispatch-queue-in-actor**: use `await MainActor.run` or refactor to stay on-actor.
 - **main-actor-deinit-touches-state**: declare the deinit `isolated deinit`. If its only access is cancelling a Task handle, `nonisolated(unsafe)` on that property with a `// Justification:` comment also works, unchecked.
 - **preconcurrency-first-party-import**: add the module to `allowPreconcurrencyImports:` during a transition, then fix the underlying warnings and remove it.
