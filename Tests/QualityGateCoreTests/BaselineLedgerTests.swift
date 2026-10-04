@@ -175,6 +175,30 @@ struct BaselineLedgerTests {
         #expect(applied.results[0].status == .passed)
     }
 
+    @Test("apply: a baselined warning on a result that reported PASSED is still covered")
+    func baselinedWarningOnAPassedResultIsCovered() throws {
+        // `adopt` records every non-note finding, including a warning from a checker whose
+        // status ignores it (`recursion`). The ledger used to skip a `.passed` result
+        // entirely, which did not matter while such a warning could not gate. Now that
+        // status follows the diagnostics, skipping it would leave recorded debt failing
+        // `--strict` — the green-on-day-one promise broken for exactly these checkers.
+        let dir = try makeSandbox()
+        let file = try writeSource(["func walk() { walk() }"], in: dir)
+        let warning = finding(
+            rule: "recursion.unconditional-self-call", file: file, line: 1, severity: .warning)
+        let ledger = BaselineLedger.adopt(findings: [warning], recordedAt: now, decayDays: 180)
+        let result = CheckResult(
+            checkerId: "recursion", status: .passed, diagnostics: [warning],
+            duration: .milliseconds(1))
+
+        let applied = ledger.applying(to: result, now: now)
+        #expect(applied.diagnostics.map(\.severity) == [.note])
+        #expect(applied.diagnostics.first?.origin == "baseline")
+        #expect(applied.status == .passed)
+        #expect(applied.reconciled().status == .passed)
+        #expect(RunTally([applied]).verdict(strict: true, truncated: false) == .passed)
+    }
+
     // MARK: - Persistence
 
     @Test("the ledger round-trips through its JSON file")

@@ -11,13 +11,13 @@ import Foundation
 /// ```
 public struct JSONReporter: Reporter, Sendable {
 
-    /// Whether a `.warning` result fails the run, as under `--strict`.
+    /// Whether a counted warning fails the run, as under `--strict`.
     public let strict: Bool
 
     /// Creates a new JSONReporter instance.
     ///
-    /// - Parameter strict: Whether a `.warning` result makes the summary status `failed`,
-    ///   matching the CLI's exit code under `--strict`.
+    /// - Parameter strict: Whether a non-zero `totalWarnings` makes the summary status
+    ///   `failed`, matching the CLI's exit code under `--strict`.
     public init(strict: Bool = false) {
         self.strict = strict
     }
@@ -50,8 +50,10 @@ private struct JSONReport: Codable {
     let results: [CheckResult]
 
     init(results: [CheckResult], strict: Bool) {
-        self.results = results
-        self.summary = Summary(from: results, strict: strict)
+        // Reconciled so each result's `status` is the one the summary was computed from.
+        let reconciled = results.map { $0.reconciled() }
+        self.results = reconciled
+        self.summary = Summary(from: reconciled, strict: strict)
     }
 
     struct Summary: Codable {
@@ -66,13 +68,18 @@ private struct JSONReport: Codable {
         let totalDuration: Double
 
         init(from results: [CheckResult], strict: Bool) {
+            // Every count and the status come off one tally — the same one the terminal
+            // summary and the exit code read. `warnings` is the number of checkers that
+            // warned; `totalWarnings` is the number of warning findings, and is what
+            // `--strict` gates on.
+            let tally = RunTally(results)
             totalChecks = results.count
-            passed = results.filter { $0.status == .passed }.count
-            failed = results.filter { $0.status == .failed }.count
-            warnings = results.filter { $0.status == .warning }.count
-            skipped = results.filter { $0.status == .skipped }.count
-            totalErrors = results.reduce(0) { $0 + $1.errorCount }
-            totalWarnings = results.reduce(0) { $0 + $1.warningCount }
+            passed = tally.passedCheckers.count
+            failed = tally.failedCheckers.count
+            warnings = tally.warnedCheckers.count
+            skipped = tally.skippedCheckers.count
+            totalErrors = tally.errors
+            totalWarnings = tally.warnings
 
             let totalDurationValue = results.reduce(Duration.zero) { sum, result in
                 sum + result.duration
@@ -80,7 +87,9 @@ private struct JSONReport: Codable {
             totalDuration = Double(totalDurationValue.components.seconds) + // fp-safety:disable
                            Double(totalDurationValue.components.attoseconds) / 1e18
 
-            status = failed > 0 || (strict && warnings > 0) ? "failed" : "passed"
+            // This reporter is not told whether the run was truncated, so it cannot say
+            // `incomplete`; the exit code still does.
+            status = tally.verdict(strict: strict, truncated: false) == .passed ? "passed" : "failed"
         }
     }
 }

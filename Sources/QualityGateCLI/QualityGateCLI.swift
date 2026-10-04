@@ -76,10 +76,10 @@ struct QualityGateCLI: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Path to configuration file")
     var config: String = ".quality-gate.yml"
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run (use 'all' for every checker)")
+    @Option(name: .long, parsing: .upToNextOption, help: "Specific checkers to run, separated by spaces or commas (use 'all' for every checker). An id that names no checker is an error.")
     var check: [String] = []
 
-    @Option(name: .long, parsing: .upToNextOption, help: "Checkers to skip, in default runs and with --check all")
+    @Option(name: .long, parsing: .upToNextOption, help: "Checkers to skip, separated by spaces or commas — from a default run, from --check all, and from an explicit --check")
     var exclude: [String] = []
 
     @Flag(name: .long, help: "Continue running checks even if one fails")
@@ -388,17 +388,9 @@ struct QualityGateCLI: AsyncParsableCommand {
         let pushedRefs = releaseBoundary ? (PushedRefs.fromStandardInput() ?? []) : PushedRefs.fromStandardInput()
         let allCheckers = Self.checkerRegistry(configuration: configuration, pushedRefs: pushedRefs)
 
-        // Determine effective checkers: --check all | --check X Y | config | defaults.
-        // Destructive maintenance checkers (disk-clean) are opt-in even under "all".
-        let preProfileCheckers = CheckerSelection.resolve(
-            requested: check,
-            excluded: exclude + configuration.excludedCheckers,
-            configuredEnabled: configuration.enabledCheckers,
-            configuredIncluded: configuration.includedCheckers,
-            full: full,
-            allIDs: allCheckers.map(\.id)
-        )
-
+        // Determine effective checkers: --profile | --check all | --check X Y | config |
+        // defaults — resolved *and validated* before anything runs.
+        //
         // `consistency` audits the run, so it cannot be *in* the run.
         //
         // It reads telemetry, and the current run's telemetry is written after every checker
@@ -410,36 +402,45 @@ struct QualityGateCLI: AsyncParsableCommand {
         // `--profile code --exclude complexity` means what it looks like. The profile filters
         // on what each checker *declares* — see `CheckerKind` and `CheckerEffect` — so it
         // cannot drift from the registry the way a list of ids beside it would.
-        let effectiveCheckers: [String]
-        if let profile {
-            let base = Set(profile.checkerIDs(from: allCheckers))
-            let excludeSet = Set(exclude)
-            let explicit = Set(check.filter { $0 != "all" })
-            effectiveCheckers = allCheckers.map(\.id).filter { id in
-                (base.contains(id) || explicit.contains(id)) && !excludeSet.contains(id)
+        //
+        // A selection the gate cannot honour is an error, not a no-op. `--check a,b` used to
+        // arrive as the single id "a,b", match nothing, print "No checkers enabled. Nothing
+        // to do." and exit 0; the same path swallowed a typo and dropped one bad id from a
+        // good list. A run that examined nothing has not passed.
+        let selection: CheckerSelection.Selection
+        do {
+            selection = try CheckerSelection.select(
+                CheckerSelection.Request(
+                    requested: check,
+                    excluded: exclude,
+                    configuredEnabled: configuration.enabledCheckers,
+                    configuredExcluded: configuration.excludedCheckers,
+                    configuredIncluded: configuration.includedCheckers,
+                    full: full,
+                    profileBase: profile.map { $0.checkerIDs(from: allCheckers) }),
+                allIDs: allCheckers.map(\.id))
+        } catch {
+            if case .retired = error {
+                // `disk-clean` was a checker until cleanup moved off the QualityChecker
+                // protocol. Name the replacement rather than letting an old invocation look
+                // like a no-op.
+                print(error.message)
+                print("Cleanup mutates the tree, so it is a subcommand rather than a check.")
+            } else {
+                FileHandle.standardError.write(Data((error.message + "\n").utf8))
             }
-        } else {
-            effectiveCheckers = preProfileCheckers
+            throw ExitCode(error.exitCode)
         }
+        for notice in selection.notices {
+            FileHandle.standardError.write(Data(("ℹ️  " + notice + "\n").utf8))
+        }
+        let effectiveCheckers = selection.ids
 
+        // `consistency` alone is a legitimate invocation — it is not in `checkersToRun`, so
+        // an empty sweep with it selected is a consistency-only run, not an empty one.
         let consistencySelected = effectiveCheckers.contains(ConsistencyChecker().id)
         let checkersToRun = allCheckers.filter { checker in
             effectiveCheckers.contains(checker.id) && checker.id != ConsistencyChecker().id
-        }
-
-        // `disk-clean` was a checker until cleanup moved off the QualityChecker protocol.
-        // Name the replacement rather than letting an old invocation look like a no-op.
-        if effectiveCheckers.contains("disk-clean") {
-            print("`--check disk-clean` has moved: run `quality-gate clean` instead.")
-            print("Cleanup mutates the tree, so it is a subcommand rather than a check.")
-            throw ExitCode.failure
-        }
-
-        // `consistency` alone is a legitimate invocation — it is no longer in `checkersToRun`,
-        // so an empty sweep with it selected is a consistency-only run, not an empty one.
-        if checkersToRun.isEmpty && !consistencySelected {
-            print("No checkers enabled. Nothing to do.")
-            return
         }
 
         // Create reporter
@@ -554,7 +555,10 @@ struct QualityGateCLI: AsyncParsableCommand {
                 let consistencyResult = checkersToRun.isEmpty
                     ? try await checker.check(configuration: configuration)
                     : try await checker.audit(results: allResults, configuration: configuration)
-                allResults.append(overrideProcessor.apply(to: consistencyResult))
+                // Reconciled like every result the runner returns: this stage is the one
+                // other place a result enters the run, so it is the one other place the
+                // status is made to agree with the diagnostics.
+                allResults.append(overrideProcessor.apply(to: consistencyResult).reconciled())
             } catch {
                 // Loud, never silent: a corpus that cannot be read is a fact about the run.
                 Self.logger.error("Consistency audit failed: \(error.localizedDescription, privacy: .public)")
@@ -567,7 +571,7 @@ struct QualityGateCLI: AsyncParsableCommand {
                         ruleId: "consistency-unavailable"
                     )],
                     duration: .zero
-                ))
+                ).reconciled())
             }
         }
         // Every checker is done with the index. Release the shared sessions so each
@@ -607,12 +611,14 @@ struct QualityGateCLI: AsyncParsableCommand {
         // stopped early and never reached the rest — see TerminalReporter's INCOMPLETE
         // branch. Exiting 0 there would tell a CI job that a run which examined half the
         // roster had passed, which is the one answer this tool must never give.
-        let runIncomplete = runOutcome.truncation != nil
-        let hasFailure = runIncomplete || allResults.contains { result in
-            if result.status == .failed { return true }
-            if strict && result.status == .warning { return true }
-            return false
-        }
+        //
+        // The verdict comes off the same `RunTally` the reporters print from. Under
+        // `--strict` it reads the warning *count* — the number on the summary line — so a
+        // run that prints `N warning(s)` with N > 0 cannot exit 0, whichever checker
+        // emitted them and whatever status it chose for itself.
+        let verdict = RunTally(allResults).verdict(
+            strict: strict, truncated: runOutcome.truncation != nil)
+        let hasFailure = verdict != .passed
 
         // Handle --bootstrap: generate initial status documents
         if bootstrap {
@@ -705,7 +711,8 @@ struct QualityGateCLI: AsyncParsableCommand {
         // analyzed project is recorded anywhere unless the *overlay itself*
         // configured the corpus — a repo- or user-global corpus path never
         // captures a repo that isn't yours as a side effect.
-        let runScope: RunScope = (check.isEmpty || check.contains("all"))
+        let requestedIDs = CheckerSelection.normalise(check)
+        let runScope: RunScope = (requestedIDs.isEmpty || requestedIDs.contains("all"))
             ? .full
             : .subset(checkers: effectiveCheckers)
         if !runEnvironment.isForeign || configProvenance?.origin(of: "consistency") == .overlay {

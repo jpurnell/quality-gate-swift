@@ -290,6 +290,16 @@ struct ConsistencyCheckerTests {
         let result = try await checker.check(configuration: config)
 
         #expect(result.status == .warning)
+        // The WARNING status is backed by a warning the summary can count. Without it a
+        // below-threshold run whose findings were all notes failed --strict while printing
+        // `0 warning(s)`, and the gate had to say so on the checker's behalf.
+        let belowThreshold = result.diagnostics.filter { $0.ruleId == "consistency-below-threshold" }
+        #expect(belowThreshold.count == 1)
+        #expect(belowThreshold.first?.severity == .warning)
+        #expect(belowThreshold.first?.message.contains("below the threshold 0.90") == true)
+        #expect(!result.reconciled().diagnostics.contains { $0.ruleId == "gate.status-without-finding" })
+        // Telemetry parses the score out of this note's message; it is left as it was.
+        #expect(result.diagnostics.filter { $0.ruleId == "consistency-score" }.map(\.severity) == [.note])
     }
 
     @Test("Score above threshold returns passed status")
@@ -316,6 +326,7 @@ struct ConsistencyCheckerTests {
         let result = try await checker.check(configuration: config)
 
         #expect(result.status == .passed)
+        #expect(!result.diagnostics.contains { $0.ruleId == "consistency-below-threshold" })
     }
 
     // MARK: - No Metadata (Pulse-Only)
