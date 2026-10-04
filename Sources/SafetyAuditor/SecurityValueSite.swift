@@ -220,10 +220,21 @@ public enum SecurityValueSite {
         if let callee = terminalName(of: call.calledExpression),
            let sink = SecurityContext.sink(callee: callee, argumentLabels: arguments.map { $0.label?.text }),
            arguments.indices.contains(sink.valueArgumentIndex),
-           arguments[sink.valueArgumentIndex].id == labeled.id {
+           arguments[sink.valueArgumentIndex].id == labeled.id,
+           SecurityContext.sinkCarriesSecurityValue(named: sinkName(of: sink, in: arguments)) {
             return .sink(sink.kind)
         }
         return labeled.label.map { .argument(label: $0.text) }
+    }
+
+    /// The sink's name when it is written as a plain string literal, else `nil`: a name built
+    /// at run time, or interpolated, cannot be read from the source.
+    private static func sinkName(of sink: SecurityContext.SinkMatch, in arguments: [LabeledExprSyntax]) -> String? {
+        guard let index = sink.nameArgumentIndex, arguments.indices.contains(index),
+              let literal = arguments[index].expression.as(StringLiteralExprSyntax.self),
+              literal.segments.count == 1,
+              let segment = literal.segments.first?.as(StringSegmentSyntax.self) else { return nil }
+        return segment.content.text
     }
 
     /// `return V`: from the innermost function, or a computed property's getter. A closure's

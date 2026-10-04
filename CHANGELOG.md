@@ -704,6 +704,18 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **A query item or header is a security sink only when its name says so.** The randomness
+  rules (`weak-prng`, `seeded-secret`, `predictable-token`, `uuid-as-secret`) put every value
+  written to a header, cookie or URL query item in a security context
+  (`ASeedIsNotASecret` §3.1(b)). The pre-deploy portfolio run found what that costs:
+  BusinessMathMarketData's Yahoo Finance URL sends `period1` and `period2`, two timestamps that
+  are a date range, and both were reported as `security.predictable-token` at error.
+  `SecurityContext.sinkCarriesSecurityValue(named:)` now decides from the sink's name when it is
+  a string literal: `token`, `nonce`, `Authorization`, `Cookie`, `X-API-Key`, `X-CSRF-Token`
+  are contexts; `period1`, `interval`, `Content-Type`, `If-Modified-Since` are not. A weak word
+  alone (`state`) is not enough. A name that is not a literal cannot be read and stays in
+  context. `SinkMatch` gains `nameArgumentIndex`. The repo was missed by the rule's own
+  measurement because it lives under `Playgrounds/`, which that run excluded.
 - **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
   exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
   `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
