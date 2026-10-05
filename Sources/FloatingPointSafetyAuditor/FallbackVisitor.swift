@@ -244,10 +244,8 @@ final class FallbackVisitor: SyntaxVisitor {
     // MARK: - Bodies
 
     private func bind(parameters: FunctionParameterListSyntax) {
-        for parameter in parameters {
-            let name = (parameter.secondName ?? parameter.firstName).text
-            guard name != "_" else { continue }
-            bind(name, kind: kind(ofTypeText: parameter.type.trimmedDescription))
+        for parameter in FallbackTypes.parameters(of: parameters) {
+            bind(parameter.name, kind: parameter.typeText.map(kind(ofTypeText:)) ?? .other)
         }
     }
 
@@ -306,20 +304,10 @@ final class FallbackVisitor: SyntaxVisitor {
 
     override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
         pushScope(body: Syntax(node.statements), documentation: .undocumented)
-        guard let parameterClause = node.signature?.parameterClause else { return .visitChildren }
-
-        switch parameterClause {
-        case .simpleInput(let names):
-            // Untyped, so unknown — but declared, so they shadow.
-            for name in names {
-                bind(name.name.text, kind: .other)
-            }
-        case .parameterClause(let clause):
-            for parameter in clause.parameters {
-                let name = (parameter.secondName ?? parameter.firstName).text
-                guard name != "_" else { continue }
-                bind(name, kind: parameter.type.map { kind(ofTypeText: $0.trimmedDescription) } ?? .other)
-            }
+        // Typed parameters are what they are declared to be. Untyped ones are
+        // unknown — but declared, so they shadow.
+        for parameter in FallbackTypes.parameters(of: node.signature) {
+            bind(parameter.name, kind: parameter.typeText.map(kind(ofTypeText:)) ?? .other)
         }
         return .visitChildren
     }

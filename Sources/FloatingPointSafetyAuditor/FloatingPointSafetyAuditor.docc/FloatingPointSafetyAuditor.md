@@ -6,7 +6,7 @@ Catches floating-point precision bugs: exact equality comparisons and unguarded 
 
 FloatingPointSafetyAuditor uses SwiftSyntax to walk Swift source files under `Sources/` and flag two classes of floating-point bugs that compile cleanly but produce incorrect results at runtime. Both rules emit warnings rather than errors because heuristic detection from syntax alone cannot guarantee operand types — false positives are preferable to silent precision bugs.
 
-The auditor uses conservative heuristics to determine whether an expression involves floating-point values. It recognizes float literals (`3.14`, `1.0`), explicit type annotations (`let x: Double`), variables initialized from float literals, member access on known FP type names (`Double.random(...)`), and constructor calls (`Double(someValue)`). The recognized type names are `Double`, `Float`, `CGFloat`, `Float16`, `Float80`, and `Decimal`.
+The auditor uses conservative heuristics to determine whether an expression involves floating-point values. It recognizes float literals (`3.14`, `1.0`), explicit type annotations (`let x: Double`), parameter types written in a signature (`func f(d: Double)` — read by the division rule, for the divisor), variables initialized from float literals, member access on known FP type names (`Double.random(...)`), and constructor calls (`Double(someValue)`). The recognized type names are `Double`, `Float`, `CGFloat`, `Float16`, `Float80`, and `Decimal`.
 
 Test files (paths containing `/Tests/` or starting with `Tests/`) are automatically excluded from analysis. The auditor only scans files under the `Sources/` directory.
 
@@ -37,7 +37,7 @@ Several sentinel-value comparisons are exempt because exact equality is intentio
 
 Division by a floating-point value that could be zero produces `inf` or `nan`, which propagate silently through calculations. This rule flags `/` and `/=` operators where the divisor appears to be floating-point and no zero guard is visible in the enclosing function scope.
 
-The auditor recognizes guard patterns of the form `variable != 0`, `variable != 0.0`, `variable != .zero`, and `variable > 0`. When the divisor variable appears in any of these patterns within the same function body, the division is considered guarded and is not flagged.
+The auditor reads the checks a function body makes and where it makes them. A division is not flagged when something *before it* asked whether its divisor is zero: `d != 0`, `d > 0`, `n >= 1`, `d == 0 ? 0 : x / d`, `abs(d) > .ulpOfOne`, `!d.isZero`, or — for a divisor of `xs.count` — any test of `xs.isEmpty`. A check on `values.count` covers `let count = Double(values.count)`. A check written after the division does not count. <doc:FloatingPointSafetyAuditorGuide> has the full list.
 
 ### Suppression
 

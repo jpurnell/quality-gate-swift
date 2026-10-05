@@ -65,14 +65,30 @@ enum FloatingPointShape: Sendable {
 /// different evidence bars. `fp-equality` asks which of three claims an `==` is
 /// making, and is worth raising whenever the operand is plausibly floating-point.
 /// `fp-division-unguarded` asks whether a divisor could be zero, and its answer
-/// is a guard added to shipping code — so it stays on evidence written at the
-/// site and does not follow inference chains.
+/// is a guard added to shipping code — so it stays on evidence that was written
+/// down and does not follow a function's return type.
+///
+/// A name carries exactly the evidence of the expression it names:
+/// `let d = Double(n)` is a conversion, written one line above its use, and the
+/// name adds no inference. The division rule once treated that binding as a
+/// chain, which made `x / Double(n)` a finding and `let d = Double(n); x / d`
+/// not one — a verdict that depended on whether the divisor had a name.
 enum FloatingPointEvidence: Sendable {
     /// Written down at the point of use or of declaration: a literal, a type
-    /// annotation, a conversion call, an allowlisted static member.
+    /// annotation, a conversion call, an allowlisted static member — or a name
+    /// bound to one of those.
     case direct
-    /// Recovered by following a chain: a local bound from a conversion, or from
-    /// a call to a function this file declares a return type for.
+    /// Written in a signature: the type annotation of a parameter, or a name
+    /// bound to one. Read by the division rule, for the divisor only.
+    ///
+    /// It is as direct as an annotation on a `let`. The case exists because two
+    /// other readers would turn the same fact into findings of another kind:
+    /// the numerator path would examine `x / (a - b)` on the strength of `x`,
+    /// a divisor no guard could clear without naming it; and `fp-equality`
+    /// would be widened as a side effect. Each is its own decision.
+    case signature
+    /// Recovered by following a chain: a call to a function this file declares
+    /// a return type for, or a name bound to one.
     case inferred
 }
 
@@ -96,7 +112,8 @@ struct FloatingPointOperand: Sendable {
 ///
 /// Because SwiftSyntax provides syntax, not types, the visitor uses conservative
 /// heuristics: float literals (`FloatLiteralExprSyntax`), explicit type
-/// annotations (`let x: Double`), and member-access on known FP type names.
+/// annotations (`let x: Double`), parameter types written in a signature, and
+/// member-access on known FP type names.
 final class FloatingPointSafetyVisitor: SyntaxVisitor {
     let filePath: String
     let converter: SourceLocationConverter
@@ -138,6 +155,9 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     /// Nesting depth of enclosing `#expect` / `#require` macro expansions.
     private var assertionDepth = 0
 
+    /// Nesting depth of enclosing declarations of `/` or `/=`.
+    private var divisionDeclarationDepth = 0
+
     /// One lexical scope's worth of what the visitor has learned about names.
     ///
     /// Bindings are per-scope because they were once per-file, and a name
@@ -148,8 +168,18 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         /// Names known to hold floating-point values, and on what evidence.
         var floatingPointNames: [String: FloatingPointOperand] = [:]
 
-        /// Names whose enclosing body contains a visible zero-guard.
-        var guardedVariables: Set<String> = []
+        /// Names declared here and not known to be floating-point: an `Int`
+        /// parameter, an untyped closure parameter, a local annotated `Int`.
+        ///
+        /// A positive statement, not an absence. It is what lets an inner
+        /// `rate: Int` shadow an outer `rate: Double`; without it the inner
+        /// name resolves outward and integer division is reported as
+        /// floating-point.
+        var otherNames: Set<String> = []
+
+        /// The checks this body makes, each with where it was made. Nil for a
+        /// scope that is not a body.
+        var facts: FallbackGuardFacts?
     }
 
     /// The scope stack, innermost last. The first element is the file itself,
@@ -200,30 +230,85 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     /// Records `name` as holding a floating-point value in the innermost scope.
     private func bind(_ name: String, operand: FloatingPointOperand) {
         scopes[scopes.count - 1].floatingPointNames[name] = operand
+        scopes[scopes.count - 1].otherNames.remove(name)
     }
 
-    /// Looks a name up from the innermost scope outward, so an inner binding
-    /// shadows an outer one rather than colliding with it.
+    /// Records `name` as declared in the innermost scope and not known to be
+    /// floating-point.
+    private func bindAsOther(_ name: String) {
+        scopes[scopes.count - 1].floatingPointNames[name] = nil
+        scopes[scopes.count - 1].otherNames.insert(name)
+    }
+
+    /// Looks a name up from the innermost scope outward, stopping at the first
+    /// scope that declares it either way — so an inner declaration shadows an
+    /// outer one whether or not it is floating-point.
     private func operand(forName name: String) -> FloatingPointOperand? {
         for scope in scopes.reversed() {
             if let operand = scope.floatingPointNames[name] { return operand }
+            if scope.otherNames.contains(name) { return nil }
         }
         return nil
     }
 
-    /// Returns true if any enclosing scope has a visible zero-guard on `name`.
-    private func isGuarded(_ name: String) -> Bool {
-        scopes.contains { $0.guardedVariables.contains(name) }
+    /// Binds the parameters of the scope just entered.
+    ///
+    /// A type written in a signature is the same evidence as a type written on
+    /// a `let`. A default value changes nothing: `d: Double = 1.0` can still be
+    /// passed zero. A parameter of any other type, or of none, is declared and
+    /// not floating-point.
+    private func bind(parameters: [FallbackTypes.Parameter]) {
+        for parameter in parameters {
+            guard let typeText = parameter.typeText,
+                  let shape = floatingPointShape(ofTypeText: typeText) else {
+                bindAsOther(parameter.name)
+                continue
+            }
+            bind(
+                parameter.name,
+                operand: FloatingPointOperand(
+                    shape: parameter.isVariadic ? .collection : shape,
+                    evidence: .signature
+                )
+            )
+        }
     }
 
-    /// Enters a new lexical scope, optionally seeded with the zero-guards
-    /// visible in `body`.
+    /// True if something before `divisor` asked whether it is zero.
+    ///
+    /// The check may be on the divisor under another name — a guard on
+    /// `values.count` covers `let count = Double(values.count)` — and in any
+    /// enclosing body, so a guard in a function covers a closure inside it. It
+    /// must come first: a check written after the division did not protect it.
+    ///
+    /// Order is not dominance. `if d > 0 { log() }; x / d` passes, because the
+    /// question was asked before the division; whether the answer was acted on
+    /// needs branch structure this visitor does not have.
+    private func isCheckedBeforeUse(_ divisor: ExprSyntax) -> Bool {
+        guard let key = FallbackSubjectKey.key(of: divisor, genericNames: fpTypeNames) else {
+            return false
+        }
+        var keys: Set<String> = [key]
+        for scope in scopes {
+            guard let facts = scope.facts else { continue }
+            keys.formUnion(facts.equivalents(of: key))
+        }
+        let offset = divisor.positionAfterSkippingLeadingTrivia.utf8Offset
+        return scopes.contains { scope in
+            scope.facts?.kinds(for: keys, before: offset).contains(.nonZero) ?? false
+        }
+    }
+
+    /// Enters a new lexical scope, optionally seeded with the checks `body` makes.
+    ///
+    /// The collector is the one `fallback.*` uses. Both rules ask whether a
+    /// value is safe to divide by, and two collectors gave two answers.
     private func pushScope(collectingGuardsFrom body: Syntax?) {
         var scope = DeclarationScope()
         if let body, checkDivisionGuards {
-            var guards: Set<String> = []
-            collectGuardedVariables(from: body, into: &guards)
-            scope.guardedVariables = guards
+            // The visitor's own type vocabulary is passed as the conversion
+            // names, so `Decimal(n)` and `Float80(n)` are still `n` to a guard.
+            scope.facts = FallbackGuardFactCollector.collect(from: body, genericNames: fpTypeNames)
         }
         scopes.append(scope)
     }
@@ -283,16 +368,20 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
                 continue
             }
 
-            // Otherwise read the initializer: a float literal or an array
-            // literal of them is written down; a conversion or a call to a
-            // function this file declares a return type for is a chain, and the
-            // binding carries that provenance forward.
+            // Otherwise read the initializer, and bind the name to exactly
+            // what the initializer is. A literal or a conversion is written
+            // down, and stays so under a name; a call to a function this file
+            // declares a return type for is a chain, and stays one.
             if let initializer = binding.initializer,
                let source = floatingPointOperand(of: initializer.value) {
-                let isLiteral = initializer.value.is(FloatLiteralExprSyntax.self)
-                    || initializer.value.is(ArrayExprSyntax.self)
-                let evidence: FloatingPointEvidence = isLiteral ? .direct : .inferred
-                bind(varName, operand: FloatingPointOperand(shape: source.shape, evidence: evidence))
+                bind(varName, operand: source)
+                continue
+            }
+
+            // Annotated as something else, and nothing in the initializer says
+            // otherwise: the name is declared, and it is not floating-point.
+            if binding.typeAnnotation != nil {
+                bindAsOther(varName)
             }
         }
         return .visitChildren
@@ -300,20 +389,53 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
     // MARK: - Lexical Scopes
 
+    /// True for a declaration of the division operator itself.
+    ///
+    /// `static func / (lhs: V, rhs: Double) -> V` *is* division. A guard in it
+    /// would change what `/` means for the type, and the contract belongs to
+    /// whoever writes `v / s` — a site the rule examines on its own evidence.
+    /// The exemption is by declaration name, so it cannot be claimed by an
+    /// ordinary function.
+    private static func declaresDivision(_ node: FunctionDeclSyntax) -> Bool {
+        node.name.text == "/" || node.name.text == "/="
+    }
+
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
+        if Self.declaresDivision(node) {
+            divisionDeclarationDepth += 1
+        }
         pushScope(collectingGuardsFrom: node.body.map(Syntax.init))
+        bind(parameters: FallbackTypes.parameters(of: node.signature.parameterClause.parameters))
         return .visitChildren
     }
 
     override func visitPost(_ node: FunctionDeclSyntax) {
         popScope()
+        if Self.declaresDivision(node) {
+            divisionDeclarationDepth = max(0, divisionDeclarationDepth - 1)
+        }
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
         pushScope(collectingGuardsFrom: node.body.map(Syntax.init))
+        bind(parameters: FallbackTypes.parameters(of: node.signature.parameterClause.parameters))
         return .visitChildren
+    }
+
+    // A subscript is a scope. Its implicit getter — `subscript(d: Double) -> Double { … }`
+    // — has no accessor declaration, so without this its guards were never
+    // collected and a guarded division in it was reported.
+    override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard !isTestFile else { return .skipChildren }
+        pushScope(collectingGuardsFrom: node.accessorBlock.map(Syntax.init))
+        bind(parameters: FallbackTypes.parameters(of: node.parameterClause.parameters))
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: SubscriptDeclSyntax) {
+        popScope()
     }
 
     override func visitPost(_ node: InitializerDeclSyntax) {
@@ -333,6 +455,7 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile else { return .skipChildren }
         pushScope(collectingGuardsFrom: Syntax(node.statements))
+        bind(parameters: FallbackTypes.parameters(of: node.signature))
         return .visitChildren
     }
 
@@ -488,8 +611,8 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         opText: String,
         node: Syntax
     ) {
-        let lhsOperand = floatingPointOperand(of: lhs)
-        let rhsOperand = floatingPointOperand(of: rhs)
+        let lhsOperand = equalityOperand(of: lhs)
+        let rhsOperand = equalityOperand(of: rhs)
 
         guard lhsOperand != nil || rhsOperand != nil else { return }
         if isExemptComparand(lhs) || isExemptComparand(rhs) { return }
@@ -515,17 +638,18 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         // Scalars only: a collection has no `/`, so treating one as a divisor
         // would be a finding about an expression that does not exist.
         let lhsIndex = operatorIndex - 1
+        //
+        // The divisor is read on a signature as well as on direct evidence; the
+        // left operand is not. A parameter on the left would make
+        // `x / (a - b)` examined on the strength of `x`.
+        guard divisionDeclarationDepth == 0 else { return }
         let lhsIsFP = lhsIndex >= 0 ? isDirectlyEvidencedScalar(elements[lhsIndex]) : false
-        let divisorIsFP = isDirectlyEvidencedScalar(divisor)
+        let divisorIsFP = isEvidencedDivisor(divisor)
 
         guard divisorIsFP || lhsIsFP else { return }
 
-        if isNonZeroLiteral(divisor) { return }
-
-        // Check if divisor is a known guarded variable
-        if let varName = extractVariableName(divisor), isGuarded(varName) {
-            return
-        }
+        if NumericLiteralFacts.isNonZero(divisor) { return }
+        if isCheckedBeforeUse(divisor) { return }
 
         emitDiagnostic(
             ruleId: "fp-division-unguarded",
@@ -541,13 +665,10 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         divisor: ExprSyntax,
         node: Syntax
     ) {
-        guard isDirectlyEvidencedScalar(divisor) else { return }
+        guard divisionDeclarationDepth == 0, isEvidencedDivisor(divisor) else { return }
 
-        if isNonZeroLiteral(divisor) { return }
-
-        if let varName = extractVariableName(divisor), isGuarded(varName) {
-            return
-        }
+        if NumericLiteralFacts.isNonZero(divisor) { return }
+        if isCheckedBeforeUse(divisor) { return }
 
         emitDiagnostic(
             ruleId: "fp-division-unguarded",
@@ -675,10 +796,32 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     }
 
     /// True if the expression is a scalar floating-point value on evidence
-    /// written at the site — the bar the division rule holds to.
+    /// written at the site — the bar the division rule holds its left operand to.
     private func isDirectlyEvidencedScalar(_ expr: ExprSyntax) -> Bool {
         guard let operand = floatingPointOperand(of: expr) else { return false }
         return operand.shape == .scalar && operand.evidence == .direct
+    }
+
+    /// True if the expression is a scalar floating-point value on evidence the
+    /// division rule accepts for a *divisor*: written at the site, or written
+    /// in the signature of an enclosing declaration.
+    private func isEvidencedDivisor(_ expr: ExprSyntax) -> Bool {
+        guard let operand = floatingPointOperand(of: expr), operand.shape == .scalar else { return false }
+        switch operand.evidence {
+        case .direct, .signature: return true
+        case .inferred: return false
+        }
+    }
+
+    /// What `fp-equality` reads an operand as. It does not read a signature:
+    /// `func exactlyEqual(_ lhs: Double, _ rhs: Double) -> Bool { lhs == rhs }`
+    /// is not reported, as it was not before parameters were bound at all.
+    private func equalityOperand(of expr: ExprSyntax) -> FloatingPointOperand? {
+        guard let operand = floatingPointOperand(of: expr) else { return nil }
+        switch operand.evidence {
+        case .direct, .inferred: return operand
+        case .signature: return nil
+        }
     }
 
     /// Returns true if the expression is an exempt comparand (sentinel values
@@ -718,168 +861,7 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         return false
     }
 
-    // MARK: - Guard Detection
-
-    /// Scans a syntax subtree for zero-guard patterns on variable names.
-    /// Recognised patterns: `!= 0`, `> 0`, `!= 0.0`, `!= .zero`, `guard ... != 0`,
-    /// `abs(x) > 0`, `abs(x) > .ulpOfOne`, `!x.isZero`.
-    ///
-    /// - Parameters:
-    ///   - node: The subtree to scan.
-    ///   - guarded: Accumulator for the names found. Guarded by the child list
-    ///     running out, which it does at every leaf.
-    private func collectGuardedVariables(from node: Syntax, into guarded: inout Set<String>) {
-        for descendant in node.children(viewMode: .sourceAccurate) {
-            // Look for SequenceExprSyntax containing guard patterns
-            if let seq = descendant.as(SequenceExprSyntax.self) {
-                let elements = Array(seq.elements)
-                for (idx, element) in elements.enumerated() {
-                    guard let binOp = element.as(BinaryOperatorExprSyntax.self) else { continue }
-                    let op = binOp.operator.text
-
-                    // Pattern: `variable != 0` / `variable != 0.0` / `variable != .zero` / `variable > 0`
-                    if op == "!=" || op == ">" {
-                        let lhsIdx = idx - 1
-                        let rhsIdx = idx + 1
-                        guard lhsIdx >= 0, rhsIdx < elements.count else { continue }
-
-                        let lhs = elements[lhsIdx]
-                        let rhs = elements[rhsIdx]
-                        let isZeroCheck = isZeroExpression(rhs)
-                        let isPositiveThreshold = op == ">" && isPositiveExpression(rhs)
-
-                        if isZeroCheck || isPositiveThreshold {
-                            // Direct variable: `x > 0`
-                            if let varName = extractVariableName(lhs) {
-                                guarded.insert(varName)
-                            }
-                            // Wrapped in abs(): `abs(x) > 0`
-                            if let innerVar = extractAbsArgument(lhs) {
-                                guarded.insert(innerVar)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Pattern: `!collection.isEmpty` implies collection.count > 0
-            // Pattern: `!variable.isZero` implies variable != 0
-            if let prefixOp = descendant.as(PrefixOperatorExprSyntax.self),
-               prefixOp.operator.text == "!",
-               let memberAccess = prefixOp.expression.as(MemberAccessExprSyntax.self) {
-                let memberName = memberAccess.declName.baseName.text
-                if memberName == "isEmpty", let base = memberAccess.base {
-                    let countExpr = "\(base.trimmedDescription).count"
-                    guarded.insert(countExpr)
-                } else if memberName == "isZero", let base = memberAccess.base {
-                    if let varName = extractVariableName(ExprSyntax(base)) {
-                        guarded.insert(varName)
-                    }
-                }
-            }
-
-            // Recurse into children
-            collectGuardedVariables(from: descendant, into: &guarded)
-        }
-    }
-
-    /// Extracts the variable name from an `abs(variable)` call, if the expression
-    /// is a call to `abs` with a single unlabelled argument.
-    private func extractAbsArgument(_ expr: ExprSyntax) -> String? {
-        guard let funcCall = expr.as(FunctionCallExprSyntax.self),
-              let callee = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
-              callee.baseName.text == "abs",
-              funcCall.arguments.count == 1,
-              let firstArg = funcCall.arguments.first,
-              firstArg.label == nil else {
-            return nil
-        }
-        return extractVariableName(firstArg.expression)
-    }
-
-    /// Returns true if the expression is a positive numeric literal or sentinel
-    /// (e.g. `0.01`, `.ulpOfOne`, `1e-30`). Used to recognise threshold guards
-    /// like `abs(x) > .ulpOfOne`.
-    private func isPositiveExpression(_ expr: ExprSyntax) -> Bool {
-        if let floatLit = expr.as(FloatLiteralExprSyntax.self) {
-            return !isZeroExpression(ExprSyntax(floatLit))
-        }
-        if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
-            return intLit.literal.text != "0"
-        }
-        if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
-            let name = memberAccess.declName.baseName.text
-            return name == "ulpOfOne" || name == "leastNonzeroMagnitude" || name == "leastNormalMagnitude"
-        }
-        return false
-    }
-
-    /// Returns true if the expression is a non-zero numeric literal (e.g. 10.0, 5.0, 2).
-    private func isNonZeroLiteral(_ expr: ExprSyntax) -> Bool {
-        if let floatLit = expr.as(FloatLiteralExprSyntax.self) {
-            return !isZeroExpression(expr) && !floatLit.literal.text.isEmpty
-        }
-        if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
-            return intLit.literal.text != "0"
-        }
-        // `Float(1000)` is as constant as `1000`. Only the spelling differs, and a divisor
-        // written that way was being reported as an unknown quantity needing a zero guard
-        // — a guard on a literal, which no one can write meaningfully. The conversion is
-        // unwrapped and the literal inside is judged instead, so `Float(0)` still fails
-        // and `Double(count)` still fails: the argument has to be a literal itself.
-        if let call = expr.as(FunctionCallExprSyntax.self),
-           let callee = call.calledExpression.as(DeclReferenceExprSyntax.self),
-           Self.numericConversions.contains(callee.baseName.text),
-           call.arguments.count == 1,
-           let only = call.arguments.first,
-           only.label == nil {
-            return isNonZeroLiteral(only.expression)
-        }
-        return false
-    }
-
-    /// Types whose single-argument initialiser is a numeric conversion, not a computation.
-    private static let numericConversions: Set<String> = [
-        "Float", "Double", "CGFloat", "Float80", "Decimal",
-        "Int", "Int8", "Int16", "Int32", "Int64",
-        "UInt", "UInt8", "UInt16", "UInt32", "UInt64"
-    ]
-
-    /// Returns true if the expression represents a zero value (0, 0.0, .zero).
-    private func isZeroExpression(_ expr: ExprSyntax) -> Bool {
-        if let intLit = expr.as(IntegerLiteralExprSyntax.self) {
-            return intLit.literal.text == "0"
-        }
-        if let floatLit = expr.as(FloatLiteralExprSyntax.self) {
-            return floatLit.literal.text == "0.0"
-        }
-        if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
-            return memberAccess.declName.baseName.text == "zero"
-        }
-        return false
-    }
-
     // MARK: - Utility
-
-    /// Extracts a simple variable name from an expression, if it is a direct reference.
-    /// Also unwraps FP type constructors like `Double(x)` to extract `x`.
-    private func extractVariableName(_ expr: ExprSyntax) -> String? {
-        if let declRef = expr.as(DeclReferenceExprSyntax.self) {
-            return declRef.baseName.text
-        }
-        if let memberAccess = expr.as(MemberAccessExprSyntax.self) {
-            return memberAccess.trimmedDescription
-        }
-        if let funcCall = expr.as(FunctionCallExprSyntax.self),
-           let callee = funcCall.calledExpression.as(DeclReferenceExprSyntax.self),
-           fpTypeNames.contains(callee.baseName.text),
-           funcCall.arguments.count == 1,
-           let firstArg = funcCall.arguments.first,
-           firstArg.label == nil {
-            return extractVariableName(firstArg.expression)
-        }
-        return nil
-    }
 
     /// Emits a diagnostic, or records an override if a suppression marker
     /// applies to the line.

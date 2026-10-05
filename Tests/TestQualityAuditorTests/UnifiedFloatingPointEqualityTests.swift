@@ -839,12 +839,33 @@ struct UnifiedFloatingPointEqualityTests {
     /// The two rules ask different questions of the same operand. `fp-equality`
     /// asks "which of three claims is this `==` making?", which is worth raising
     /// on inferred types. `fp-division-unguarded` asks "could this divisor be
-    /// zero?", and its answer is a guard in shipping code — so it stays on
-    /// direct evidence (an annotation, a literal, a conversion at the site) and
-    /// does not follow inference chains. Widening it was a side effect of
-    /// teaching the equality rule to see collections, not a decision.
+    /// zero?", and its answer is a guard in shipping code — so it does not follow
+    /// a function's return type. Widening it was a side effect of teaching the
+    /// equality rule to see collections, not a decision.
     @Test
-    func divisionRuleDoesNotFollowInferredOperandTypes() async throws {
+    func divisionRuleDoesNotFollowReturnTypes() async throws {
+        let source = """
+        func scale(_ x: Int) -> Double { Double(x) }
+
+        func average(_ total: Int, _ count: Int) -> Double {
+            let s = scale(total)
+            let n = scale(count)
+            return s / n
+        }
+        """
+
+        let divisions = try await fpDivision(source)
+        #expect(divisions.count == 0, "a return type read from another declaration is not enough to demand a zero guard")
+    }
+
+    /// This test used to assert the opposite, in one fixture with the case
+    /// above: `let n = Double(count)` was called an inference chain alongside
+    /// the return type, and neither was examined. They are not the same thing.
+    /// A conversion bound to a `let` one line above its use is a conversion
+    /// written at the site, and refusing it made `s / Double(count)` a finding
+    /// and `s / n` not one — a verdict that turned on the divisor having a name.
+    @Test
+    func divisionRuleExaminesAConversionBoundLocal() async throws {
         let source = """
         func scale(_ x: Int) -> Double { Double(x) }
 
@@ -856,7 +877,8 @@ struct UnifiedFloatingPointEqualityTests {
         """
 
         let divisions = try await fpDivision(source)
-        #expect(divisions.count == 0, "an inferred type is not enough to demand a zero guard")
+        #expect(divisions.count == 1, "a local carries the evidence of its initializer")
+        #expect(divisions.first?.lineNumber == 6)
     }
 
     @Test

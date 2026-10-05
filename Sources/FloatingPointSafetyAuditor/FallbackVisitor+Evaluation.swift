@@ -315,52 +315,12 @@ extension FallbackVisitor {
             let divisorIndex = index + 1
             guard divisorIndex < elements.count else { return true }
             let divisor = elements[divisorIndex]
-            if Self.isNonZeroLiteral(divisor) { continue }
+            if NumericLiteralFacts.isNonZero(divisor) { continue }
             if let key = FallbackSubjectKey.key(of: divisor, genericNames: genericNames),
                checks(on: Subject(key: key, display: key), before: offset).contains(.nonZero) {
                 continue
             }
             return true
-        }
-        return false
-    }
-
-    /// `2`, `100.0`, `T(12)`, `(365.25 * 24)`, `max(x, 1.0)` — and not `0`,
-    /// `0.0`, `T(0)`.
-    private static func isNonZeroLiteral(_ expr: ExprSyntax, depth: Int = 0) -> Bool {
-        guard depth < 4 else { return false }
-        if let literal = expr.as(IntegerLiteralExprSyntax.self) {
-            return literal.literal.text.contains { $0 != "0" && $0 != "_" }
-        }
-        if let literal = expr.as(FloatLiteralExprSyntax.self) {
-            return literal.literal.text.prefix { $0 != "e" && $0 != "E" }
-                .contains { $0.isNumber && $0 != "0" }
-        }
-        // `(365.25 * 24 * 3600)`: a product of literals, none of them zero.
-        if let tuple = expr.as(TupleExprSyntax.self),
-           tuple.elements.count == 1,
-           let only = tuple.elements.first,
-           only.label == nil {
-            guard let sequence = only.expression.as(SequenceExprSyntax.self) else {
-                return isNonZeroLiteral(only.expression, depth: depth + 1)
-            }
-            return sequence.elements.allSatisfy { element in
-                if let op = element.as(BinaryOperatorExprSyntax.self) {
-                    return op.operator.text == "*"
-                }
-                return isNonZeroLiteral(element, depth: depth + 1)
-            }
-        }
-        guard let call = expr.as(FunctionCallExprSyntax.self),
-              let callee = call.calledExpression.as(DeclReferenceExprSyntax.self) else {
-            return false
-        }
-        // `max(x, 1.0)` is at least one.
-        if callee.baseName.text == "max" {
-            return call.arguments.contains { isNonZeroLiteral($0.expression, depth: depth + 1) }
-        }
-        if call.arguments.count == 1, let only = call.arguments.first, only.label == nil {
-            return isNonZeroLiteral(only.expression, depth: depth + 1)
         }
         return false
     }

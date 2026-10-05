@@ -127,7 +127,7 @@ Fix all build errors before proceeding to the next change.
 
 ## Architecture
 
-**114 targets — 57 source, 57 test** (v3.2.0, 2026-09-19). Don't take that number from here: it
+**120 targets — 60 source, 60 test** (2026-10-04, after `SyntaxScope`). Don't take that number from here: it
 is generated into `master_plan.md`'s `scale` region from `Package.swift`, and this copy is the one
 that can go stale. It said "61 SPM targets" for long enough to be wrong by two different
 reckonings at once — 61 was the *source* count, not the target count, and by the time anyone
