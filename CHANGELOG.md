@@ -864,6 +864,13 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`fp-division-unguarded` reads the guards top-level code makes.** The file scope held no
+  record of them, so `let mean = count > 0 ? sum / count : 0` in a script, a `main.swift` or a
+  playground page was reported, and the repairs on offer were to move the code into a function or
+  put the bound inline. Top-level statements are now read like any other body, in order, through
+  aliases. A guard inside a function or inside a member of a file-scope type still answers only
+  for that body. Found fixing BusinessMath ahead of `ALocalIsNotAGuard`, where an example that
+  was already guarded had to become a function to say so.
 - **A parameter did not shadow.** A name bound `Double` in an outer scope stayed `Double`
   inside a function that redeclared it `Int`, so `func f(total: Int, rate: Int) { total / rate }`
   in a type with a stored `rate: Double` was integer division reported as floating-point. A
