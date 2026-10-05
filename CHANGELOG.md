@@ -864,6 +864,11 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **Seven `fp-safety:disable` markers in this package suppressed nothing, and are gone.** Four
+  became decorative when `ALocalIsNotAGuard` taught the rule to read `isEmpty` and `max(…, 1)`;
+  three more — two duration conversions dividing by `1e18` and a per-project mean behind an
+  `isEmpty` check — turned out to be the same once the first four were removed and the rest were
+  tried. They stayed until the new binary was installed, because the hooks run the installed one.
 - **`fp-division-unguarded` reads the guards top-level code makes.** The file scope held no
   record of them, so `let mean = count > 0 ? sum / count : 0` in a script, a `main.swift` or a
   playground page was reported, and the repairs on offer were to move the code into a function or

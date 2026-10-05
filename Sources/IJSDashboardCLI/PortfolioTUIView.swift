@@ -87,7 +87,7 @@ public enum PortfolioTUIView: Sendable {
                     if memberProjects.isEmpty {
                         groupPassRate = 0
                     } else {
-                        groupPassRate = memberProjects.reduce(0.0) { $0 + $1.passRate } / Double(memberCount) // fp-safety:disable guarded by isEmpty
+                        groupPassRate = memberProjects.reduce(0.0) { $0 + $1.passRate } / Double(memberCount)
                     }
                     // A group is green only if every member passes; it earns the
                     // full ✓ only when every member is full-confirmed, else ✓*.
