@@ -506,7 +506,7 @@ public actor PulseRefiner {
         }
 
         let consistencyScores = windowMetadata.compactMap(\.consistencyScore)
-        let meanConsistencyScore: Double? = consistencyScores.isEmpty // fp-safety:disable guarded by isEmpty
+        let meanConsistencyScore: Double? = consistencyScores.isEmpty
             ? nil
             : consistencyScores.reduce(0, +) / Double(consistencyScores.count)
 
