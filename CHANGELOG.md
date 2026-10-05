@@ -683,6 +683,8 @@
   `visibleBindings(at:)`, which answers "what local names can code at this node see?" by
   walking up to the enclosing type. SwiftSyntax only. `RecursionAuditor` depends on it and
   behaves as before; its suite is unchanged. 120 targets, 60 source and 60 test.
+  It has a DocC catalogue, so `doc-lint` checks its symbol links and the master plan's roster
+  takes its description from the abstract, where a placeholder stood at first.
 - **`task-captures-self-no-isolation` recognises `self?.` and `self!.` receivers.** Previously
   only `self.` and stored-property names. `Task { [weak self] in self?.sync() }` passed while
   `Task { self.sync() }` was reported, though a weak capture changes how long the object lives

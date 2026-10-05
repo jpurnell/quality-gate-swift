@@ -466,7 +466,8 @@ let package = Package(
             name: "SyntaxScope",
             dependencies: [
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
-            ]
+            ],
+            resources: [.copy("SyntaxScope.docc")]
         ),
         .testTarget(
             name: "SyntaxScopeTests",
