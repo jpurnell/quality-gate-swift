@@ -19,7 +19,7 @@ public func boundNames(in pattern: some SyntaxProtocol) -> [String] {
 ///
 /// In `case .loaded(let device, expected)` only `device` is a binding; `expected` is a
 /// value the subject is compared with. An identifier pattern always binds, and
-/// everything under a `let` / `var` binds (``boundNames(in:)``); a bare reference
+/// everything under a `let` / `var` binds (`boundNames(in:)`); a bare reference
 /// elsewhere in the pattern does not.
 public func bindingNames(inMatching pattern: some SyntaxProtocol) -> [String] {
     let finder = MatchedPatternFinder(viewMode: .sourceAccurate)
