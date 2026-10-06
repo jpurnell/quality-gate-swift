@@ -11,14 +11,30 @@ import QualityGateLogging
 /// rewritten when the job runs and kept when it does not, so together they describe the whole
 /// package whether or not anything was recompiled.
 ///
-/// ``collect(projectRoot:buildConfiguration:buildStarted:)`` reads them under three rules, and
+/// ``collect(projectRoot:buildConfiguration:buildStarted:)`` reads them under these rules, and
 /// reports what it could not establish instead of answering from part of the input:
 ///
-/// - **Live** and **First-party** are applied by ``CompileUnitIndex``.
+/// - **Live**, **Of this build** and **First-party** are applied by ``CompileUnitIndex``.
 /// - **Current** — a record older than a source it was compiled from is not trusted.
+/// - **Not stale** — a diagnostic is evidence about the file it points at *as it was when the
+///   record holding it was written*. One that points at a file changed since is discarded.
 ///
 /// A unit whose record is missing, unreadable or not current is counted in
 /// ``Coverage/unverified``, and ``unverifiedDiagnostic`` turns that into a finding.
+///
+/// ## Why a record can be stale when its unit is current
+///
+/// A record is not only about its own source. The compiler writes a diagnostic about `F.swift`
+/// into other units' records as well — every primary file of a batch that contains a macro
+/// expansion receives the batch's diagnostics, so a warning in one Swift Testing file is also
+/// in the records of the four or five files compiled beside it. When `F.swift` is edited, only
+/// `F`'s unit is recompiled. Its record is rewritten; the siblings' are not, and still describe
+/// `F` as it was, at lines that have since moved or been fixed. Each of those records is
+/// *current* — it is no older than its own source — and wrong about `F`.
+///
+/// The file's modification date decides, not whether the file's own record is newer than the
+/// sibling's: a file is recompiled whenever something it depends on changes, without being
+/// edited, and what a sibling recorded about it is then still true.
 ///
 /// ## Usage
 ///
@@ -68,6 +84,15 @@ public struct RecordedDiagnostics: Sendable, Equatable {
         /// Units whose record was missing, unreadable or older than its source — each named by
         /// its source path relative to the project root.
         public var unverified: [String]
+        /// Distinct recorded diagnostics discarded because the file they point at changed after
+        /// the record holding them was written. Notes are not counted; they
+        /// go with the diagnostic they belong to.
+        public var staleDiagnostics: Int
+        /// Live first-party units named only by an output file map the build that just ran does
+        /// not name. Not in ``unitCount``, not read, and not in ``unverified``.
+        public var orphanedUnits: Int
+        /// The output file maps those units were named by.
+        public var orphanedMaps: Int
 
         /// Creates a coverage tally.
         ///
@@ -77,22 +102,31 @@ public struct RecordedDiagnostics: Sendable, Equatable {
         ///   - compiledByThisRun: Units recompiled by this run's build.
         ///   - readFromRecord: Units read from a record this run did not rewrite.
         ///   - unverified: Units that could not be vouched for.
+        ///   - staleDiagnostics: Distinct diagnostics discarded as stale.
+        ///   - orphanedUnits: Units ignored because the build that just ran does not name them.
+        ///   - orphanedMaps: The output file maps those units were named by.
         public init(
             mapCount: Int,
             unitCount: Int,
             compiledByThisRun: Int,
             readFromRecord: Int,
-            unverified: [String] = []
+            unverified: [String] = [],
+            staleDiagnostics: Int = 0,
+            orphanedUnits: Int = 0,
+            orphanedMaps: Int = 0
         ) {
             self.mapCount = mapCount
             self.unitCount = unitCount
             self.compiledByThisRun = compiledByThisRun
             self.readFromRecord = readFromRecord
             self.unverified = unverified
+            self.staleDiagnostics = staleDiagnostics
+            self.orphanedUnits = orphanedUnits
+            self.orphanedMaps = orphanedMaps
         }
     }
 
-    /// Every diagnostic recorded for a current, readable unit, in unit order.
+    /// Every diagnostic recorded for a current, readable unit that is not stale, in unit order.
     public var diagnostics: [Diagnostic]
 
     /// What was and was not read.
@@ -138,18 +172,24 @@ public struct RecordedDiagnostics: Sendable, Equatable {
     ///   - index: The compile units to read.
     ///   - projectRoot: The package root, used to name unverified units relative to it.
     ///   - buildStarted: The moment the build was started.
+    ///   - read: Decodes the record at a path. The default reads the `.dia` file; a test passes
+    ///     its own to say what a record holds without writing a bitstream.
     /// - Returns: The recorded diagnostics and the coverage tally.
     public static func collect(
         index: CompileUnitIndex,
         projectRoot: String,
-        buildStarted: Date
+        buildStarted: Date,
+        read: (String) throws -> [Diagnostic] = SerializedDiagnosticsReader.diagnostics(atPath:)
     ) -> RecordedDiagnostics {
         var diagnostics: [Diagnostic] = []
+        var stale: [Diagnostic] = []
         var coverage = Coverage(
             mapCount: index.mapCount,
             unitCount: index.units.count,
             compiledByThisRun: 0,
-            readFromRecord: 0
+            readFromRecord: 0,
+            orphanedUnits: index.orphanedUnitCount,
+            orphanedMaps: index.orphanedMaps.count
         )
 
         for unit in index.units {
@@ -159,7 +199,9 @@ public struct RecordedDiagnostics: Sendable, Equatable {
                 continue
             }
             do {
-                diagnostics.append(contentsOf: try SerializedDiagnosticsReader.diagnostics(atPath: unit.diagnosticsPath))
+                let separated = separatingStale(try read(unit.diagnosticsPath), recordWritten: written)
+                diagnostics.append(contentsOf: separated.current)
+                stale.append(contentsOf: separated.stale)
             } catch {
                 logger.debug("Unreadable record \(unit.diagnosticsPath, privacy: .public): \(String(describing: error), privacy: .public)")
                 coverage.unverified.append(displayName(of: unit, projectRoot: projectRoot))
@@ -172,13 +214,92 @@ public struct RecordedDiagnostics: Sendable, Equatable {
             }
         }
 
+        // The same stale diagnostic sits in every sibling record of its batch; it is one.
+        coverage.staleDiagnostics = BuildChecker.uniqued(stale).count
         return RecordedDiagnostics(diagnostics: diagnostics, coverage: coverage)
+    }
+
+    /// Splits one record's diagnostics into those still true of the files they point at and
+    /// those recorded before such a file last changed.
+    ///
+    /// A diagnostic and the notes that follow it are one finding and are kept or discarded
+    /// together, judged by where the diagnostic itself points:
+    ///
+    /// - **It has no location** — kept. There is no file for it to be stale against.
+    /// - **Its file is an ordinary one, on disk** — stale when the file was modified after the
+    ///   record was written. Notes are not consulted: a warning in `G.swift` about a
+    ///   conformance, with a note pointing at the witness in `F.swift`, is the compiler's
+    ///   verdict on `G`, and stands while `G`'s unit is current.
+    /// - **It is inside a macro expansion** — the compiler locates it in a generated buffer
+    ///   (`…/swift-generated-sources/@__swiftmacro_…swift`) and attaches a note at the expansion
+    ///   site. The buffer is written under the temporary directory once and not touched again
+    ///   when the site is fixed, so its own date vouches for nothing: the diagnostic is stale
+    ///   when the buffer *or any file its notes point at* changed after the record was written.
+    /// - **Its file is not on disk** — judged by its notes in the same way. When none of those
+    ///   exists either there is nothing to compare the record with, and it is kept, as it
+    ///   always was. (A file that was *deleted* does not arrive this way through a sibling's
+    ///   record: removing a source changes the target's file list, and the build recompiles
+    ///   every unit of the target. Measured, 60 of 60.)
+    ///
+    /// A unit's own source can never make its own record stale — ``CompileUnitIndex/isCurrent(_:)``
+    /// has already required the record to be no older than it — so this only ever discards
+    /// what a record says about *another* file: a sibling, a header, a generated source.
+    ///
+    /// - Parameters:
+    ///   - diagnostics: One record's diagnostics, in file order: each diagnostic followed by
+    ///     its notes.
+    ///   - recordWritten: The record's modification date.
+    /// - Returns: The diagnostics to report, and the stale ones without their notes.
+    static func separatingStale(
+        _ diagnostics: [Diagnostic],
+        recordWritten: Date
+    ) -> (current: [Diagnostic], stale: [Diagnostic]) {
+        var current: [Diagnostic] = []
+        var stale: [Diagnostic] = []
+        var index = diagnostics.startIndex
+        while index < diagnostics.endIndex {
+            let head = diagnostics[index]
+            var end = diagnostics.index(after: index)
+            while end < diagnostics.endIndex, diagnostics[end].severity == .note {
+                end = diagnostics.index(after: end)
+            }
+            let notes = diagnostics[diagnostics.index(after: index)..<end]
+            if isStale(head, notes: notes, recordWritten: recordWritten) {
+                stale.append(head)
+            } else {
+                current.append(head)
+                current.append(contentsOf: notes)
+            }
+            index = end
+        }
+        return (current, stale)
+    }
+
+    /// How the compiler names the buffer it expands a macro into.
+    static let macroExpansionBufferPrefix = "@__swiftmacro_"
+
+    /// Whether a diagnostic was recorded before the file it points at last changed.
+    private static func isStale(
+        _ diagnostic: Diagnostic,
+        notes: ArraySlice<Diagnostic>,
+        recordWritten: Date
+    ) -> Bool {
+        guard let path = diagnostic.filePath else { return false }
+        let edited = CompileUnitIndex.modificationDate(atPath: path)
+        let isExpansion = (path as NSString).lastPathComponent.hasPrefix(macroExpansionBufferPrefix)
+        if let edited, !isExpansion {
+            return edited > recordWritten
+        }
+        let sites = notes.compactMap(\.filePath).compactMap(CompileUnitIndex.modificationDate(atPath:))
+        return ((edited.map { [$0] } ?? []) + sites).contains { $0 > recordWritten }
     }
 
     /// The run-scoped note saying how the package's compile units were accounted for.
     ///
     /// It is the one line that distinguishes "clean" from "not looked at", so it is on every
-    /// result. The count is of Swift compile units: C-family sources are not in an output file
+    /// result — and it says what was looked at and set aside: diagnostics discarded as stale,
+    /// and units ignored because they belong to a build that is gone. The count is of Swift
+    /// compile units: C-family sources are not in an output file
     /// map, and their warnings are still reported only when the build recompiles them.
     public var coverageDiagnostic: Diagnostic {
         var message = "\(coverage.unitCount) Swift compile unit(s): "
@@ -187,7 +308,16 @@ public struct RecordedDiagnostics: Sendable, Equatable {
         if !coverage.unverified.isEmpty {
             message += ", \(coverage.unverified.count) not verified"
         }
-        message += ". C-family sources are not counted; their warnings are reported only when recompiled."
+        message += "."
+        if coverage.staleDiagnostics > 0 {
+            message += " \(coverage.staleDiagnostics) recorded diagnostic(s) discarded as stale: "
+                + "the file each points at changed after the record holding it was written."
+        }
+        if coverage.orphanedUnits > 0 {
+            message += " \(coverage.orphanedUnits) compile unit(s) in \(coverage.orphanedMaps) "
+                + "output file map(s) ignored as orphaned: the build that just ran does not name them."
+        }
+        message += " C-family sources are not counted; their warnings are reported only when recompiled."
         return Diagnostic(severity: .note, message: message, ruleId: Self.coverageRuleId)
     }
 

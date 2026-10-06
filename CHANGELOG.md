@@ -926,6 +926,54 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`build` no longer replays a warning that was fixed.** Reading the compiler's recorded
+  diagnostics (*`build` reports compiler warnings in files the build did not recompile*, below)
+  assumed a record is about its own source. It is not only that: every primary file of a compile batch that contains a macro expansion receives the
+  batch's diagnostics, so a warning in one Swift Testing file is also written into the records
+  of the four or five files compiled beside it. Fix the warning and only that file's unit is
+  recompiled; the sibling records keep it, at a line that no longer holds the code, and each of
+  them is *current* by the existing rule. Three sessions hit it in a day (swift-oauth,
+  SwiftMCPClient, ClassGraph), and the workaround in each was to `touch` unrelated files —
+  the checker telling people to defeat incremental builds. Reproduced with a real build: 60
+  test files, four warnings in one, fixed; five sibling records went on reporting all four.
+  - **The rule.** A recorded diagnostic is evidence about the file it points at *as it was when
+    the record was written*. One whose file was modified after the record holding it was
+    written is discarded, with its notes. A warning inside a macro expansion is located in a
+    generated buffer the compiler never rewrites, so it is judged by the expansion site its
+    note names. The file's own unit, recompiled after the edit, is the authority for the file.
+  - **Why the file's date and not its record's.** A file is recompiled whenever something it
+    depends on changes, without being edited; what a sibling recorded about it is then still
+    true, and a rule that preferred the newer record would have dropped it. Across the 115
+    built packages here, 12 hold 38 recorded warnings: 26 in the file's own record, 6 in a
+    sibling's and also in the file's own, 3 in a macro buffer, and 3 in a sibling's only — all
+    three older than the file they point at, which is this defect, live.
+  - **The coverage note says what was discarded**: *"4 recorded diagnostic(s) discarded as
+    stale: the file each points at changed after the record holding it was written."* Counted
+    once each, however many sibling records held it.
+  - **What it still cannot see.** A cross-file diagnostic that is still true, about a file
+    edited since in a way that did not make the build recompile the unit that recorded it, is
+    discarded until that unit is next compiled. And a tool that rewrites a file while keeping
+    an older modification date defeats the comparison.
+- **`build.warnings-unverified` no longer fires for a build that is gone.** A build directory
+  outlives the builds that wrote it: a renamed target, or a variant directory an older
+  toolchain named differently (`ShowcaseCLI-3E4BF3A074D2020-testable-t.build`, from August),
+  leaves an output file map that still names sources that exist. Its units looked live, nothing
+  ever refreshed their records, and the first edit to one of those sources made the checker
+  say it could not verify — on every run, failing `--strict`, until `.build` was deleted.
+  Before that edit it was worse and quieter: the orphan's records were *read*, and its units
+  doubled the count (one package listed 163 where a clean build has 87).
+  - A unit now counts only if **the build that just ran names its output file map**. Both
+    build systems write that down — swiftbuild in the build description
+    (`XCBuildData/<id>.xcbuilddata/manifest.json`), the native one in `<configuration>.yaml` —
+    so it costs no SwiftPM invocation; `swift package describe`, which the proposal suggested,
+    was not needed. Orphans are neither read nor counted as unread, and the coverage note names
+    them: *"3 compile unit(s) in 1 output file map(s) ignored as orphaned"*.
+  - **Nothing is called an orphan on a guess.** With no description on disk, or one that names
+    none of the configuration's maps, every map is live, as before. A live unit whose record is
+    missing or unreadable still warns.
+  - This closes the "target removed from `Package.swift`" gap `BuildChecker.md` listed under
+    *What It Does Not See*, in the loud direction too: such a target's warnings are no longer
+    replayed.
 - **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
   3.4.0's follow-ups; `fallback.*` has its own visitor, and its file scope still held no facts.
   A script that wrote `guard tenor.isFinite, tenor >= 0, tenor < 1_000 else { exit(1) }` and then
