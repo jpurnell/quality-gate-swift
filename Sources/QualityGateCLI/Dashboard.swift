@@ -130,13 +130,18 @@ struct Dashboard: AsyncParsableCommand {
         syncCorpusFromRemote(at: effectiveCorpusPath)
 
         let reader = CorpusReader(corpusPath: effectiveCorpusPath)
-        let allRuns: [String: [TimestampedRun]]
+        // Each project's history without its findings, and the findings for its present state
+        // only. `loadAll()` held every run of every project, diagnostics included — 3 GB of
+        // corpus to print a table of pass rates.
+        var histories = CorpusHistories()
         do {
-            allRuns = try reader.loadAll()
+            try histories.refresh(from: reader)
         } catch {
             print("[dashboard] Error: Failed to read corpus: \(error.localizedDescription)")
             throw ExitCode(1)
         }
+
+        let allRuns = histories.runs
 
         let manifest: CorpusManifest
         do {
@@ -217,7 +222,7 @@ struct Dashboard: AsyncParsableCommand {
             // hard requirement on Xcode. The native window now ships as its own
             // executable in the quality-gate-dashboard package; the terminal,
             // JSON, and HTML renderers below are what CI and the pulse use.
-            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
+            DashboardApp.run(portfolio: portfolio, projects: projects, allRuns: allRuns, histories: histories, corpusReader: reader, pulse: pulse, manifest: manifest, corpusPath: effectiveCorpusPath, initialWeek: week)
         }
     }
 }

@@ -46,6 +46,7 @@ public enum DashboardApp: Sendable {
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
         allRuns: [String: [TimestampedRun]],
+        histories: CorpusHistories? = nil,
         corpusReader: CorpusReader? = nil,
         pulse: InstitutionalPulse? = nil,
         manifest: CorpusManifest = CorpusManifest(),
@@ -54,7 +55,12 @@ public enum DashboardApp: Sendable {
     ) {
         var currentPortfolio = portfolio
         var sortedProjects = projects.sorted { $0.projectID < $1.projectID }
-        var currentAllRuns = allRuns
+        // When the caller loaded through `CorpusHistories`, the runs carry no diagnostics and
+        // the findings for each project's present state are held beside them; a reload then
+        // re-reads only the projects that changed. `allRuns` alone is the older calling
+        // convention — full runs, replaced wholesale — and still works.
+        var currentHistories = histories ?? CorpusHistories()
+        var currentAllRuns = histories?.runs ?? allRuns
         var currentPulse = pulse
         var currentManifest = manifest
         let activeIDs = sortedProjects.filter { $0.lifecycle == .active }.map(\.projectID)
@@ -229,7 +235,8 @@ public enum DashboardApp: Sendable {
                 // Rebuilt when the subject or its runs change.
                 if state.currentView == .projectDetail,
                    let projectID = state.detailProjectID ?? state.selectedProjectID {
-                    let results = TimestampedRun.latestStandardResults(of: currentAllRuns[projectID] ?? [])
+                    let results = currentHistories.latestResults[projectID]
+                        ?? TimestampedRun.latestStandardResults(of: currentAllRuns[projectID] ?? [])
                     let rows = FindingsInbox.items(fromResults: results).map { item in
                         InboxRow(
                             ruleId: item.ruleId ?? "(no rule id)",
@@ -266,7 +273,9 @@ public enum DashboardApp: Sendable {
                 // location. Governed rules (review policy) hold for a second
                 // identity instead of writing immediately.
                 if let request = state.pendingAcknowledge {
-                    consumeAcknowledge(request, allRuns: currentAllRuns, corpusPath: corpusPath, state: &state)
+                    consumeAcknowledge(
+                        request, allRuns: currentAllRuns, reader: corpusReader,
+                        corpusPath: corpusPath, state: &state)
                     state.clearPendingAcknowledge()
                     needsRedraw = true
                 }
@@ -314,6 +323,7 @@ public enum DashboardApp: Sendable {
                         portfolio: &currentPortfolio,
                         projects: &sortedProjects,
                         allRuns: &currentAllRuns,
+                        histories: &currentHistories,
                         state: &state,
                         pulse: &currentPulse,
                         manifest: &currentManifest
@@ -337,11 +347,25 @@ public enum DashboardApp: Sendable {
     private static func consumeAcknowledge(
         _ request: AcknowledgeRequest,
         allRuns: [String: [TimestampedRun]],
+        reader: CorpusReader?,
         corpusPath: String?,
         state: inout DashboardState
     ) {
-        guard let latest = allRuns[request.projectID]?
-            .max(by: { $0.metadata.timestamp < $1.metadata.timestamp }) else {
+        // The held runs carry no diagnostics, and an acknowledgement is about one finding in
+        // the latest run — so that run is read whole, now, from the corpus. Without a reader
+        // the held runs are the caller's full ones and the newest of them is used.
+        var latestRun = allRuns[request.projectID]?
+            .max(by: { $0.metadata.timestamp < $1.metadata.timestamp })
+        if let reader {
+            do {
+                latestRun = try reader.loadLatestRun(for: request.projectID)
+            } catch {
+                logger.warning("Failed to read the latest run of \(request.projectID, privacy: .public) for an acknowledgement: \(error.localizedDescription, privacy: .public)")
+                state.statusMessage = "Could not read the latest run of \(request.projectID) — nothing acknowledged."
+                return
+            }
+        }
+        guard let latest = latestRun else {
             state.statusMessage = "No runs for \(request.projectID) — nothing to acknowledge."
             return
         }
@@ -499,17 +523,20 @@ public enum DashboardApp: Sendable {
         portfolio: inout PortfolioSummary,
         projects: inout [ProjectSummary],
         allRuns: inout [String: [TimestampedRun]],
+        histories: inout CorpusHistories,
         state: inout DashboardState,
         pulse: inout InstitutionalPulse?,
         manifest: inout CorpusManifest
     ) {
-        let freshRuns: [String: [TimestampedRun]]
+        // Only the projects whose history changed are re-read; the rest are kept. This used to
+        // be `loadAll()` — the whole corpus, findings included, every thirty seconds.
         do {
-            freshRuns = try reader.loadAll()
+            try histories.refresh(from: reader)
         } catch {
             logger.warning("Failed to reload corpus data: \(error.localizedDescription, privacy: .public)")
             return
         }
+        let freshRuns = histories.runs
         allRuns = freshRuns
         do {
             manifest = try reader.loadManifest()
