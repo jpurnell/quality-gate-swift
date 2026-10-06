@@ -187,6 +187,21 @@ struct WeaknessMappingTests {
         #expect(row.rules == [rule])
     }
 
+    /// `AnAdvisoryIsADatedFact.md` §8. 1395 is a Class with no Base children — MITRE's "best
+    /// available CWE" when nothing more specific fits, and nothing does. 1104 (unmaintained
+    /// components) stays a gap on purpose: whether a repository is archived is a fact about
+    /// GitHub, not about the tree, and the advisory export does not carry it.
+    @Test("CWE-1395 is enforced by the two advisory rules, and CWE-1104 stays a gap")
+    func advisoryRulesCloseTheirRow() throws {
+        let rows = matrix()
+        let vulnerable = try #require(rows.first { $0.controlId == "CWE-1395" })
+        #expect(vulnerable.state == .enforced)
+        #expect(Set(vulnerable.rules) == ["dep-advisory.vulnerable-pin", "dep-advisory.vulnerable-pin-by-name"])
+        let unmaintained = try #require(rows.first { $0.controlId == "CWE-1104" })
+        #expect(unmaintained.state == .gap)
+        #expect(unmaintained.rules.isEmpty)
+    }
+
     @Test("missing authentication stays a gap until a handler rule reaches it")
     func missingAuthenticationIsAGap() throws {
         let row = try #require(matrix().first { $0.controlId == "CWE-306" })
@@ -253,7 +268,8 @@ struct WeaknessMappingTests {
         // 130, less the four the key rules close (321, 326, 329, 916), the three the randomness
         // rules close (335, 338, 341), the three the pattern rules close (1333, 943, 917) and the
         // two the listener rules close (1327, 1188). 1204, 323, 336, 337 and 340 arrived already
-        // covered, so they never counted as gaps.
-        #expect(matrix().filter { $0.state == .gap }.count >= 118)
+        // covered, so they never counted as gaps. And one fewer again for 1395, which the two
+        // advisory rules close (`AnAdvisoryIsADatedFact.md`).
+        #expect(matrix().filter { $0.state == .gap }.count >= 117)
     }
 }

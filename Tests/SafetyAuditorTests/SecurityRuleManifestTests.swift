@@ -67,6 +67,25 @@ struct SecurityRuleManifestTests {
         #expect(top10.hasPrefix(category))
     }
 
+    /// `AnAdvisoryIsADatedFact.md` §4.9 and §8. The first manifest entries that are not
+    /// `security.*`: the weakness is in what is pinned, not in what is written. Reviewed every
+    /// 180 days rather than 365, because the OSV name convention they depend on is undocumented
+    /// in the detail that matters and has already been observed to vary.
+    @Test("The advisory rules carry CWE-1395, the supply-chain categories, and a 180-day review", arguments: [
+        "dep-advisory.vulnerable-pin", "dep-advisory.vulnerable-pin-by-name",
+    ])
+    func advisoryRules(ruleId: String) throws {
+        let rule = try #require(SecurityRuleManifest.rules.first { $0.ruleId == ruleId })
+        #expect(rule.cwes == ["CWE-1395"])
+        #expect(rule.owaspMobile == "M2 Inadequate Supply Chain Security")
+        #expect(rule.owaspTop10 == "A06:2021 Vulnerable and Outdated Components")
+        #expect(rule.owaspAPI == nil)
+        #expect(rule.severity == "ERROR")
+        #expect(rule.staleAfterDays == 180)
+        #expect(rule.lastReviewedDate == "2026-10-06")
+        #expect(SecurityRuleManifest.cwe(for: ruleId) == "CWE-1395")
+    }
+
     /// MITRE CWE 4.20: 22 is the parent of relative (23) and absolute (36) traversal, and an entry
     /// name can be either, so the parent is the accurate mapping. 59 is link following; 61 is the
     /// attack-oriented composite and is not used.

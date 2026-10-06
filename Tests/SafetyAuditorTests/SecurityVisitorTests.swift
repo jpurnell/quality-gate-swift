@@ -768,9 +768,11 @@ struct SecurityVisitorTests {
 
     // MARK: - Manifest Tests
 
-    @Test("SecurityRuleManifest has 35 rules")
-    func manifestHasThirtyFiveRules() {
-        #expect(SecurityRuleManifest.rules.count == 35)
+    /// 35 `security.*` rules, and the two advisory rules `dependency-advisory` emits.
+    @Test("SecurityRuleManifest has 37 rules")
+    func manifestHasThirtySevenRules() {
+        #expect(SecurityRuleManifest.rules.count == 37)
+        #expect(SecurityRuleManifest.rules.filter { $0.ruleId.hasPrefix("security.") }.count == 35)
     }
 
     @Test("All manifest rules have valid CWE references")

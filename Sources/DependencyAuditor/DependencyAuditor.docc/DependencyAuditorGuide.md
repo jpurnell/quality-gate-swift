@@ -98,7 +98,7 @@ swift package unedit my-dependency
 Some dependencies legitimately need branch pins — internal libraries during active development, or dependencies that don't publish tags. Add their package identities (the lowercased name from `Package.resolved`) to `allowBranchPins`:
 
 ```yaml
-dependency-audit:
+dependencyAudit:
   allowBranchPins:
     - "swift-syntax"
     - "my-internal-lib"
@@ -106,20 +106,20 @@ dependency-audit:
 
 ### Offline mode
 
-The auditor runs fully offline by default. The `offlineMode` configuration key is reserved for future network-based checks (e.g., checking whether pinned versions are behind the latest release). No network calls are made regardless of this setting in the current version.
+The auditor runs fully offline, always: it makes no network calls whatever `offlineMode` says. That key is read by `dependency-advisory-drift` — the one dependency checker that reaches the network — which, when it is set, reports that it did not check instead of attempting a connection.
 
 ## Configuration
 
 Minimal configuration — most projects need no configuration at all:
 
 ```yaml
-dependency-audit: {}
+dependencyAudit: {}
 ```
 
 Full configuration with all options:
 
 ```yaml
-dependency-audit:
+dependencyAudit:
   maxMajorVersionsBehind: 2
   allowBranchPins:
     - "swift-syntax"
@@ -139,7 +139,7 @@ quality-gate
 Run only the dependency auditor:
 
 ```bash
-quality-gate --checkers dependency-audit
+quality-gate --check dependency-audit
 ```
 
 ### CI integration
@@ -149,7 +149,7 @@ Add to your CI pipeline to catch dependency issues before merge:
 ```yaml
 steps:
   - name: Check dependency hygiene
-    run: quality-gate --checkers dependency-audit --strict
+    run: quality-gate --check dependency-audit --strict
 ```
 
 The `dep-unresolved` rule emits errors (not warnings), so it will fail the gate even without `--strict`. The `dep-branch-pin` and `dep-local-override` rules emit warnings, which only fail the gate when `--strict` is active.
@@ -158,7 +158,7 @@ The `dep-unresolved` rule emits errors (not warnings), so it will fail the gate 
 
 ```bash
 #!/bin/sh
-quality-gate --checkers dependency-audit
+quality-gate --check dependency-audit
 ```
 
 This is particularly useful for catching forgotten `swift package edit` overrides before they reach the repository.

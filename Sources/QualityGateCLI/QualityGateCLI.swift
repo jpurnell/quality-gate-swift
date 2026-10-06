@@ -24,6 +24,7 @@ import LoggingAuditor
 import TestQualityAuditor
 import ContextAuditor
 import DependencyAuditor
+import DependencyAdvisory
 import SubmoduleAuditor
 import ReleaseReadinessAuditor
 import FloatingPointSafetyAuditor
@@ -67,7 +68,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
         version: "3.4.0",
-        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, ReindexCorpus.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self, ReVerify.self, CorpusdToken.self, Compliance.self, StandardsWatchCommand.self, Clean.self, Release.self]
+        subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, ReindexCorpus.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self, ReVerify.self, CorpusdToken.self, Compliance.self, StandardsWatchCommand.self, Clean.self, Release.self, AdvisoriesCommand.self]
     )
 
     @Option(name: .shortAndLong, help: "Output format (terminal, json, sarif, xcode)")
@@ -204,6 +205,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             TestQualityAuditor(),
             ContextAuditor(),
             DependencyAuditor(),
+            DependencyAdvisoryChecker(),
+            AdvisoryFreshnessChecker(),
+            AdvisoryDriftChecker(),
             SubmoduleAuditor(),
             ReleaseReadinessAuditor(pushedRefs: pushedRefs),
             FloatingPointSafetyAuditor(),
