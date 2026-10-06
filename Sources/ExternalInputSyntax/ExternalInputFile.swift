@@ -112,7 +112,7 @@ public struct ExternalInputFile: Sendable {
 
     /// The expression inside one that does not change the value: `try`, `await`, `?`, `!`,
     /// parentheses, and a sequence that is one operand and a cast.
-    private static func transparentInner(_ expression: ExprSyntax) -> ExprSyntax? {
+    public static func transparentInner(_ expression: ExprSyntax) -> ExprSyntax? {
         if let node = expression.as(TryExprSyntax.self) { return node.expression }
         if let node = expression.as(AwaitExprSyntax.self) { return node.expression }
         if let node = expression.as(ForceUnwrapExprSyntax.self) { return node.expression }
@@ -190,13 +190,47 @@ public struct ExternalInputFile: Sendable {
         for closure in region.closures {
             parameters += Self.parameters(of: closure)
         }
-        let collector = BindingCollector(before: syntax, in: region.body)
-        collector.walk(region.body)
         return ExternalInput.Scope(
-            bindings: collector.bindings,
+            bindings: Self.functionBindings(in: region.body).described(before: syntax),
             parameters: parameters,
             commandLineProperties: Self.enclosingTypeName(of: syntax).flatMap { commandLineProperties[$0] } ?? [],
             imports: imports)
+    }
+
+    /// Every binding of the function `node` is in, with the syntax each was bound to.
+    ///
+    /// ``scope(at:)`` describes each initialiser as an `ExternalInput/Expression`, which has no
+    /// position and no literal text. A rule that must point at the initialiser, or read the
+    /// literal in it, asks here instead. It is the same collection — `scope(at:)` is built from
+    /// it — so "in scope" has one definition.
+    ///
+    /// Collected once for the whole function and then asked by name and point, so a rule that
+    /// asks about every call in a function does not walk the function once per question. Hold
+    /// the result and key it by ``FunctionBindings/function``.
+    public static func bindingSites(at node: some SyntaxProtocol) -> FunctionBindings {
+        functionBindings(in: region(of: Syntax(node)).body)
+    }
+
+    static func functionBindings(in body: Syntax) -> FunctionBindings {
+        let collector = BindingCollector(in: body)
+        collector.walk(body)
+        return FunctionBindings(function: body.id, sites: collector.sites)
+    }
+
+    /// The subtree whose bindings are in scope at `node`: its function, failing that the
+    /// outermost closure around it, failing that the file.
+    public static func functionBody(of node: some SyntaxProtocol) -> Syntax {
+        region(of: Syntax(node)).body
+    }
+
+    /// The function declaration `node` is in, when it is in one.
+    public static func enclosingFunction(of node: some SyntaxProtocol) -> Syntax? {
+        region(of: Syntax(node)).function
+    }
+
+    /// The name of the type, or extended type, `node` is declared in.
+    public static func enclosingType(of node: some SyntaxProtocol) -> String? {
+        enclosingTypeName(of: Syntax(node))
     }
 
     /// The function a node is in, the closures between it and the node (outermost first), and
@@ -327,31 +361,81 @@ final class FileFacts: SyntaxVisitor {
     }
 }
 
-// MARK: - Bindings before a point
+// MARK: - Bindings of a function
 
-/// Every binding in a function declared before a node, the latest per name.
+/// One binding in a function: a name, what it was bound to, and where.
+public struct BindingSite {
+    /// The name bound.
+    public let name: String
+    /// The initialiser — or, for a `for` loop, the sequence iterated.
+    public let value: ExprSyntax
+    /// Whether the name is an element of `value` (`for name in value`) rather than `value` itself.
+    public let isIteration: Bool
+    /// Where the binding starts.
+    let site: AbsolutePosition
+
+    /// Whether this binding is in scope at `point`: declared earlier, and `point` is not inside
+    /// its own initialiser.
+    func isInScope(at point: Syntax) -> Bool {
+        site < point.position
+            && !(value.position <= point.position && point.endPosition <= value.endPosition)
+    }
+}
+
+/// Every binding in one function, in source order — see ``ExternalInputFile/bindingSites(at:)``.
+public struct FunctionBindings {
+    /// The subtree the bindings were collected from.
+    public let function: SyntaxIdentifier
+    /// Every binding, in source order.
+    public let sites: [BindingSite]
+    private let byName: [String: [Int]]
+
+    init(function: SyntaxIdentifier, sites: [BindingSite]) {
+        self.function = function
+        self.sites = sites
+        var index: [String: [Int]] = [:]
+        for (offset, site) in sites.enumerated() {
+            index[site.name, default: []].append(offset)
+        }
+        self.byName = index
+    }
+
+    /// The latest binding of `name` in scope at `point`.
+    public func binding(of name: String, before point: some SyntaxProtocol) -> BindingSite? {
+        let syntax = Syntax(point)
+        guard let candidates = byName[name] else { return nil }
+        for offset in candidates.reversed() where sites[offset].isInScope(at: syntax) {
+            return sites[offset]
+        }
+        return nil
+    }
+
+    /// The model's bindings at `point`: the latest per name, described.
+    func described(before point: Syntax) -> [String: ExternalInput.Expression] {
+        var bindings: [String: ExternalInput.Expression] = [:]
+        for site in sites where site.isInScope(at: point) {
+            let value = ExternalInputFile.describe(site.value)
+            bindings[site.name] = site.isIteration ? .subscripted(value, []) : value
+        }
+        return bindings
+    }
+}
+
+/// Every binding in a function, in source order.
 final class BindingCollector: SyntaxVisitor {
-    private let point: Syntax
     private let root: SyntaxIdentifier
-    private(set) var bindings: [String: ExternalInput.Expression] = [:]
+    private(set) var sites: [BindingSite] = []
 
-    init(before point: Syntax, in root: Syntax) {
-        self.point = point
+    init(in root: Syntax) {
         self.root = root.id
         super.init(viewMode: .sourceAccurate)
     }
 
-    /// Whether a binding at `site` whose value is `value` is in scope at the point.
-    private func inScope(site: some SyntaxProtocol, value: some SyntaxProtocol) -> Bool {
-        site.position < point.position
-            && !(value.position <= point.position && point.endPosition <= value.endPosition)
-    }
-
-    private func bind(_ pattern: some SyntaxProtocol, to value: ExternalInput.Expression) {
+    private func bind(_ pattern: some SyntaxProtocol, to value: ExprSyntax, at site: some SyntaxProtocol, iterating: Bool = false) {
         let names = PatternNames(viewMode: .sourceAccurate)
         names.walk(pattern)
         for name in names.names {
-            bindings[name] = value
+            sites.append(BindingSite(name: name, value: value, isIteration: iterating, site: site.position))
         }
     }
 
@@ -368,30 +452,26 @@ final class BindingCollector: SyntaxVisitor {
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind { enter(node) }
 
     override func visit(_ node: PatternBindingSyntax) -> SyntaxVisitorContinueKind {
-        if let value = node.initializer?.value, inScope(site: node, value: value) {
-            bind(node.pattern, to: ExternalInputFile.describe(value))
+        if let value = node.initializer?.value {
+            bind(node.pattern, to: value, at: node)
         }
         return .visitChildren
     }
 
     override func visit(_ node: OptionalBindingConditionSyntax) -> SyntaxVisitorContinueKind {
-        if let value = node.initializer?.value, inScope(site: node, value: value) {
-            bind(node.pattern, to: ExternalInputFile.describe(value))
+        if let value = node.initializer?.value {
+            bind(node.pattern, to: value, at: node)
         }
         return .visitChildren
     }
 
     override func visit(_ node: MatchingPatternConditionSyntax) -> SyntaxVisitorContinueKind {
-        if inScope(site: node, value: node.initializer.value) {
-            bind(node.pattern, to: ExternalInputFile.describe(node.initializer.value))
-        }
+        bind(node.pattern, to: node.initializer.value, at: node)
         return .visitChildren
     }
 
     override func visit(_ node: ForStmtSyntax) -> SyntaxVisitorContinueKind {
-        if inScope(site: node, value: node.sequence) {
-            bind(node.pattern, to: .subscripted(ExternalInputFile.describe(node.sequence), []))
-        }
+        bind(node.pattern, to: node.sequence, at: node, iterating: true)
         return .visitChildren
     }
 }

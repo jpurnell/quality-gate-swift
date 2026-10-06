@@ -365,9 +365,13 @@ public enum SecurityRuleManifest {
             cwes: ["CWE-918"],
             owaspMobile: "M5 Insecure Communication",
             owaspTop10: "A10:2021 Server-Side Request Forgery",
-            description: "URL constructed from dynamic input",
+            // Reworked 2026-10-05 (`AURLIsNotARequest.md`): a parse is not a request. Reported
+            // where a built URL reaches a call that opens a connection, in this function or
+            // through a wrapper the package declares, with no question asked about its host.
+            description: "URL built from non-literal input reaches a network request with no check on its host "
+                + "(warning; error when the input is request content, an MCP argument or bytes from the network)",
             severity: "WARNING",
-            lastReviewedDate: "2026-04-14"
+            lastReviewedDate: "2026-10-05"
         ),
         SecurityRule(
             ruleId: "security.xml-external-entities",

@@ -83,8 +83,27 @@ The one-call hop, when a rule needs it, starts from `.parameter(p, path:)`: for 
 `fileprivate` function, take every call to it in the file and classify argument `p.index` with
 the same ``ExternalInputFile``.
 
+### Asking for the syntax, not the description
+
+``ExternalInputFile/scope(at:)`` describes each binding's initialiser as an
+`ExternalInput.Expression`: enough to decide where a value came from, and deliberately without a
+position or a literal's text. A rule that must *point at* the initialiser, or read the literal in
+it, asks ``ExternalInputFile/bindingSites(at:)`` instead and gets a ``FunctionBindings``: the same
+bindings, each a ``BindingSite`` holding the initialiser's syntax. `scope(at:)` is built from that
+collection, so there is one definition of "in scope".
+
+`FunctionBindings` is collected once for a function and then asked by name and point
+(``FunctionBindings/binding(of:before:)``), so a rule that asks about every call in a function —
+`security.ssrf` resolves each call's arguments to find the URL a request is made with — does not
+walk the function once per question.
+
 ## Topics
 
 ### Reading a file
 
 - ``ExternalInputFile``
+
+### Bindings as syntax
+
+- ``FunctionBindings``
+- ``BindingSite``
