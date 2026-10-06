@@ -142,13 +142,27 @@ public struct DocLinter: QualityChecker, Sendable {
 
         // Run swift package generate-documentation
         // SAFETY: runs swift package generate-documentation to lint DocC coverage
+        // Budgeted from what this has actually taken here, not from `ProcessRunner`'s 600s
+        // default. That default suits `git rev-parse`; this builds a DocC archive for every
+        // target owning a catalogue — 34 of them in this package — and on a cold tree it
+        // exceeded 600s and was killed, reporting nothing. A checker that cannot finish has
+        // not found that the documentation is clean.
+        let budget = CheckerBudget.seconds(
+            lastSuccess: CheckerBudget.lastSuccess(named: "doc-lint", root: projectRoot))
+        let budgetStarted = Date()
+
         let result: ProcessRunner.Output
         do {
             result = try ProcessRunner.run(
                 "/usr/bin/swift",
                 arguments: arguments,
-                currentDirectory: projectRoot
+                currentDirectory: projectRoot,
+                timeout: budget
             )
+            if result.exitCode == 0 {
+                CheckerBudget.record(
+                    Date().timeIntervalSince(budgetStarted), named: "doc-lint", root: projectRoot)
+            }
         } catch {
             Self.logger.error("Failed to run documentation generator: \(error.localizedDescription, privacy: .public)")
             let duration = ContinuousClock.now - startTime

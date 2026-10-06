@@ -323,12 +323,40 @@ struct ConfigurationTests {
 
 @Suite("MemoryLifecycleGuard: check() method")
 struct CheckMethodTests {
-    @Test("check() returns passed status when no issues found")
+    /// Scoped to a fixture, for the same reason as `ComplexityAnalyzer`'s advisory test: a
+    /// bare `Configuration()` resolves its root to the working directory and scanned this whole
+    /// repository, costing 15.7s to reach a conclusion a three-line file settles.
+    ///
+    /// The assertion was also unfalsifiable. `.passed || .warning` is every status an advisory
+    /// checker can return, so it held no matter what the guard did — including doing nothing.
+    /// On a fixture known to be clean, `.passed` alone is a claim that can fail.
+    @Test("check() passes on a tree with nothing to report")
     func checkPassesClean() async throws {
-        let guard_ = MemoryLifecycleGuard()
-        let result = try await guard_.check(configuration: Configuration())
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("memory-clean-\(UUID().uuidString)")
+        let sources = root.appendingPathComponent("Sources/Fixture")
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(name: "Fixture", targets: [.target(name: "Fixture")])
+        """.write(to: root.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+
+        try """
+        public struct Clean {
+            public let value: Int
+            public init(value: Int) { self.value = value }
+        }
+        """.write(to: sources.appendingPathComponent("Clean.swift"), atomically: true, encoding: .utf8)
+
+        var configuration = Configuration()
+        configuration.projectRoot = root
+        let result = try await MemoryLifecycleGuard().check(configuration: configuration)
+
         #expect(result.checkerId == "memory-lifecycle")
-        #expect(result.status == .passed || result.status == .warning)
+        #expect(result.status == .passed)
     }
 }
 

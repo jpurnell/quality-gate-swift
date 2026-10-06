@@ -680,19 +680,33 @@ public struct TestRunner: QualityChecker, Sendable {
     }
 
     private func runSwiftTest(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
+        let budget = CheckerBudget.seconds(
+            lastSuccess: CheckerBudget.lastSuccess(named: "test", root: root))
+        let started = Date()
+
         // SAFETY: runs swift test to execute the project's test suite
         let result = try ProcessRunner.run(
             "/usr/bin/swift",
             arguments: ["test"] + arguments,
             currentDirectory: root,
-            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment)
+            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment),
+            timeout: budget
         )
+
+        // Recorded only on success. A killed or failing run says nothing about how long the
+        // suite takes when it works, and feeding a timeout back in would ratchet the budget
+        // up on exactly the runs that should not extend it.
+        if result.exitCode == 0 {
+            CheckerBudget.record(
+                Date().timeIntervalSince(started), named: "test", root: root)
+        }
 
         // Combine stdout and stderr
         let combinedOutput = result.stdout + "\n" + result.stderr
 
         return (combinedOutput, result.exitCode)
     }
+
 }
 
 /// Thread-safe stop flag for the best-effort CPU-contention harness.
