@@ -323,33 +323,14 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
     /// Seeds the file scope with the checks top-level code makes.
     ///
-    /// A script, a `main.swift` or a playground page is a body: it asks whether
-    /// a divisor is zero in the same spellings a function does. The file scope
-    /// used to hold no record of that, so a guarded division at file scope was
-    /// reported and the repair was to move it into a function.
-    ///
-    /// Only statements are read. A type or an extension declared at file scope
-    /// is not part of the top-level program, and a guard inside one of its
-    /// members answers for that member alone; the collector already leaves a
-    /// function's body to the function.
+    /// The file scope used to hold no record of them, so a guarded division at
+    /// file scope was reported and the repair was to move it into a function.
+    /// What counts as top-level code is `FallbackGuardFactCollector`'s to say,
+    /// so that this rule and `fallback.*` give one answer.
     override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile, checkDivisionGuards else { return .visitChildren }
-        var facts = FallbackGuardFacts()
-        for item in node.statements where !Self.declaresAType(item.item) {
-            let found = FallbackGuardFactCollector.collect(from: Syntax(item), genericNames: fpTypeNames)
-            facts.facts.append(contentsOf: found.facts)
-            facts.aliases.merge(found.aliases) { earlier, _ in earlier }
-        }
-        scopes[0].facts = facts
+        scopes[0].facts = FallbackGuardFactCollector.collectTopLevel(from: node, genericNames: fpTypeNames)
         return .visitChildren
-    }
-
-    /// True for a file-scope declaration whose members are their own bodies.
-    private static func declaresAType(_ item: CodeBlockItemSyntax.Item) -> Bool {
-        guard case .decl(let declaration) = item else { return false }
-        return declaration.is(StructDeclSyntax.self) || declaration.is(ClassDeclSyntax.self)
-            || declaration.is(ActorDeclSyntax.self) || declaration.is(EnumDeclSyntax.self)
-            || declaration.is(ExtensionDeclSyntax.self) || declaration.is(ProtocolDeclSyntax.self)
     }
 
     // MARK: - Skip Test Files

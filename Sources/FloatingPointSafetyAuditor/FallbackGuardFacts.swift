@@ -174,6 +174,31 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         return collector.result
     }
 
+    /// Collects the facts a file's top-level code establishes.
+    ///
+    /// A script, a `main.swift` or a playground page is a body: it asks its
+    /// questions in the same spellings a function does. Only statements are
+    /// read. A type or an extension declared at file scope is not part of the
+    /// top-level program, and a guard inside one of its members answers for that
+    /// member alone; a function's body is already left to the function.
+    static func collectTopLevel(from file: SourceFileSyntax, genericNames: Set<String>) -> FallbackGuardFacts {
+        var facts = FallbackGuardFacts()
+        for item in file.statements where !declaresAType(item.item) {
+            let found = collect(from: Syntax(item), genericNames: genericNames)
+            facts.facts.append(contentsOf: found.facts)
+            facts.aliases.merge(found.aliases) { earlier, _ in earlier }
+        }
+        return facts
+    }
+
+    /// True for a file-scope declaration whose members are their own bodies.
+    private static func declaresAType(_ item: CodeBlockItemSyntax.Item) -> Bool {
+        guard case .decl(let declaration) = item else { return false }
+        return declaration.is(StructDeclSyntax.self) || declaration.is(ClassDeclSyntax.self)
+            || declaration.is(ActorDeclSyntax.self) || declaration.is(EnumDeclSyntax.self)
+            || declaration.is(ExtensionDeclSyntax.self) || declaration.is(ProtocolDeclSyntax.self)
+    }
+
     private func record(_ key: String, _ kind: FallbackGuardFacts.Kind, at node: some SyntaxProtocol) {
         result.facts.append(FallbackGuardFacts.Fact(
             key: key,

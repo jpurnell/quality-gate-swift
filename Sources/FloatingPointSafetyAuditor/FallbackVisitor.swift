@@ -142,6 +142,16 @@ final class FallbackVisitor: SyntaxVisitor {
         return nil
     }
 
+    /// Seeds the file scope with the checks top-level code makes.
+    ///
+    /// Without this a script that bounds a value and then converts it was
+    /// reported as though it had not: every enclosing body's facts were read
+    /// except the outermost one, which had none.
+    override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
+        scopes[0].facts = FallbackGuardFactCollector.collectTopLevel(from: node, genericNames: genericNames)
+        return .visitChildren
+    }
+
     /// Leaves the innermost scope. The file scope is never popped.
     private func popScope() {
         guard scopes.count > 1 else { return }
