@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// `--fix`: convert each file `xctest-import` flagged from XCTest to Swift Testing.
