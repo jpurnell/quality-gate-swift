@@ -120,7 +120,8 @@ struct Dashboard: AsyncParsableCommand {
             configuration = Configuration()
         }
 
-        let effectiveCorpusPath = corpusPath ?? configuration.consistency.corpusPath
+        let effectiveCorpusPath = try ConfiguredCorpus.path(
+            flag: corpusPath, configuration: configuration, tag: "dashboard")
         guard let effectiveCorpusPath else {
             print("[dashboard] Error: No corpus path configured.")
             print("[dashboard] Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")

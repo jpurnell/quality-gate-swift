@@ -60,7 +60,8 @@ struct GenerateNarrative: AsyncParsableCommand {
             configuration = Configuration()
         }
 
-        let effectivePath = corpusPath ?? configuration.consistency.corpusPath
+        let effectivePath = try ConfiguredCorpus.path(
+            flag: corpusPath, configuration: configuration, tag: "ijs")
         guard let effectivePath else {
             print("[ijs] Error: No corpus path. Use --corpus-path or set consistency.corpusPath.")
             throw ExitCode(1)

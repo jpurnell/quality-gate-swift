@@ -343,6 +343,21 @@ struct QualityGateCLI: AsyncParsableCommand {
         // The one place the resolved root enters the configuration artery. Every checker
         // downstream reads `configuration.resolvedProjectRoot` instead of the process cwd.
         configuration.projectRoot = runEnvironment.repoRoot
+
+        // A path the gate cannot use as written stops the run here, before any checker and
+        // before telemetry — which is the step that acts on `corpusPath` by creating it.
+        // `corpusPath: ${ORG_JUDGEMENT_CORPUS:-}` was never expanded: two repositories grew a
+        // directory with that literal name and three weeks of telemetry inside it, while
+        // every run printed PASSED. Fatal rather than advisory because the run's own side
+        // effect is the damage; there is no later point at which refusing still helps.
+        let pathErrors = configuration.pathConfigurationErrors()
+        guard pathErrors.isEmpty else {
+            let lines = pathErrors.map { "❌ configuration: " + $0 }.joined(separator: "\n")
+            FileHandle.standardError.write(Data((lines + "\nNothing was run.\n").utf8))
+            throw ExitCode(1)
+        }
+        // Resolved once, after the check above, so `.rejected` cannot occur below.
+        let corpusLocation = configuration.corpusLocation()
         if runEnvironment.isForeign {
             if fix {
                 print("ERROR: --fix is refused in foreign mode — the findings are yours, the code isn't.")
@@ -562,12 +577,13 @@ struct QualityGateCLI: AsyncParsableCommand {
             } catch {
                 // Loud, never silent: a corpus that cannot be read is a fact about the run.
                 Self.logger.error("Consistency audit failed: \(error.localizedDescription, privacy: .public)")
+                // `.skipped`, not `.passed`: an audit that threw compared nothing.
                 allResults.append(CheckResult(
                     checkerId: ConsistencyChecker().id,
-                    status: .passed,
+                    status: .skipped,
                     diagnostics: [Diagnostic(
                         severity: .note,
-                        message: "Consistency audit could not run: \(error.localizedDescription)",
+                        message: "Not checked: the consistency audit could not run: \(error.localizedDescription)",
                         ruleId: "consistency-unavailable"
                     )],
                     duration: .zero
@@ -741,7 +757,7 @@ struct QualityGateCLI: AsyncParsableCommand {
         // SARIF consumers have no use for it, and it must stay out of the diagnostic list
         // so it cannot affect error or warning counts under --strict.
         if outputFormat == .terminal, !runEnvironment.isForeign {
-            let presence = configuration.consistency.corpusPath.map { path in
+            let presence = corpusLocation.usablePath.map { path in
                 CorpusPresenceProbe.probe(
                     corpusPath: path,
                     projectID: EffectiveProjectID.resolve(consistency: configuration.consistency)
@@ -760,7 +776,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             // the block but not the verdict: a registered project can be looking at a
             // corpus nobody has generated a pulse for in a week, and that is worth saying
             // even though its own registration is fine.
-            if let path = configuration.consistency.corpusPath, !hasFailure {
+            if let path = corpusLocation.usablePath, !hasFailure {
                 let freshness = PulseFreshnessProbe.probe(
                     corpusPath: path,
                     now: Date(),
@@ -821,7 +837,8 @@ struct QualityGateCLI: AsyncParsableCommand {
             configuration = Configuration()
         }
 
-        guard let corpusPath = configuration.consistency.corpusPath else {
+        guard let corpusPath = try ConfiguredCorpus.path(
+            flag: nil, configuration: configuration, tag: "ijs") else {
             print("[ijs] No corpus configured — skip not recorded.")
             return
         }

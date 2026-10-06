@@ -926,6 +926,50 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **A path in `.quality-gate.yml` is never used as a literal it was not meant to be.** Two
+  repositories set `consistency.corpusPath: ${ORG_JUDGEMENT_CORPUS:-}` to keep an absolute path
+  out of the file. Nothing in the gate expands that. `Configuration` decoded it as a string
+  (`Configuration.swift`, `ConsistencyCheckerConfig.init(from:)`), `TelemetryEmission.emit` handed
+  it to `CorpusPath(basePath:)` as read, and the writer created a directory *literally named*
+  `${ORG_JUDGEMENT_CORPUS:-}` inside each checkout — 131 files in one, over 480 in the other,
+  every run from 2026-09-12 on. The corpus received nothing. `consistency` then found that directory,
+  which exists because the gate made it, found no pulse in it, and printed `✓ PASSED` over a note
+  reading "consistency check skipped". Exporting the variable changed nothing: it was never read.
+  - **Refused, not expanded.** Across all 99 `.quality-gate.yml` files in the portfolio those two
+    lines were the only values containing `$` or `~`. Nothing relies on expansion, so adding it
+    would be new behaviour with its own quiet failures — a variable set in a terminal and absent in
+    a hook, a default that differs per machine — in exchange for no existing use. `$VAR`, `${VAR}`,
+    `${VAR:-default}`, `$(command)`, a leading `~`, and an empty value are each a configuration
+    error naming the key, the value and the fix. The run stops before any checker: exit 1,
+    `Nothing was run.`
+  - **One rule, every path-valued key.** `Configuration.pathValues` is the single list —
+    `corpusPath` (both sections), `guidelinesPath`, `masterPlanPath`, `changelogPath`, `readmePath`,
+    `kernelPath`, `artifactPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
+    `additionalPaths` / `exemptFiles` / `allowedFiles` lists, `xcodeBuild.project` / `.workspace`,
+    `plugins[].run`, and the `doc-code` / `doc-generated` paths. It is computed from the current
+    values rather than recorded during decoding, so `--telemetry-corpus-path '$X'` is judged too.
+  - **The gate does not write telemetry into the repository it is checking.** A *relative*
+    `corpusPath` that resolves inside the repository and is not gitignored is the same error. An
+    error rather than a warning because the alternative is to write: a warning would be printed
+    beside a run that had already dirtied the tree. A relative path git ignores — the documented
+    `corpusPath: .ijs-corpus` — still works; so does an absolute path, which an author wrote out in
+    full. git is asked about a file the gate would write (`<corpus>/telemetry/probe.json`), since a
+    `corpus/` rule does not match a directory that does not exist yet.
+  - **Every corpus reader and writer resolves through `CorpusLocation`.** The run, the telemetry
+    writer, the skip recorder and the six subcommands that read `consistency.corpusPath` no longer
+    hand it to `CorpusPath` themselves. A relative value now resolves against the project root
+    rather than the process directory; in a resident run those are the same directory.
+  - **`consistency` that compared nothing is `SKIPPED`, never `PASSED`.** No `corpusPath`, a path
+    that does not resolve to a directory, a corpus with no pulse, no recent telemetry, and an audit
+    that threw each returned `.passed` under a message saying it had skipped. Each is now
+    `.skipped` with `Not checked: … Nothing was compared; this is not a pass.` — the answer
+    `status` already gives for a missing plan. They stay notes, so nothing here fails `--strict`:
+    on a CI runner the owner's absolute corpus path is absent by design. Rule ids are unchanged.
+  - **Not fixed here, and worth knowing:** a `.quality-gate.yml` that fails to *decode* is still
+    logged and replaced by defaults (`QualityGateCLI.run`, "Using defaults"), which is why the
+    refusal above is a check after loading rather than a thrown decoding error — thrown, it would
+    have become a silent run on defaults.
+
 - **A test run that is cut off at the time limit fails.** It could be reported as
   `Ad-hoc code signing failed (tests passed)` — a warning — and a non-strict hook then let the
   commit through on a run that never finished. Three things had to line up, and on this package
