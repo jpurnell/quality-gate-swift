@@ -2,7 +2,34 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`quality-gate reindex-corpus`.** Rebuilds the corpus's per-project run indexes
+  (`telemetry/<project>/index.jsonl`, new in quality-gate-corpus-kit 1.22) from its run files,
+  for every project or for one (`--project`). Readers never need it to be correct — a run with
+  no index line is read from its own file — they need it to be fast. It is the backfill for
+  runs recorded before the index, and the repair for one that readers report as short.
+
 ### Changed
+
+- **Every run this gate records is now indexed as it is written.** The dependency on
+  quality-gate-corpus-kit moves from 1.19.0 to 1.22.1, whose `TelemetryWriter` appends one line
+  per run to the project's index after writing the run file. Nothing here calls it differently.
+  A failed append is logged and does not fail the write: the run file is the record.
+- **The terminal dashboard no longer holds the corpus.** `quality-gate dashboard` called
+  `CorpusReader.loadAll()` — every run of every project, findings included — and its
+  interactive mode kept the result for the life of the session and replaced all of it every
+  thirty seconds. Against a 3.16 GB corpus that is the shape that put the native dashboard at
+  11.9 GB (quality-gate-dashboard `e76b4a5`). It now holds `CorpusHistories`: each project's
+  history without diagnostics, plus each checker's latest standard-mode result for the findings
+  inbox. A refresh compares each project's history signature and re-reads only the projects
+  that changed. An acknowledgement reads the one run it is about, whole, at that moment.
+  `DashboardApp.run` gains an optional `histories:` parameter; passing `allRuns:` alone still
+  works.
+
+  Not addressed: each refresh still calls `CorpusReader.listAvailableLabels()`, which decodes
+  every pulse file to list them.
+
 
 - **`security.ssrf` reports a request, not a parse.** It reported every `URL(string:)` whose
   argument was not a literal: "URL constructed from dynamic input — potential SSRF". Constructing
