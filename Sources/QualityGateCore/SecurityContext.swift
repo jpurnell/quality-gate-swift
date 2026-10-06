@@ -183,7 +183,13 @@ public enum SecurityContext {
             return .named(term: strong.term.spelling)
         }
         guard let weak = relevant.last else { return nil }
-        let scopes = site.enclosingFunctions.reversed() + site.enclosingTypes.reversed()
+        // `Array(...)` around each half, because `reversed()` offers two viable overloads —
+        // `ReversedCollection` from `BidirectionalCollection` and `[Element]` from `Sequence` —
+        // and `+` cannot choose between them. Swift 6.4 resolves it; 6.2.4 reports `ambiguous
+        // use of 'reversed()'` and fails the build. Nothing platform-specific: the Linux job
+        // runs 6.2.4 and was simply the first thing to compile this with an older type checker.
+        let scopes = Array(site.enclosingFunctions.reversed())
+            + Array(site.enclosingTypes.reversed())
         guard let scope = scopes.first(where: isSecurityScope) else { return nil }
         return .weakNameInSecurityScope(term: weak.term.spelling, scope: scope)
     }
