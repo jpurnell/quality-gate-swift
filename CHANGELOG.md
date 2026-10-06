@@ -926,6 +926,10 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **The `// SECURITY:` marker on the standards-watch fetch is gone.** The URL there is checked
+  against an allow-list of hosts on the line that builds it, which `security.ssrf` now reads as
+  the answer it is. The marker stayed one deploy longer than the rule change because the hooks
+  run the installed binary.
 - **`unreachable` treats the members of a `public extension` as exported.** `public extension`
   makes its members public with no keyword on any of them, and the liveness facts read only a
   declaration's own modifiers — so in a library whose API is written that way, the API was
