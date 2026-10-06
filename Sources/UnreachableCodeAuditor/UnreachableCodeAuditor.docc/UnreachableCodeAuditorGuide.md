@@ -137,6 +137,8 @@ The cross-module pass must know what is "alive by definition" before it can iden
 
 **Public/open API in library targets.** A library's exported surface is reachable by any downstream consumer. The auditor queries `swift package describe --type json` (SwiftPM) or uses a suffix heuristic (Xcode) to determine target types. Modules whose type cannot be determined default to `"library"` -- the safe non-flagging default.
 
+What counts as exported is what the compiler exports, which is not only what says `public`. A declaration is part of the surface when it carries `public` or `open` itself, when it is a requirement of a public protocol or a case of a public enum, or when it sits directly in a `public extension` without narrowing its own access -- `public extension View { func padding() … }` exports `padding` with no keyword on it. A member of a type *nested* in such an extension takes that type's own default and is not exported unless it says so, and a function declared inside one of the extension's methods is a local.
+
 **Test targets.** Every symbol in a test target is rooted because the test runner is the implicit entry point. Target type is determined by the SwiftPM manifest or by a `Tests`/`UITests` module-name suffix heuristic.
 
 **Protocol witnesses.** This is the most involved root category. Three mechanisms cover it:
