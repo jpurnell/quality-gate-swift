@@ -129,6 +129,14 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         allDiagnostics.append(contentsOf: surface.diagnostics)
         allOverrides.append(contentsOf: surface.overrides)
 
+        // Whether a URL is requested is a package-wide fact too: the request is usually in a
+        // wrapper, not in the function that built the URL. See `RequestFlowRules`.
+        let requests = Self.runRequestFlow(
+            facts: result.requestFlows, configuration: configuration,
+            source: { SourceFileReader.read($0, checker: "safety") })
+        allDiagnostics.append(contentsOf: requests.diagnostics)
+        allOverrides.append(contentsOf: requests.overrides)
+
         // App Transport Security lives in property lists, not Swift. Same walk, same scope.
         let ats = auditPropertyLists(scan.propertyLists, configuration: configuration.security)
         allDiagnostics.append(contentsOf: ats.diagnostics)
@@ -180,7 +188,9 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         let surface = Self.runServerSurface(
             facts: result.serverSurface, targets: TargetTypeMap(targets: []),
             configuration: configuration, includeNote: false, source: { $0 == fileName ? source : nil })
-        let diagnostics = result.diagnostics + surface.diagnostics
+        let requests = Self.runRequestFlow(
+            facts: result.requestFlows, configuration: configuration, source: { $0 == fileName ? source : nil })
+        let diagnostics = result.diagnostics + surface.diagnostics + requests.diagnostics
 
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = diagnostics.contains { $0.isViolation } ? .failed : .passed
@@ -189,7 +199,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: diagnostics,
-            overrides: result.overrides + surface.overrides,
+            overrides: result.overrides + surface.overrides + requests.overrides,
             duration: duration
         )
     }
@@ -225,6 +235,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
                 for (rule, n) in result.countedTraps { outcome.countedTraps[rule, default: 0] += n }
                 outcome.xmlSites.add(result.xmlSites)
                 outcome.serverSurface.append(contentsOf: result.serverSurface)
+                outcome.requestFlows.append(contentsOf: result.requestFlows)
                 outcome.randomnessSites.add(result.randomnessSites)
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -301,13 +312,19 @@ public struct SafetyAuditor: QualityChecker, Sendable {
             ? [ServerSurfaceFileFacts.collect(from: sourceFile, converter: converter, fileName: fileName)]
             : []
 
+        // And one for what this file does with URLs, for the package-wide request join.
+        let requestFlows = Self.requestFlowEnabled(configuration.security)
+            ? [RequestFlowCollector.collect(from: sourceFile, converter: converter, fileName: fileName)]
+            : []
+
         return AuditOutcome(
             diagnostics: safetyVisitor.diagnostics + securityVisitor.diagnostics,
             overrides: safetyVisitor.overrides + securityVisitor.overrides,
             countedTraps: safetyVisitor.countedTraps,
             xmlSites: securityVisitor.xmlSites,
             serverSurface: surface,
-            randomnessSites: securityVisitor.randomnessSites
+            randomnessSites: securityVisitor.randomnessSites,
+            requestFlows: requestFlows
         )
     }
 
@@ -319,6 +336,7 @@ public struct SafetyAuditor: QualityChecker, Sendable {
         var xmlSites = XMLSiteCounts()
         var serverSurface: [ServerSurfaceFileFacts] = []
         var randomnessSites = RandomnessSiteCounts()
+        var requestFlows: [RequestFlowFileFacts] = []
     }
 
     /// The `security.randomness-coverage` note (`ASeedIsNotASecret.md` §3.8): how many

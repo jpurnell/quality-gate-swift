@@ -32,7 +32,7 @@ import SwiftSyntax
 /// | `security.trust-handler-accepts-all` | 295 | Trust challenge answered without an evaluation |
 /// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
 /// | `security.path-traversal` | 22 | Chosen segment joined onto a directory and used without containment |
-/// | `security.ssrf` | 918 | URL(string:) with non-literal argument |
+/// | `security.ssrf` | 918 | URL built from non-literal input and requested, host unchecked — see `RequestFlowRules.swift` |
 /// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
 /// | `security.xml-entity-expansion` | 776 | `XML_PARSE_HUGE`; `XMLDocument` parse with no DTD refusal (warning) |
 /// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |
@@ -182,7 +182,6 @@ final class SecurityVisitor: SyntaxVisitor {
         checkWeakCrypto(node)
         checkEvalJS(node)
         checkSQLInjection(node)
-        checkSSRF(node)
         checkPathTraversal(node)
         checkPathContainmentByPrefix(node)
         checkArchivePathEscape(node)
@@ -718,83 +717,6 @@ final class SecurityVisitor: SyntaxVisitor {
         for child in node.children(viewMode: .sourceAccurate) {
             collectStringLiteralConstants(child, into: &names)
         }
-    }
-
-    /// Whether every interpolation in `literal` resolves to a constant declared in this file.
-    ///
-    /// Accepts a bare name (`allowedHost`) and a one-step qualification (`Self.allowedHost`,
-    /// `Config.allowedHost`) where the trailing name is a known local constant. Anything
-    /// else — a call, a subscript, a deeper path — is not resolved and so is not trusted.
-    private func interpolationsAreAllLocalConstants(_ literal: StringLiteralExprSyntax) -> Bool {
-        var sawInterpolation = false
-        for segment in literal.segments {
-            guard let expression = segment.as(ExpressionSegmentSyntax.self) else { continue }
-            sawInterpolation = true
-            guard let only = expression.expressions.first,
-                  expression.expressions.count == 1,
-                  let name = constantName(of: only.expression),
-                  localStringConstants.contains(name) else {
-                return false
-            }
-        }
-        return sawInterpolation
-    }
-
-    /// The identifier an expression names, if it is a bare reference or a one-step member access.
-    private func constantName(of expression: ExprSyntax) -> String? {
-        if let ref = expression.as(DeclReferenceExprSyntax.self) {
-            return ref.baseName.text
-        }
-        if let member = expression.as(MemberAccessExprSyntax.self),
-           let base = member.base,
-           base.is(DeclReferenceExprSyntax.self) {
-            return member.declName.baseName.text
-        }
-        return nil
-    }
-
-    // MARK: SSRF (CWE-918)
-
-    private func checkSSRF(_ node: FunctionCallExprSyntax) {
-        guard isRuleEnabled("security.ssrf") else { return }
-
-        // Check for URL(string: <non-literal>)
-        guard let ref = node.calledExpression.as(DeclReferenceExprSyntax.self),
-              ref.baseName.text == "URL" else {
-            return
-        }
-
-        guard let firstArg = node.arguments.first,
-              firstArg.label?.text == "string" else {
-            return
-        }
-
-        // If the argument is a plain string literal without interpolation, it's safe
-        if let literal = firstArg.expression.as(StringLiteralExprSyntax.self),
-           !containsInterpolation(literal) {
-            return
-        }
-
-        // So is one whose every interpolation resolves to a string constant declared in
-        // this file: there is no dynamic input in it, and the suggested fix — validate
-        // against an allowlist — cannot be applied to a value that is already a literal.
-        if let literal = firstArg.expression.as(StringLiteralExprSyntax.self),
-           interpolationsAreAllLocalConstants(literal) {
-            return
-        }
-
-        let location = node.startLocation(
-            converter: converter
-        )
-        report(Diagnostic(
-            severity: .warning,
-            message: "URL constructed from dynamic input — potential SSRF. [CWE-918]",
-            filePath: fileName,
-            lineNumber: location.line,
-            columnNumber: location.column,
-            ruleId: "security.ssrf",
-            suggestedFix: "Validate the URL against an allowlist of expected hosts before making requests"
-        ))
     }
 
     // MARK: Path Traversal (CWE-22)

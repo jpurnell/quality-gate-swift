@@ -25,7 +25,8 @@ struct SecurityAcknowledgementTests {
         ("security.insecure-keychain", "let level = Security.kSecAttrAccessibleAlways"),
         ("security.tls-disabled", "config.allowsExpiredCertificates = true"),
         ("security.path-traversal", "let data = FileManager.default.contents(atPath: base.appendingPathComponent(name).path)"),
-        ("security.ssrf", "let target = URL(string: input)"),
+        // A parse alone is no longer a finding (`AURLIsNotARequest.md`): the fixture requests it.
+        ("security.ssrf", "let page = try String(contentsOf: URL(string: input) ?? fallback)"),
         ("security.broken-cipher", "let algorithm = CCAlgorithm(kCCAlgorithmDES)"),
         ("security.ecb-mode", "let options = CCOptions(kCCOptionECBMode)"),
         ("security.homemade-digest", "func hashKey(_ key: String) -> String { String(key.reversed()) }"),
@@ -111,9 +112,9 @@ struct SecurityAcknowledgementTests {
     func repeatedReasonIsAccepted() async throws {
         let code = """
             \(Self.validReason)
-            let first = URL(string: input)
+            let first = try Data(contentsOf: URL(string: input) ?? fallback)
             \(Self.validReason)
-            let second = URL(string: other)
+            let second = try Data(contentsOf: URL(string: other) ?? fallback)
             """
         let result = try await audit(code)
         #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
