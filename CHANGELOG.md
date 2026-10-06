@@ -926,6 +926,12 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
+  3.4.0's follow-ups; `fallback.*` has its own visitor, and its file scope still held no facts.
+  A script that wrote `guard tenor.isFinite, tenor >= 0, tenor < 1_000 else { exit(1) }` and then
+  `Int(tenor)` was reported as converting an unbounded value. Both rules now ask one collector
+  what a file's top-level code established, so they cannot disagree about it again. A guard
+  inside a function or inside a member of a file-scope type still answers only for that body.
 - **The `// SECURITY:` marker on the standards-watch fetch is gone.** The URL there is checked
   against an allow-list of hosts on the line that builds it, which `security.ssrf` now reads as
   the answer it is. The marker stayed one deploy longer than the rule change because the hooks
