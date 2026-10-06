@@ -119,7 +119,6 @@ struct ECFRStandardsSource: StandardsSource {
     func fetchUpstream(for catalog: ControlCatalog) async throws -> String? {
         guard catalog.source == "ecfr" else { return nil }
         let resolved = catalog.sourceRef.replacingOccurrences(of: "{date}", with: Self.todayUTC())
-        // SECURITY: URL is built from tool-bundled catalog data and the host is allow-listed to eCFR — not attacker-controllable (CWE-918 mitigated).
         guard let url = URL(string: resolved), let host = url.host, Self.allowedHosts.contains(host) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
