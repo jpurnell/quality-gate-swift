@@ -328,7 +328,11 @@ public struct BuildChecker: QualityChecker, Sendable {
             status = warned ? .warning : .passed
         } else {
             let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
-            if !hasCompilationErrors && isCodeSigningError(output) {
+            // A build that was terminated at its time limit did not succeed, whatever its
+            // output mentions. 124 is the process kernel's timeout code; `test` learned this
+            // the hard way, reporting a cut-off run as passed with a signing warning.
+            let timedOut = exitCode == 124
+            if !hasCompilationErrors && !timedOut && isCodeSigningError(output) {
                 status = .passed
                 diagnostics.append(Diagnostic(
                     severity: .warning,

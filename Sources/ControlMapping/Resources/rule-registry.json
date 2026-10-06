@@ -255,6 +255,7 @@
     "test-codesign",
     "test-failure",
     "test-skip",
+    "test-timeout",
     "test.outcome-flip",
     "test.stress-empty",
     "unasserted-optional-unwrap",
