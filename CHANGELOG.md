@@ -4,6 +4,68 @@
 
 ### Changed
 
+- **`security.ssrf` reports a request, not a parse.** It reported every `URL(string:)` whose
+  argument was not a literal: "URL constructed from dynamic input — potential SSRF". Constructing
+  a URL is not making a request. Across the 98 gate-configured repositories that was 60 sites, 59
+  of them already answered with a `// SECURITY:` sentence, and most of those sentences said the
+  same true thing: nothing is fetched from it. A static-site generator that parses link targets
+  into `href` values had 29. The only ways to clear a finding were to write the sentence or to
+  respell the call as `URLComponents(string:)?.url`, and neither is a fix. Same id, same CWE-918;
+  what changed is the sentence (`AURLIsNotARequest.md`, as `security.path-traversal` became "a
+  join that reaches a sink" in `TraversalIsAJoin.md`).
+  - **A finding needs both halves.** A URL *built* from non-literal input — `URL(string:)`,
+    `URL(string:relativeTo:)`, `URLComponents(string:)`, AsyncHTTPClient's
+    `HTTPClientRequest(url:)`, `URI(string:)` — **and** a call that opens a connection to it:
+    the `URLSession` request methods, `Data` / `String` / `NSData` / `XMLParser(contentsOf:)`,
+    `execute(_:)` on an `HTTPClientRequest`, `WKWebView.load(_:)` on a `URLRequest`,
+    `WebSocket.connect(to:)`, `NWConnection(to: .url(…))`. Followed through the function's
+    bindings, `URLRequest(url:)`, and closures. A file URL by construction is never an operand.
+  - **The request is usually in a wrapper, so the rule is package-wide.** Each file contributes
+    what its functions do with URL-shaped values; a join finds the parameters and properties that
+    are requested. `MJPEGStream(url:)` is a sink because a method of the type hands `url` to
+    `dataTask(with:)`; a built URL passed to it is reported where it was built, naming the wrapper
+    and the sink behind it. Matching is by name and label, not type.
+  - **A checked host is not a finding.** The URL's `host` compared with something other than
+    `nil`, tested with `contains` / `hasSuffix` / `hasPrefix`, switched on, or handed to a
+    function inside a condition — before the request — clears it; so does handing the URL to a
+    function of the package that does one of those. A wrapper that validates before it requests
+    is not a sink. `host != nil` and a scheme check are not host checks.
+  - **A string that fixes the host is not dynamic.** `"https://api.example.com/users/\(id)"`,
+    `"ws://127.0.0.1:\(port)/"` and `"\(Self.baseURL)/x"` with `baseURL` a same-file constant
+    holding scheme and host: whoever supplies the rest does not choose the destination. Nor is a
+    string that begins with an existing URL's `absoluteString` and continues with a path —
+    `"\(base.absoluteString)/v1/x"` is `base.appendingPathComponent(…)` by another spelling, and
+    has `base`'s host. Without the separator it is still dynamic: `"\(base.absoluteString)\(suffix)"`
+    can extend the host.
+  - **A returned URL is followed too.** A function that returns a URL it built is a producer.
+    Built from its own input, it is reported at the construction once a caller requests the
+    result; built from the string a parameter holds (`func url(_ string: String) -> URL`), each
+    caller's argument decides — a literal is nothing, a dynamic string is reported at the call.
+    Twenty of the sixty old findings were test helpers of that second shape, given literals.
+  - **Not reported:** a URL that is returned, compared, displayed, written into markup, or stored
+    where nothing in the package requests it. **Not seen:** anything in another package, a
+    connection to a host string (`connect(host:)`), a URL assembled by assignment, a producer
+    called as a method on another value.
+  - **Severity.** A warning, as before. An **error** when the URL derives from request content,
+    an MCP tool argument or bytes from the network — a tripwire: no portfolio site has it.
+  - **Where.** On the construction, as before, so an acknowledgement that still answers a finding
+    keeps answering it. The message names the input and the sink; one URL sent to two sinks is
+    one diagnostic.
+  - **Measured**, old and new binary over the 98 gate-configured repositories, each under its own
+    configuration, findings and acknowledgements together: **60 → 9**; Ignite at `HEAD`, 29 → 0.
+    All nine kept are real requests to an address from non-literal input — one a remote server's
+    choice, eight an operator's own. Of the 52 dropped, 38 were never requested, 11 are requested
+    behind a host check, 1 has its host in the literal, and 2 are real connections this rule does
+    not see (a host string; another package). One finding is new: a URL spelled
+    `URLComponents(string:)`, which the old rule could not see. Every site was read; the table is
+    the proposal's §4.
+  - `ExternalInputFile` gains `bindingSites(at:)` (`FunctionBindings`, `BindingSite`): the
+    bindings `scope(at:)` already collected, as syntax with positions, collected once per
+    function. `scope(at:)` is built from it.
+  - The gate's own `StandardsWatchCommand` allow-lists its host before it fetches, so its
+    `// SECURITY:` marker answers a finding the new rule does not make. It stays until this is
+    deployed: the pre-commit hook runs the installed binary, whose rule still makes it.
+
 - **The server-surface inventory reads SwiftMCPServer by release, because 5.0.0 changed what the
   same call means.** The inventory encoded 4.x as if it were the library: "`HTTPServerTransport`
   binds `0.0.0.0` and has no host parameter", "the builder cannot set the address", and

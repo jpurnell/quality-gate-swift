@@ -41,7 +41,7 @@ The same pass runs the `security.*` rules. Their CWE lists and OWASP columns liv
 | `security.regex-catastrophic` | error | 1333 | A literal pattern with nested or overlapping unbounded repetition |
 | `security.regex-from-input` | warning | 1333 | A pattern derived from external input |
 | `security.predicate-injection` | error | 943, 917 | An `NSPredicate` / `NSExpression` format string assembled at runtime |
-| `security.ssrf` | warning | 918 | `URL(string:)` from dynamic input |
+| `security.ssrf` | warning (network input: error) | 918 | A URL built from non-literal input that reaches a network request with no check on its host |
 | `security.broken-cipher` | error | 327 | DES, 3DES, RC4, RC2, CAST or Blowfish constants; CryptoSwift Blowfish, Rabbit |
 | `security.ecb-mode` | error | 327 | ECB mode (`kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`) |
 | `security.homemade-digest` | warning | 1240 | A digest-named function of a secret that calls no primitive |
@@ -167,6 +167,85 @@ careful" is not.
 "External input" is the shared model in `QualityGateCore` (`ExternalInput`), read off the tree by
 the `ExternalInputSyntax` target. It is one function wide: a parameter of a public helper is not
 input, so the rule says nothing about a pattern that arrives through one.
+
+### A URL is not a request
+
+`security.ssrf` used to report every `URL(string:)` whose argument was not a literal — which is
+every URL a program parses. A forged request needs a request. The rule now reports a URL **built
+from non-literal input that reaches a call which opens a connection**, with no question asked
+about its host in between:
+
+```swift
+import Foundation
+
+enum Feed {
+    static let allowedHosts: Set<String> = ["feeds.example.com"]
+
+    // Reported, on the `URL(string:)`: the string chooses the host and nothing asks which.
+    static func fetchUnchecked(_ address: String) async throws -> Data {
+        guard let url = URL(string: address) else { return Data() }
+        return try await URLSession.shared.data(from: url).0
+    }
+
+    // Not reported: the host is asked about before the request.
+    static func fetch(_ address: String) async throws -> Data {
+        guard let url = URL(string: address), let host = url.host, allowedHosts.contains(host) else {
+            return Data()
+        }
+        return try await URLSession.shared.data(from: url).0
+    }
+
+    // Not reported: parsed for markup, never requested.
+    static func anchor(_ address: String) -> String {
+        guard let url = URL(string: address) else { return "" }
+        return "<a href=\"\(url.absoluteString)\">link</a>"
+    }
+
+    // Not reported: the literal fixes the host; the identifier only extends the path.
+    static func item(_ identifier: Int) async throws -> Data {
+        guard let url = URL(string: "https://feeds.example.com/items/\(identifier)") else { return Data() }
+        return try await URLSession.shared.data(from: url).0
+    }
+}
+```
+
+| | recognised |
+|---|---|
+| **Built** | `URL(string:)`, `URL(string:relativeTo:)`, `URLComponents(string:)`, `HTTPClientRequest(url:)`, `URI(string:)` whose string is not a literal, not an interpolation of same-file string constants, and does not write out its scheme and host before its first dynamic piece |
+| **Requested** | `URLSession` `data` / `bytes` / `download` / `upload` / `dataTask` / `downloadTask` / `uploadTask` / `webSocketTask` `(from:` / `for:` / `with:)`; `Data` / `String` / `NSData` / `XMLParser(contentsOf:)`; AsyncHTTPClient `execute(_:)` on an `HTTPClientRequest`; `WKWebView.load(_:)` on a `URLRequest`; `WebSocket.connect(to:)`; `NWConnection(to: .url(…))` |
+| **Followed** | `let` / `guard let` / `if let` / `for` bindings in the function; `URLRequest(url:)`; `.absoluteURL`, `appendingPathComponent(_:)` and the like; closures inside the function |
+| **Cleared by** | the URL's `host` compared with something other than `nil`, tested with `contains` / `hasSuffix` / `hasPrefix`, switched on, or handed to a function inside a condition — before the request. Or the URL handed, in a condition or a `try` statement, to a function of the package that does one of those |
+
+A file URL (`URL(fileURLWithPath:)`, `URL(filePath:)`) is never an operand, so
+`Data(contentsOf:)` on a path is not this rule's business. `url.host != nil` and
+`url.scheme == "https"` are not host checks: they do not say *which* host.
+
+**The request is usually in a wrapper.** So, like the server-surface rules below, this one is a
+package-wide question answered per site. Each file contributes what its functions do with
+URL-shaped values, and a join over the package finds the parameters and properties that are
+*requested*: `MJPEGStream(url:)` is a sink because a method of `MJPEGStream` hands `url` to
+`dataTask(with:)`; `fetch(url:)` is not one if it validates the host before it requests. A built
+URL passed to the first is reported where it was built, naming the wrapper and the sink behind
+it. Calls are matched to declarations by name and label — there are no types here — so two
+unrelated functions with one name are one function to the join.
+
+The join follows a URL out of a function as well as into one. A function that **returns** a URL
+it built is a producer: if it builds from its own input, a caller that requests the result makes
+the construction a finding, there; if it builds from the string one of its parameters holds —
+`func parsed(_ string: String) -> URL?` — each caller's argument decides, so `parsed("https://…")`
+is nothing and `parsed(text)` is reported at the call. A producer that checks the host before it
+returns is not one.
+
+A URL that is returned, compared, displayed, written into markup, or stored where nothing in the
+package requests it is not reported. Not seen: a request made in another *package*, a connection
+to a host string (`connect(host:port:)`), a URL assembled by assignment (`components.host = …`),
+and a producer called as a method on some other value.
+
+The finding is a **warning**. It is an **error** when the URL derives from request content, an
+MCP tool argument or bytes from the network (`ExternalInput`, as for `regex-from-input` above): a
+remote party chose where this process connects. The message names the input and the sink, and a
+`// SECURITY: <reason>` on the construction's line or the one above acknowledges it as for every
+other security rule.
 
 ### What a client agrees to trust
 
