@@ -926,6 +926,16 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **A test run that is cut off at the time limit fails.** It could be reported as
+  `Ad-hoc code signing failed (tests passed)` — a warning — and a non-strict hook then let the
+  commit through on a run that never finished. Three things had to line up, and on this package
+  under load they did: the kernel's timeout exit code is non-zero like any failure; a bundle that
+  finished before the cut-off had printed a "passed" summary; and the output contained the words
+  "codesign failed", which here is the name of a test. A timeout is now asked about first and is
+  an error (`test-timeout`), and the signing heuristic reads toolchain lines, never a line that
+  reports on a test. `build` gets the same precedence. Found on this repository's own commit hook
+  at 600.04 s with the machine's load above 130; the same warning had been seen twice that week
+  and read as a signing quirk.
 - **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
   3.4.0's follow-ups; `fallback.*` has its own visitor, and its file scope still held no facts.
   A script that wrote `guard tenor.isFinite, tenor >= 0, tenor < 1_000 else { exit(1) }` and then
