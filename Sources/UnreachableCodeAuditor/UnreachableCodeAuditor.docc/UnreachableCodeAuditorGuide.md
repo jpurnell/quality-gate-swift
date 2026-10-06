@@ -131,6 +131,28 @@ note: Index store at /path/to/DataStore is older than the newest
 
 The gate never fails purely on these notes. They exist so you know when you are running on syntactic-only results.
 
+### `unreachable.index.age`, `.stale-barrier` and `.source-mismatch`
+
+Every cross-module run says what it read before it says what it found.
+
+```
+note: Index built 2026-10-06 14:05:11, 2s newer than the newest source · 67 units.
+      16 compiled from source: 10 read, 6 ignored (6 stale, 0 superseded, 0 orphaned).
+```
+
+The first sentence is about the store as a whole: its newest unit against the newest source. That alone used to be the whole check, and it is satisfied by a store in which most units are months old -- an index store is added to by every build and pruned by none. The second sentence is the count of units that were examined one by one and set aside: *stale* (the source was edited after the unit was written), *superseded* (a newer unit exists for the same source, module and platform) or *orphaned* (the source is gone). Nothing from an ignored unit is read. The `IndexStoreInfra` guide describes the decision and what it cannot see.
+
+`unreachable.index.stale-barrier` is an error and **replaces** the cross-module findings. It is raised when the newest source is newer than the newest unit, and also -- per file -- when a source in this project has units but none that is current. In the second case the stale unit cannot simply be ignored: it held the only record of what that file references, and without it everything only that file calls would be reported as unreachable. Rebuild with `swift build --build-tests` and re-run.
+
+`unreachable.index.source-mismatch` is a note counting findings that were withheld because the recorded line no longer mentions the symbol:
+
+```
+note: 1 unreferenced definition the index reports is not written at the recorded line
+      in the current source and was not reported: 'obsoleteVersion' at QRCodeError.swift:11.
+```
+
+It is the last check before a finding is made, and it should be rare now that stale units are not read. When it appears, the index held a record of code that has changed and the unit census did not catch it.
+
 ## The root set in detail
 
 The cross-module pass must know what is "alive by definition" before it can identify what is dead. Getting the root set wrong in either direction produces either false positives (flagging live code) or false negatives (missing dead code). The auditor errs heavily toward false negatives -- if there is any doubt, the symbol is rooted.
@@ -185,7 +207,7 @@ The conservative double-gate (BFS unreachable *and* zero index references) means
 
 - **Dynamic dispatch not visible to the index.** Objective-C selectors invoked via `perform(_:)`, `NSInvocation`, or `#selector` where the index does not record a reference. Fix: add `// LIVE:` or ensure `@objc` is present (which roots the symbol automatically).
 - **Cross-module references from outside the project.** If another project depends on this one as a package dependency, internal symbols it calls are not in this project's index. Fix: those symbols should be `public` (which roots them) or the downstream project should be included in the analysis root.
-- **Stale index store.** If you changed code but did not rebuild, the index reflects the old call graph. The auditor emits a `unreachable.cross_module.stale` note when it detects this, but cannot fix it for you. Fix: rebuild and re-run.
+- **Stale index store.** If you changed code but did not rebuild, the index reflects the old call graph. The auditor refuses to read it (`unreachable.index.stale-barrier`) rather than report from it. What it cannot detect is listed under *What the freshness check does and does not establish* in the `IndexStoreInfra` guide -- chiefly, it trusts modification times and judges a unit by its main file alone. Fix: rebuild and re-run.
 
 ### Project-specific configuration
 

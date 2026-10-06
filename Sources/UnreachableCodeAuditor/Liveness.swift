@@ -45,6 +45,9 @@ struct LivenessIndex: Sendable {
     /// a decl — we just store all `// LIVE:` line numbers per file and check
     /// `line` and `line - 1` at lookup time.
     private var liveLines: [String: Set<Int>] = [:]
+    /// The text of every ingested file, by line, so an index occurrence can be read against
+    /// the source it claims to describe.
+    private var lines: [String: [Substring]] = [:]
 
     /// Resolves symlinks and `..` components so that FileManager paths
     /// (used during ingestion) and IndexStoreDB paths (used during
@@ -63,12 +66,14 @@ struct LivenessIndex: Sendable {
         // attached to declarations in the syntax tree directly, but a line
         // sweep is fast and unambiguous.
         var liveSet: Set<Int> = []
-        for (idx, line) in source.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).enumerated() {
+        let sourceLines = source.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        for (idx, line) in sourceLines.enumerated() {
             if line.contains("// LIVE:") || line.contains("//LIVE:") {
                 liveSet.insert(idx + 1)
             }
         }
         liveLines[key] = liveSet
+        lines[key] = sourceLines
 
         let visitor = DeclFactVisitor(file: key, converter: converter, liveLines: liveSet)
         visitor.walk(tree)
@@ -92,6 +97,16 @@ struct LivenessIndex: Sendable {
             }
         }
         return best?.nameLine
+    }
+
+    /// The text of `line` (1-based) in the current source of `file`.
+    ///
+    /// - Returns: `nil` when the file was not ingested or no longer has that many lines —
+    ///   which is itself an answer about an index occurrence that names it.
+    func lineText(file: String, line: Int) -> String? {
+        guard let fileLines = lines[Self.normalize(file)],
+              line >= 1, line <= fileLines.count else { return nil }
+        return String(fileLines[line - 1])
     }
 
     func hasLiveExemption(file: String, line: Int) -> Bool {

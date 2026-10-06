@@ -177,9 +177,28 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 testUnits = nil
             }
             let provenance = Self.indexProvenance(located: located2, includesTestUnits: testUnits)
-            diagnostics.append(contentsOf: provenance.diagnostics)
-            guard provenance.shouldRun else { throw SkipMarker.skipped }
-            let dylib = try Self.locateLibIndexStore()
+            guard provenance.shouldRun else {
+                diagnostics.append(contentsOf: provenance.diagnostics)
+                throw SkipMarker.skipped
+            }
+            // The store as a whole is newer than the sources. That says a build ran after the
+            // last edit; it does not say which units that build wrote. Opening the session
+            // takes the census that does, and the note — or a second barrier — comes from it.
+            let dylib: URL
+            let session: IndexStoreSession
+            do {
+                dylib = try Self.locateLibIndexStore()
+                session = try await SharedIndexStore.session(storePath: located2.url, libPath: dylib)
+            } catch {
+                // The store-wide note is still true and still worth having when the session
+                // that would have refined it could not be opened.
+                diagnostics.append(contentsOf: provenance.diagnostics)
+                throw error
+            }
+            let examined = Self.unitProvenance(
+                located: located2, census: session.unitCensus, projectSources: swiftFiles)
+            diagnostics.append(contentsOf: examined.diagnostics)
+            guard examined.shouldRun else { throw SkipMarker.skipped }
             let targetTypeByModule: [String: String]
             switch kind {
             case .swiftPM(let pkgRoot):
@@ -294,6 +313,51 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             // Nothing to be stale against; there is no reachability question to answer.
             return ([], false)
         }
+    }
+
+    /// What to say about the index once its units have been examined one by one, and whether
+    /// to read it.
+    ///
+    /// Follows ``indexProvenance(located:includesTestUnits:)``, which judges the store as a
+    /// whole and has already allowed the run. This judges it file by file.
+    ///
+    /// - Parameters:
+    ///   - located: The located store, carrying its store-wide measurement.
+    ///   - census: The session's unit census, or `nil` when the units could not be examined.
+    ///   - projectSources: The files this checker reads — the project's own, after exclusions.
+    ///     A source the index no longer describes is a barrier only when it is one of these.
+    /// - Returns: The diagnostics to emit, and whether the index may be read.
+    static func unitProvenance(
+        located: StoreLocator.LocatedStore,
+        census: IndexUnitCensus?,
+        projectSources: [String]
+    ) -> (diagnostics: [Diagnostic], shouldRun: Bool) {
+        guard case .measured(let freshness)? = located.measurement else {
+            // An asserted store: nothing was measured before, and nothing is claimed now.
+            return ([], true)
+        }
+        guard let census else {
+            return ([freshness.coverageNote(checkerId: checkerId, census: nil)], true)
+        }
+
+        if !census.sourcesWithoutCurrentUnit.isEmpty {
+            // The compiler records the path it was given and the walker the path it found;
+            // only their resolved forms are comparable.
+            func resolved(_ path: String) -> String {
+                URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            }
+            let own = Set(projectSources.map(resolved))
+            let undescribed = census.sourcesWithoutCurrentUnit.filter { own.contains(resolved($0)) }
+            if !undescribed.isEmpty {
+                return ([census.undescribedSourcesBarrier(
+                    checkerId: checkerId,
+                    subject: "reachability",
+                    storeURL: located.url,
+                    sources: undescribed
+                )], false)
+            }
+        }
+        return ([freshness.coverageNote(checkerId: checkerId, census: census)], true)
     }
 
     /// Build the Xcode project / workspace via `xcodebuild` and return a

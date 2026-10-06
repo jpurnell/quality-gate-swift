@@ -926,7 +926,64 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
-- **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
+
+- **A stale index unit beside a fresh one was read as though it were current.** The freshness
+  check compared the *newest* unit with the *newest* source, which establishes that a build ran
+  after the last edit and nothing about any other unit. A build adds to an index store and
+  nothing prunes it: a unit is named after its output path, so one source compiled for two
+  build variants has two units, and a variant that stops being built leaves its units behind.
+  swiftbuild compiles an executable target twice when a test target imports it; remove the
+  import and the `-testable` units stay, describing the source as of their last build. Ignite's
+  store held one from 27 August beside that day's, the note read "1m newer than the newest
+  source", and `unreachable` reported a deleted enum case at `QRCodeError.swift:11:10` — a line
+  holding a different declaration. Reproduced in a scratch package: four of six deleted symbols
+  reported, at the line their neighbour had moved up to.
+  - **Why only four of six.** `IndexStoreDB.symbols(inFilePath:)` reads one record per file,
+    from whichever unit the database enumerates first — a hash of the unit's name. With a stale
+    unit beside a fresh one the symbol list is the stale one about half the time, which also
+    means symbols *added* since are missing from it. `occurrences(ofUSR:)` reads every unit, so
+    a symbol that moved was reported at both lines.
+  - **Why deleting the unit file did not help.** IndexStoreDB learns of a removed unit only by
+    comparing two scans made in one process. A gate run makes one, so the persistent
+    `quality-gate-indexdb-*` database kept everything an earlier run had ingested from it.
+  - **Units are now judged one by one.** `IndexStoreSession` takes a census
+    (`IndexUnitCurrency`): a unit is *stale* when its main source was modified after it was
+    written, *superseded* when a newer unit exists for the same source, module and platform,
+    *orphaned* when its source is gone. The session opens IndexStoreDB in explicit-output-units
+    mode and declares only the current units; an undeclared unit is not ingested and, where an
+    earlier run already ingested it, not visible to any query. Nothing is deleted, the database
+    layout is unchanged, and existing databases need no migration. All six index-backed
+    checkers inherit this through `SharedIndexStore`.
+  - **Units for different platforms do not supersede each other.** Each sees references the
+    other's `#if os(…)` hides; dropping the older would report what only it calls as
+    unreachable. Deployment versions, and an older toolchain's `macosx12.0.0` for `macos12.0`,
+    are not a different platform.
+  - **A source with units and no current one is a barrier, not clutter.** Ignoring its stale
+    unit removes its references as well as its definitions, so `unreachable` refuses to run
+    (`unreachable.index.stale-barrier`, naming the files) rather than report what only that
+    file calls. The store-wide comparison cannot see this state.
+  - **A finding is read against the source before it is made.** `unreachable` withholds a
+    finding whose recorded line no longer mentions the symbol
+    (`IndexedDeclaration.appears(indexedName:inSourceLine:)`) and counts it in an
+    `unreachable.index.source-mismatch` note. It also prefers, among a symbol's definition
+    occurrences, the one the source agrees with.
+  - **The note says what was not read.** `…index.age` now ends `16 compiled from source: 10
+    read, 6 ignored (6 stale, 0 superseded, 0 orphaned).` If the units could not be examined
+    individually it says that instead, and every unit is read as before.
+  - **`IndexStoreSession.init(storePath:libPath:)` is now `async`**, because the census reads
+    units through `libIndexStore`'s own reader, which loads through an actor. There is no
+    synchronous overload: one would open the store without a census. `IndexStoreInfra` gains a
+    dependency on indexstore-db's `IndexStore` product, which was already in the package graph.
+  - Cost, measured on this repository's store (2,810 units, 2,574 current). Opening a session
+    against a warm database, in isolation: ~0.06s before, ~0.33s after — the census reads
+    every unit (~0.1s) and each current unit is registered (~0.2s). A cold ingest is cheaper
+    than before, 2.4s against 3.8s, because ignored units are never ingested. End to end,
+    `--check unreachable --no-cache`, binaries alternated three times each on a machine under
+    heavy load: 32.6s / 26.0s / 17.4s before, 39.0s / 17.1s / 19.1s after. The run-to-run
+    spread is larger than the difference, so the honest statement is that 0.27s could not be
+    seen in it, not that it is not there.
+
+ **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
   3.4.0's follow-ups; `fallback.*` has its own visitor, and its file scope still held no facts.
   A script that wrote `guard tenor.isFinite, tenor >= 0, tenor < 1_000 else { exit(1) }` and then
   `Int(tenor)` was reported as converting an unbounded value. Both rules now ask one collector

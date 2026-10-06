@@ -76,23 +76,28 @@ struct PersistentIndexDatabaseTests {
 
     @Test("the database survives the session that built it, and a second session reuses it",
           .enabled(if: hasLocalStore, "no swiftbuild index store in this checkout"))
-    func databasePersistsAcrossSessions() throws {
+    func databasePersistsAcrossSessions() async throws {
         let store = try #require(Self.localStore())
         guard let lib = IndexStoreSession.findLibIndexStore() else {
             Issue.record("libIndexStore.dylib not found via active toolchain")
             return
         }
         let dbDir = IndexStoreSession.databaseDirectory(for: store)
+        // Taken once, outside the pool: the census is the asynchronous half of opening a
+        // session, and the pool below exists to release the synchronous half at a known moment.
+        let census = await IndexStoreSession.takeCensus(storePath: store, libPath: lib)
 
         try withAutoreleasePoolIfAvailable {
-            let first = try IndexStoreSession(storePath: store, libPath: lib)
+            let first = try IndexStoreSession(
+                storePath: store, libPath: lib, databaseDirectory: dbDir, census: census)
             _ = first.db.symbols(inFilePath: "/nonexistent.swift")
         }
         // SAFETY: read-only existence check inside the test checkout
         #expect(FileManager.default.fileExists(atPath: dbDir.path),
                 "the persistent database was deleted with its session — every run re-pays full ingestion")
 
-        let second = try IndexStoreSession(storePath: store, libPath: lib)
+        let second = try IndexStoreSession(
+            storePath: store, libPath: lib, databaseDirectory: dbDir, census: census)
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let target = root.appendingPathComponent("Sources/RecursionAuditor/RecursionAuditor.swift").path
         #expect(!second.db.symbols(inFilePath: target).isEmpty,
@@ -101,12 +106,13 @@ struct PersistentIndexDatabaseTests {
 
     @Test("releasing a session closes the database back to its 'saved' directory",
           .enabled(if: hasLocalStore, "no swiftbuild index store in this checkout"))
-    func releaseSavesTheDatabase() throws {
+    func releaseSavesTheDatabase() async throws {
         let store = try #require(Self.localStore())
         guard let lib = IndexStoreSession.findLibIndexStore() else {
             Issue.record("libIndexStore.dylib not found via active toolchain")
             return
         }
+        let census = await IndexStoreSession.takeCensus(storePath: store, libPath: lib)
         // A private directory, because the assertion below races any concurrent open of a
         // shared one: `saved` exists only *between* sessions. `SharedIndexStore.drain()`
         // releasing the last reference is covered by the KeyedAsyncCache removeAll tests;
@@ -119,7 +125,8 @@ struct PersistentIndexDatabaseTests {
         }
 
         try withAutoreleasePoolIfAvailable {
-            _ = try IndexStoreSession(storePath: store, libPath: lib, databaseDirectory: privateDir)
+            _ = try IndexStoreSession(
+                storePath: store, libPath: lib, databaseDirectory: privateDir, census: census)
         }
 
         // IndexStoreDB holds the database at a process-unique `v13/p<pid>-…` path while
@@ -135,12 +142,13 @@ struct PersistentIndexDatabaseTests {
 
     @Test("an unusable database directory demotes to an ephemeral session that still answers",
           .enabled(if: hasLocalStore, "no swiftbuild index store in this checkout"))
-    func unusableDirectoryFallsBackToEphemeral() throws {
+    func unusableDirectoryFallsBackToEphemeral() async throws {
         let store = try #require(Self.localStore())
         guard let lib = IndexStoreSession.findLibIndexStore() else {
             Issue.record("libIndexStore.dylib not found via active toolchain")
             return
         }
+        let census = await IndexStoreSession.takeCensus(storePath: store, libPath: lib)
         // A path *under a regular file* can never be created as a directory.
         let blocker = FileManager.default.temporaryDirectory
             .appendingPathComponent("qg-indexdb-blocker-\(UUID().uuidString)")
@@ -152,7 +160,7 @@ struct PersistentIndexDatabaseTests {
         let impossible = blocker.appendingPathComponent("db")
 
         let session = try IndexStoreSession(
-            storePath: store, libPath: lib, databaseDirectory: impossible)
+            storePath: store, libPath: lib, databaseDirectory: impossible, census: census)
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let target = root.appendingPathComponent("Sources/RecursionAuditor/RecursionAuditor.swift").path
         #expect(!session.db.symbols(inFilePath: target).isEmpty,
