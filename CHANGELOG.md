@@ -926,6 +926,14 @@
   holds the manifest and the mapping to each other.
 
 ### Fixed
+- **`unreachable` treats the members of a `public extension` as exported.** `public extension`
+  makes its members public with no keyword on any of them, and the liveness facts read only a
+  declaration's own modifiers — so in a library whose API is written that way, the API was
+  reported as unreachable from any entry point. Found on a site-generator library: 107 of its 155
+  findings were its own modifiers, colours and font weights. A member that narrows its access
+  (`private`, `fileprivate`, `internal`, `package`) is still not exported; a member of a type
+  nested in the extension keeps that type's default; a local function stays local; an enum
+  nested in a public extension exports its cases.
 - **Seven `fp-safety:disable` markers in this package suppressed nothing, and are gone.** Four
   became decorative when `ALocalIsNotAGuard` taught the rule to read `isEmpty` and `max(…, 1)`;
   three more — two duration conversions dividing by `1e18` and a per-project mean behind an
