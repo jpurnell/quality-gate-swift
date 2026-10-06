@@ -10,12 +10,15 @@
 
 - **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
 - **Swift 6.2+** — the manifest is `swift-tools-version: 6.2`; earlier toolchains cannot parse it.
-- **Linux: builds, tests and runs on Swift 6.2.** The suite runs in the official `swift:6.2`
-  container, and the [Linux job](../../actions/workflows/linux.yml) is the live answer to how
-  much of it passes — this sentence deliberately does not carry a number, because the first
-  draft of it did and the next CI run falsified it within the hour. macOS is still the
-  platform every release is cut against, and the one to pick if you have a choice. See
-  [Install on Linux](#linux) for the two build flags it needs and
+- **Linux: builds, tests and runs on Swift 6.2 and 6.4.** The
+  [Linux job](../../actions/workflows/linux.yml) runs both on every pull request and every
+  push to `main`, and is the live answer to how much passes — this sentence deliberately does
+  not carry a number, because the first draft of it did and the next CI run falsified it
+  within the hour. Both toolchains are tested on purpose: 6.2 is the floor this README
+  promises, 6.4 is what development runs, and a defect that is legal in one and an error in
+  the other is how `main` once sat unbuildable on Linux through fourteen green pull requests.
+  macOS is still the platform every release is cut against, and the one to pick if you have a
+  choice. See [Install on Linux](#linux) for the two build flags it needs and
   [Honest limits](#honest-limits) for what is known to differ.
 
   This entry used to read "macOS only, today — Linux is not supported and not tested", on the
@@ -44,7 +47,8 @@ sudo cp -R .build/release/quality-gate-swift_*.bundle /usr/local/bin/
 
 ### Linux
 
-Tested on the official `swift:6.2` container. Both `-Xcxx` flags are required, not optional:
+Tested in CI on the official `swift:6.2` and `swift:6.4` containers. Both `-Xcxx` flags are
+required, not optional:
 `indexstore-db`'s C++ sources include `<dispatch/dispatch.h>` and `Block.h` with no platform
 guard, and the Swift toolchain ships both headers — just not on the default include path.
 Without them the build fails in a C++ dependency, which is where the "macOS only" claim in

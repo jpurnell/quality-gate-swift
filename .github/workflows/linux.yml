@@ -1,41 +1,57 @@
-name: Linux (port in progress)
+name: Linux
 
-# This package has never built on Linux, and this job exists to make that
-# statement falsifiable rather than remembered.
+# Linux is a supported platform, and this job is what makes that statement
+# falsifiable rather than remembered.
 #
-# Why it exists at all: a Linux user pointed a Swift 6.2 toolchain at the
-# package on 2026-09-29 and got two failures in a row that nothing here could
-# have predicted, because macOS compiles neither of the paths involved. The
-# README now says "macOS only, today" — this job is what would let that
-# sentence change, and what would stop it silently becoming false again.
+# It began as `workflow_dispatch` only, on the reasoning that a red X on every
+# push to a public repository about code quality is worse than no signal. That
+# was right about the cost and wrong about the risk. Being opt-in, nothing
+# dispatched it — and `main` sat unbuildable on Linux through fourteen merged
+# pull requests, each with a green gate, because the pre-push gate runs the
+# local toolchain and the local toolchain compiled the line that CI could not.
+# A signal nobody triggers is not a cautious signal; it is an absent one.
 #
-# Trigger is workflow_dispatch ONLY, deliberately, and stays that way until the
-# job is green. A red X on every push to a public repository whose subject is
-# code quality is worse than no signal: it trains the reader to ignore the tick.
-# Flip to `push` in the same commit that turns this green — not before, and not
-# as a separate tidy-up nobody schedules.
-#
-# Billing: ubuntu-latest is 1× and free for public repositories, so unlike
-# hosted macOS (10× on private, the reason quality-gate.yml is self-hosted)
-# there is no economic argument against running this on every push once it
-# passes.
+# It therefore runs on pull requests as well as pushes. The pull-request trigger
+# is the one that matters: the break arrived *through* a PR, so a push-only job
+# would have reported it one commit after `main` was already broken. Catching it
+# on the PR is the difference between a gate and a post-mortem.
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  # One run per ref. A superseded PR revision tells you nothing, and this job is
+  # long enough that stacked runs would queue behind each other.
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: swift build (Linux, Swift ${{ matrix.swift }})
+    name: Linux · Swift ${{ matrix.swift }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 6.2 is the manifest's swift-tools-version and what the reporting
-        # user runs. Nothing below it can parse Package.swift at all.
-        swift: ["6.2"]
+        # Both, deliberately, and neither is redundant.
+        #
+        # 6.2 is the manifest's `swift-tools-version` and what the README
+        # promises. Testing only the newer toolchain would leave that promise
+        # unverified — and it is exactly what broke: `ambiguous use of
+        # 'reversed()'` is legal in 6.4 and an error in 6.2, so a 6.4-only job
+        # would have reported the same green as the macOS gate did.
+        #
+        # 6.4 is what development runs. Testing only the floor would let a
+        # regression that affects contributors ship unnoticed.
+        #
+        # ubuntu-latest is 1x and free for public repositories, so the second
+        # job costs wall time and nothing else.
+        swift: ["6.2", "6.4"]
     container:
       image: swift:${{ matrix.swift }}
     steps:
@@ -60,99 +76,6 @@ jobs:
           swift build -c release \
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
-
-      # The README's install step copies the resource bundles beside the binary, because
-      # SwiftPM resolves them relative to the executable. On Darwin they are `.bundle`
-      # directories; this prints what they are called here, so the Linux instructions name
-      # what the build actually produces rather than what someone remembered.
-      - name: What the build produced, for the README's install step
-        run: |
-          echo "--- bundles/resources beside the binary"
-          ls -d .build/release/*.bundle .build/release/*.resources 2>/dev/null \
-            || echo "  neither .bundle nor .resources — look wider:"
-          ls .build/release/ | grep -iE 'bundle|resource' || true
-
-      # The reproduction that found the cause, kept as the regression check. It used to
-      # print
-      #     error: could not run swiftc: ... The file doesn't exist.
-      # against Guide.md line 1, because both compile sites invoked a hardcoded
-      # `/usr/bin/xcrun` — a Darwin-only file. It should now report the actual defect in
-      # the article: a call to `greet(person:)` against `greet(name:)`, on the fence line.
-      #
-      # Two theories were committed before this one and neither moved the count off 130:
-      # article line mapping, then the macro plugin path. Both were inferred from a single
-      # absent directory rather than from the checker's own output. Hence this step.
-      - name: Diagnose — run doc-code against a real article here
-        run: |
-          swiftc --version
-          set -x
-          mkdir -p /tmp/pkg/Sources/Demo/Demo.docc && cd /tmp/pkg
-          cat > Package.swift <<'SWIFT'
-          // swift-tools-version: 6.0
-          import PackageDescription
-          let package = Package(name: "Demo", targets: [.target(name: "Demo")])
-          SWIFT
-          cat > Sources/Demo/Demo.swift <<'SWIFT'
-          public func greet(name: String) -> String { "hello, \(name)" }
-          SWIFT
-          cat > Sources/Demo/Demo.docc/Guide.md <<'MD'
-          # Guide
-
-          ```swift
-          import Demo
-          print(greet(person: "Ada"))
-          ```
-          MD
-          swift build 2>&1 | tail -3
-          set +x
-          echo "=== doc-code against that article — it SHOULD report a wrong-label error"
-          /__w/quality-gate-swift/quality-gate-swift/.build/release/quality-gate \
-            --check doc-code --continue-on-failure 2>&1 | head -40 || true
-
-      # The remaining 12 failures are all in the index-store tier, which hardcodes
-      # `libIndexStore.dylib` and resolves it through `xcrun --find swift` and DerivedData.
-      # Before writing a port, establish what this platform actually ships and where — a
-      # fix for a library that is not in the container would be the third inferred fix in
-      # a row.
-      - name: Diagnose — does libIndexStore exist here, and under what name?
-        run: |
-          echo "--- any libIndexStore, by any extension"
-          find / -name 'libIndexStore*' 2>/dev/null || true
-          echo "--- what the Darwin path would have been"
-          ls -la /usr/lib/libIndexStore.dylib 2>/dev/null || echo "  absent, as expected off Darwin"
-          echo "--- is xcrun present at all"
-          command -v xcrun || echo "  no xcrun, as expected"
-
-      # The last unexplained failure. `legibility` reported
-      #     multi-writer activity detected ... writers [jpurnell, local]
-      # in a container that has never heard of `jpurnell` — so one party resolved ownership
-      # from the repository's `.quality-gate.yml` (`decisionOwner: "jpurnell"`) while the
-      # other fell through to `USER ?? "local"`. `Configuration.resolvedOwner` carries a
-      # comment saying every consumer must resolve through it, and the test reimplements it.
-      # Printed rather than reasoned about: which of the two is which decides the fix.
-      - name: Diagnose — whose identity does this container resolve?
-        run: |
-          echo "USER=${USER:-<unset>}  LOGNAME=${LOGNAME:-<unset>}  HOME=${HOME:-<unset>}"
-          echo "whoami=$(whoami 2>/dev/null || echo '<failed>')"
-          echo "--- decisionOwner visible from the repo root"
-          grep -n 'decisionOwner' .quality-gate.yml || echo "  none"
-
-      # The last failing test. `unreachable` flags `deadInExe` here through the intra-file
-      # rule but not through the cross-module one, and only for the *executable* target —
-      # the library module's dead symbols are all found. macOS reports both rules for the
-      # same fixture, so this is a real platform difference and not a fixture defect.
-      # Printing the checker's own output and the target-type map it works from, because the
-      # three theories available from reading the source are all equally plausible and this
-      # session has already paid twice for choosing between those by intuition.
-      - name: Diagnose — why does cross-module miss the executable target here?
-        run: |
-          cd Tests/UnreachableCodeAuditorTests/Fixtures/CrossModuleFixture
-          echo "--- what swift package describe reports for target types"
-          swift package describe --type json 2>/dev/null \
-            | grep -E '"name"|"type"|"module_type"' | head -30 || echo "  describe failed"
-          echo "--- the checker's own findings for this fixture"
-          /__w/quality-gate-swift/quality-gate-swift/.build/release/quality-gate \
-            --check unreachable --continue-on-failure 2>&1 | head -40 || true
 
       - name: Test
         run: |
