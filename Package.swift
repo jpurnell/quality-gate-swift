@@ -949,6 +949,10 @@ let package = Package(
                 .product(name: "QualityGateLogging", package: "quality-gate-types"),
                 "QualityGateCore",
                 .product(name: "IndexStoreDB", package: "indexstore-db"),
+                // The raw unit reader. IndexStoreDB answers questions about symbols; it has no
+                // call that says which source and which output path a unit file belongs to,
+                // and that is what deciding whether a unit is current requires.
+                .product(name: "IndexStore", package: "indexstore-db"),
             ],
             resources: [.copy("IndexStoreInfra.docc")]
         ),

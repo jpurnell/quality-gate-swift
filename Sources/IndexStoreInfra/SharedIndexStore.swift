@@ -73,7 +73,7 @@ public enum SharedIndexStore {
     /// - Throws: If the underlying session cannot be opened.
     public static func session(storePath: URL, libPath: URL) async throws -> IndexStoreSession {
         try await cache.value(for: storePath.path) {
-            try IndexStoreSession(storePath: storePath, libPath: libPath)
+            try await IndexStoreSession(storePath: storePath, libPath: libPath)
         }
     }
 

@@ -97,7 +97,17 @@ struct IndexStorePass {
                 guard Self.isCheckable(symbol) else { continue }
                 if defs[symbol.usr] != nil { continue }
                 let defOccs = db.occurrences(ofUSR: symbol.usr, roles: [.definition])
-                guard let def = defOccs.first(where: { canonicalize($0.location.path) == file }) ?? defOccs.first else {
+                // Prefer the occurrence the current source agrees with. More than one unit can
+                // define a symbol in this file, and they need not agree on the line: taking
+                // whichever came first anchored a live symbol to the line it had in an older
+                // compilation, where the declaration fact belongs to something else.
+                let inThisFile = defOccs.filter { canonicalize($0.location.path) == file }
+                let agreeing = inThisFile.first { occ in
+                    IndexedDeclaration.appears(
+                        indexedName: symbol.name,
+                        inSourceLine: liveness.lineText(file: file, line: occ.location.line))
+                }
+                guard let def = agreeing ?? inThisFile.first ?? defOccs.first else {
                     continue
                 }
                 let defFile = canonicalize(def.location.path)
@@ -247,6 +257,7 @@ struct IndexStorePass {
         // losing dead-chain detection — every link of an `A→B→C` chain
         // would still have to have zero refs to be flagged.
         var diagnostics: [Diagnostic] = []
+        var sourceMismatches: [(name: String, file: String, line: Int)] = []
         for (usr, rec) in defs {
             if live.contains(usr) { continue }
             if rec.targetType == "test" { continue }
@@ -269,6 +280,18 @@ struct IndexStorePass {
                 !(canonicalize(occ.location.path) == rec.defFile && occ.location.line == rec.defLine)
             }
             if !externalRefs.isEmpty { continue }
+            // The index says this symbol is defined at `defLine`. Before that becomes a
+            // finding a reader will open the file for, the line has to still say so. A
+            // declaration fact exists at this line — checked above — but a fact is keyed by
+            // line alone, and the line a deleted symbol used to occupy is usually occupied by
+            // its neighbour.
+            guard IndexedDeclaration.appears(
+                indexedName: rec.symbol.name,
+                inSourceLine: liveness.lineText(file: rec.defFile, line: rec.defLine)
+            ) else {
+                sourceMismatches.append((rec.symbol.name, rec.defFile, rec.defLine))
+                continue
+            }
             diagnostics.append(Diagnostic(
                 severity: .error,
                 message: "Symbol '\(rec.symbol.name)' is unreachable from any entry point.",
@@ -278,6 +301,10 @@ struct IndexStorePass {
                 ruleId: "unreachable.cross_module.unreachable_from_entry",
                 suggestedFix: "Remove '\(rec.symbol.name)', or mark its declaration with `// LIVE:` if it is invoked dynamically."
             ))
+        }
+
+        if let note = Self.sourceMismatchNote(sourceMismatches) {
+            diagnostics.append(note)
         }
 
         if defs.isEmpty && !swiftFiles.isEmpty {
@@ -309,6 +336,42 @@ struct IndexStorePass {
     }
 
     // MARK: - Helpers
+
+    /// The note that accounts for findings withheld because the source disagreed with the index.
+    ///
+    /// Counted rather than dropped in silence. A withheld finding is evidence that the index
+    /// described something other than the current source, and a run that hides the evidence
+    /// reads exactly like a run that had none.
+    ///
+    /// - Parameter mismatches: Every would-be finding whose recorded line no longer mentions
+    ///   the symbol.
+    /// - Returns: A note naming the count and the first few, or `nil` when there were none.
+    static func sourceMismatchNote(
+        _ mismatches: [(name: String, file: String, line: Int)]
+    ) -> Diagnostic? {
+        guard !mismatches.isEmpty else { return nil }
+        let ordered = mismatches.sorted { ($0.file, $0.line, $0.name) < ($1.file, $1.line, $1.name) }
+        let shown = ordered.prefix(3).map { mismatch in
+            "'\(mismatch.name)' at \((mismatch.file as NSString).lastPathComponent):\(mismatch.line)"
+        }.joined(separator: ", ")
+        let more = ordered.count > 3 ? ", and \(ordered.count - 3) more" : ""
+        let noun = ordered.count == 1 ? "definition" : "definitions"
+        return Diagnostic(
+            severity: .note,
+            message: """
+                \(ordered.count) unreferenced \(noun) the index reports \
+                \(ordered.count == 1 ? "is" : "are") not written at the recorded line in the \
+                current source and \(ordered.count == 1 ? "was" : "were") not reported: \
+                \(shown)\(more).
+                """,
+            ruleId: "\(UnreachableCodeAuditor.checkerId).index.source-mismatch",
+            suggestedFix: """
+                The index holds a record of code that has since changed. If this persists \
+                after `swift build --build-tests`, the unit that carries it was not rewritten \
+                by the build.
+                """
+        )
+    }
 
     /// v5 macro-pattern recogniser. Compiler-/macro-synthesized symbols
     /// (`@Observable`, member-wise inits, etc.) have characteristic name

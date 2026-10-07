@@ -14,7 +14,7 @@ import Testing
 struct SwiftbuildStoreProbeTests {
 
     @Test("IndexStoreDB opens .build/out and returns symbols for our own sources")
-    func swiftbuildStoreIsQueryable() throws {
+    func swiftbuildStoreIsQueryable() async throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let store = root.appendingPathComponent(".build/out")
         let v5 = store.appendingPathComponent("v5/units")
@@ -27,7 +27,7 @@ struct SwiftbuildStoreProbeTests {
             return
         }
 
-        let session = try IndexStoreSession(storePath: store, libPath: lib)
+        let session = try await IndexStoreSession(storePath: store, libPath: lib)
 
         // Query a known first-party source file. If the store is genuinely
         // queryable, this returns the declarations defined in that file.
