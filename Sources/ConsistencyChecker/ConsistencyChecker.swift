@@ -8,8 +8,9 @@ import IJSPolicyDiscovery
 /// Checks institutional consistency by auditing the most recent telemetry
 /// against the latest Pulse from the IJS corpus.
 ///
-/// When the corpus is not configured or unreachable, returns `.passed`
-/// with an informational note rather than failing.
+/// When the corpus is not configured, does not resolve, or holds nothing to compare
+/// against, returns `.skipped` with a "Not checked: …" diagnostic naming the obstacle —
+/// never `.passed`, because nothing was compared.
 public struct ConsistencyChecker: QualityChecker, Sendable {
 
     /// Unique identifier for this checker.
@@ -81,32 +82,36 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         let startTime = ContinuousClock.now
         let config = configuration.consistency
 
-        guard let corpusBasePath = config.corpusPath else {
-            return makeResult(
+        // Resolved, never read raw: `config.corpusPath` is what the file says, and the file
+        // has said `${ORG_JUDGEMENT_CORPUS:-}`. See `CorpusLocation`.
+        let corpusBasePath: String
+        switch configuration.corpusLocation() {
+        case .unconfigured:
+            return notChecked(
                 startTime: startTime,
-                status: .passed,
-                diagnostics: [
-                    Diagnostic(
-                        severity: .note,
-                        message: "IJS corpus not configured — consistency check skipped",
-                        ruleId: "consistency-unconfigured"
-                    )
-                ]
-            )
+                reason: "no `consistency.corpusPath` is configured.",
+                ruleId: "consistency-unconfigured")
+
+        case .rejected(let problem):
+            // A warning, unlike its neighbours: this one is a mistake in the file rather
+            // than a fact about the machine, and it is the mistake that went unseen.
+            return notChecked(
+                startTime: startTime,
+                severity: .warning,
+                message: "Not checked: \(problem.message)",
+                ruleId: "consistency-corpus-missing")
+
+        case .usable(let path):
+            corpusBasePath = path
         }
 
-        guard FileManager.default.fileExists(atPath: corpusBasePath) else { // SAFETY: path from validated config, not user input
-            return makeResult(
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: corpusBasePath, isDirectory: &isDirectory), // SAFETY: path resolved by CorpusLocation from validated config, not user input
+              isDirectory.boolValue else {
+            return notChecked(
                 startTime: startTime,
-                status: .passed,
-                diagnostics: [
-                    Diagnostic(
-                        severity: .note,
-                        message: "IJS corpus directory not found at '\(corpusBasePath)' — consistency check skipped",
-                        ruleId: "consistency-corpus-missing"
-                    )
-                ]
-            )
+                reason: "corpus path '\(corpusBasePath)' does not resolve to a directory.",
+                ruleId: "consistency-corpus-missing")
         }
 
         let projectID = config.projectID
@@ -115,17 +120,10 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         let writer = DirectCorpusTransport()
 
         guard let pulse = try await writer.readLatestPulse(from: corpus, beforeWeek: nil) else {
-            return makeResult(
+            return notChecked(
                 startTime: startTime,
-                status: .passed,
-                diagnostics: [
-                    Diagnostic(
-                        severity: .note,
-                        message: "No institutional pulse found in corpus — consistency check skipped",
-                        ruleId: "consistency-no-pulse"
-                    )
-                ]
-            )
+                reason: "the corpus at '\(corpusBasePath)' holds no institutional pulse.",
+                ruleId: "consistency-no-pulse")
         }
 
         let now = Date()
@@ -171,17 +169,11 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
 
         case .newestPersisted:
             guard let newest = recentMetadata.sorted(by: { $0.timestamp > $1.timestamp }).first else {
-                return makeResult(
+                return notChecked(
                     startTime: startTime,
-                    status: .passed,
-                    diagnostics: [
-                        Diagnostic(
-                            severity: .note,
-                            message: "Pulse found (\(pulse.weekLabel)) but no recent telemetry metadata — consistency check skipped",
-                            ruleId: "consistency-no-metadata"
-                        )
-                    ]
-                )
+                    reason: "pulse \(pulse.weekLabel) was found, but the corpus holds no telemetry "
+                        + "for '\(projectID)' from the last 30 days.",
+                    ruleId: "consistency-no-metadata")
             }
             latestMetadata = newest
             provenanceNote = Diagnostic(
@@ -298,6 +290,37 @@ public struct ConsistencyChecker: QualityChecker, Sendable {
         }
 
         return results
+    }
+
+    /// The result for "nothing was compared" — `.skipped`, never `.passed`.
+    ///
+    /// Each of these used to return `.passed` under a note that read "consistency check
+    /// skipped": a message and a status that disagreed, where the status is what the summary
+    /// counts and what a reader of a green run sees. Two repositories reported consistency
+    /// as passing for three weeks while it was reading a directory that was not the corpus.
+    /// `StatusAuditor` already answers a missing plan this way, for the same reason.
+    private func notChecked(
+        startTime: ContinuousClock.Instant,
+        reason: String,
+        ruleId: String
+    ) -> CheckResult {
+        notChecked(
+            startTime: startTime,
+            severity: .note,
+            message: "Not checked: \(reason) Nothing was compared; this is not a pass.",
+            ruleId: ruleId)
+    }
+
+    private func notChecked(
+        startTime: ContinuousClock.Instant,
+        severity: Diagnostic.Severity,
+        message: String,
+        ruleId: String
+    ) -> CheckResult {
+        makeResult(
+            startTime: startTime,
+            status: .skipped,
+            diagnostics: [Diagnostic(severity: severity, message: message, ruleId: ruleId)])
     }
 
     private func makeResult(

@@ -242,7 +242,7 @@ let package = Package(
         // touch an SSH remote. With the SSH form this dependency failed on any
         // machine without a GitHub SSH key regardless of how the token was
         // scoped: "Host key verification failed", observed on the runner host.
-        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.19.0"),
+        .package(url: "https://github.com/jpurnell/quality-gate-corpus-kit.git", from: "1.22.1"),
 		// 3.0.0-alpha.8 carries the Linux fallback-logger fix. The 2.x line is divergent from
 		// BusinessMath's main and has the same defect, so no 2.x version can reach it; the
 		// major bump was measured rather than assumed — IJSRefiner builds and all 3411 tests
