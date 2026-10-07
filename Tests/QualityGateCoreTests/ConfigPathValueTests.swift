@@ -164,6 +164,7 @@ struct ConfigPathValueTests {
         ("releaseReadiness:\n  readmePath: $X\n", "releaseReadiness.readmePath"),
         ("boundedIO:\n  kernelPath: $X\n", "boundedIO.kernelPath"),
         ("legibility:\n  artifactPath: $X\n", "legibility.artifactPath"),
+        ("dependencyAudit:\n  advisorySnapshotPath: $X\n", "dependencyAudit.advisorySnapshotPath"),
         ("xcodeBuild:\n  project: $X\n", "xcodeBuild.project"),
         ("xcodeBuild:\n  workspace: $X\n", "xcodeBuild.workspace"),
         ("doc-code:\n  moduleSearchPath: $X\n", "doc-code.moduleSearchPath"),

@@ -367,8 +367,15 @@ public enum CheckerSelection {
             // rule is opt-in, because `--check all` still selects it and the pre-push hook
             // runs `--check all`.
             //
+            // `dependency-advisory-drift` is opt-in on a different ground from the rest: it is
+            // the one checker that opens a connection. `dependency-advisory` and
+            // `dependency-advisory-freshness` are in the default set and read only a snapshot
+            // and the clock; the live comparison belongs in a scheduled job, not in every
+            // pre-commit hook, where it would add a network round trip — and, offline, a
+            // ten-second timeout — to every commit in every repository.
             var optOut: Set<String> = [
                 "xcode-build", "doc-run", "doc-claims", "doc-comment-code", "doc-generated",
+                "dependency-advisory-drift",
             ]
             if request.full { optOut.remove("xcode-build") }
             optOut.subtract(configuredIncluded)

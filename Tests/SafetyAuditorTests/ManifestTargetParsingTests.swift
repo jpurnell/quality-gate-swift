@@ -201,8 +201,10 @@ struct ManifestParsingAgreementTests {
         // on top of ExternalInputSyntax and its test target.
         // 120 from 2026-10-04: SyntaxScope and its test target — the lexical-scope code
         // RecursionAuditor and ConcurrencyAuditor share.
-        #expect(map.targetCount == 120,
-                "describe reported 120 targets on 2026-10-04; parser found \(map.targetCount)")
+        // 122 from 2026-10-06: DependencyAdvisory and its test target — the three advisory
+        // checkers (`AnAdvisoryIsADatedFact.md`).
+        #expect(map.targetCount == 122,
+                "describe reported 122 targets on 2026-10-06; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

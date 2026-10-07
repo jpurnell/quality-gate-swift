@@ -424,6 +424,34 @@ public enum SecurityRuleManifest {
             severity: "WARNING",
             lastReviewedDate: "2026-10-03"
         ),
+        // The advisory rules (AnAdvisoryIsADatedFact.md). The first entries here that are not
+        // `security.*` and not emitted by SecurityVisitor: `dependency-advisory` emits them, and
+        // the weakness is in what is pinned rather than in what is written. 1395 is a Class with
+        // no Base children; MITRE calls it the best available CWE when nothing more specific
+        // fits, and nothing does. 1357 is its parent and 1104 is about maintenance, which no
+        // lockfile shows. Reviewed every 180 days, not 365: the OSV name convention these depend
+        // on is undocumented in the detail that matters and has been observed to vary, and the
+        // table of packages that moved from apple/ to swiftlang/ is a list that goes stale.
+        SecurityRule(
+            ruleId: "dep-advisory.vulnerable-pin",
+            cwes: ["CWE-1395"],
+            owaspMobile: "M2 Inadequate Supply Chain Security",
+            owaspTop10: "A06:2021 Vulnerable and Outdated Components",
+            description: "Pinned dependency version inside a range a published advisory says is affected",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-06",
+            staleAfterDays: 180
+        ),
+        SecurityRule(
+            ruleId: "dep-advisory.vulnerable-pin-by-name",
+            cwes: ["CWE-1395"],
+            owaspMobile: "M2 Inadequate Supply Chain Security",
+            owaspTop10: "A06:2021 Vulnerable and Outdated Components",
+            description: "Pinned dependency version affected by an advisory that names the package without a URL",
+            severity: "ERROR",
+            lastReviewedDate: "2026-10-06",
+            staleAfterDays: 180
+        ),
         // The randomness rules (ASeedIsNotASecret.md). Every CWE fetched from MITRE 4.20; 330 is
         // not used because MITRE marks it Discouraged. 335-338 and 340 are on A02:2021's mapped
         // list; 341 is not, and A02 is assigned to it by judgement, as the proposal says.

@@ -101,6 +101,10 @@ let package = Package(
             targets: ["DependencyAuditor"]
         ),
         .library(
+            name: "DependencyAdvisory",
+            targets: ["DependencyAdvisory"]
+        ),
+        .library(
             name: "SubmoduleAuditor",
             targets: ["SubmoduleAuditor"]
         ),
@@ -690,6 +694,28 @@ let package = Package(
                 "IndexStoreInfra","DependencyAuditor"]
         ),
 
+        // Known-vulnerable pins (AnAdvisoryIsADatedFact.md). Three checkers in one module
+        // because hermeticity is one value per checker: the check against a dated snapshot
+        // gates, the snapshot's age is temporal, and the live comparison is external.
+        // Foundation and swift-crypto only — a lockfile is JSON, so no SwiftSyntax.
+        .target(
+            name: "DependencyAdvisory",
+            dependencies: [
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
+                "QualityGateCore",
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
+            resources: [
+                .copy("DependencyAdvisory.docc"),
+                .copy("Resources/swifturl.advisories.json"),
+            ]
+        ),
+        .testTarget(
+            name: "DependencyAdvisoryTests",
+            dependencies: ["DependencyAdvisory", "QualityGateCore"],
+            exclude: ["Fixtures"]
+        ),
+
         .target(
             name: "SubmoduleAuditor",
             dependencies: [
@@ -1224,6 +1250,7 @@ let package = Package(
                 "TestQualityAuditor",
                 "ContextAuditor",
                 "DependencyAuditor",
+                "DependencyAdvisory",
                 "SubmoduleAuditor",
                 "ReleaseReadinessAuditor",
                 "FloatingPointSafetyAuditor",

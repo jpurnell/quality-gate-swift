@@ -265,6 +265,12 @@ These checkers find bugs that compile but crash or produce wrong results at runt
 
 **StochasticDeterminismAuditor** (`stochastic-determinism`) — Flags randomness sources (`Int.random`, `Double.random`, `Bool.random`, `Array.shuffled`, etc.) in production code that lack seed injection. Non-deterministic code is impossible to reproduce in tests or debug in production.
 
+**DependencyAdvisoryChecker** (`dependency-advisory`) — Reports a pinned dependency version that a published security advisory (OSV / GitHub Advisory Database, ecosystem `SwiftURL`) says is vulnerable: advisory id, CVE alias, severity, affected range, fixed version and the pin's line in `Package.resolved`. It never asks a server. It reads a dated **snapshot** of the whole advisory export — one bundled with the gate, optionally a newer one committed at `.quality-gate/advisories/swifturl.json` — so the verdict is a function of the lockfile and the snapshot, works offline, and may fail a build. CRITICAL and HIGH are errors; MODERATE, LOW and unlabelled are warnings. Every finding says what date its data is from. An advisory that does not apply is acknowledged in `.quality-gate.yml` under `dependencyAudit.acknowledgedAdvisories`, with the advisory id, the package, a reason and an `until` date.
+
+**AdvisoryFreshnessChecker** (`dependency-advisory-freshness`) — Says how old that snapshot is, and reports it as stale past `advisorySnapshotMaxAgeDays` (14 by default), with the number of pins that were therefore checked only against old data. It depends on the calendar, so it reports notes and cannot fail a build unless `--include-nonhermetic` is passed.
+
+**AdvisoryDriftChecker** (`dependency-advisory-drift`) — Opt-in. Sends each pinned version to live OSV (`/v1/querybatch`, bounded in time, size and count) and reports any advisory the snapshot lacks. When OSV is unreachable it is skipped — not passed — and says how many pins it did not check. `quality-gate advisories refresh` writes a new snapshot.
+
 ### Code Hygiene
 
 **LoggingAuditor** (`logging`) — Catches `print()` and `NSLog()` in production code (should use `os.Logger`), empty `catch` blocks that silently swallow errors, and logger instances without privacy-level annotations. Supports file-level `// logging:` exemptions.

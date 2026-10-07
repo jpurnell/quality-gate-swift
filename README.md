@@ -2,7 +2,7 @@
 
 **Static analysis for Swift 6, built on SwiftSyntax and the index store — plus three checkers that ask whether your documentation still compiles, still runs, and still tells the truth.**
 
-46 checkers for correctness, safety, concurrency and security. AST-based rather than regex, so rules understand scope, type context and control flow. Terminal, JSON, SARIF and Xcode output. It runs its own checkers on every commit and every push.
+49 checkers for correctness, safety, concurrency and security. AST-based rather than regex, so rules understand scope, type context and control flow. Terminal, JSON, SARIF and Xcode output. It runs its own checkers on every commit and every push.
 
 > **Looking for testers.** If you try this and it misfires on your code, that is the most useful thing you can send — open an issue with the snippet. False positives are tracked and published per checker; see [Checkers report their own precision](#3-checkers-report-their-own-precision).
 
@@ -171,8 +171,8 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **120 targets** — 60 source, 60 test
-- **46 registered checkers**
+- **122 targets** — 61 source, 61 test
+- **49 registered checkers**
 <!-- /generated:scale -->
 
 - **Structured output** — terminal, JSON, SARIF 2.1.0, and Xcode Build Phase format
@@ -221,6 +221,9 @@ swift package plugin quality-gate
 |----|--------|-------------|
 <!-- generated:checker-table-safety-security -->
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
+| `dependency-advisory` | DependencyAdvisory | Pinned dependency versions a published security advisory (OSV / GitHub Advisory Database) says are vulnerable, matched offline against a dated snapshot |
+| `dependency-advisory-freshness` | DependencyAdvisory | Advisory snapshot older than its stated maximum age — the pins were checked only against advisories known on that date (never gates by default) |
+| `dependency-advisory-drift` | DependencyAdvisory | Advisories live OSV lists for a pinned version that the snapshot lacks; skipped, with the count of pins not checked, when OSV is unreachable (opt-in, never gates by default) |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
 | `temporal-determinism` | TemporalDeterminismAuditor | Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time |
 | `gpu-safety` | GPUSafetyAuditor | Metal kernels that index by thread id with no bound, and dispatches that round up — the conditions for silent out-of-bounds reads and writes |

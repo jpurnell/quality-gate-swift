@@ -41,9 +41,13 @@ public struct CompileUnit: Sendable, Equatable {
 /// `.dia` files: a `.dia` on disk for a source file that was since deleted still holds that
 /// file's warnings, and only the map says which records belong to the current build.
 ///
-/// Two rules are applied while indexing, before any record is read:
+/// Three rules are applied while indexing, before any record is read:
 ///
 /// - **Live** — a unit exists only if a map names it and its source file exists.
+/// - **Of this build** — a map the latest build's own description does not name is an orphan:
+///   left by a target since renamed, or by a variant directory an older toolchain named
+///   differently. Its units are counted in ``orphanedUnitCount`` and are otherwise not there.
+///   See ``scan(buildDirectory:configuration:)`` for when nothing is called an orphan.
 /// - **First-party** — a unit whose source lies under `/.build/` (a dependency checkout or a
 ///   generated source) is skipped.
 ///
@@ -63,11 +67,21 @@ public struct CompileUnitIndex: Sendable, Equatable {
     /// The live, first-party compile units, in map order.
     public let units: [CompileUnit]
 
-    /// How many output file maps were found for the configuration.
+    /// How many output file maps of the build that just ran were found for the configuration.
+    /// Orphaned maps are not among them.
     public let mapCount: Int
 
     /// Output file maps that were found but could not be read as a map.
     public let unreadableMaps: [String]
+
+    /// Output file maps on disk that the latest build does not name, and that describe at least
+    /// one live first-party unit. An orphaned map of a dependency is not listed: none of its
+    /// units would have been read either way.
+    public let orphanedMaps: [String]
+
+    /// How many live first-party units ``orphanedMaps`` describe. They are in no count but this
+    /// one: not read, and not reported as unread.
+    public let orphanedUnitCount: Int
 
     /// Creates an index from its parts.
     ///
@@ -75,10 +89,20 @@ public struct CompileUnitIndex: Sendable, Equatable {
     ///   - units: The live, first-party compile units.
     ///   - mapCount: How many output file maps were found.
     ///   - unreadableMaps: Maps that could not be parsed.
-    public init(units: [CompileUnit], mapCount: Int, unreadableMaps: [String] = []) {
+    ///   - orphanedMaps: Maps the latest build does not name.
+    ///   - orphanedUnitCount: The live first-party units those maps describe.
+    public init(
+        units: [CompileUnit],
+        mapCount: Int,
+        unreadableMaps: [String] = [],
+        orphanedMaps: [String] = [],
+        orphanedUnitCount: Int = 0
+    ) {
         self.units = units
         self.mapCount = mapCount
         self.unreadableMaps = unreadableMaps
+        self.orphanedMaps = orphanedMaps
+        self.orphanedUnitCount = orphanedUnitCount
     }
 
     /// The marker of a path inside a SwiftPM build directory: dependency checkouts and
@@ -99,16 +123,27 @@ public struct CompileUnitIndex: Sendable, Equatable {
     /// component equal to the configuration name ignoring case — `Debug/` under the `swiftbuild`
     /// build system, `debug/` under the native one.
     ///
+    /// A map is then kept only if the latest build's description names it — see
+    /// `CurrentBuildDescription`. That is a statement about the build that ran last, so call
+    /// this straight after the build whose records are wanted. Nothing is called an orphan on a
+    /// guess: when no description is found, or the one found names none of the configuration's
+    /// maps (it describes some other build — a release one, say), every map is kept.
+    ///
     /// - Parameters:
     ///   - buildDirectory: The build directory, usually `<package root>/.build`.
     ///   - configuration: The build configuration name, `debug` or `release`.
     /// - Returns: The index. It is empty — `mapCount == 0` — when the directory holds no map
     ///   for the configuration, which a caller must treat as "could not look", not as "clean".
     public static func scan(buildDirectory: String, configuration: String) -> CompileUnitIndex {
-        let maps = outputFileMaps(under: buildDirectory, configuration: configuration)
+        let found = outputFileMaps(under: buildDirectory, configuration: configuration)
+        let maps = partition(
+            found,
+            namedByLatestBuild: CurrentBuildDescription.namedOutputFileMaps(
+                buildDirectory: buildDirectory, configuration: configuration)
+        )
         var units: [CompileUnit] = []
         var unreadable: [String] = []
-        for map in maps {
+        for map in maps.live {
             guard let data = FileManager.default.contents(atPath: map),
                   let parsed = compileUnits(fromOutputFileMap: data) else {
                 unreadable.append(map)
@@ -116,7 +151,49 @@ public struct CompileUnitIndex: Sendable, Equatable {
             }
             units.append(contentsOf: parsed)
         }
-        return CompileUnitIndex(units: units, mapCount: maps.count, unreadableMaps: unreadable)
+        var orphanedMaps: [String] = []
+        var orphanedUnitCount = 0
+        for map in maps.orphaned {
+            guard let data = FileManager.default.contents(atPath: map),
+                  let parsed = compileUnits(fromOutputFileMap: data), !parsed.isEmpty else {
+                continue
+            }
+            orphanedMaps.append(map)
+            orphanedUnitCount += parsed.count
+        }
+        return CompileUnitIndex(
+            units: units,
+            mapCount: maps.live.count,
+            unreadableMaps: unreadable,
+            orphanedMaps: orphanedMaps,
+            orphanedUnitCount: orphanedUnitCount
+        )
+    }
+
+    /// Splits the maps on disk into those the latest build names and those it does not.
+    ///
+    /// - Parameters:
+    ///   - maps: Every map found for the configuration.
+    ///   - named: The maps the latest build's description names, symbolic links resolved, or
+    ///     `nil` when there is no description to ask.
+    /// - Returns: The live maps and the orphans. Every map is live when `named` is `nil` or
+    ///   names none of `maps`.
+    static func partition(
+        _ maps: [String],
+        namedByLatestBuild named: Set<String>?
+    ) -> (live: [String], orphaned: [String]) {
+        guard let named else { return (maps, []) }
+        var live: [String] = []
+        var orphaned: [String] = []
+        for map in maps {
+            if named.contains(CurrentBuildDescription.canonical(map)) {
+                live.append(map)
+            } else {
+                orphaned.append(map)
+            }
+        }
+        guard !live.isEmpty else { return (maps, []) }
+        return (live, orphaned)
     }
 
     /// Finds the output file maps for one configuration under a build directory.

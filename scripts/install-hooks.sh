@@ -76,7 +76,11 @@ cat > /dev/null
 #
 # The fallback below matters: if the gate is not installed, verifying nothing is not an
 # option, so the old commands still run.
-QG_BIN="/usr/local/custom/bin/quality-gate"
+# Resolved rather than hardcoded. This was a single absolute path — the one this tool happens
+# to be installed at on one machine. Anywhere else the hook found nothing there, printed its
+# "skipping" line and exited 0, so a repository with hooks installed was not gated and said so
+# only in a line nobody reads. PATH first, that path as a fallback, and QG_BIN to override.
+QG_BIN="${QG_BIN:-$(command -v quality-gate 2>/dev/null || echo /usr/local/custom/bin/quality-gate)}"
 if [[ ! -x "$QG_BIN" ]]; then
     echo "⚠️  quality-gate not found — falling back to build + test"
     swift build < /dev/null 2>&1 | tee /tmp/qg-build.log
@@ -90,6 +94,21 @@ if [[ ! -x "$QG_BIN" ]]; then
     fi
     echo "Pre-push passed (build + tests, no gate)."
     exit 0
+fi
+
+# Warm the build and test caches before the gate runs.
+#
+# The gate's checkers each carry a wall-clock budget. Those budgets are meant to bound how long
+# a check *runs*, but a cold tree makes them bound compilation too — and compiling 120 targets
+# is not what a timeout is there to catch. The symptom is a checker that dies at exactly its
+# ceiling having found nothing, which reads as a hung tool.
+#
+# Output is discarded and failure is ignored on purpose: this step exists to move work out from
+# under a timer, not to judge anything. A build that genuinely fails is the `build` checker's
+# finding to report, with its diagnostics, a moment later.
+if command -v swift >/dev/null 2>&1; then
+    echo "   warming build and test caches..."
+    swift build --build-tests > /dev/null 2>&1 || true
 fi
 
 # `--check all`, not the default set.
@@ -140,10 +159,29 @@ else
 # Reading three lines of a report is not reading the report.
 set -uo pipefail
 
-QG_BIN="/usr/local/custom/bin/quality-gate"
+# Resolved rather than hardcoded. This was a single absolute path — the one this tool happens
+# to be installed at on one machine. Anywhere else the hook found nothing there, printed its
+# "skipping" line and exited 0, so a repository with hooks installed was not gated and said so
+# only in a line nobody reads. PATH first, that path as a fallback, and QG_BIN to override.
+QG_BIN="${QG_BIN:-$(command -v quality-gate 2>/dev/null || echo /usr/local/custom/bin/quality-gate)}"
 if [[ ! -x "$QG_BIN" ]]; then
     echo "⚠️  quality-gate not found — skipping pre-commit checks"
     exit 0
+fi
+
+# Warm the build and test caches before the gate runs.
+#
+# The gate's checkers each carry a wall-clock budget. Those budgets are meant to bound how long
+# a check *runs*, but a cold tree makes them bound compilation too — and compiling 120 targets
+# is not what a timeout is there to catch. The symptom is a checker that dies at exactly its
+# ceiling having found nothing, which reads as a hung tool.
+#
+# Output is discarded and failure is ignored on purpose: this step exists to move work out from
+# under a timer, not to judge anything. A build that genuinely fails is the `build` checker's
+# finding to report, with its diagnostics, a moment later.
+if command -v swift >/dev/null 2>&1; then
+    echo "   warming build and test caches..."
+    swift build --build-tests > /dev/null 2>&1 || true
 fi
 
 echo "🔍 Running quality gate..."

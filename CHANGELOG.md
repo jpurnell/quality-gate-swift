@@ -4,6 +4,67 @@
 
 ### Added
 
+- **`dependency-advisory`: a pinned version with a published advisory is a finding.** Fourteen
+  repositories in the portfolio pinned a version with a published advisory — `swift-nio` before
+  2.100.0 in eleven of them — and every one was green, because nothing in the gate looked.
+  `dependency-audit` is hygiene and is deliberately offline. This is the checker that looks, and
+  it stays offline too (`AnAdvisoryIsADatedFact.md`).
+  - **An advisory is a dated fact, so the check reads a file.** The whole OSV `SwiftURL` export
+    (64 records on 2026-10-06) is held in a **snapshot** with the date it was fetched and a hash
+    of its records. The gate bundles one; a repository may commit its own at
+    `.quality-gate/advisories/swifturl.json`; the one fetched later is used and the coverage note
+    names it. *This lockfile against that file* is a pure function of the two, so the checker is
+    hermetic, runs offline, gives the same answer on any day, and may fail a build. Every finding
+    ends with the date its data is from.
+  - **What a finding says.** `swift-nio 2.86.0 is affected by GHSA-rj37-6j9x-74q6
+    (CVE-2026-28980, HIGH): … Affected: < 2.100.0; fixed in 2.100.0. Pin:
+    github.com/apple/swift-nio. Advisory data as of 2026-10-06. [CWE-1395]`, at the pin's line in
+    `Package.resolved`, with the update command as the suggested fix. CRITICAL and HIGH are
+    errors. MODERATE, LOW and unlabelled are warnings; MODERATE becomes an error at the
+    proposal's destination, and `AdvisorySeverity.moderate` is the one line that changes.
+    Severity is GitHub's label, not a score recomputed from the CVSS vector.
+  - **Matching is local, because the live API is wrong in three ways that were measured.** It
+    matches names case-sensitively (`…/marmelroy/zip` returns nothing, `…/marmelroy/Zip` returns
+    an advisory); it never returns the records filed under a bare name (`swift-nio-http2`,
+    `swift-crypto`, `CocoaMQTT`), which are matched here by last path component under
+    `dep-advisory.vulnerable-pin-by-name`; and a two-component bound such as `1.20` has to be
+    padded, not failed open. A bound that cannot be parsed makes the range
+    `dep-advisory.unevaluable` — never a hit, never clean. So does a branch or bare-revision pin
+    on a package some advisory names. `apple/` and `swiftlang/` are one organisation for the
+    packages that moved. Real OSV responses, recorded on 2026-10-06, hold the matcher to the API
+    wherever the API can answer.
+  - **An acknowledgement is a record with an expiry.** `Package.resolved` is JSON and has no line
+    above it, so `dependencyAudit.acknowledgedAdvisories` takes `id`, `package`, `reason` and
+    `until`. The reason is held to `JustificationValidator` — eight words, no stock phrase — like
+    every other justification in the gate. `until` is compared with the **snapshot's** date, not
+    the wall clock: the acknowledgement expires when the gate's knowledge moves past it, and the
+    same tree with the same snapshot gives the same answer on any day. Accepted ones are recorded
+    as overrides and counted; expired ones bring the finding back; unused ones are reported.
+  - **No silent success.** No snapshot is `dep-advisory.no-snapshot` with the count of pins not
+    checked. A snapshot whose records do not hash to its header is `dep-advisory.snapshot-corrupt`
+    and nothing is reported from it. A lockfile that will not parse is reported. The coverage
+    note gives every denominator: lockfiles, pins, third-party, evaluable, affected,
+    acknowledged, and the snapshot's date, size and origin.
+- **`dependency-advisory-freshness`: the snapshot's age, on every run.** Past
+  `dependencyAudit.advisorySnapshotMaxAgeDays` (14) it says how many pins were checked only
+  against advisories known on the snapshot's date. `.temporal`: a note by default, an error under
+  `--include-nonhermetic`.
+- **`dependency-advisory-drift`: what the snapshot lacks, asked of live OSV.** Opt-in
+  (`--check dependency-advisory-drift`) and `.external`. One `POST /v1/querybatch` per 500
+  distinct package versions, at most four, ten seconds and 2 MB each, to an allow-listed host.
+  When OSV cannot be reached it is **skipped** with the reason and the number of pins not
+  checked — a build does not fail because the network is down unless `--include-nonhermetic`
+  asks for that. `dependencyAudit.offlineMode` keeps it off the network entirely, and it says so.
+- **`quality-gate advisories refresh [--output <path>] [--allow-shrink]`.** The only writer of a
+  snapshot. Reads OSV's `SwiftURL/modified_id.csv` and then each record from `/v1/vulns/{id}`,
+  every request bounded; prints what arrived and what was withdrawn since the previous snapshot;
+  refuses a result with fewer records than the one it replaces. Nothing is written on any
+  failure.
+- **CWE-1395 is enforced.** `rule-to-cwe.mapping.json` maps both advisory rules to
+  *Dependency on Vulnerable Third-Party Component*, `SecurityRuleManifest` carries them with
+  OWASP Mobile M2 and Top 10 A06:2021 and a 180-day review, and `rule-registry.json` lists the
+  twelve `dep-advisory.*` ids. CWE-1104 stays a listed gap: whether a package is maintained is
+  not in a lockfile.
 - **`quality-gate reindex-corpus`.** Rebuilds the corpus's per-project run indexes
   (`telemetry/<project>/index.jsonl`, new in quality-gate-corpus-kit 1.22) from its run files,
   for every project or for one (`--project`). Readers never need it to be correct — a run with
@@ -1011,6 +1072,54 @@
     seen in it, not that it is not there.
 
  **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
+- **`build` no longer replays a warning that was fixed.** Reading the compiler's recorded
+  diagnostics (*`build` reports compiler warnings in files the build did not recompile*, below)
+  assumed a record is about its own source. It is not only that: every primary file of a compile batch that contains a macro expansion receives the
+  batch's diagnostics, so a warning in one Swift Testing file is also written into the records
+  of the four or five files compiled beside it. Fix the warning and only that file's unit is
+  recompiled; the sibling records keep it, at a line that no longer holds the code, and each of
+  them is *current* by the existing rule. Three sessions hit it in a day (swift-oauth,
+  SwiftMCPClient, ClassGraph), and the workaround in each was to `touch` unrelated files —
+  the checker telling people to defeat incremental builds. Reproduced with a real build: 60
+  test files, four warnings in one, fixed; five sibling records went on reporting all four.
+  - **The rule.** A recorded diagnostic is evidence about the file it points at *as it was when
+    the record was written*. One whose file was modified after the record holding it was
+    written is discarded, with its notes. A warning inside a macro expansion is located in a
+    generated buffer the compiler never rewrites, so it is judged by the expansion site its
+    note names. The file's own unit, recompiled after the edit, is the authority for the file.
+  - **Why the file's date and not its record's.** A file is recompiled whenever something it
+    depends on changes, without being edited; what a sibling recorded about it is then still
+    true, and a rule that preferred the newer record would have dropped it. Across the 115
+    built packages here, 12 hold 38 recorded warnings: 26 in the file's own record, 6 in a
+    sibling's and also in the file's own, 3 in a macro buffer, and 3 in a sibling's only — all
+    three older than the file they point at, which is this defect, live.
+  - **The coverage note says what was discarded**: *"4 recorded diagnostic(s) discarded as
+    stale: the file each points at changed after the record holding it was written."* Counted
+    once each, however many sibling records held it.
+  - **What it still cannot see.** A cross-file diagnostic that is still true, about a file
+    edited since in a way that did not make the build recompile the unit that recorded it, is
+    discarded until that unit is next compiled. And a tool that rewrites a file while keeping
+    an older modification date defeats the comparison.
+- **`build.warnings-unverified` no longer fires for a build that is gone.** A build directory
+  outlives the builds that wrote it: a renamed target, or a variant directory an older
+  toolchain named differently (`ShowcaseCLI-3E4BF3A074D2020-testable-t.build`, from August),
+  leaves an output file map that still names sources that exist. Its units looked live, nothing
+  ever refreshed their records, and the first edit to one of those sources made the checker
+  say it could not verify — on every run, failing `--strict`, until `.build` was deleted.
+  Before that edit it was worse and quieter: the orphan's records were *read*, and its units
+  doubled the count (one package listed 163 where a clean build has 87).
+  - A unit now counts only if **the build that just ran names its output file map**. Both
+    build systems write that down — swiftbuild in the build description
+    (`XCBuildData/<id>.xcbuilddata/manifest.json`), the native one in `<configuration>.yaml` —
+    so it costs no SwiftPM invocation; `swift package describe`, which the proposal suggested,
+    was not needed. Orphans are neither read nor counted as unread, and the coverage note names
+    them: *"3 compile unit(s) in 1 output file map(s) ignored as orphaned"*.
+  - **Nothing is called an orphan on a guess.** With no description on disk, or one that names
+    none of the configuration's maps, every map is live, as before. A live unit whose record is
+    missing or unreadable still warns.
+  - This closes the "target removed from `Package.swift`" gap `BuildChecker.md` listed under
+    *What It Does Not See*, in the loud direction too: such a target's warnings are no longer
+    replayed.
 - **A path in `.quality-gate.yml` is never used as a literal it was not meant to be.** Two
   repositories set `consistency.corpusPath: ${ORG_JUDGEMENT_CORPUS:-}` to keep an absolute path
   out of the file. Nothing in the gate expands that. `Configuration` decoded it as a string
@@ -1029,7 +1138,7 @@
     `Nothing was run.`
   - **One rule, every path-valued key.** `Configuration.pathValues` is the single list —
     `corpusPath` (both sections), `guidelinesPath`, `masterPlanPath`, `changelogPath`, `readmePath`,
-    `kernelPath`, `artifactPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
+    `kernelPath`, `artifactPath`, `advisorySnapshotPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
     `additionalPaths` / `exemptFiles` / `allowedFiles` lists, `xcodeBuild.project` / `.workspace`,
     `plugins[].run`, and the `doc-code` / `doc-generated` paths. It is computed from the current
     values rather than recorded during decoding, so `--telemetry-corpus-path '$X'` is judged too.
