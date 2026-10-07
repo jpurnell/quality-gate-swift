@@ -2,7 +2,34 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`quality-gate reindex-corpus`.** Rebuilds the corpus's per-project run indexes
+  (`telemetry/<project>/index.jsonl`, new in quality-gate-corpus-kit 1.22) from its run files,
+  for every project or for one (`--project`). Readers never need it to be correct — a run with
+  no index line is read from its own file — they need it to be fast. It is the backfill for
+  runs recorded before the index, and the repair for one that readers report as short.
+
 ### Changed
+
+- **Every run this gate records is now indexed as it is written.** The dependency on
+  quality-gate-corpus-kit moves from 1.19.0 to 1.22.1, whose `TelemetryWriter` appends one line
+  per run to the project's index after writing the run file. Nothing here calls it differently.
+  A failed append is logged and does not fail the write: the run file is the record.
+- **The terminal dashboard no longer holds the corpus.** `quality-gate dashboard` called
+  `CorpusReader.loadAll()` — every run of every project, findings included — and its
+  interactive mode kept the result for the life of the session and replaced all of it every
+  thirty seconds. Against a 3.16 GB corpus that is the shape that put the native dashboard at
+  11.9 GB (quality-gate-dashboard `e76b4a5`). It now holds `CorpusHistories`: each project's
+  history without diagnostics, plus each checker's latest standard-mode result for the findings
+  inbox. A refresh compares each project's history signature and re-reads only the projects
+  that changed. An acknowledgement reads the one run it is about, whole, at that moment.
+  `DashboardApp.run` gains an optional `histories:` parameter; passing `allRuns:` alone still
+  works.
+
+  Not addressed: each refresh still calls `CorpusReader.listAvailableLabels()`, which decodes
+  every pulse file to list them.
+
 
 - **`security.ssrf` reports a request, not a parse.** It reported every `URL(string:)` whose
   argument was not a literal: "URL constructed from dynamic input — potential SSRF". Constructing
@@ -974,6 +1001,60 @@
   - This closes the "target removed from `Package.swift`" gap `BuildChecker.md` listed under
     *What It Does Not See*, in the loud direction too: such a target's warnings are no longer
     replayed.
+- **A path in `.quality-gate.yml` is never used as a literal it was not meant to be.** Two
+  repositories set `consistency.corpusPath: ${ORG_JUDGEMENT_CORPUS:-}` to keep an absolute path
+  out of the file. Nothing in the gate expands that. `Configuration` decoded it as a string
+  (`Configuration.swift`, `ConsistencyCheckerConfig.init(from:)`), `TelemetryEmission.emit` handed
+  it to `CorpusPath(basePath:)` as read, and the writer created a directory *literally named*
+  `${ORG_JUDGEMENT_CORPUS:-}` inside each checkout — 131 files in one, over 480 in the other,
+  every run from 2026-09-12 on. The corpus received nothing. `consistency` then found that directory,
+  which exists because the gate made it, found no pulse in it, and printed `✓ PASSED` over a note
+  reading "consistency check skipped". Exporting the variable changed nothing: it was never read.
+  - **Refused, not expanded.** Across all 99 `.quality-gate.yml` files in the portfolio those two
+    lines were the only values containing `$` or `~`. Nothing relies on expansion, so adding it
+    would be new behaviour with its own quiet failures — a variable set in a terminal and absent in
+    a hook, a default that differs per machine — in exchange for no existing use. `$VAR`, `${VAR}`,
+    `${VAR:-default}`, `$(command)`, a leading `~`, and an empty value are each a configuration
+    error naming the key, the value and the fix. The run stops before any checker: exit 1,
+    `Nothing was run.`
+  - **One rule, every path-valued key.** `Configuration.pathValues` is the single list —
+    `corpusPath` (both sections), `guidelinesPath`, `masterPlanPath`, `changelogPath`, `readmePath`,
+    `kernelPath`, `artifactPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
+    `additionalPaths` / `exemptFiles` / `allowedFiles` lists, `xcodeBuild.project` / `.workspace`,
+    `plugins[].run`, and the `doc-code` / `doc-generated` paths. It is computed from the current
+    values rather than recorded during decoding, so `--telemetry-corpus-path '$X'` is judged too.
+  - **The gate does not write telemetry into the repository it is checking.** A *relative*
+    `corpusPath` that resolves inside the repository and is not gitignored is the same error. An
+    error rather than a warning because the alternative is to write: a warning would be printed
+    beside a run that had already dirtied the tree. A relative path git ignores — the documented
+    `corpusPath: .ijs-corpus` — still works; so does an absolute path, which an author wrote out in
+    full. git is asked about a file the gate would write (`<corpus>/telemetry/probe.json`), since a
+    `corpus/` rule does not match a directory that does not exist yet.
+  - **Every corpus reader and writer resolves through `CorpusLocation`.** The run, the telemetry
+    writer, the skip recorder and the six subcommands that read `consistency.corpusPath` no longer
+    hand it to `CorpusPath` themselves. A relative value now resolves against the project root
+    rather than the process directory; in a resident run those are the same directory.
+  - **`consistency` that compared nothing is `SKIPPED`, never `PASSED`.** No `corpusPath`, a path
+    that does not resolve to a directory, a corpus with no pulse, no recent telemetry, and an audit
+    that threw each returned `.passed` under a message saying it had skipped. Each is now
+    `.skipped` with `Not checked: … Nothing was compared; this is not a pass.` — the answer
+    `status` already gives for a missing plan. They stay notes, so nothing here fails `--strict`:
+    on a CI runner the owner's absolute corpus path is absent by design. Rule ids are unchanged.
+  - **Not fixed here, and worth knowing:** a `.quality-gate.yml` that fails to *decode* is still
+    logged and replaced by defaults (`QualityGateCLI.run`, "Using defaults"), which is why the
+    refusal above is a check after loading rather than a thrown decoding error — thrown, it would
+    have become a silent run on defaults.
+
+- **A test run that is cut off at the time limit fails.** It could be reported as
+  `Ad-hoc code signing failed (tests passed)` — a warning — and a non-strict hook then let the
+  commit through on a run that never finished. Three things had to line up, and on this package
+  under load they did: the kernel's timeout exit code is non-zero like any failure; a bundle that
+  finished before the cut-off had printed a "passed" summary; and the output contained the words
+  "codesign failed", which here is the name of a test. A timeout is now asked about first and is
+  an error (`test-timeout`), and the signing heuristic reads toolchain lines, never a line that
+  reports on a test. `build` gets the same precedence. Found on this repository's own commit hook
+  at 600.04 s with the machine's load above 130; the same warning had been seen twice that week
+  and read as a signing quirk.
 - **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
   3.4.0's follow-ups; `fallback.*` has its own visitor, and its file scope still held no facts.
   A script that wrote `guard tenor.isFinite, tenor >= 0, tenor < 1_000 else { exit(1) }` and then

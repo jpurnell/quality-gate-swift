@@ -41,7 +41,21 @@ enum TelemetryEmission {
         digests: FileDigestCache? = nil,
         verbose: Bool
     ) async {
-        guard let corpusPath = configuration.consistency.corpusPath else { return }
+        // The write boundary resolves for itself rather than trusting the caller to have
+        // refused: this is the function that created `${ORG_JUDGEMENT_CORPUS:-}/telemetry/…`
+        // inside two repositories, by handing the configured string to `CorpusPath` as read.
+        let corpusPath: String
+        switch configuration.corpusLocation() {
+        case .unconfigured:
+            return
+        case .rejected(let problem):
+            logger.error("telemetry not written: \(problem.message, privacy: .public)")
+            FileHandle.standardError.write(
+                Data("\n[ijs] Telemetry NOT written: \(problem.message)\n".utf8))
+            return
+        case .usable(let path):
+            corpusPath = path
+        }
 
         let ijsConfig = configuration.consistency
         let projectID = EffectiveProjectID.resolve(consistency: ijsConfig)

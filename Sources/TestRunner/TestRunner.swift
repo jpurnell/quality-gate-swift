@@ -567,6 +567,18 @@ public struct TestRunner: QualityChecker, Sendable {
         let status: CheckResult.Status
         if exitCode == 0 {
             status = .passed
+        } else if let limit = timeLimit(in: output, exitCode: exitCode) {
+            // Asked before anything else that could excuse a non-zero exit. A run that was
+            // terminated has usually printed a "passed" line for whichever bundles finished
+            // first, and that line says nothing about the ones that had not started.
+            status = .failed
+            diagnostics.append(Diagnostic(
+                severity: .error,
+                message: "`swift test` did not finish within \(limit) and was terminated. "
+                    + "Whatever passed before the cut-off is not the suite: this run is incomplete, not passed.",
+                ruleId: "test-timeout",
+                suggestedFix: "Re-run when the machine is less loaded, or run `swift test` directly to see how long the suite takes."
+            ))
         } else {
             let hasTestFailures = !diagnostics.isEmpty
             let summary = parseTestSummary(output)
@@ -592,8 +604,34 @@ public struct TestRunner: QualityChecker, Sendable {
         )
     }
 
+    /// True if the toolchain reported that it could not sign a built product.
+    ///
+    /// Read line by line, and never from a line that reports on a test: a test or suite is
+    /// free to be *named* "Passes on codesign failed variant", and this package has one. The
+    /// name appearing in the output is not the toolchain failing to sign anything.
     private static func isCodeSigningError(_ output: String) -> Bool {
-        output.contains("Code Signing subsystem") || output.contains("codesign failed")
+        output.split(whereSeparator: \.isNewline).contains { line in
+            guard line.contains("Code Signing subsystem") || line.contains("codesign failed") else {
+                return false
+            }
+            return !line.contains("Test \"") && !line.contains("Suite \"") && !line.contains("Test Case ")
+        }
+    }
+
+    /// The time limit a terminated run exceeded, as the process kernel named it, or nil if
+    /// the run was not cut off.
+    ///
+    /// The kernel answers a timeout with exit code 124 and one line on stderr naming the
+    /// limit. Either is enough: the code alone still means a timeout if the line is lost,
+    /// and the line alone still means one if something upstream rewrote the code.
+    private static func timeLimit(in output: String, exitCode: Int32) -> String? {
+        let marker = "timed out after "
+        for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix("process-kernel:") {
+            guard let range = line.range(of: marker) else { continue }
+            let limit = line[range.upperBound...].prefix { !$0.isWhitespace }
+            return limit.isEmpty ? "its time limit" : String(limit)
+        }
+        return exitCode == 124 ? "its time limit" : nil
     }
 
     /// Generate test arguments based on configuration.

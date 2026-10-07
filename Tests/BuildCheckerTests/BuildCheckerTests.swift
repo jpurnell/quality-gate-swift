@@ -412,6 +412,19 @@ struct BuildCheckerTests {
         #expect(result.status == .failed)
     }
 
+    @Test("A build terminated at its time limit fails, even if its output mentions signing")
+    func timedOutBuildFails() {
+        let output = """
+        [1/3] Compiling Example Example.swift
+        /path/to/.build/debug/my-tool: codesign failed
+
+        process-kernel: `/usr/bin/swift` timed out after 600s and was terminated.
+        """
+        let result = BuildChecker.createResult(output: output, exitCode: 124, duration: .seconds(600))
+        #expect(result.status == .failed)
+        #expect(!result.diagnostics.contains { $0.message.contains("compilation succeeded") })
+    }
+
     @Test("Passes on codesign failed variant")
     func passesOnCodesignFailed() {
         let output = """
