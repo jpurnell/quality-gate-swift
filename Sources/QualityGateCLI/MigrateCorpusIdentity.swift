@@ -37,7 +37,8 @@ struct MigrateCorpusIdentity: AsyncParsableCommand {
             config = Configuration()
         }
 
-        guard let effectiveCorpusPath = corpusPath ?? config.consistency.corpusPath else {
+        guard let effectiveCorpusPath = try ConfiguredCorpus.path(
+            flag: corpusPath, configuration: config, tag: "migrate-corpus-identity") else {
             print("[migrate-corpus-identity] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")
             throw ExitCode(1)
         }

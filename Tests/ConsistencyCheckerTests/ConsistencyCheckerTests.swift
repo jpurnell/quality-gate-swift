@@ -191,32 +191,103 @@ struct ConsistencyCheckerTests {
 
     // MARK: - Unconfigured / Missing Corpus
 
-    @Test("Unconfigured corpus returns passed with info note")
+    // Every outcome below is `.skipped`, never `.passed`. Each used to pass with a note
+    // reading "consistency check skipped" — a status and a message that disagreed, where
+    // the status is what the summary counts. Two repositories "passed" consistency for
+    // three weeks against a directory that was not the corpus.
+
+    @Test("Unconfigured corpus is skipped, not passed")
     func unconfiguredCorpus() async throws {
         let checker = ConsistencyChecker()
         let config = makeConfig(corpusPath: nil)
 
         let result = try await checker.check(configuration: config)
 
-        #expect(result.status == .passed)
+        #expect(result.status == .skipped)
         #expect(result.checkerId == "consistency")
-        #expect(result.diagnostics.contains { $0.ruleId == "consistency-unconfigured" })
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-unconfigured"])
+        #expect(result.diagnostics.map(\.severity) == [.note])
+        #expect(result.diagnostics.map(\.message) == [
+            "Not checked: no `consistency.corpusPath` is configured. "
+                + "Nothing was compared; this is not a pass.",
+        ])
     }
 
-    @Test("Missing corpus directory returns passed with info note")
+    @Test("A corpus path that does not resolve to a directory is skipped and says so")
     func missingCorpusDirectory() async throws {
         let checker = ConsistencyChecker()
         let config = makeConfig(corpusPath: "/nonexistent/path/to/corpus")
 
         let result = try await checker.check(configuration: config)
 
-        #expect(result.status == .passed)
-        #expect(result.diagnostics.contains { $0.ruleId == "consistency-corpus-missing" })
+        #expect(result.status == .skipped)
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-corpus-missing"])
+        // A note, not a warning: on a CI runner the owner's absolute corpus path is absent
+        // by design, and a warning there would fail `--strict` for every healthy project.
+        #expect(result.diagnostics.map(\.severity) == [.note])
+        #expect(result.diagnostics.map(\.message) == [
+            "Not checked: corpus path '/nonexistent/path/to/corpus' does not resolve to a "
+                + "directory. Nothing was compared; this is not a pass.",
+        ])
+    }
+
+    @Test("A corpus path that is a file, not a directory, does not resolve")
+    func corpusPathIsAFile() async throws {
+        let basePath = makeTempCorpus()
+        defer { cleanup(basePath) }
+        try "not a corpus".write(toFile: basePath, atomically: true, encoding: .utf8)
+
+        let result = try await ConsistencyChecker().check(
+            configuration: makeConfig(corpusPath: basePath))
+
+        #expect(result.status == .skipped)
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-corpus-missing"])
+    }
+
+    @Test("A corpus path the gate refuses is skipped with a warning, and nothing is created")
+    func rejectedCorpusPath() async throws {
+        let projectRoot = URL(fileURLWithPath: makeTempCorpus(), isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { cleanup(projectRoot.path) }
+        var config = makeConfig(corpusPath: "${ORG_JUDGEMENT_CORPUS:-}")
+        config.projectRoot = projectRoot
+
+        let result = try await ConsistencyChecker().check(configuration: config)
+
+        #expect(result.status == .skipped)
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-corpus-missing"])
+        #expect(result.diagnostics.map(\.severity) == [.warning])
+        #expect(result.diagnostics.map(\.message) == [
+            "Not checked: " + ConfigPathProblem(
+                key: "consistency.corpusPath",
+                value: "${ORG_JUDGEMENT_CORPUS:-}",
+                reason: .shellReference("${ORG_JUDGEMENT_CORPUS:-}")).message,
+        ])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: projectRoot.path) == [])
+    }
+
+    @Test("The literal directory an earlier gate created is not mistaken for a corpus")
+    func literalDirectoryFromAnEarlierRunIsNotACorpus() async throws {
+        // The state the two affected repositories were actually in: the directory exists,
+        // because an earlier binary created it. Its existence is what turned "corpus
+        // missing" into "no pulse" and let the skip read as a pass.
+        let projectRoot = URL(fileURLWithPath: makeTempCorpus(), isDirectory: true)
+        let stray = projectRoot.appendingPathComponent("${ORG_JUDGEMENT_CORPUS:-}/telemetry/demo")
+        try FileManager.default.createDirectory(at: stray, withIntermediateDirectories: true)
+        defer { cleanup(projectRoot.path) }
+        var config = makeConfig(corpusPath: "${ORG_JUDGEMENT_CORPUS:-}", projectID: "demo")
+        config.projectRoot = projectRoot
+
+        let result = try await ConsistencyChecker().check(configuration: config)
+
+        #expect(result.status == .skipped)
+        #expect(result.diagnostics.map(\.severity) == [.warning])
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-corpus-missing"])
     }
 
     // MARK: - No Pulse
 
-    @Test("Empty corpus with no pulse returns passed with info note")
+    @Test("A corpus with no pulse is skipped, not passed")
     func noPulseInCorpus() async throws {
         let basePath = makeTempCorpus()
         defer { cleanup(basePath) }
@@ -227,8 +298,14 @@ struct ConsistencyCheckerTests {
 
         let result = try await checker.check(configuration: config)
 
-        #expect(result.status == .passed)
-        #expect(result.diagnostics.contains { $0.ruleId == "consistency-no-pulse" })
+        let resolved = URL(fileURLWithPath: basePath).standardizedFileURL.path
+        #expect(result.status == .skipped)
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-no-pulse"])
+        #expect(result.diagnostics.map(\.severity) == [.note])
+        #expect(result.diagnostics.map(\.message) == [
+            "Not checked: the corpus at '\(resolved)' holds no institutional pulse. "
+                + "Nothing was compared; this is not a pass.",
+        ])
     }
 
     // MARK: - Pulse With Findings
@@ -331,7 +408,7 @@ struct ConsistencyCheckerTests {
 
     // MARK: - No Metadata (Pulse-Only)
 
-    @Test("Pulse exists but no metadata returns passed with pulse info")
+    @Test("Pulse exists but no metadata is skipped, not passed")
     func pulseWithoutMetadata() async throws {
         let pulse = makePulse(violationClusters: [
             makeCluster(ruleId: "concurrency.unchecked-sendable")
@@ -344,8 +421,9 @@ struct ConsistencyCheckerTests {
 
         let result = try await checker.check(configuration: config)
 
-        #expect(result.status == .passed)
-        #expect(result.diagnostics.contains { $0.ruleId == "consistency-no-metadata" })
+        #expect(result.status == .skipped)
+        #expect(result.diagnostics.map(\.ruleId) == ["consistency-no-metadata"])
+        #expect(result.diagnostics.map(\.severity) == [.note])
     }
 
     // MARK: - Consistency Score in Diagnostics

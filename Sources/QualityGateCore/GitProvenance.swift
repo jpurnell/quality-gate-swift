@@ -96,7 +96,7 @@ public struct GitProvenance: Sendable {
     /// `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE` — as set when the gate runs
     /// inside a git hook. Without this, provenance would report the hook's repo
     /// rather than the directory actually being gated.
-    private static var scrubbedGitEnvironment: [String: String] {
+    static var scrubbedGitEnvironment: [String: String] {
         var env = ProcessInfo.processInfo.environment
         for key in env.keys where key.hasPrefix("GIT_") { env[key] = nil }
         return env
