@@ -191,12 +191,21 @@ struct StaleUnitTests {
                 "a symbol that is unreachable in the current source must still be reported")
 
         let note = after.diagnostics.first { $0.ruleId == "unreachable.index.age" }?.message ?? ""
-        // Eight sources were compiled for the testable variant before the edit. Six were then
-        // rewritten (stale); `Validator.swift` and `main.swift` were not, so their testable
-        // units are merely older than the product's (superseded).
-        #expect(note.contains("8 ignored"), "the freshness note must count the units it did not read: \(note)")
+        // Whatever the build system left behind, the note must account for the units it read
+        // and the units it did not.
+        #expect(note.contains("ignored"), "the freshness note must count the units it did not read: \(note)")
+        #if os(macOS)
+        // The exact counts are a fact about swiftbuild, which compiles an executable a second
+        // time for the test target that imports it. Eight sources were compiled for that
+        // testable variant before the edit. Six were then rewritten (stale); `Validator.swift`
+        // and `main.swift` were not, so their testable units are merely older than the
+        // product's (superseded). The native build system on Linux writes one unit per source,
+        // leaves nothing behind for this edit to strand, and reports 0 ignored — which is the
+        // right answer there, and is why the properties above are the portable ones.
+        #expect(note.contains("8 ignored"), "\(note)")
         #expect(note.contains("6 stale"), "\(note)")
         #expect(note.contains("2 superseded"), "\(note)")
+        #endif
         await SharedIndexStore.drain()
     }
 }
