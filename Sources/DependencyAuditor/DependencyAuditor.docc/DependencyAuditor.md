@@ -33,17 +33,17 @@ Running `swift package edit <dependency>` creates workspace state that overrides
 ## Configuration
 
 ```yaml
-dependency-audit:
+dependencyAudit:
   maxMajorVersionsBehind: 2
   allowBranchPins:
     - "swift-syntax"
     - "my-internal-lib"
-  offlineMode: true
+  offlineMode: false
 ```
 
 - **`maxMajorVersionsBehind`** (default: `2`) — Maximum major versions behind latest before flagging. Reserved for future version-staleness checking.
 - **`allowBranchPins`** (default: `[]`) — Package identities (lowercased) that are permitted to use branch pins without triggering `dep-branch-pin`.
-- **`offlineMode`** (default: `true`) — When true, the auditor never makes network calls. Set to false to enable future network-based checks.
+- **`offlineMode`** (default: `false`) — This auditor never makes network calls, whatever the setting. The key is read by `dependency-advisory-drift`, the one dependency checker that does: when true it does not attempt a connection and reports that it did not check. See the `DependencyAdvisory` module for the advisory keys that share this block.
 
 ## Topics
 

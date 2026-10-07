@@ -664,7 +664,62 @@ extension LoggingAuditorConfig: Codable {
     }
 }
 
-/// Per-checker configuration for DependencyAuditor.
+/// One advisory a repository has decided does not apply to it.
+///
+/// `Package.resolved` is JSON and has no line above it to carry a comment, so the
+/// acknowledgement lives in `.quality-gate.yml` and has to say more than a comment would:
+/// which advisory, on which package, why, and until when.
+///
+/// ```yaml
+/// dependencyAudit:
+///   acknowledgedAdvisories:
+///     - id: GHSA-g454-wj9r-jpg4
+///       package: github.com/marmelroy/Zip
+///       reason: "Transitive via polar-ble-sdk. No code path here extracts an archive."
+///       until: 2027-01-01
+/// ```
+///
+/// Every field decodes to an empty string when absent rather than failing. A decode failure
+/// drops the whole configuration to defaults, which would silently stop every *other* setting
+/// in the file from applying; an incomplete entry reaching the checker is instead rejected in
+/// a finding that names what is missing.
+public struct AcknowledgedAdvisory: Sendable, Equatable, Codable {
+    /// The advisory's id, or one of its aliases — `GHSA-…` or `CVE-…`.
+    public var id: String
+
+    /// The package the advisory is acknowledged for, as a repository URL in any spelling.
+    public var package: String
+
+    /// Why the advisory does not apply. Held to ``JustificationValidator``.
+    public var reason: String
+
+    /// `YYYY-MM-DD`. The acknowledgement expires once the advisory snapshot in use was fetched
+    /// on or after this date — the snapshot's date, not the wall clock.
+    public var until: String
+
+    /// Creates an acknowledgement.
+    public init(id: String, package: String, reason: String, until: String) {
+        self.id = id
+        self.package = package
+        self.reason = reason
+        self.until = until
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, package, reason, until
+    }
+
+    /// Decodes an acknowledgement, leaving any absent field empty.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        package = try container.decodeIfPresent(String.self, forKey: .package) ?? ""
+        reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? ""
+        until = try container.decodeIfPresent(String.self, forKey: .until) ?? ""
+    }
+}
+
+/// Per-checker configuration for DependencyAuditor and the `dependency-advisory` checkers.
 public struct DependencyAuditorConfig: Sendable, Equatable {
     /// Maximum major versions behind latest before flagging.
     public var maxMajorVersionsBehind: Int
@@ -672,23 +727,53 @@ public struct DependencyAuditorConfig: Sendable, Equatable {
     /// Branch pins that are explicitly allowed.
     public var allowBranchPins: [String]
 
-    /// Skip network calls to check latest tags.
+    /// Keep the dependency checkers off the network.
+    ///
+    /// `dependency-advisory-drift` is the only one that reaches for it; with this set it
+    /// reports that it did not check, and how many pins that leaves unchecked against the
+    /// live database, without attempting a connection.
     public var offlineMode: Bool
 
     /// Additional module names to treat as valid (e.g., Xcode-only targets, bridging modules).
     public var additionalKnownModules: [String]
+
+    /// Advisories this repository has decided do not apply — see ``AcknowledgedAdvisory``.
+    public var acknowledgedAdvisories: [AcknowledgedAdvisory]
+
+    /// Where a repository commits its own advisory snapshot, relative to the project root.
+    ///
+    /// Optional: the gate bundles a snapshot. When both exist the one fetched later is used.
+    public var advisorySnapshotPath: String
+
+    /// How many days old the advisory snapshot may be before `dependency-advisory-freshness`
+    /// says the check ran on old information.
+    public var advisorySnapshotMaxAgeDays: Int
+
+    /// Repository-URL prefixes that are the author's own packages, e.g. `github.com/jpurnell/`.
+    ///
+    /// Own packages are still matched against advisories. The list only decides what counts as
+    /// third-party in the coverage note, and whether a missing snapshot left anything unchecked.
+    public var ownPackages: [String]
 
     /// Creates a dependency auditor configuration with the given options.
     public init(
         maxMajorVersionsBehind: Int = 2,
         allowBranchPins: [String] = [],
         offlineMode: Bool = false,
-        additionalKnownModules: [String] = []
+        additionalKnownModules: [String] = [],
+        acknowledgedAdvisories: [AcknowledgedAdvisory] = [],
+        advisorySnapshotPath: String = ".quality-gate/advisories/swifturl.json",
+        advisorySnapshotMaxAgeDays: Int = 14,
+        ownPackages: [String] = []
     ) {
         self.maxMajorVersionsBehind = maxMajorVersionsBehind
         self.allowBranchPins = allowBranchPins
         self.offlineMode = offlineMode
         self.additionalKnownModules = additionalKnownModules
+        self.acknowledgedAdvisories = acknowledgedAdvisories
+        self.advisorySnapshotPath = advisorySnapshotPath
+        self.advisorySnapshotMaxAgeDays = advisorySnapshotMaxAgeDays
+        self.ownPackages = ownPackages
     }
 
     /// Default dependency auditor configuration.
@@ -698,6 +783,7 @@ public struct DependencyAuditorConfig: Sendable, Equatable {
 extension DependencyAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case maxMajorVersionsBehind, allowBranchPins, offlineMode, additionalKnownModules
+        case acknowledgedAdvisories, advisorySnapshotPath, advisorySnapshotMaxAgeDays, ownPackages
     }
 
     /// Creates a dependency auditor configuration by decoding from the given decoder.
@@ -708,6 +794,10 @@ extension DependencyAuditorConfig: Codable {
         allowBranchPins = try container.decodeIfPresent([String].self, forKey: .allowBranchPins) ?? defaults.allowBranchPins
         offlineMode = try container.decodeIfPresent(Bool.self, forKey: .offlineMode) ?? defaults.offlineMode
         additionalKnownModules = try container.decodeIfPresent([String].self, forKey: .additionalKnownModules) ?? defaults.additionalKnownModules
+        acknowledgedAdvisories = try container.decodeIfPresent([AcknowledgedAdvisory].self, forKey: .acknowledgedAdvisories) ?? defaults.acknowledgedAdvisories
+        advisorySnapshotPath = try container.decodeIfPresent(String.self, forKey: .advisorySnapshotPath) ?? defaults.advisorySnapshotPath
+        advisorySnapshotMaxAgeDays = try container.decodeIfPresent(Int.self, forKey: .advisorySnapshotMaxAgeDays) ?? defaults.advisorySnapshotMaxAgeDays
+        ownPackages = try container.decodeIfPresent([String].self, forKey: .ownPackages) ?? defaults.ownPackages
     }
 }
 

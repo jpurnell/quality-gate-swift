@@ -209,6 +209,43 @@ struct CheckerSelectionTests {
         ).contains("doc-generated"))
     }
 
+    /// Three ids for one subject, because hermeticity is one value per checker. They do not
+    /// share a default: the two that read only a file and the clock run everywhere, and the one
+    /// that opens a connection runs when asked.
+    @Test("dependency-advisory and its freshness run by default; the live comparison is opt-in")
+    func advisoryDriftIsOptIn() {
+        let registry = allIDs + [
+            "dependency-advisory", "dependency-advisory-freshness", "dependency-advisory-drift",
+        ]
+
+        let byDefault = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        )
+        #expect(byDefault.contains("dependency-advisory"))
+        #expect(byDefault.contains("dependency-advisory-freshness"))
+        #expect(!byDefault.contains("dependency-advisory-drift"))
+
+        // `--full` is the lever for cost, and a network round trip is not what it means.
+        let full = CheckerSelection.resolve(
+            requested: [], excluded: [], configuredEnabled: [], full: true, allIDs: registry
+        )
+        #expect(!full.contains("dependency-advisory-drift"))
+
+        // Asked for explicitly, or by `all`, it runs — and naming it selects it alone, which a
+        // shared prefix would break if selection ever moved to prefix matching.
+        #expect(CheckerSelection.resolve(
+            requested: ["dependency-advisory-drift"], excluded: [], configuredEnabled: [], full: false,
+            allIDs: registry
+        ) == ["dependency-advisory-drift"])
+        #expect(CheckerSelection.resolve(
+            requested: ["dependency-advisory"], excluded: [], configuredEnabled: [], full: false,
+            allIDs: registry
+        ) == ["dependency-advisory"])
+        #expect(CheckerSelection.resolve(
+            requested: ["all"], excluded: [], configuredEnabled: [], full: false, allIDs: registry
+        ).contains("dependency-advisory-drift"))
+    }
+
     @Test("configured enabledCheckers are honored when no --check given")
     func configuredCheckers() {
         let result = CheckerSelection.resolve(

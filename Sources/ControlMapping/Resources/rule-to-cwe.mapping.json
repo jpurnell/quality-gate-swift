@@ -379,6 +379,20 @@
     "posture": "partial"
   },
   {
+    "ruleId": "dep-advisory.vulnerable-pin",
+    "satisfies": [
+      "cwe/CWE-1395"
+    ],
+    "posture": "partial"
+  },
+  {
+    "ruleId": "dep-advisory.vulnerable-pin-by-name",
+    "satisfies": [
+      "cwe/CWE-1395"
+    ],
+    "posture": "partial"
+  },
+  {
     "ruleId": "context.missing-consent-guard",
     "satisfies": [
       "cwe/CWE-280"
