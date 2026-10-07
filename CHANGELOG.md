@@ -2,6 +2,58 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A dependency's warning is not this package's, under `xcode-build` as under `build`.** The
+  gate decided this on 2026-07-04 (`d91124a`): a warning in a dependency checkout does not count
+  against the package being checked, and an error does. `build` and `doc-lint` applied it.
+  `xcode-build` never did, and the rule would not have matched if it had — it looked for
+  `/.build/`, and Xcode keeps a checkout under
+  `~/Library/Developer/Xcode/DerivedData/<project>/SourcePackages/checkouts/`. So the same
+  diagnostics were dropped by one build checker and counted by the other. mlx-swift 0.32.3's
+  Metal shader headers emit `-Wc++17-extensions` at 13 sites; Xcode passes `-w` to a dependency's
+  C++ and `-suppress-warnings` to its Swift, and neither to the `metal` compiler. Every clean
+  `xcodebuild` of a package that depends on mlx-swift therefore reported 20 warnings in files it
+  does not own and cannot edit. IconquerAI v0.4.0, clean: `0 error(s), 22 warning(s)` before,
+  `0 error(s), 0 warning(s)` after.
+  - **One definition, three checkers.** `DependencyOrigin` (`QualityGateCore`) says whether a path
+    belongs to a dependency, and `build`, `doc-lint`, `xcode-build` and the compile-unit index
+    all ask it. Not first-party: `/.build/checkouts/<package>/`, `/.build/artifacts/<package>/`,
+    anything else under `/.build/` (unchanged from `d91124a`), and Xcode's
+    `/SourcePackages/checkouts/<package>/` and `/SourcePackages/artifacts/<package>/`. Everything
+    else counts, so a path the rule does not recognise is reported, not dropped.
+  - **Markers, not "is it inside the package root".** Containment is the better question and gives
+    the wrong answer three ways: SwiftPM puts checkouts *inside* the root; Xcode puts the
+    package's own derived sources *outside* it (`resource_bundle_accessor.swift` and
+    `GeneratedAssetSymbols.swift` under `DerivedData/…/Build/Intermediates.noindex/`, build-tool
+    plugin output under `DerivedData/…/SourcePackages/plugins/`, macro expansions in a temporary
+    directory); and a local path dependency is outside the root and has always counted, on
+    purpose. The root is used for the one thing it is right about: a path inside it is judged by
+    what follows it, so a package that is itself checked out under `.build/checkouts/` or
+    `SourcePackages/checkouts/` still owns its sources.
+  - **Local and edited packages are unchanged: they count.** The existing rule already had the
+    opinion (`BuildChecker.md`: "Local path dependencies are first-party"), and it is kept.
+  - **Errors are never scoped.** A dependency that fails to compile fails the gate and its error
+    is shown, by all three checkers.
+  - **Nothing is dropped silently.** `build` and `doc-lint` had been scoping warnings out since
+    July without saying so. All three now close with a note,
+    `gate.dependency-diagnostics-not-counted`: *"20 warnings in dependency mlx-swift were not
+    counted; they are not this package's source"*. Several origins are each named with a count.
+  - **Not recognised, and still counted:** a dependency's *derived* sources under Xcode
+    (`Intermediates.noindex/<dependency>.build/…`) and a dependency's plugin output. Their paths
+    have the same shape as the package's own, and telling them apart needs the package graph.
+- **`build` no longer reports `WARNING` with no warning in it.** On a clean `.build`, a package
+  whose dependency warns got `⚠ [build] WARNING` and one finding: *"[build] reported WARNING
+  without a warning-severity finding"*. `BuildChecker.createResult` computed the status from every
+  parsed diagnostic and scoped the dependency's warnings out afterwards, while assembling the
+  result; reconciliation then found a `.warning` status over no warning and said so. It appeared
+  only on a cold build because a warm one does not recompile the dependency and prints nothing to
+  mis-count. The scope is now applied first and the status computed from what is left.
+  `xcode-build` computes its status the same way, so it cannot acquire the same fault.
+- **The `consistency` echo goes with its cause.** That run also carried *"Rule 'xcode-compiler'
+  matched ViolationCluster with 61 occurrences"*, derived from the 20 findings above. Nothing in
+  `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
+
 ### Added
 
 - **`dependency-advisory`: a pinned version with a published advisory is a finding.** Fourteen

@@ -47,8 +47,9 @@ public enum CheckerBudget {
 
     /// The last successful duration for `name`, or `nil` when there is no usable record.
     public static func lastSuccess(named name: String, root: String) -> TimeInterval? {
-        // silent: an absent or unreadable record is the normal first-run state, and the
-        // fallback is a deliberately generous budget rather than a failure.
+        // An absent or unreadable record is the normal first-run state, and the fallback is a
+        // deliberately generous budget rather than a failure.
+        // silent: no record yet is the first-run state; the caller falls back to a generous budget
         guard let text = try? String(contentsOf: record(named: name, root: root), encoding: .utf8),
               let seconds = TimeInterval(text.trimmingCharacters(in: .whitespacesAndNewlines))
         else { return nil }

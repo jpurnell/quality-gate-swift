@@ -524,6 +524,54 @@ struct BuildCheckerTests {
         #expect(result.diagnostics.filter { $0.severity == .warning } == [Self.unusedResultWarning()])
     }
 
+    @Test("A clean build whose only warnings are a dependency's passes — no phantom warning")
+    func dependencyOnlyWarningsPass() {
+        let output = """
+            /repo/.build/checkouts/mlx-swift/Source/Cmlx/kernel.h:108:3: warning: constexpr if is a C++17 extension
+            /repo/.build/checkouts/mlx-swift/Source/Cmlx/kernel.h:120:3: warning: constexpr if is a C++17 extension
+            Build complete! (41.20s)
+            """
+
+        let result = BuildChecker.createResult(output: output, exitCode: 0, duration: .seconds(1))
+
+        #expect(result.status == .passed)
+        #expect(result.diagnostics.filter { $0.severity == .warning }.isEmpty)
+        #expect(result.diagnostics.map(\.message)
+                == ["2 warnings in dependency mlx-swift were not counted; they are not this package's source"])
+        // The status agrees with the findings, so the gate has nothing to synthesize.
+        #expect(result.reconciled().status == .passed)
+        #expect(!result.reconciled().diagnostics.contains { $0.ruleId == CheckResult.statusWithoutFindingRuleID })
+    }
+
+    @Test("A first-party warning beside a dependency's is the one that counts")
+    func firstPartyWarningCountsBesideDependency() {
+        let output = """
+            /repo/.build/checkouts/mlx-swift/Source/Cmlx/kernel.h:108:3: warning: constexpr if is a C++17 extension
+            /repo/Sources/App/File.swift:4:9: warning: variable 'x' was never used
+            """
+
+        let result = BuildChecker.createResult(
+            output: output, exitCode: 0, duration: .seconds(1),
+            recorded: Self.recorded([], compiled: 1, read: 0))
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning }.map(\.filePath) == ["/repo/Sources/App/File.swift"])
+        #expect(result.diagnostics.contains {
+            $0.message == "1 warning in dependency mlx-swift was not counted; it is not this package's source"
+        })
+        #expect(result.diagnostics.last?.ruleId == "build.diagnostic-coverage")
+    }
+
+    @Test("A dependency that fails to compile fails the build and its error is shown")
+    func dependencyErrorFailsTheBuild() {
+        let output = "/repo/.build/checkouts/dep/Sources/Dep/File.swift:5:1: error: cannot find type 'Foo' in scope"
+
+        let result = BuildChecker.createResult(output: output, exitCode: 1, duration: .seconds(1))
+
+        #expect(result.status == .failed)
+        #expect(result.diagnostics.filter { $0.severity == .error }.map(\.message) == ["cannot find type 'Foo' in scope"])
+    }
+
     @Test("A warning the transcript prints twice is one diagnostic")
     func transcriptDuplicatesAreMergedOnce() {
         let line = "/path/to/Decl.swift:7:23: warning: 'Old' is deprecated: use something else [#DeprecatedDeclaration]"

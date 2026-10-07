@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import QualityGateLogging
 
 /// One compile job the build system knows about, and where it records its diagnostics.
@@ -48,8 +49,8 @@ public struct CompileUnit: Sendable, Equatable {
 ///   left by a target since renamed, or by a variant directory an older toolchain named
 ///   differently. Its units are counted in ``orphanedUnitCount`` and are otherwise not there.
 ///   See ``scan(buildDirectory:configuration:)`` for when nothing is called an orphan.
-/// - **First-party** — a unit whose source lies under `/.build/` (a dependency checkout or a
-///   generated source) is skipped.
+/// - **First-party** — a unit whose source `DependencyOrigin` attributes to a dependency or
+///   to the build directory (`/.build/`: a checkout or a generated source) is skipped.
 ///
 /// ## Usage
 ///
@@ -104,10 +105,6 @@ public struct CompileUnitIndex: Sendable, Equatable {
         self.orphanedMaps = orphanedMaps
         self.orphanedUnitCount = orphanedUnitCount
     }
-
-    /// The marker of a path inside a SwiftPM build directory: dependency checkouts and
-    /// generated sources. Units compiled from there are not first-party.
-    static let buildDirectoryMarker = "/.build/"
 
     /// Directory names under a build directory that never contain an output file map and are
     /// not worth walking: dependency sources, their bare repositories, binary artifacts, and
@@ -266,7 +263,10 @@ public struct CompileUnitIndex: Sendable, Equatable {
 
     /// Whether `source` exists and is not inside a build directory.
     static func isLiveFirstParty(_ source: String) -> Bool {
-        !source.contains(buildDirectoryMarker) && FileManager.default.fileExists(atPath: source)
+        // `DependencyOrigin` is the gate's one definition of whose a path is; a unit this
+        // index skips and a diagnostic the checker scopes out are decided by the same rule.
+        DependencyOrigin.of(path: source, projectRoot: nil) == nil
+            && FileManager.default.fileExists(atPath: source)
     }
 
     /// Whether a unit's record is no older than every source it was compiled from.
