@@ -38,11 +38,37 @@ The compiler already writes each compile job's diagnostics down. The build syste
 
 | Rule | Statement |
 |---|---|
-| **Live** | A unit counts only if a current output file map names it and its source file exists — a deleted file's record stays on disk, and is not read. |
+| **Live** | A unit counts only if an output file map names it and its source file exists — a deleted file's record stays on disk, and is not read. |
+| **Of this build** | A unit counts only if the build that just ran names its output file map. A renamed target, or a variant directory an older toolchain named differently, leaves a map and records nothing will refresh; they are neither read nor reported as unread. |
 | **First-party** | Units whose source is under `/.build/` (dependency checkouts, generated sources) are skipped. Local path dependencies are first-party: their warnings count, as they do on a clean build. |
 | **Current** | A record older than a source it was compiled from is not trusted. |
+| **Not stale** | A diagnostic is evidence about the file it points at *as it was when the record holding it was written*. One that points at a file modified since is discarded, with its notes. |
 | **Success only** | Records are read only when `swift build` exited 0. After a failure the output has the errors and not every unit ran. |
 | **Once** | A finding is keyed on path, line, column, severity and message. A warning printed by two compile jobs — emit-module and compile both report a declaration-level warning — is reported once. |
+
+### A Record Is Not Only About Its Own Source
+
+The compiler writes a diagnostic about `F.swift` into other units' records too. Every primary file of a compile batch that contains a macro expansion receives the batch's diagnostics, so a warning in one Swift Testing file is also in the records of the four or five files compiled beside it. Edit `F.swift` and only its own unit is recompiled: its record is rewritten, the siblings' are not, and they go on describing `F` as it was — at lines that have moved, or code that is gone. Each of those records is *current*, because it is no older than its own source.
+
+So the **Not stale** rule compares each diagnostic with the file it points at:
+
+- A diagnostic whose file was modified after the record holding it was written is discarded, and its notes go with it. The file's own unit, compiled after the edit, is the authority for the file: a warning that is still there is in that record, at its present line, and is reported once.
+- A warning inside a macro expansion is located in a generated buffer (`…/swift-generated-sources/@__swiftmacro_…swift`) that the compiler writes once and does not touch when the expansion site is fixed. It is judged by the file its *in expansion of macro … here* note names.
+- A diagnostic about a file that has not changed is kept, whichever record holds it — a header with no unit of its own, or a file whose own unit was recompiled because something it depends on changed. The comparison is with the file's modification date, not with its own record's: being recompiled is not being edited.
+- A warning in `G.swift` keeps its notes even when one points into a file edited since. It is the compiler's verdict on `G`, and stands while `G`'s unit is current.
+
+Whatever is discarded is counted in the coverage note, once each however many records held it.
+
+### The Build That Just Ran
+
+A build directory outlives the builds that wrote it. An output file map on disk says a target *was* built here, not that it still is. Which maps belong to the current build is something the build system writes down, and the checker reads it rather than asking SwiftPM again:
+
+| Build system | Description | 
+|---|---|
+| swiftbuild | `.build/out/Intermediates.noindex/XCBuildData/<id>.xcbuilddata/manifest.json`, `<id>` being the last line of `prior-build-descriptions.txt` |
+| native | `.build/<configuration>.yaml` |
+
+`.build/.buildSystem_<configuration>` says which of the two built last. A map the description does not name is an orphan. That includes a target this invocation simply did not build — the test targets, when `build.includeTests` is `false`: their records were written by some other build, and this one does not vouch for them. Nothing is called an orphan on a guess: when no description is found, or the one found names none of the configuration's maps, every map is treated as live, exactly as before.
 
 ### When the Checker Cannot Vouch for a Pass
 
@@ -60,12 +86,25 @@ Every successful result also carries the note `build.diagnostic-coverage`, the o
 9 Swift compile unit(s): 1 compiled by this run, 8 read from recorded diagnostics.
 ```
 
+It also says what was looked at and set aside:
+
+```
+63 Swift compile unit(s): 2 compiled by this run, 61 read from recorded diagnostics.
+4 recorded diagnostic(s) discarded as stale: the file each points at changed after the
+record holding it was written. 3 compile unit(s) in 1 output file map(s) ignored as
+orphaned: the build that just ran does not name them.
+```
+
 ### What It Does Not See
 
 - **Warnings with no source location** — linker warnings, plugin output, SwiftPM's own. They were never matched in the build's output either.
 - **C-family compile units.** Output file maps list Swift sources; a warning in a `.c` or `.m` file is still reported only on the run that recompiles it. The coverage note counts Swift units and says so.
 - **Other configurations and platforms.** Code under `#if os(iOS)`, or compiled only in release, is not built by this run and has no current record.
-- **A target removed from `Package.swift` whose sources and build products remain.** Its map and records are still on disk, so its warnings are reported until the build directory is cleaned.
+- **A cross-file diagnostic about a file edited since.** Some diagnostics about `F.swift` are produced only while compiling `G.swift`. If `F` is then edited in a way that does not make the build recompile `G`, `G`'s record is older than `F` and what it says about `F` is discarded — even if it is still true. It returns when `G` is next compiled. The alternative was reporting diagnostics at lines that no longer hold the code, which is what this rule replaced; the coverage note counts what was discarded so the trade is visible.
+- **An edit that keeps an older modification date.** Staleness is a comparison of dates. A tool that restores a file's contents together with an earlier date (`cp -p`, `rsync -t`, an archive extraction) leaves a sibling's record looking newer than the file, and its diagnostics about that file are reported.
+- **A macro-expansion diagnostic with no note on disk.** With nothing to compare its record against, it is kept.
+- **Orphans, when the build left no description.** Telling a live unit from an orphan depends on the build description. Without one — an unknown layout, a future toolchain that moves it — every map is live again, and a stale variant directory can raise `build.warnings-unverified` as it used to. The description's format is not a documented interface; the scan asks only that it contain each map's absolute path as a quoted string.
+- **C-family and other diagnostics in an orphaned directory** are as unseen as they were in a live one.
 
 ### No Result Cache
 
@@ -98,6 +137,7 @@ The `.dia` container is the LLVM bitstream format Clang and Swift share. The rea
 - ``RecordedDiagnostics``
 - ``CompileUnitIndex``
 - ``CompileUnit``
+- ``RecordedDiagnostics/Coverage``
 - ``SerializedDiagnosticsReader``
 
 ### Configuration
