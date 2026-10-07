@@ -167,6 +167,7 @@ extension Configuration {
         add("consistency.corpusPath", consistency.corpusPath)
         add("ijs.corpusPath", ijs.corpusPath)
         add("legibility.artifactPath", legibility.artifactPath)
+        add("dependencyAudit.advisorySnapshotPath", dependencyAudit.advisorySnapshotPath)
         for (index, plugin) in plugins.enumerated() {
             add("plugins[\(index)].run", plugin.run)
         }

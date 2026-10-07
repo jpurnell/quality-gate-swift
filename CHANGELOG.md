@@ -1032,7 +1032,7 @@
     `Nothing was run.`
   - **One rule, every path-valued key.** `Configuration.pathValues` is the single list —
     `corpusPath` (both sections), `guidelinesPath`, `masterPlanPath`, `changelogPath`, `readmePath`,
-    `kernelPath`, `artifactPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
+    `kernelPath`, `artifactPath`, `advisorySnapshotPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
     `additionalPaths` / `exemptFiles` / `allowedFiles` lists, `xcodeBuild.project` / `.workspace`,
     `plugins[].run`, and the `doc-code` / `doc-generated` paths. It is computed from the current
     values rather than recorded during decoding, so `--telemetry-corpus-path '$X'` is judged too.
