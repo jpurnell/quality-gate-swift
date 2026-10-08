@@ -157,6 +157,8 @@ public struct DocLinter: QualityChecker, Sendable {
                 "/usr/bin/swift",
                 arguments: arguments,
                 currentDirectory: projectRoot,
+                // `swift package` resolves dependencies with git; a hook's GIT_DIR must not reach it.
+                environment: ChildProcessEnvironment.forBuildTool,
                 timeout: budget
             )
             if result.exitCode == 0 {

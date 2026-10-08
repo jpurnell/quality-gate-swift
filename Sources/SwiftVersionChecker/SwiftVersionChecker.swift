@@ -446,7 +446,9 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         let result = try ProcessRunner.run(
             executable,
             arguments: arguments,
-            currentDirectory: currentDirectory
+            currentDirectory: currentDirectory,
+            // `swift build` resolves dependencies with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool
         )
 
         return (result.stdout + "\n" + result.stderr, result.exitCode)

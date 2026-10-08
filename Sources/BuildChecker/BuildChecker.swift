@@ -422,12 +422,24 @@ public struct BuildChecker: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
+    /// The environment for the spawned `swift build`: this process's, without the
+    /// repository git scoped to a hook.
+    ///
+    /// `swift build` resolves dependencies by running git, and that git obeys `GIT_DIR`.
+    /// Inherited from a hook of a linked worktree, it turns a first build into `Couldn’t
+    /// check out revision … fatal: unable to read tree`. See `ChildProcessEnvironment`
+    /// for the measurements, and for what is removed and what is kept.
+    static func childEnvironment(from parent: [String: String]) -> [String: String] {
+        ChildProcessEnvironment.withoutGitRepositoryScope(parent)
+    }
+
     private func runSwiftBuild(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
         // SAFETY: runs swift build to check compilation
         let result = try ProcessRunner.run(
             "/usr/bin/swift",
             arguments: ["build"] + arguments,
-            currentDirectory: root
+            currentDirectory: root,
+            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment)
         )
 
         // Combine stdout and stderr since Swift outputs diagnostics to stderr
