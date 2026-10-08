@@ -214,11 +214,58 @@ enum Feed {
 | **Built** | `URL(string:)`, `URL(string:relativeTo:)`, `URLComponents(string:)`, `HTTPClientRequest(url:)`, `URI(string:)` whose string is not a literal, not an interpolation of same-file string constants, and does not write out its scheme and host before its first dynamic piece |
 | **Requested** | `URLSession` `data` / `bytes` / `download` / `upload` / `dataTask` / `downloadTask` / `uploadTask` / `webSocketTask` `(from:` / `for:` / `with:)`; `Data` / `String` / `NSData` / `XMLParser(contentsOf:)`; AsyncHTTPClient `execute(_:)` on an `HTTPClientRequest`; `WKWebView.load(_:)` on a `URLRequest`; `WebSocket.connect(to:)`; `NWConnection(to: .url(…))` |
 | **Followed** | `let` / `guard let` / `if let` / `for` bindings in the function; `URLRequest(url:)`; `.absoluteURL`, `appendingPathComponent(_:)` and the like; closures inside the function |
-| **Cleared by** | the URL's `host` compared with something other than `nil`, tested with `contains` / `hasSuffix` / `hasPrefix`, switched on, or handed to a function inside a condition — before the request. Or the URL handed, in a condition or a `try` statement, to a function of the package that does one of those |
+| **Cleared by** | the URL's `host` compared with something other than `nil`, tested with `contains` / `hasSuffix` / `hasPrefix`, switched on, or handed to a function inside a condition — before the request. Or a **value made from the host** — an initialiser or tuple given it, a string it is interpolated into, a name bound to any of those — that is compared or switched on. Or the URL handed, in a condition or a `try` statement, to a function of the package that does one of those |
 
 A file URL (`URL(fileURLWithPath:)`, `URL(filePath:)`) is never an operand, so
 `Data(contentsOf:)` on a path is not this rule's business. `url.host != nil` and
 `url.scheme == "https"` are not host checks: they do not say *which* host.
+
+**A host carried into a value and compared is a host question.** A same-origin check is often
+written by copying scheme, host and port out of each URL and comparing the two values:
+
+```swift
+struct Origin: Equatable {
+    let scheme: String
+    let host: String
+    let port: Int
+
+    init(_ url: URL) {
+        scheme = url.scheme?.lowercased() ?? ""
+        host = url.host?.lowercased() ?? ""
+        port = url.port ?? 443
+    }
+}
+
+enum Relay {
+    // Not reported: each URL's host is carried into an `Origin`, and the two are compared.
+    static func post(_ body: Data, to address: String, sameOriginAs base: URL) async throws {
+        guard let url = URL(string: address, relativeTo: base)?.absoluteURL,
+              Origin(url) == Origin(base) else { return }
+        _ = try await URLSession.shared.upload(for: URLRequest(url: url), from: body)
+    }
+
+    // Reported: the host is read, carried and logged, and nothing is compared.
+    static func postUnchecked(_ body: Data, to address: String) async throws {
+        guard let url = URL(string: address) else { return }
+        let origin = Origin(url)
+        print("posting to \(origin.host)")
+        _ = try await URLSession.shared.upload(for: URLRequest(url: url), from: body)
+    }
+}
+```
+
+`Origin(url)` counts because the join finds that `Origin.init(_:)` stores its parameter's host —
+it is a **carrier**, computed the way validators are, and it may be declared in another file. A
+function that returns a value made from the host (`func origin(of url: URL) -> String`) is one
+too. The same holds without a declared type: `(url.scheme, url.host, url.port) == expected`, and
+`let mine = Endpoint(host: url.host)` followed by `mine == expected`. A name bound to the host is
+followed through further bindings (`let host = url.host`, then `let lowered = host.lowercased()`),
+and a question asked of `URLComponents(url: url, …)` is asked of `url`.
+
+What does not count is unchanged in kind: the host logged; the host, or a value carrying it, bound
+and never compared; a carried value compared only with `nil`; a value that carries the scheme or
+the port and not the host. The rule records that the question was asked before the request, not
+that the answer was right.
 
 **The request is usually in a wrapper.** So, like the server-surface rules below, this one is a
 package-wide question answered per site. Each file contributes what its functions do with

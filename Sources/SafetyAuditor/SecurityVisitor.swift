@@ -32,7 +32,7 @@ import SwiftSyntax
 /// | `security.trust-handler-accepts-all` | 295 | Trust challenge answered without an evaluation |
 /// | `security.trust-anchors-widened` | 295 | Built-in anchors re-enabled after pinning (warning) |
 /// | `security.path-traversal` | 22 | Chosen segment joined onto a directory and used without containment |
-/// | `security.ssrf` | 918 | URL built from non-literal input and requested, host unchecked — see `RequestFlowRules.swift` |
+/// | `security.ssrf` | 918 | URL built from non-literal input and requested, host neither compared nor carried into a value that is — see `RequestFlowRules.swift`, `HostQuestions.swift` |
 /// | `security.xml-external-entities` | 611 | XML parser configured, or defaulted, to load external entities |
 /// | `security.xml-entity-expansion` | 776 | `XML_PARSE_HUGE`; `XMLDocument` parse with no DTD refusal (warning) |
 /// | `security.path-containment-by-prefix` | 22, 187 | `hasPrefix` containment check with no separator |

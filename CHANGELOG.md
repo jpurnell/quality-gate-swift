@@ -1015,6 +1015,33 @@
 
 ### Fixed
 
+- **`security.ssrf`: a host carried into a value and compared is now read as a host check.** A
+  same-origin check written by copying scheme, host and port out of each URL into a small
+  `Equatable` value and comparing the two — `guard Origin(endpoint) == Origin(base) else { throw … }`
+  — was reported as "no check on its host", and its author had to respell a correct check as
+  `endpoint.host?.lowercased() == expectedHost` to satisfy the rule. The rule read two things: the
+  host compared directly, and the URL handed to a validator. It now also reads a **value made from
+  the host that is then compared or switched on** (`AURLIsNotARequest.md` §12):
+  - a URL handed whole to an initialiser or function that **carries** its parameter's host — one
+    that stores it in a property, passes it to `self.init`, or returns a value or string made
+    from it. Carriers are computed by the package-wide join, as validators are, so the type may
+    be in another file; a function that compares two carried values (`sameOrigin(_:as:)`) is a
+    validator;
+  - the host given directly to an initialiser or a tuple — `Endpoint(host: url.host) == expected`,
+    `(url.scheme, url.host, url.port) == …` — or interpolated into a string that is compared;
+  - any of those bound to a name first, and the host itself bound through more than one name
+    (`let host = url.host`, then `let lowered = host.lowercased()` — one step was followed before,
+    two were not);
+  - a question asked of `URLComponents(url: url, …)` or `URLRequest(url: url)`, which is now a
+    question about `url`.
+
+  What still clears nothing, each pinned by a test: the host logged; the host or a value carrying
+  it bound and never compared; a carried value compared with `nil`; `url.host != nil`; a scheme
+  check, direct or carried (`SchemeOnly(url) == SchemeOnly(base)`); a comparison made after the
+  request. Measured on the 98 gate-configured repositories with the previous binary and this one:
+  no `security.ssrf` finding appears and none disappears — the one site that prompted this had
+  already been respelled — so the change is exercised by its fixtures and by a scratch copy of
+  that site in its original form.
 - **A stale index unit beside a fresh one was read as though it were current.** The freshness
   check compared the *newest* unit with the *newest* source, which establishes that a build ran
   after the last edit and nothing about any other unit. A build adds to an index store and
