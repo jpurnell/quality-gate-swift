@@ -285,8 +285,11 @@ returns is not one.
 
 A URL that is returned, compared, displayed, written into markup, or stored where nothing in the
 package requests it is not reported. Not seen: a request made in another *package*, a connection
-to a host string (`connect(host:port:)`), a URL assembled by assignment (`components.host = …`),
-and a producer called as a method on some other value.
+to a host string (`connect(host:port:)`, `RedisConfiguration(hostname:)`), a URL assembled by
+assignment (`components.host = …`), and a producer called as a method on some other value. The
+host-string case was measured rather than assumed: twelve such connections and forty-four
+component-host assignments across the portfolio, every non-literal one a host the operator
+configured, none chosen by a request — so it is a documented limit and not a rule.
 
 The finding is a **warning**. It is an **error** when the URL derives from request content, an
 MCP tool argument or bytes from the network (`ExternalInput`, as for `regex-from-input` above): a

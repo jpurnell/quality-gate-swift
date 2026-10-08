@@ -368,8 +368,9 @@ public enum SecurityRuleManifest {
             // Reworked 2026-10-05 (`AURLIsNotARequest.md`): a parse is not a request. Reported
             // where a built URL reaches a call that opens a connection, in this function or
             // through a wrapper the package declares, with no question asked about its host.
-            // Reviewed 2026-10-08 (§12): a host carried into a value that is then compared — two
-            // `Equatable` origins, a tuple — is a question.
+            // Reviewed 2026-10-08 (§10–§12): a host carried into a value that is then compared —
+            // two `Equatable` origins, a tuple — is a question. Connections to a host *string*
+            // were measured across the portfolio and are deliberately not reported.
             description: "URL built from non-literal input reaches a network request with no check on its host "
                 + "(warning; error when the input is request content, an MCP argument or bytes from the network)",
             severity: "WARNING",

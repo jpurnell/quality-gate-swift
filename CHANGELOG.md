@@ -1042,6 +1042,15 @@
   no `security.ssrf` finding appears and none disappears — the one site that prompted this had
   already been respelled — so the change is exercised by its fixtures and by a scratch copy of
   that site in its original form.
+- **`security.ssrf`: connections to a host *string* were measured and are deliberately not
+  reported.** `connect(host:port:)`, `RedisConfiguration(hostname:)`, `NWConnection(host:port:)`
+  and a `URLComponents` whose `host` is assigned have no URL at the sink, and the redesign listed
+  two such connections as misses. A census of the portfolio found 12 outbound host-string
+  connections and 44 component-host assignments; every non-literal host is one the operator
+  configured (three database and cache hosts from the environment; a client library whose callers
+  are a text field and a command-line argument) and **none** is chosen by a request. A rule would
+  report nothing at its error tier and only intended behaviour below it, so none was written; the
+  design that was considered and the table it was held against are `AURLIsNotARequest.md` §11.
 - **A stale index unit beside a fresh one was read as though it were current.** The freshness
   check compared the *newest* unit with the *newest* source, which establishes that a build ran
   after the last edit and nothing about any other unit. A build adds to an index store and
