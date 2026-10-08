@@ -166,6 +166,34 @@ So a finding you do not want to gate on is a `.note`, not a `.warning` with a `.
 status. And a result returned as `.warning` needs a warning-severity diagnostic to back it;
 without one the gate adds a `gate.status-without-finding` warning that names your checker.
 
+### A Dependency's Warnings Are Not the Package's
+
+A checker that parses a build's output will see diagnostics from the package's dependencies.
+Warnings and notes among them do not count against the package; errors do. Ask
+``DependencyOrigin`` rather than matching paths yourself, so every checker agrees on whose a
+warning is:
+
+```swift
+import QualityGateCore
+
+func buildResult(parsed: [Diagnostic], projectRoot: String, duration: Duration) -> CheckResult {
+    let scope = parsed.firstPartyScope(projectRoot: projectRoot)
+    let warned = scope.counted.contains { $0.severity == .warning }
+    return CheckResult(
+        checkerId: "my-build",
+        status: warned ? .warning : .passed,
+        diagnostics: scope.reported,
+        duration: duration
+    )
+}
+```
+
+Two things in that order matter. The status is computed from ``FirstPartyScope/counted``, after
+scoping — computed before, it says `.warning` over a result with no warning left in it. And the
+result carries ``FirstPartyScope/reported``, which ends with a note counting what was scoped out
+and naming the packages it came from: a diagnostic dropped where nobody can see it is the
+pattern this gate exists to prevent.
+
 ## Thread Safety
 
 All checkers must be `Sendable` because they may run concurrently:

@@ -412,15 +412,46 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             }
         }
 
-        let deduped = dedup(allDiagnostics)
+        let verdict = Self.verdict(
+            diagnostics: allDiagnostics,
+            anyBuildFailed: anyBuildFailed,
+            projectRoot: configuration.resolvedProjectRoot.path
+        )
         let duration = ContinuousClock.now - startTime
 
         return CheckResult(
             checkerId: id,
-            status: Self.status(anyBuildFailed: anyBuildFailed, diagnostics: deduped),
-            diagnostics: deduped,
+            status: verdict.status,
+            diagnostics: verdict.diagnostics,
             duration: duration
         )
+    }
+
+    /// The status and the diagnostics to report, from everything the builds printed.
+    ///
+    /// Repeats are removed, then warnings and notes in a dependency are scoped out — the
+    /// same rule `build` and `doc-lint` apply, from the same definition
+    /// (`DependencyOrigin`). It was not applied here at all: Xcode keeps a checkout under
+    /// `DerivedData/<project>/SourcePackages/checkouts/`, so mlx-swift's Metal shader headers
+    /// put 20 `-Wc++17-extensions` warnings on every clean build of a package that merely
+    /// depends on it, while `build` dropped the same warnings from `.build/checkouts/`.
+    ///
+    /// The status is computed from what is left, so it cannot say `WARNING` over a result
+    /// with no warning in it. Errors are never scoped: a dependency that fails to build fails
+    /// the gate, and says why. What was scoped out is counted in a closing note.
+    ///
+    /// - Parameters:
+    ///   - diagnostics: Every diagnostic parsed from every destination, in order.
+    ///   - anyBuildFailed: Whether any destination's `xcodebuild` exited nonzero.
+    ///   - projectRoot: The root of the project under audit.
+    /// - Returns: The checker's status and the diagnostics its result carries.
+    static func verdict(
+        diagnostics: [Diagnostic],
+        anyBuildFailed: Bool,
+        projectRoot: String
+    ) -> (status: CheckResult.Status, diagnostics: [Diagnostic]) {
+        let scope = dedup(diagnostics).firstPartyScope(projectRoot: projectRoot)
+        return (status(anyBuildFailed: anyBuildFailed, diagnostics: scope.counted), scope.reported)
     }
 
     // MARK: - Private
@@ -584,7 +615,7 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         return destination
     }
 
-    private func dedup(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
+    private static func dedup(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
         var seen = Set<String>()
         return diagnostics.filter { diag in
             let key = "\(diag.filePath ?? ""):\(diag.lineNumber ?? 0):\(diag.message)"
