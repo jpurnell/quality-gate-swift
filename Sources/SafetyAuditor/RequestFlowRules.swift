@@ -81,7 +81,8 @@ enum RequestFlowRules {
 
     /// Every finding the facts support.
     static func findings(in files: [RequestFlowFileFacts]) -> [Finding] {
-        var join = Join(validators: hostValidators(files.flatMap(\.validators)))
+        let carriers = hostCarriers(files.flatMap(\.carriers))
+        var join = Join(validators: hostValidators(files.flatMap(\.validators), carriers: carriers), carriers: carriers)
         join.solve(files)
         return join.findings(files)
     }
@@ -89,6 +90,7 @@ enum RequestFlowRules {
     /// What the package's functions do with the URLs they are given, to a fixed point.
     private struct Join {
         let validators: Set<RequestSlot>
+        let carriers: Set<RequestSlot>
         var parameters: [RequestSlot: Reach] = [:]
         var properties: [Property: Reach] = [:]
         /// In the order found, which is the order of the files and of the flows in them — so
@@ -97,6 +99,7 @@ enum RequestFlowRules {
 
         func isChecked(_ flow: RequestFlow) -> Bool {
             flow.hostAsked || flow.checkedBy.contains(where: validators.contains)
+                || flow.comparedThrough.contains(where: carriers.contains)
         }
 
         /// Where `flow`'s use ends up, if it ends at a request.
@@ -217,9 +220,30 @@ enum RequestFlowRules {
         }
     }
 
-    /// The parameters that are host validators, to a fixed point over `handsTo`.
-    static func hostValidators(_ candidates: [HostValidator]) -> Set<RequestSlot> {
-        var validators = Set(candidates.filter(\.asksDirectly).map(\.slot))
+    /// The parameters whose host is in what their function makes, to a fixed point over `handsTo`:
+    /// `origin(of:)` that returns `Origin(url)` carries what `Origin.init(_:)` carries.
+    static func hostCarriers(_ candidates: [HostCarrier]) -> Set<RequestSlot> {
+        var carriers = Set(candidates.filter(\.carriesDirectly).map(\.slot))
+        var changed = true
+        var passes = 0
+        while changed && passes < 64 {
+            changed = false
+            passes += 1
+            for candidate in candidates where !carriers.contains(candidate.slot)
+                && candidate.handsTo.contains(where: carriers.contains) {
+                carriers.insert(candidate.slot)
+                changed = true
+            }
+        }
+        return carriers
+    }
+
+    /// The parameters that are host validators, to a fixed point over `handsTo`. A parameter
+    /// handed to a carrier whose result is then compared is asked about directly.
+    static func hostValidators(_ candidates: [HostValidator], carriers: Set<RequestSlot> = []) -> Set<RequestSlot> {
+        var validators = Set(candidates.filter {
+            $0.asksDirectly || $0.comparesThrough.contains(where: carriers.contains)
+        }.map(\.slot))
         var changed = true
         var passes = 0
         while changed && passes < 64 {

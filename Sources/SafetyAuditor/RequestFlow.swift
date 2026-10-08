@@ -15,6 +15,8 @@ struct RequestFlowFileFacts: Sendable {
     var flows: [RequestFlow] = []
     /// Each function parameter whose host the function asks about.
     var validators: [HostValidator] = []
+    /// Each parameter whose host its function hands back in what it makes (§12.3).
+    var carriers: [HostCarrier] = []
 }
 
 /// A function's parameter, or a call's argument, by name: `fetch(url:)`, `send(_:)`.
@@ -92,6 +94,9 @@ struct RequestFlow: Sendable, Hashable {
     /// Functions the value was handed to, in a condition or a `try` statement, before the use.
     /// Validation only if the join finds one of them to be a host validator.
     let checkedBy: [RequestSlot]
+    /// Functions the value was handed to, before the use, whose result was then compared.
+    /// A host question only if the join finds one of them to carry its parameter's host (§12.3).
+    let comparedThrough: [RequestSlot]
     /// For a *built* URL that is *returned*: the parameter its string came from, if it was one.
     /// Then whether the URL is dynamic is each caller's argument to say.
     let inputParameter: String?
@@ -103,6 +108,18 @@ struct HostValidator: Sendable, Hashable {
     /// The body asks a host question about the parameter.
     let asksDirectly: Bool
     /// The body hands the parameter to these, in a condition or a `try` statement.
+    let handsTo: [RequestSlot]
+    /// The body hands the parameter to these and compares what comes back.
+    let comparesThrough: [RequestSlot]
+}
+
+/// A parameter whose host its function hands back in what it makes: `Origin.init(_:)` that
+/// stores `url.host`, `origin(of:)` that returns a string interpolating it (§12.3).
+struct HostCarrier: Sendable, Hashable {
+    let slot: RequestSlot
+    /// The function's result holds the parameter's host.
+    let carriesDirectly: Bool
+    /// The function's result holds what these make of the parameter.
     let handsTo: [RequestSlot]
 }
 
@@ -121,7 +138,8 @@ final class RequestFlowCollector: SyntaxVisitor {
         collector.walk(tree)
         var seen: Set<RequestFlow> = []
         let flows = collector.flows.filter { seen.insert($0).inserted }
-        return RequestFlowFileFacts(file: fileName, flows: flows, validators: collector.validators)
+        return RequestFlowFileFacts(
+            file: fileName, flows: flows, validators: collector.validators, carriers: collector.carriers)
     }
 
     private let converter: SourceLocationConverter
@@ -131,6 +149,7 @@ final class RequestFlowCollector: SyntaxVisitor {
     private var regions: [SyntaxIdentifier: Region] = [:]
     private var flows: [RequestFlow] = []
     private var validators: [HostValidator] = []
+    private var carriers: [HostCarrier] = []
 
     private init(tree: SourceFileSyntax, converter: SourceLocationConverter) {
         self.converter = converter
@@ -197,6 +216,7 @@ final class RequestFlowCollector: SyntaxVisitor {
         /// Whether the function is a `func` — the only kind whose result a caller can name.
         let returnsToCaller: Bool
         var hostFacts: HostFacts?
+        var hostNames: HostNames?
 
         init(body: Syntax, bindings: FunctionBindings, function: String?, typeName: String?,
              parameters: [(label: String, name: String, type: String)], returnsToCaller: Bool) {
@@ -299,11 +319,45 @@ final class RequestFlowCollector: SyntaxVisitor {
         let facts = hostFacts(of: region)
         for parameter in region.parameters {
             let asks = facts.questions.contains { $0.root == parameter.name }
-            let hands = facts.checks.filter { $0.root == parameter.name }.map(\.slot)
-            guard asks || !hands.isEmpty else { continue }
+            let about = facts.checks.filter { $0.root == parameter.name }
+            let hands = about.filter(\.guards).map(\.slot)
+            let compares = about.filter(\.compared).map(\.slot)
+            guard asks || !hands.isEmpty || !compares.isEmpty else { continue }
             validators.append(HostValidator(
                 slot: RequestSlot(function: function, label: parameter.label),
-                asksDirectly: asks, handsTo: hands))
+                asksDirectly: asks, handsTo: hands, comparesThrough: compares))
+        }
+        // Only a function that returns something can hand a host back.
+        guard node.signature.returnClause != nil else { return }
+        var sole: ExprSyntax?
+        if body.statements.count == 1, let only = body.statements.first, case .expr(let value) = only.item {
+            sole = value
+        }
+        recordCarriers(in: region, isInitializer: false, soleExpression: sole)
+    }
+
+    override func visitPost(_ node: InitializerDeclSyntax) {
+        guard let body = node.body else { return }
+        recordCarriers(in: region(of: body), isInitializer: true, soleExpression: nil)
+    }
+
+    /// Which of a function's parameters have their host in what the function makes (§12.3).
+    private func recordCarriers(in region: Region, isInitializer: Bool, soleExpression: ExprSyntax?) {
+        guard let function = region.function, !region.parameters.isEmpty else { return }
+        let typeName = region.typeName
+        let reader = HostCarrierReader(
+            names: hostNames(of: region), body: region.body.id, isInitializer: isInitializer,
+            calleeName: { Self.calleeName(of: $0, in: typeName) },
+            isProperty: { target in self.propertyName(target, at: target, in: region) != nil })
+        reader.walk(region.body)
+        if let soleExpression { reader.take(soleExpression) }
+        for parameter in region.parameters {
+            let carries = reader.carried.roots.contains(parameter.name)
+            let hands = reader.carried.calls.filter { $0.root == parameter.name }.map(\.slot)
+            guard carries || !hands.isEmpty else { continue }
+            carriers.append(HostCarrier(
+                slot: RequestSlot(function: function, label: parameter.label),
+                carriesDirectly: carries, handsTo: hands))
         }
     }
 
@@ -400,7 +454,10 @@ final class RequestFlowCollector: SyntaxVisitor {
             function: region.function, enclosingType: region.typeName, origin: resolved.origin, use: use,
             line: location.line, column: location.column,
             hostAsked: facts.questions.contains { names.contains($0.root) && $0.position < node.position },
-            checkedBy: facts.checks.filter { names.contains($0.root) && $0.position < node.position }.map(\.slot),
+            checkedBy: facts.checks.filter { $0.guards && names.contains($0.root) && $0.position < node.position }
+                .map(\.slot),
+            comparedThrough: facts.checks
+                .filter { $0.compared && names.contains($0.root) && $0.position < node.position }.map(\.slot),
             inputParameter: resolved.inputRoot.flatMap { root in region.parameters.first { $0.name == root }?.label }))
     }
 
@@ -958,12 +1015,8 @@ final class RequestFlowCollector: SyntaxVisitor {
 
     private func hostFacts(of region: Region) -> HostFacts {
         if let known = region.hostFacts { return known }
-        var aliases: [String: String] = [:]
-        for site in region.bindings.sites where !site.isIteration {
-            if let root = Self.hostRoot(of: site.value) { aliases[site.name] = root }
-        }
         let typeName = region.typeName
-        let reader = HostQuestionReader(aliases: aliases, body: region.body.id) { call in
+        let reader = HostQuestionReader(names: hostNames(of: region), body: region.body.id) { call in
             Self.calleeName(of: call, in: typeName)
         }
         reader.walk(region.body)
@@ -972,21 +1025,12 @@ final class RequestFlowCollector: SyntaxVisitor {
         return facts
     }
 
-    /// The URL whose host `value` is — `url` for `url.host?.lowercased()`.
-    static func hostRoot(of value: ExprSyntax) -> String? {
-        var current = unwrapped(value)
-        for _ in 0..<8 {
-            if let call = current.as(FunctionCallExprSyntax.self),
-               let member = call.calledExpression.as(MemberAccessExprSyntax.self), let base = member.base {
-                if member.declName.baseName.text == "host" { return rootName(of: base) }
-                guard hostTransforms.contains(member.declName.baseName.text) else { return nil }
-                current = unwrapped(base)
-            } else if let member = current.as(MemberAccessExprSyntax.self), let base = member.base {
-                return member.declName.baseName.text == "host" ? rootName(of: base) : nil
-            } else {
-                return nil
-            }
-        }
-        return nil
+    /// What each name bound in `region` stands for, as far as a host is concerned.
+    private func hostNames(of region: Region) -> HostNames {
+        if let known = region.hostNames { return known }
+        let typeName = region.typeName
+        let names = HostCarrying.names(of: region.bindings) { Self.calleeName(of: $0, in: typeName) }
+        region.hostNames = names
+        return names
     }
 }

@@ -1067,6 +1067,42 @@
 
 ### Fixed
 
+- **`security.ssrf`: a host carried into a value and compared is now read as a host check.** A
+  same-origin check written by copying scheme, host and port out of each URL into a small
+  `Equatable` value and comparing the two — `guard Origin(endpoint) == Origin(base) else { throw … }`
+  — was reported as "no check on its host", and its author had to respell a correct check as
+  `endpoint.host?.lowercased() == expectedHost` to satisfy the rule. The rule read two things: the
+  host compared directly, and the URL handed to a validator. It now also reads a **value made from
+  the host that is then compared or switched on** (`AURLIsNotARequest.md` §12):
+  - a URL handed whole to an initialiser or function that **carries** its parameter's host — one
+    that stores it in a property, passes it to `self.init`, or returns a value or string made
+    from it. Carriers are computed by the package-wide join, as validators are, so the type may
+    be in another file; a function that compares two carried values (`sameOrigin(_:as:)`) is a
+    validator;
+  - the host given directly to an initialiser or a tuple — `Endpoint(host: url.host) == expected`,
+    `(url.scheme, url.host, url.port) == …` — or interpolated into a string that is compared;
+  - any of those bound to a name first, and the host itself bound through more than one name
+    (`let host = url.host`, then `let lowered = host.lowercased()` — one step was followed before,
+    two were not);
+  - a question asked of `URLComponents(url: url, …)` or `URLRequest(url: url)`, which is now a
+    question about `url`.
+
+  What still clears nothing, each pinned by a test: the host logged; the host or a value carrying
+  it bound and never compared; a carried value compared with `nil`; `url.host != nil`; a scheme
+  check, direct or carried (`SchemeOnly(url) == SchemeOnly(base)`); a comparison made after the
+  request. Measured on the 98 gate-configured repositories with the previous binary and this one:
+  no `security.ssrf` finding appears and none disappears — the one site that prompted this had
+  already been respelled — so the change is exercised by its fixtures and by a scratch copy of
+  that site in its original form.
+- **`security.ssrf`: connections to a host *string* were measured and are deliberately not
+  reported.** `connect(host:port:)`, `RedisConfiguration(hostname:)`, `NWConnection(host:port:)`
+  and a `URLComponents` whose `host` is assigned have no URL at the sink, and the redesign listed
+  two such connections as misses. A census of the portfolio found 12 outbound host-string
+  connections and 44 component-host assignments; every non-literal host is one the operator
+  configured (three database and cache hosts from the environment; a client library whose callers
+  are a text field and a command-line argument) and **none** is chosen by a request. A rule would
+  report nothing at its error tier and only intended behaviour below it, so none was written; the
+  design that was considered and the table it was held against are `AURLIsNotARequest.md` §11.
 - **`xcode-build` failed inside a git hook and passed when run by hand.** Twice on 2026-10-06
   a push from a linked worktree was refused by its own pre-push hook with `Checker failed:
   Configuration error: xcodebuild -list failed: … Could not resolve package dependencies:

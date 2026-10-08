@@ -1074,6 +1074,6 @@ struct SSRFRequestTests {
         let entry = try #require(SecurityRuleManifest.rules.first { $0.ruleId == Self.rule })
         #expect(entry.cwes == ["CWE-918"])
         #expect(entry.description.contains("request"))
-        #expect(entry.lastReviewedDate == "2026-10-05")
+        #expect(entry.lastReviewedDate == "2026-10-08")
     }
 }
