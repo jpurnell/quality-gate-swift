@@ -2,6 +2,58 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A dependency's warning is not this package's, under `xcode-build` as under `build`.** The
+  gate decided this on 2026-07-04 (`d91124a`): a warning in a dependency checkout does not count
+  against the package being checked, and an error does. `build` and `doc-lint` applied it.
+  `xcode-build` never did, and the rule would not have matched if it had — it looked for
+  `/.build/`, and Xcode keeps a checkout under
+  `~/Library/Developer/Xcode/DerivedData/<project>/SourcePackages/checkouts/`. So the same
+  diagnostics were dropped by one build checker and counted by the other. mlx-swift 0.32.3's
+  Metal shader headers emit `-Wc++17-extensions` at 13 sites; Xcode passes `-w` to a dependency's
+  C++ and `-suppress-warnings` to its Swift, and neither to the `metal` compiler. Every clean
+  `xcodebuild` of a package that depends on mlx-swift therefore reported 20 warnings in files it
+  does not own and cannot edit. IconquerAI v0.4.0, clean: `0 error(s), 22 warning(s)` before,
+  `0 error(s), 0 warning(s)` after.
+  - **One definition, three checkers.** `DependencyOrigin` (`QualityGateCore`) says whether a path
+    belongs to a dependency, and `build`, `doc-lint`, `xcode-build` and the compile-unit index
+    all ask it. Not first-party: `/.build/checkouts/<package>/`, `/.build/artifacts/<package>/`,
+    anything else under `/.build/` (unchanged from `d91124a`), and Xcode's
+    `/SourcePackages/checkouts/<package>/` and `/SourcePackages/artifacts/<package>/`. Everything
+    else counts, so a path the rule does not recognise is reported, not dropped.
+  - **Markers, not "is it inside the package root".** Containment is the better question and gives
+    the wrong answer three ways: SwiftPM puts checkouts *inside* the root; Xcode puts the
+    package's own derived sources *outside* it (`resource_bundle_accessor.swift` and
+    `GeneratedAssetSymbols.swift` under `DerivedData/…/Build/Intermediates.noindex/`, build-tool
+    plugin output under `DerivedData/…/SourcePackages/plugins/`, macro expansions in a temporary
+    directory); and a local path dependency is outside the root and has always counted, on
+    purpose. The root is used for the one thing it is right about: a path inside it is judged by
+    what follows it, so a package that is itself checked out under `.build/checkouts/` or
+    `SourcePackages/checkouts/` still owns its sources.
+  - **Local and edited packages are unchanged: they count.** The existing rule already had the
+    opinion (`BuildChecker.md`: "Local path dependencies are first-party"), and it is kept.
+  - **Errors are never scoped.** A dependency that fails to compile fails the gate and its error
+    is shown, by all three checkers.
+  - **Nothing is dropped silently.** `build` and `doc-lint` had been scoping warnings out since
+    July without saying so. All three now close with a note,
+    `gate.dependency-diagnostics-not-counted`: *"20 warnings in dependency mlx-swift were not
+    counted; they are not this package's source"*. Several origins are each named with a count.
+  - **Not recognised, and still counted:** a dependency's *derived* sources under Xcode
+    (`Intermediates.noindex/<dependency>.build/…`) and a dependency's plugin output. Their paths
+    have the same shape as the package's own, and telling them apart needs the package graph.
+- **`build` no longer reports `WARNING` with no warning in it.** On a clean `.build`, a package
+  whose dependency warns got `⚠ [build] WARNING` and one finding: *"[build] reported WARNING
+  without a warning-severity finding"*. `BuildChecker.createResult` computed the status from every
+  parsed diagnostic and scoped the dependency's warnings out afterwards, while assembling the
+  result; reconciliation then found a `.warning` status over no warning and said so. It appeared
+  only on a cold build because a warm one does not recompile the dependency and prints nothing to
+  mis-count. The scope is now applied first and the status computed from what is left.
+  `xcode-build` computes its status the same way, so it cannot acquire the same fault.
+- **The `consistency` echo goes with its cause.** That run also carried *"Rule 'xcode-compiler'
+  matched ViolationCluster with 61 occurrences"*, derived from the 20 findings above. Nothing in
+  `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
+
 ### Added
 
 - **`dependency-advisory`: a pinned version with a published advisory is a finding.** Fourteen
@@ -1051,6 +1103,47 @@
   are a text field and a command-line argument) and **none** is chosen by a request. A rule would
   report nothing at its error tier and only intended behaviour below it, so none was written; the
   design that was considered and the table it was held against are `AURLIsNotARequest.md` §11.
+- **`xcode-build` failed inside a git hook and passed when run by hand.** Twice on 2026-10-06
+  a push from a linked worktree was refused by its own pre-push hook with `Checker failed:
+  Configuration error: xcodebuild -list failed: … Could not resolve package dependencies:
+  Couldn’t check out revision ‘1abee275…’`, and `quality-gate --check xcode-build` in the
+  same directory a minute later passed. git exports `GIT_DIR` to every hook of a linked
+  worktree; the checker spawned `xcodebuild` inheriting it; and `xcodebuild` resolves package
+  dependencies by running git, which obeyed it and tried to check each dependency out of the
+  project's own repository. It needs *unresolved* packages, so it showed only in a fresh
+  worktree and one run by hand "fixed" it.
+  - **Measured, one variable at a time**, on a scratch package with one unresolved
+    dependency, for both `xcodebuild -list` and `swift build`: `GIT_DIR` gives the message
+    above (`fatal: unable to read tree`); `GIT_WORK_TREE` gives `Failed to clone repository …
+    working tree … already exists`; an absolute `GIT_INDEX_FILE` on its own lets the tool
+    **exit 0** and leaves the hooked repository's index holding the dependency's 70 files
+    where the project's 6 had been; `GIT_PREFIX`, `GIT_EXEC_PATH` and `GIT_EDITOR` do nothing.
+    An ordinary clone's hooks do not set `GIT_DIR`, which is why this was a worktree bug.
+  - **It was never only `xcode-build`.** `swift build` and `swift test` fail identically. They
+    had not, because `.build` was usually resolved by the time a hook ran, whereas
+    `xcodebuild` resolves into DerivedData, which a new worktree does not have.
+  - **One shared rule, `ChildProcessEnvironment.withoutGitRepositoryScope(_:)`** in
+    `QualityGateCore`, now supplies the environment for every build tool the gate launches:
+    `xcode-build` (all three `xcodebuild` launches), `build`, `test`, `doc-lint`,
+    `swift-version`'s verification build, `unreachable`'s `swift package describe`, and the
+    index-store builds. It removes fourteen variables: the thirteen that name a repository,
+    its work tree, its index or its object store — `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+    `GIT_PREFIX`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
+    `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_QUARANTINE_PATH`, `GIT_IMPLICIT_WORK_TREE`,
+    `GIT_GRAFT_FILE`, `GIT_SHALLOW_FILE`, `GIT_NO_REPLACE_OBJECTS`, `GIT_REPLACE_REF_BASE` —
+    and `GIT_EXEC_PATH`, which is scoped to the git binary that ran the hook rather than to
+    the one the tool will run. It keeps everything else, deliberately including
+    `GIT_SSH_COMMAND`, `GIT_ASKPASS` and `GIT_CONFIG_*`: stripping `GIT_*` wholesale would
+    trade "could not check out revision" for "could not authenticate" on a CI runner with a
+    deploy key. `TestRunner.childEnvironment` composes it with the `QG_NO_INDEX_BUILD` removal
+    it already did; `CorpusGitTransport.scrubbed` and `CorpusWriteQueue.scrubbed`, which each
+    spelled out five of the fourteen, now call it.
+  - **The failure is legible now.** A failed `xcodebuild -list` used to be thrown, and arrived
+    as `Checker failed: Configuration error:` beside `0ms` — three statements, none true. It
+    is a finding: `xcode-build-package-resolution` when the output shows a resolution failure,
+    `xcode-build-list-failed` otherwise, saying what was run, where, how it exited, and that
+    nothing was compiled.
+
 - **A stale index unit beside a fresh one was read as though it were current.** The freshness
   check compared the *newest* unit with the *newest* source, which establishes that a build ran
   after the last edit and nothing about any other unit. A build adds to an index store and

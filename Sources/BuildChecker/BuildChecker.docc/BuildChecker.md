@@ -40,7 +40,7 @@ The compiler already writes each compile job's diagnostics down. The build syste
 |---|---|
 | **Live** | A unit counts only if an output file map names it and its source file exists — a deleted file's record stays on disk, and is not read. |
 | **Of this build** | A unit counts only if the build that just ran names its output file map. A renamed target, or a variant directory an older toolchain named differently, leaves a map and records nothing will refresh; they are neither read nor reported as unread. |
-| **First-party** | Units whose source is under `/.build/` (dependency checkouts, generated sources) are skipped. Local path dependencies are first-party: their warnings count, as they do on a clean build. |
+| **First-party** | Units whose source is a dependency's or the build directory's — under `/.build/` — are skipped, by the same rule that scopes a printed diagnostic (see below). Local path dependencies are first-party: their warnings count, as they do on a clean build. |
 | **Current** | A record older than a source it was compiled from is not trusted. |
 | **Not stale** | A diagnostic is evidence about the file it points at *as it was when the record holding it was written*. One that points at a file modified since is discarded, with its notes. |
 | **Success only** | Records are read only when `swift build` exited 0. After a failure the output has the errors and not every unit ran. |
@@ -69,6 +69,16 @@ A build directory outlives the builds that wrote it. An output file map on disk 
 | native | `.build/<configuration>.yaml` |
 
 `.build/.buildSystem_<configuration>` says which of the two built last. A map the description does not name is an orphan. That includes a target this invocation simply did not build — the test targets, when `build.includeTests` is `false`: their records were written by some other build, and this one does not vouch for them. Nothing is called an orphan on a guess: when no description is found, or the one found names none of the configuration's maps, every map is treated as live, exactly as before.
+
+### A Dependency's Warnings Are Not Counted
+
+A warning or note in a dependency checkout or in the build directory is not this package's and does not count against it; an error always does, so a dependency that fails to compile fails the build. The rule is `DependencyOrigin` in `QualityGateCore`, shared with `doc-lint` and `xcode-build`, and the README's *Whose warning is it* states it once for all three.
+
+The verdict is reached after that scoping, never before: a build whose only warnings are a dependency's is `passed`. What was scoped out is counted in a note, `gate.dependency-diagnostics-not-counted`:
+
+```
+20 warnings in dependency mlx-swift were not counted; they are not this package's source
+```
 
 ### When the Checker Cannot Vouch for a Pass
 
@@ -130,7 +140,7 @@ The `.dia` container is the LLVM bitstream format Clang and Swift share. The rea
 
 - ``BuildChecker/check(configuration:)``
 - ``BuildChecker/parseBuildOutput(_:)``
-- ``BuildChecker/createResult(output:exitCode:duration:recorded:)``
+- ``BuildChecker/createResult(output:exitCode:duration:recorded:projectRoot:)``
 
 ### Recorded Diagnostics
 

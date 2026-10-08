@@ -66,6 +66,10 @@ QualityGateCore defines the contract that all quality checkers implement, along 
 - ``CheckerSelection``
 - ``CheckerSelectionError``
 
+### Launching Tools
+
+- ``ChildProcessEnvironment``
+
 ### Guides
 
 - <doc:ImplementingCheckers>

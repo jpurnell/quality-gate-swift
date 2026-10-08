@@ -443,7 +443,9 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         // SAFETY: runs swift package describe to map target types
         let result = try ProcessRunner.run(
             "/usr/bin/env",
-            arguments: ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"]
+            arguments: ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"],
+            // `swift package` may resolve dependencies with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool
         )
         guard result.exitCode == 0 else {
             throw ToolchainError.describeFailed(result.stderr)

@@ -166,6 +166,34 @@ So a finding you do not want to gate on is a `.note`, not a `.warning` with a `.
 status. And a result returned as `.warning` needs a warning-severity diagnostic to back it;
 without one the gate adds a `gate.status-without-finding` warning that names your checker.
 
+### A Dependency's Warnings Are Not the Package's
+
+A checker that parses a build's output will see diagnostics from the package's dependencies.
+Warnings and notes among them do not count against the package; errors do. Ask
+``DependencyOrigin`` rather than matching paths yourself, so every checker agrees on whose a
+warning is:
+
+```swift
+import QualityGateCore
+
+func buildResult(parsed: [Diagnostic], projectRoot: String, duration: Duration) -> CheckResult {
+    let scope = parsed.firstPartyScope(projectRoot: projectRoot)
+    let warned = scope.counted.contains { $0.severity == .warning }
+    return CheckResult(
+        checkerId: "my-build",
+        status: warned ? .warning : .passed,
+        diagnostics: scope.reported,
+        duration: duration
+    )
+}
+```
+
+Two things in that order matter. The status is computed from ``FirstPartyScope/counted``, after
+scoping — computed before, it says `.warning` over a result with no warning left in it. And the
+result carries ``FirstPartyScope/reported``, which ends with a note counting what was scoped out
+and naming the packages it came from: a diagnostic dropped where nobody can see it is the
+pattern this gate exists to prevent.
+
 ## Thread Safety
 
 All checkers must be `Sendable` because they may run concurrently:
@@ -205,6 +233,41 @@ public final class UnsafeChecker: QualityChecker, @unchecked Sendable {
     }
 }
 ```
+
+## Launching a Build Tool
+
+A checker that starts `swift`, `xcodebuild` or anything else that may run git or a package
+manager on its own account passes `environment: ChildProcessEnvironment.forBuildTool` to
+`ProcessRunner.run`. Leaving `environment` out inherits the gate's, and the gate is very
+often running inside a git hook.
+
+git runs a hook with the repository it is operating on written into the environment. In a
+linked worktree that includes `GIT_DIR`, for every hook; in a `pre-commit` hook it includes
+`GIT_INDEX_FILE`. A build tool resolving package dependencies runs git once per dependency,
+and that git obeys those variables — so it checks the dependency out of *your* repository,
+which does not contain it:
+
+    xcodebuild: error: Could not resolve package dependencies:
+      Couldn’t check out revision ‘1abee2759f7663b8fcd4d71bb0bcd1ebe6c1677f’:
+
+It only happens while the packages are unresolved, so it shows in a fresh worktree, fails
+the hook, and passes when the same command is run by hand — which has no `GIT_DIR`. With an
+absolute `GIT_INDEX_FILE` and no `GIT_DIR` the tool exits 0 instead, having written the
+dependency's file list into the hooked repository's index.
+
+``ChildProcessEnvironment/withoutGitRepositoryScope(_:)`` removes the variables that name a
+repository, its work tree, its index or its object store
+(``ChildProcessEnvironment/repositoryScopedGitVariables``) and keeps everything else —
+including `GIT_SSH_COMMAND`, `GIT_ASKPASS` and the `GIT_CONFIG_*` family, which is how a
+private dependency gets fetched. Do not strip `GIT_*` wholesale for a build tool.
+
+A checker that runs git *to read the audited repository* gives git that repository's
+directory as its working directory. git then finds the repository from where it is run,
+with or without the scrub.
+
+When the tool fails before it has built anything, report what was run, where, and how it
+exited as a diagnostic of your own. A thrown error reaches the reader as `Checker failed:`
+beside a duration of `0ms`, which says the gate broke and nothing ran.
 
 ## Testing Your Checker
 

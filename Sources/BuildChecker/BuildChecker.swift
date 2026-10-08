@@ -135,7 +135,8 @@ public struct BuildChecker: QualityChecker, Sendable {
             : nil
 
         let duration = ContinuousClock.now - startTime
-        return Self.createResult(output: output, exitCode: exitCode, duration: duration, recorded: recorded)
+        return Self.createResult(
+            output: output, exitCode: exitCode, duration: duration, recorded: recorded, projectRoot: projectRoot)
     }
 
     // MARK: - Public API for Testing
@@ -299,19 +300,31 @@ public struct BuildChecker: QualityChecker, Sendable {
     ///   - duration: How long the build took
     ///   - recorded: The recorded diagnostics read after a successful build, or `nil` to judge
     ///     the transcript alone.
+    ///   - projectRoot: The package root, so a path inside it is judged by what follows it;
+    ///     `nil` judges each path as written.
     /// - Returns: A CheckResult summarizing the build
     public static func createResult(
         output: String,
         exitCode: Int32,
         duration: Duration,
-        recorded: RecordedDiagnostics? = nil
+        recorded: RecordedDiagnostics? = nil,
+        projectRoot: String? = nil
     ) -> CheckResult {
         let succeeded = exitCode == 0
-        var diagnostics = uniqued(parseBuildOutput(output) + (succeeded ? recorded?.diagnostics ?? [] : []))
-        // The checker's own statements about what it read. Kept apart from compiler
-        // diagnostics until after first-party scoping, which is about where a compiler
-        // diagnostic points and has nothing to say about these.
-        var coverage: [Diagnostic] = []
+        // Scoped to first-party source *before* the verdict is reached, not while the result
+        // is assembled. The status used to be computed from every parsed diagnostic and the
+        // dependency warnings dropped afterwards, so a clean build of a package whose
+        // dependency warns was `WARNING` with no warning in it — and the gate, finding that,
+        // added `[build] reported WARNING without a warning-severity finding`. A cold build
+        // showed it and a warm one did not, because a warm build does not recompile the
+        // dependency and so prints nothing to mis-count.
+        let scope = uniqued(parseBuildOutput(output) + (succeeded ? recorded?.diagnostics ?? [] : []))
+            .firstPartyScope(projectRoot: projectRoot)
+        var diagnostics = scope.counted
+        // The checker's own statements about what it read, which first-party scoping — a
+        // question about where a compiler diagnostic points — has nothing to say about. The
+        // scoping note leads them: it is why the count above is what it is.
+        var coverage: [Diagnostic] = scope.note.map { [$0] } ?? []
 
         let status: CheckResult.Status
         if succeeded {
@@ -368,7 +381,7 @@ public struct BuildChecker: QualityChecker, Sendable {
         return CheckResult(
             checkerId: "build",
             status: status,
-            diagnostics: diagnostics.scopedToFirstParty() + coverage,
+            diagnostics: diagnostics + coverage,
             duration: duration
         )
     }
@@ -409,12 +422,24 @@ public struct BuildChecker: QualityChecker, Sendable {
 
     // MARK: - Private Implementation
 
+    /// The environment for the spawned `swift build`: this process's, without the
+    /// repository git scoped to a hook.
+    ///
+    /// `swift build` resolves dependencies by running git, and that git obeys `GIT_DIR`.
+    /// Inherited from a hook of a linked worktree, it turns a first build into `Couldn’t
+    /// check out revision … fatal: unable to read tree`. See `ChildProcessEnvironment`
+    /// for the measurements, and for what is removed and what is kept.
+    static func childEnvironment(from parent: [String: String]) -> [String: String] {
+        ChildProcessEnvironment.withoutGitRepositoryScope(parent)
+    }
+
     private func runSwiftBuild(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
         // SAFETY: runs swift build to check compilation
         let result = try ProcessRunner.run(
             "/usr/bin/swift",
             arguments: ["build"] + arguments,
-            currentDirectory: root
+            currentDirectory: root,
+            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment)
         )
 
         // Combine stdout and stderr since Swift outputs diagnostics to stderr

@@ -157,6 +157,8 @@ public struct DocLinter: QualityChecker, Sendable {
                 "/usr/bin/swift",
                 arguments: arguments,
                 currentDirectory: projectRoot,
+                // `swift package` resolves dependencies with git; a hook's GIT_DIR must not reach it.
+                environment: ChildProcessEnvironment.forBuildTool,
                 timeout: budget
             )
             if result.exitCode == 0 {
@@ -211,7 +213,10 @@ public struct DocLinter: QualityChecker, Sendable {
             // about this package rather than a dependency. Scoping `enrichedDiagnostics`
             // alone — as the original commit did — would let a dependency's warning through
             // any path that appended to `diagnostics` afterwards.
-            diagnostics: diagnostics.scopedToFirstParty(),
+            //
+            // `reported`, not just the counted half: what was scoped out is counted in a
+            // closing note, so a dependency's warning is never dropped without a trace.
+            diagnostics: diagnostics.firstPartyScope(projectRoot: projectRoot).reported,
             duration: duration
         )
     }

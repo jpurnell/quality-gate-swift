@@ -656,7 +656,7 @@ public struct TestRunner: QualityChecker, Sendable {
     // MARK: - Private Implementation
 
     /// The environment for the spawned `swift test`, with this run's own control
-    /// variables removed.
+    /// variables removed — and, with them, the repository git scoped to a hook.
     ///
     /// `QG_NO_INDEX_BUILD` tells `StoreLocator` "do not compile to produce an index;
     /// degrade to AST-only". That is correct for *this* process's checkers — a
@@ -670,11 +670,14 @@ public struct TestRunner: QualityChecker, Sendable {
     /// have thrown. Only a clean checkout forces the build that the flag forbids, so
     /// local hooks structurally could not see it — the first self-hosted CI run did.
     ///
-    /// Same leak class as ``CorpusGitTransport/scrubbed(environment:)`` and
-    /// `GIT_INDEX_FILE`: a variable scoped to the tool leaking into a child that is
-    /// not the tool.
+    /// Same leak class as `GIT_INDEX_FILE`: a variable scoped to the tool leaking into a
+    /// child that is not the tool. That one is removed here too, by
+    /// `ChildProcessEnvironment.withoutGitRepositoryScope(_:)` — `swift test` resolves
+    /// dependencies with git before it builds, and a project's own tests routinely create
+    /// repositories of their own, neither of which should happen inside the repository a
+    /// hook happens to be running for.
     static func childEnvironment(from parent: [String: String]) -> [String: String] {
-        var environment = parent
+        var environment = ChildProcessEnvironment.withoutGitRepositoryScope(parent)
         environment.removeValue(forKey: "QG_NO_INDEX_BUILD")
         return environment
     }
