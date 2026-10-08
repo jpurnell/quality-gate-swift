@@ -287,6 +287,34 @@ swift package plugin quality-gate
 | `xcode-build` | XcodeBuildChecker | Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in) |
 <!-- /generated:checker-table-specialty -->
 
+### Whose warning is it
+
+Three checkers read a build's diagnostics — `build`, `doc-lint` and `xcode-build` — and they
+share one rule:
+
+> **Warnings in dependencies are not counted, by every build-type checker; errors are.**
+
+A warning in a file your package does not own is one you cannot fix, and a count that can never
+reach zero stops being read. An error is different: a dependency that does not compile means
+your package does not build, and that fails the gate with the dependency's error shown.
+
+| A diagnostic whose path contains | is |
+|---|---|
+| `/.build/checkouts/<package>/`, `/.build/artifacts/<package>/` | a SwiftPM dependency's |
+| `/SourcePackages/checkouts/<package>/`, `/SourcePackages/artifacts/<package>/` | an Xcode dependency's (DerivedData) |
+| `/.build/` otherwise | the build directory's |
+| anything else | **yours** — including your package's derived sources in DerivedData, macro expansions, build-tool plugin output, local path dependencies and edited packages |
+
+Nothing is dropped without a trace. A checker that scoped anything out ends with a note saying
+how much and from where:
+
+```
+ℹ️  note: 20 warnings in dependency mlx-swift were not counted; they are not this package's source
+```
+
+The rule is `DependencyOrigin` in `QualityGateCore`; a checker of your own that parses build
+output gets the same behaviour from `diagnostics.firstPartyScope(projectRoot:)`.
+
 ## CLI reference
 
 | Flag | Description |
