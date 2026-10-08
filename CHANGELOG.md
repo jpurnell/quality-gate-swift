@@ -1015,6 +1015,47 @@
 
 ### Fixed
 
+- **`xcode-build` failed inside a git hook and passed when run by hand.** Twice on 2026-10-06
+  a push from a linked worktree was refused by its own pre-push hook with `Checker failed:
+  Configuration error: xcodebuild -list failed: … Could not resolve package dependencies:
+  Couldn’t check out revision ‘1abee275…’`, and `quality-gate --check xcode-build` in the
+  same directory a minute later passed. git exports `GIT_DIR` to every hook of a linked
+  worktree; the checker spawned `xcodebuild` inheriting it; and `xcodebuild` resolves package
+  dependencies by running git, which obeyed it and tried to check each dependency out of the
+  project's own repository. It needs *unresolved* packages, so it showed only in a fresh
+  worktree and one run by hand "fixed" it.
+  - **Measured, one variable at a time**, on a scratch package with one unresolved
+    dependency, for both `xcodebuild -list` and `swift build`: `GIT_DIR` gives the message
+    above (`fatal: unable to read tree`); `GIT_WORK_TREE` gives `Failed to clone repository …
+    working tree … already exists`; an absolute `GIT_INDEX_FILE` on its own lets the tool
+    **exit 0** and leaves the hooked repository's index holding the dependency's 70 files
+    where the project's 6 had been; `GIT_PREFIX`, `GIT_EXEC_PATH` and `GIT_EDITOR` do nothing.
+    An ordinary clone's hooks do not set `GIT_DIR`, which is why this was a worktree bug.
+  - **It was never only `xcode-build`.** `swift build` and `swift test` fail identically. They
+    had not, because `.build` was usually resolved by the time a hook ran, whereas
+    `xcodebuild` resolves into DerivedData, which a new worktree does not have.
+  - **One shared rule, `ChildProcessEnvironment.withoutGitRepositoryScope(_:)`** in
+    `QualityGateCore`, now supplies the environment for every build tool the gate launches:
+    `xcode-build` (all three `xcodebuild` launches), `build`, `test`, `doc-lint`,
+    `swift-version`'s verification build, `unreachable`'s `swift package describe`, and the
+    index-store builds. It removes fourteen variables: the thirteen that name a repository,
+    its work tree, its index or its object store — `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+    `GIT_PREFIX`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
+    `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_QUARANTINE_PATH`, `GIT_IMPLICIT_WORK_TREE`,
+    `GIT_GRAFT_FILE`, `GIT_SHALLOW_FILE`, `GIT_NO_REPLACE_OBJECTS`, `GIT_REPLACE_REF_BASE` —
+    and `GIT_EXEC_PATH`, which is scoped to the git binary that ran the hook rather than to
+    the one the tool will run. It keeps everything else, deliberately including
+    `GIT_SSH_COMMAND`, `GIT_ASKPASS` and `GIT_CONFIG_*`: stripping `GIT_*` wholesale would
+    trade "could not check out revision" for "could not authenticate" on a CI runner with a
+    deploy key. `TestRunner.childEnvironment` composes it with the `QG_NO_INDEX_BUILD` removal
+    it already did; `CorpusGitTransport.scrubbed` and `CorpusWriteQueue.scrubbed`, which each
+    spelled out five of the fourteen, now call it.
+  - **The failure is legible now.** A failed `xcodebuild -list` used to be thrown, and arrived
+    as `Checker failed: Configuration error:` beside `0ms` — three statements, none true. It
+    is a finding: `xcode-build-package-resolution` when the output shows a resolution failure,
+    `xcode-build-list-failed` otherwise, saying what was run, where, how it exited, and that
+    nothing was compiled.
+
 - **A stale index unit beside a fresh one was read as though it were current.** The freshness
   check compared the *newest* unit with the *newest* source, which establishes that a build ran
   after the last edit and nothing about any other unit. A build adds to an index store and

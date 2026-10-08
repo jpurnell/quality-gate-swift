@@ -231,6 +231,8 @@ public enum StoreLocator {
                 "-derivedDataPath", options.derivedDataPath.path,
                 "COMPILER_INDEX_STORE_ENABLE=YES",
             ],
+            // xcodebuild resolves packages with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool,
             mergeStderr: true
         )
         if result.exitCode != 0 {
@@ -248,7 +250,9 @@ public enum StoreLocator {
     private static func listFirstScheme(flag: String, filePath: URL) throws -> String {
         let result = try ProcessRunner.run(
             "/usr/bin/env",
-            arguments: ["xcodebuild", "-list", "-json", flag, filePath.path]
+            arguments: ["xcodebuild", "-list", "-json", flag, filePath.path],
+            // xcodebuild resolves packages with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool
         )
         if result.exitCode != 0 {
             throw Error.buildFailed("xcodebuild -list exited \(result.exitCode)")
@@ -434,6 +438,8 @@ public enum StoreLocator {
             _ = try ProcessRunner.run(
                 "/usr/bin/env",
                 arguments: ["swift", "build", "--build-tests", "--package-path", packageRoot.path],
+                // SwiftPM resolves packages with git; a hook's GIT_DIR must not reach it.
+                environment: ChildProcessEnvironment.forBuildTool,
                 mergeStderr: true)
         } catch {
             Self.logger.debug(
@@ -722,6 +728,8 @@ public enum StoreLocator {
         let result = try ProcessRunner.run(
             "/usr/bin/env",
             arguments: arguments,
+            // SwiftPM resolves packages with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool,
             mergeStderr: true
         )
         if result.exitCode != 0 {
