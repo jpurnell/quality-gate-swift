@@ -294,6 +294,16 @@ struct QualityGateCLI: AsyncParsableCommand {
                 print("Config layers in effect (run `quality-gate config` for detail):")
                 print(resolution.provenance.renderTable())
             }
+        } catch let refusal as CheckerBudgetsConfig.Invalid {
+            // Not "using defaults", which is what any other unreadable configuration gets
+            // below. A budget is the remedy a timeout message tells its reader to apply; if
+            // a mistyped one were dropped, the next run would be stopped at the old figure
+            // with the new one sitting in the file, and nothing would say why.
+            Self.logger.error("refused budgets entry in \(self.config, privacy: .public): \(refusal.localizedDescription, privacy: .public)")
+            FileHandle.standardError.write(Data(
+                ("❌ configuration: " + refusal.localizedDescription
+                 + "\n   Nothing was run. Correct `budgets:` in \(config) and run again.\n").utf8))
+            throw ExitCode(1)
         } catch {
             Self.logger.warning("Failed to load configuration from \(self.config, privacy: .public): \(error.localizedDescription, privacy: .public). Using defaults.")
             configuration = Configuration()

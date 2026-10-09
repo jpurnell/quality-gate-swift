@@ -488,10 +488,20 @@ public enum StoreLocator {
             if let produced = freshSwiftbuildStore(packageRoot: packageRoot) {
                 return produced
             }
-            // Falling through would run a dedicated build whose `-index-store-path` this
-            // toolchain ignores, producing nothing. Say so instead.
-            throw Error.buildFailed(
-                "the ordinary build produced no index store at \(swiftbuildStorePath(packageRoot: packageRoot).path)")
+            // Fall through to the dedicated build rather than giving up here.
+            //
+            // This threw, reasoning that a dedicated build's `-index-store-path` is ignored by
+            // a toolchain that indexes during the ordinary build, so trying would produce
+            // nothing. That holds where the ordinary build *does* index. On Linux 6.4 it does
+            // not: `swift build` leaves no store at `.build/out`, the throw fired, and the
+            // cross-module pass was skipped for every index-backed checker — seven tests on
+            // that leg, while the same tests pass on 6.2, which never takes this branch.
+            //
+            // The premise was a property of the platform the predicate was written on, applied
+            // to a version number. Trying and reporting the outcome costs one build on a
+            // toolchain where the fast path already failed; assuming costs the entire
+            // cross-module analysis on a platform nobody checked.
+            Self.logger.info("the ordinary build produced no index store at \(swiftbuildStorePath(packageRoot: packageRoot).path, privacy: .public); falling back to a dedicated index build")
         }
 
         let buildPath = indexBuildDirectory(packageRoot: packageRoot)
