@@ -40,8 +40,14 @@ final class MigrationAnalysis: SyntaxVisitor {
     private(set) var keptCalls: Set<SyntaxIdentifier> = []
     /// Functions this file declares `throws`, by base name.
     private(set) var throwingFunctions: Set<String> = []
-    /// What was left for a person.
-    private(set) var residue: [Diagnostic] = []
+    /// Tests whose leading skip becomes a trait, and the trait.
+    private(set) var traits: [SyntaxIdentifier: String] = [:]
+    /// Every name the file declares or refers to, so a new binding can avoid them all.
+    private(set) var namesInUse: Set<String> = []
+    /// Why this file cannot be converted, one finding per construct, at its line in the input.
+    private(set) var declines: [Diagnostic] = []
+    /// `XCTSkip…` references a trait has already accounted for.
+    private var convertedSkips: Set<SyntaxIdentifier> = []
     /// Names already given to converted tests, per suite.
     private var givenNames: [String: Set<String>] = [:]
 
@@ -62,11 +68,35 @@ final class MigrationAnalysis: SyntaxVisitor {
         if node.signature.effectSpecifiers?.throwsClause != nil {
             throwingFunctions.insert(node.name.text)
         }
+        namesInUse.insert(node.name.text)
+        return .visitChildren
+    }
+
+    override func visit(_ node: IdentifierPatternSyntax) -> SyntaxVisitorContinueKind {
+        namesInUse.insert(node.identifier.text)
+        return .visitChildren
+    }
+
+    override func visit(_ node: FunctionParameterSyntax) -> SyntaxVisitorContinueKind {
+        namesInUse.insert(node.firstName.text)
+        if let second = node.secondName { namesInUse.insert(second.text) }
+        return .visitChildren
+    }
+
+    override func visit(_ node: ClosureShorthandParameterSyntax) -> SyntaxVisitorContinueKind {
+        namesInUse.insert(node.name.text)
+        return .visitChildren
+    }
+
+    override func visit(_ node: ClosureParameterSyntax) -> SyntaxVisitorContinueKind {
+        namesInUse.insert(node.firstName.text)
+        if let second = node.secondName { namesInUse.insert(second.text) }
         return .visitChildren
     }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         guard Self.inheritsXCTestCase(node) else { return .visitChildren }
+        declineIfAvailabilityLimited(node.attributes, on: node.name.text, at: Syntax(node))
         let members = node.memberBlock.members.map(\.decl)
         var hasLifecycle = false
 
@@ -87,6 +117,7 @@ final class MigrationAnalysis: SyntaxVisitor {
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
         let suite = node.extendedType.trimmedDescription
         if inventory.suiteNames.contains(suite) {
+            declineIfAvailabilityLimited(node.attributes, on: "the extension of \(suite)", at: Syntax(node))
             nameTests(in: node.memberBlock.members.map(\.decl), suite: suite)
         }
         return .visitChildren
@@ -103,10 +134,10 @@ final class MigrationAnalysis: SyntaxVisitor {
         let callee = node.calledExpression.trimmedDescription
         if callee == "XCTAssertNil" || callee == "XCTAssertNotNil",
            let subject = node.arguments.first?.expression.as(DeclReferenceExprSyntax.self),
-           Self.isDeclaredNonOptional(subject) {
+           Self.isDeclaredNonOptional(subject) || AssertionMapping.isThrownErrorParameter(subject) {
             keptCalls.insert(node.id)
-            report("\(callee)(\(subject.baseName.text)): `\(subject.baseName.text)` is declared non-optional, so this can never fail. XCTest took `Any?`, which is why it compiled. State what the test means, or delete it. (As `#expect(x != nil)` it is a compiler warning, and on an existential it crashed swift-frontend 6.4.)",
-                   at: Syntax(node))
+            decline("\(callee)(\(subject.baseName.text)): `\(subject.baseName.text)` is not optional, so this can never fail. XCTest took `Any?`, which is why it compiled. State what the test means, or delete it. (As `#expect(x != nil)` it is a compiler warning, and on an existential it crashed swift-frontend 6.4.)",
+                    at: Syntax(node))
         }
         return .visitChildren
     }
@@ -135,8 +166,9 @@ final class MigrationAnalysis: SyntaxVisitor {
     }
 
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-        if let note = MigrationResidue.note(for: node) {
-            report(note, at: Syntax(node))
+        if !node.isMemberName { namesInUse.insert(node.baseName.text) }
+        if !convertedSkips.contains(node.id), let note = MigrationResidue.note(for: node) {
+            decline(note, at: Syntax(node))
         }
         return .visitChildren
     }
@@ -147,6 +179,20 @@ final class MigrationAnalysis: SyntaxVisitor {
         node.inheritanceClause?.inheritedTypes.contains {
             $0.type.trimmedDescription == "XCTestCase"
         } ?? false
+    }
+
+    /// Swift Testing refuses `@Suite` on a declaration carrying `@available`, and `@Test` inside
+    /// one. The compiler says so only after the file has been rewritten.
+    ///
+    /// BusinessMathExcel had four suites marked `@available(*, deprecated)` so they could call
+    /// deprecated translators without a warning. No rewrite of the attribute keeps that
+    /// arrangement, so the file is declined and the reason says what the attribute was for.
+    private func declineIfAvailabilityLimited(_ attributes: AttributeListSyntax, on subject: String, at node: Syntax) {
+        guard let attribute = attributes.lazy.compactMap({ $0.as(AttributeSyntax.self) })
+            .first(where: { $0.isNamed("available") })
+        else { return }
+        decline("\(attribute.trimmedDescription) on \(subject): Swift Testing refuses @Suite on a declaration marked @available, and @Test on anything inside one. If the attribute is there so the tests can call deprecated API without a warning, make those calls through a deprecated helper and remove the attribute from the suite.",
+                at: node)
     }
 
     /// A stored `var` makes a struct suite uncompilable as soon as a test mutates it, so its
@@ -181,12 +227,12 @@ final class MigrationAnalysis: SyntaxVisitor {
             return .initializer
         case "tearDown", "tearDownWithError":
             if effects?.asyncSpecifier != nil {
-                report("tearDown async: a deinit cannot be async. Move the work into the test, or into an actor the suite owns.",
+                decline("tearDown async: a deinit cannot be async. Move the work into the test, or into an actor the suite owns.",
                        at: Syntax(function))
                 return nil
             }
             if let body = function.body, Self.containsUnhandledTry(Syntax(body)) {
-                report("tearDownWithError: a deinit cannot throw, and this one calls something that does. Handle the error inside it, or move the work into the test.",
+                decline("tearDownWithError: a deinit cannot throw, and this one calls something that does. Handle the error inside it, or move the work into the test.",
                        at: Syntax(function))
                 return nil
             }
@@ -230,22 +276,32 @@ final class MigrationAnalysis: SyntaxVisitor {
             let name = lowered.flatMap { taken.contains($0) ? nil : $0 } ?? original
             givenNames[suite, default: []].insert(name)
             testNames[test.id] = name
+
+            if let skip = SkipTrait.conversion(
+                for: test, instanceMembers: inventory.instanceMemberNames[suite] ?? []) {
+                traits[test.id] = skip.trait
+                removedStatements.insert(skip.statement)
+                convertedSkips.insert(skip.reference)
+            }
         }
     }
 
+    // MARK: - Declining
 
-
-    // MARK: - Residue
-
-    private func report(_ message: String, at node: Syntax) {
+    /// Records a construct that stops this file's conversion.
+    ///
+    /// Called by the renderer too: some reasons are only known once an assertion is being
+    /// written, such as an unwrap that cannot be bound ahead of the statement it sits in.
+    func decline(_ message: String, at node: Syntax) {
         let location = node.startLocation(converter: converter)
-        residue.append(Diagnostic(
+        let finding = Diagnostic(
             severity: .error,
             message: message,
             filePath: fileName,
             lineNumber: location.line,
             columnNumber: location.column,
             ruleId: "xctest-import",
-            suggestedFix: "Converted everything else in this file; this one needs a decision."))
+            suggestedFix: "This file was not converted. Resolve this by hand, then run --fix again.")
+        if !declines.contains(finding) { declines.append(finding) }
     }
 }

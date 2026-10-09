@@ -12,7 +12,7 @@ This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`
 
 | Rule ID | Severity | What it catches |
 |---------|----------|-----------------|
-| `xctest-import` | error | `import XCTest` in test code. Fixable: `--fix` converts the file to Swift Testing |
+| `xctest-import` | error | `import XCTest` in test code. Fixable: `--fix` converts the file to Swift Testing, or leaves it untouched and says which construct stopped it |
 | `exact-double-equality` | error | `#expect(a == 0.3989)` — exact `==`/`!=` on floating-point operands inside an assertion. Same rule as `fp-safety`'s `fp-equality`, at error severity. |
 | `force-try-in-test` | error | `try!` anywhere in test code |
 | `unseeded-random` | warning | `.random` or `SystemRandomNumberGenerator` producing non-deterministic test data |

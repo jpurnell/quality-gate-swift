@@ -4,6 +4,64 @@
 
 ### Fixed
 
+- **`xctest-import --fix` writes code that builds, and that this gate accepts.** Used on two
+  real suites (SummerJams, 16 files and 72 tests; BusinessMathExcel, 50 files and 572), its
+  output did not compile in four ways, traded 50 `xctest-import` errors for 84
+  `weak-assertion` warnings, and declined 12 files with "12 diagnostic(s) require manual
+  intervention" and nothing else. Run again from the pre-migration commits with this change:
+  SummerJams converts 16 of 16, builds, passes its 72 tests and passes `test-quality` with no
+  hand edit; BusinessMathExcel converts 41 of 50, builds, and runs 495 Swift Testing tests
+  beside the 77 XCTest ones in the 9 files it declines, each with its reason.
+  - **A file is converted whole or not at all.** An `XCTSkip`, an expectation or a `measure`
+    block used to be left in place while the rest of the file was rewritten. That file no
+    longer imported XCTest, so it did not compile. Such a file is now left exactly as it was,
+    and each construct is reported at its line with the reason.
+  - **The converted text is audited before it is written.** Every per-file `test-quality`
+    rule runs over it. A finding the original did not have stops the file, and is the reason
+    given: `Converted, this file would be reported as missing-assertion: Test function
+    'doesNotThrow' has no #expect or #require assertions. …` A finding the original already
+    had is not the conversion's, and does not stop it.
+  - **`XCTAssertNotNil(x)` is `_ = try #require(x)`**, not `#expect(x != nil)`, and the test
+    gains `throws`. In a closure or a helper, where `throws` cannot be added without changing
+    callers, the file is declined.
+  - **A mutating call is bound first.** `XCTAssertTrue(q.next())` on a `var` became
+    `#expect(q.next())`, which is "cannot use mutating member on immutable value". It is now
+    `let next = q.next()` and `#expect(next)`; calls to its left are bound too, in order.
+  - **An unwrap inside an assertion is bound first.** `XCTUnwrap(rows[XCTUnwrap(key)])` became
+    `#require` inside `#require`, "recursive expansion of macro".
+  - **A fallback is unwrapped, not asserted on.** `XCTAssertTrue((name ?? "").isEmpty)` became
+    an `#expect` that `coalesced-assertion` reports. It is now `try #require(name)` bound
+    first; a `Bool?` is written `as Bool?`, which is how `#require` asks to be told which of
+    its two forms was meant.
+  - **A closure's result is bound before a property is read off it.**
+    `XCTUnwrap(cells.compactMap { sheet.cell(at: $0)?.formula }.first)` did not compile as a
+    `#require`: the macro takes the `?` in the closure for an optional chain.
+  - **`XCTAssertThrowsError` keeps its handler wherever it was written.** A closure passed as
+    the last argument, not trailing, was dropped with every assertion in it. A `return` in a
+    handler that is not the test's last statement now declines the file, because in the `if`
+    body the handler becomes it would leave the test.
+  - **`do { try f(); XCTFail(…) } catch is E { }` is `#expect(throws: E.self) { try f() }`.**
+    Statement by statement it became a test with no `#expect` at all.
+  - **A leading skip is a trait.** `try XCTSkipUnless(c, why)`, `try XCTSkipIf(c, why)` and
+    `guard c else { throw XCTSkip(why) }` as a test's first statement become
+    `@Test(.enabled(if: c, why))`. Any other `XCTSkip` declines the file.
+  - **A suite marked `@available` is declined.** Swift Testing refuses `@Suite` on it.
+  - **A message built across lines no longer breaks the file.** This is what declined all 12
+    files: `"first half " + "second half"` over two lines was interpolated into a one-line
+    string literal, which cannot hold a newline, and the result did not parse. It is now
+    `Comment(rawValue: …)`. A file that still fails to parse is reported with the line that
+    does not.
+  - **An expectation is reported once**, at the call that makes it, not at every mention of a
+    local that happens to be named `expectation`.
+- **`--fix` says which files it left alone, and why.** `FixReport` (`QualityGateCore`) prints
+  one line per changed file, then each unchanged file with its reasons under it. Findings the
+  fixer was handed and never attempts are counted, not listed.
+- **`--fix --dry-run` previews the fix.** It printed each finding's general advice, which for
+  `xctest-import` is the same sentence fifty times. `FixableChecker.previewFix` lets a checker
+  run its fix without writing; `test-quality` implements it, and the preview lists the files
+  it would change and, for the rest, what stops each. The default returns `nil` and the CLI
+  prints what it printed before.
+
 - **A checker stopped at its time budget says so, and so does a tool that fails without
   explaining itself.** Under a load average of 150–290 the hook's `build`, `test` and `doc-lint`
   ran out of time and reported something else: `swift build` at exit 124 was

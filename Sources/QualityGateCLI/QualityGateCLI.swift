@@ -698,26 +698,32 @@ struct QualityGateCLI: AsyncParsableCommand {
                 if dryRun {
                     print("\n[dry-run] \(fixable.name) would apply fixes:")
                     print("  \(fixable.fixDescription)")
-                    for diag in result.diagnostics {
-                        if let fix = diag.suggestedFix, let file = diag.filePath {
-                            let lineInfo = diag.lineNumber.map { ":\($0)" } ?? ""
-                            print("    \(file)\(lineInfo): \(fix)")
+                    if let preview = try await fixable.previewFix(
+                        diagnostics: result.diagnostics,
+                        configuration: configuration
+                    ) {
+                        // A real preview: the files the fix would rewrite, and for each file
+                        // it would leave, the construct that stops it.
+                        for line in FixReport.preview(preview, given: result.diagnostics) {
+                            print(line)
+                        }
+                    } else {
+                        for diag in result.diagnostics {
+                            if let fix = diag.suggestedFix, let file = diag.filePath {
+                                let lineInfo = diag.lineNumber.map { ":\($0)" } ?? ""
+                                print("    \(file)\(lineInfo): \(fix)")
+                            }
                         }
                     }
+                    print("  No files modified (dry-run mode).")
                 } else {
                     print("\n[\(fixable.id)] Applying fixes...")
                     let fixResult = try await fixable.fix(
                         diagnostics: result.diagnostics,
                         configuration: configuration
                     )
-
-                    for mod in fixResult.modifications {
-                        let backup = mod.backupPath.map { " (backup: \($0))" } ?? ""
-                        print("  ✓ \(mod.filePath) — \(mod.description)\(backup)")
-                    }
-
-                    if !fixResult.unfixed.isEmpty {
-                        print("  ℹ  \(fixResult.unfixed.count) diagnostic(s) require manual intervention")
+                    for line in FixReport.applied(fixResult, given: result.diagnostics) {
+                        print(line)
                     }
                 }
             }

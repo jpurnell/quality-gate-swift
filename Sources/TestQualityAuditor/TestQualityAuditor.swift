@@ -281,7 +281,11 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         return path.contains(pattern.replacingOccurrences(of: "*", with: ""))
     }
 
-    private func auditSourceCode(
+    /// Every per-file rule, over one file's text.
+    ///
+    /// Not private: `--fix` audits the text it is about to write with exactly this, so that
+    /// what it writes is what `check` would have passed.
+    func auditSourceCode(
         _ source: String,
         fileName: String,
         configuration: Configuration,

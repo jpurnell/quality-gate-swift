@@ -197,6 +197,11 @@ For checkers that support auto-fix, preview what would change:
 quality-gate --fix --dry-run
 ```
 
+A checker that can work out its fix without applying it prints the files it would change and,
+for each file it would leave alone, what stops it. `test-quality` does: its XCTest conversion
+is run in full and nothing is written. A checker that cannot prints its rule's general advice
+for each finding.
+
 Then apply:
 
 ```bash
