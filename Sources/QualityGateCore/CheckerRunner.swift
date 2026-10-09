@@ -202,15 +202,25 @@ public struct CheckerRunner: Sendable {
                 // default run replayed the old verdict, and `--no-cache` — the flag people
                 // reach for when a cached result looks wrong — could show the truth and not
                 // repair anything.
+                //
+                // "A failure" is judged on the verdict the run reports, not the status the
+                // checker wrote. Reconciliation raises `.passed` carrying an error to
+                // `.failed` — after this point — so a guard on the raw status stored that
+                // result as a pass and then replayed a failure, reconciled afresh each time,
+                // from an entry it never thought to evict. And a run stopped at its budget
+                // is never stored under any status: it did not finish, so it has no verdict.
+                // That one is not hypothetical — a cut-off `swift test` was once returned as
+                // `.passed` with a signing warning, cached, and served to every later run of
+                // the same tree as a dated, labelled, replayed pass.
                 if useCache, let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
-                    if cached.status.isPassing {
+                    if Self.isReplayable(cached) {
                         let producedAt = cache.entryDate(checkerId: checker.id, fingerprint: fingerprint)
                         return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker).reconciled()
                     }
                     cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }
                 let fresh = await runAndSynthesize(checker)
-                if fresh.status.isPassing {
+                if Self.isReplayable(fresh) {
                     cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
                 } else {
                     // Still never stored. And whatever is stored for this fingerprint has just
@@ -275,6 +285,17 @@ public struct CheckerRunner: Sendable {
             }
         }
         return RunOutcome(results: results, truncation: truncation)
+    }
+
+    /// Whether a result is a verdict that may be stored and served to a later run.
+    ///
+    /// Two conditions, both about the result as the run reports it: its reconciled status
+    /// passes, and none of its diagnostics says the tool was stopped at its budget.
+    ///
+    /// - Parameter result: A checker's raw result, fresh or read back from the cache.
+    /// - Returns: `true` when replaying it would repeat a finished, passing run.
+    static func isReplayable(_ result: CheckResult) -> Bool {
+        result.reconciled().status.isPassing && !result.diagnostics.contains(where: ToolRun.isExpiry)
     }
 
     /// Runs the given indexed checkers concurrently, bounded by ``maxConcurrency``.
