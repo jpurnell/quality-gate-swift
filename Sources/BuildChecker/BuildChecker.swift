@@ -161,8 +161,8 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// - Parameter text: Raw compiler output, possibly colourised.
     /// - Returns: The same text with SGR and OSC 8 escape sequences removed.
     private static func strippingANSIEscapes(_ text: String) -> String {
-        guard text.contains("\u{1B}") else { return text }
-        return text
+        guard text.contains("\u{1B}") else { return canonicalisingCategories(text) }
+        let stripped = text
             .replacingOccurrences(
                 of: "\u{1B}\\]8;[^\u{1B}\u{07}]*(?:\u{1B}\\\\|\u{07})",
                 with: "",
@@ -173,6 +173,44 @@ public struct BuildChecker: QualityChecker, Sendable {
                 with: "",
                 options: .regularExpression
             )
+        return canonicalisingCategories(stripped)
+    }
+
+    /// Rewrites every `[#group]` in printed output to the one spelling a recorded diagnostic
+    /// uses.
+    ///
+    /// The comment above says the printed and recorded forms must compare equal, and on Darwin
+    /// they do: the compiler emits the group as an OSC 8 hyperlink whose display text is
+    /// `NoUsage`, so stripping the escapes leaves exactly what the `.dia` record renders.
+    ///
+    /// Off Darwin there is no hyperlink. The transcript carries the slug — `no-usage` — while
+    /// the record carries the group name, so the two stopped comparing equal and **every
+    /// warning that was both printed and recorded was reported twice**. Five `WarmBuildTests`
+    /// failures on each Linux leg, all of them duplication rather than absence.
+    ///
+    /// That was a regression introduced by canonicalising the reader alone. Before it, both
+    /// sides said `no-usage`: wrong against the tests' expectation, but equal to each other, so
+    /// dedup held. Normalising one of two paths that exist precisely to be compared is worse
+    /// than normalising neither — the invariant was equality, and the fix broke it while
+    /// improving one side.
+    private static func canonicalisingCategories(_ text: String) -> String {
+        guard text.contains("[#") else { return text }
+        guard let pattern = try? NSRegularExpression(pattern: "\\[#([A-Za-z0-9-]+)\\]") else {
+            // silent: a literal pattern that fails to compile cannot be repaired at run time,
+            // and returning the text unchanged loses deduplication rather than the diagnostic.
+            return text
+        }
+        let full = NSRange(text.startIndex..<text.endIndex, in: text)
+        var result = text
+        // Reverse order so each replacement leaves the earlier ranges valid.
+        for match in pattern.matches(in: text, range: full).reversed() {
+            guard match.numberOfRanges == 2,
+                  let whole = Range(match.range(at: 0), in: text),
+                  let group = Range(match.range(at: 1), in: text) else { continue }
+            let canonical = SerializedDiagnosticsReader.canonicalCategory(String(text[group]))
+            result.replaceSubrange(whole, with: "[#\(canonical)]")
+        }
+        return result
     }
 
     /// The last `lines` lines of `text`, for reporting a failure no pattern matched.
