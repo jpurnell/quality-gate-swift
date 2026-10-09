@@ -1,6 +1,6 @@
 import SwiftSyntax
 
-/// The XCTest constructs the conversion leaves in place, and what to tell the person who has to
+/// The XCTest constructs that stop a file's conversion, and what to tell the person who has to
 /// decide for them.
 ///
 /// Each of these has more than one correct Swift Testing form, and which one depends on what
@@ -8,14 +8,23 @@ import SwiftSyntax
 /// 39 skips were a helper giving up on a value it did not expect, which is a failure. The
 /// other 7 were a missing private corpus, which is an `.enabled(if:)` trait. A fixer that
 /// always picked one form would have been silently wrong on 7 sites, or on 32.
+///
+/// These used to be left in place while the rest of the file was converted. That file no
+/// longer imported XCTest, so it did not compile, and the person running `--fix` found out
+/// from the compiler. A file holding one of these is now declined whole, with the construct
+/// and its line as the reason.
 enum MigrationResidue {
 
-    /// What to say about `node`, if it names a construct the conversion leaves for a person.
+    /// What to say about `node`, if it names a construct the conversion has no single form for.
     static func note(for node: DeclReferenceExprSyntax) -> String? {
         let name = node.baseName.text
         switch name {
         case "XCTSkip", "XCTSkipIf", "XCTSkipUnless":
-            return "\(name): decide whether this test does not apply here (an `.enabled(if:)` trait on the test) or has found a failure (throw an error, or `Issue.record`). XCTSkip is often the second, written as the first."
+            return "\(name): only a skip that is the first statement of a test, on a condition that does not read the suite's own state, can become an `.enabled(if:)` trait, and this is not one. Decide whether the test does not apply here (a trait on the test, with the condition moved where the trait can evaluate it) or has found a failure (`try #require`, or `Issue.record`). XCTSkip is often the second, written as the first."
+        case "expectation" where call(node) == nil:
+            // A local the test happened to name `expectation`. The call that made it is the
+            // construct, and is reported once, there.
+            return nil
         case "expectation", "XCTestExpectation", "XCTNSPredicateExpectation":
             return "\(name): Swift Testing waits with `await` or `confirmation { }`, and which one depends on whether the event is awaited or counted."
         case "fulfillment":
@@ -39,9 +48,18 @@ enum MigrationResidue {
         }
     }
 
+    /// The call `node` is the callee of: `wait(…)`, or `self.wait(…)`.
+    ///
+    /// Only `self.` counts as a member form. `clock.measure { }` is a method on something
+    /// else that happens to share a name with XCTest's.
     private static func call(_ node: DeclReferenceExprSyntax) -> FunctionCallExprSyntax? {
-        guard let call = node.parent?.as(FunctionCallExprSyntax.self),
-              call.calledExpression.id == ExprSyntax(node).id
+        var callee = ExprSyntax(node)
+        if let member = node.parent?.as(MemberAccessExprSyntax.self), member.declName.id == node.id {
+            guard member.base?.trimmedDescription == "self" else { return nil }
+            callee = ExprSyntax(member)
+        }
+        guard let call = callee.parent?.as(FunctionCallExprSyntax.self),
+              call.calledExpression.id == callee.id
         else { return nil }
         return call
     }
