@@ -77,6 +77,47 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
+      # TEMPORARY — diagnostic branch, never merged. The last unknown.
+      #
+      # Two hypotheses died on contact already. `mapCount == 0` was wrong: 225 maps are named
+      # in `debug.yaml` and 450 exist on disk. "Not double-quoted in YAML" was wrong too: all
+      # 225 are complete double-quoted strings, exactly what the extractor requires.
+      #
+      # What is left is granularity. `unverifiedDiagnostic` names its first unit through
+      # `name(of:)`, which is "its source relative to the project root, or **for a module-level
+      # unit the record's file name**". A module-level unit would explain both symptoms at once:
+      # `.contains("Sources/Fixture/Warns.swift")` failing while the finding itself exists, and
+      # `first.units >= 3` failing because whole-module is one unit where per-file is several.
+      #
+      # Against it: a debug build normally compiles per-file, so this should not happen here.
+      # That is exactly why it gets measured rather than assumed — an output file map states
+      # which mode was used. Per-source `diagnostics` keys mean per-file; only a `""` key means
+      # whole-module.
+      - name: Diagnose — per-file or whole-module units here?
+        run: |
+          set -e
+          pkg=/tmp/granularity
+          rm -rf "$pkg"; mkdir -p "$pkg/Sources/Fixture"
+          cd "$pkg"
+          cat > Package.swift <<'SWIFT'
+          // swift-tools-version: 6.0
+          import PackageDescription
+          let package = Package(name: "Fixture", targets: [.target(name: "Fixture")])
+          SWIFT
+          printf 'public func loud() -> Int { 1 }\n' > Sources/Fixture/Warns.swift
+          printf 'public func second() -> Int { 2 }\n' > Sources/Fixture/Second.swift
+          printf 'public func third() -> Int { 3 }\n' > Sources/Fixture/Third.swift
+          swift build > /dev/null 2>&1 || true
+          echo "--- the output file map this build wrote"
+          m=$(find .build -name 'output-file-map.json' | head -1)
+          echo "    $m"
+          echo "--- its keys (a \"\" key alone means whole-module)"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); [print('      key:', repr(k), '-> diagnostics:', bool(v.get('diagnostics'))) for k,v in d.items()]" "$m" 2>/dev/null \
+            || head -30 "$m"
+          echo "--- .dia records actually written"
+          printf '    count: '; find .build -name '*.dia' | wc -l
+          find .build -name '*.dia' | head -5 | sed 's/^/      /'
+
       - name: Test
         run: |
           swift test \
