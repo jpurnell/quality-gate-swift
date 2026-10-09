@@ -39,15 +39,18 @@ Division by a floating-point value that could be zero produces `inf` or `nan`, w
 
 The auditor reads the checks a function body makes and where it makes them. A division is not flagged when something *before it* asked whether its divisor is zero: `d != 0`, `d > 0`, `n >= 1`, `d == 0 ? 0 : x / d`, `abs(d) > .ulpOfOne`, `!d.isZero`, or — for a divisor of `xs.count` — any test of `xs.isEmpty`. A check on `values.count` covers `let count = Double(values.count)`. A check written after the division does not count. <doc:FloatingPointSafetyAuditorGuide> has the full list.
 
+A divisor that cannot be zero is not flagged either: a nonzero literal or literal arithmetic (`365.25 / 12.0`, `UInt64(1) << 32`), a `let` or `static let` bound to one in the same file, `.pi` and the integer maxima, `max(x, 1)`, and arithmetic on a value a guard dominates — `n - 1` under `guard n > 1`, `6 * area` under `guard abs(area) > 1e-10`, `1.0 + exp(x)`. `max(x, .leastNonzeroMagnitude)` **is** flagged: the divisor is not zero and the quotient is infinite, which is the defect the rule exists for.
+
+A finding is placed on the line of the `/` or `/=` itself. An expression spread over several lines can hold several divisions, and each is reported — and suppressed — on its own line.
+
 ### Suppression
 
 Per-line suppression is available via the `// fp-safety:disable` comment:
 
 ```swift
-let a = 3.0
-let b = 4.0
-
-let ratio = a / b  // fp-safety:disable
+func ratio(_ a: Double, to b: Double) -> Double {
+    a / b  // fp-safety:disable
+}
 ```
 
 The marker also applies to the line below it when it sits on a comment-only line, which is how a long justification is written. It does **not** reach downward from a trailing marker — an inline marker suppresses only its own line.

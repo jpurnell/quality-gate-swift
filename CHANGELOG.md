@@ -4,6 +4,63 @@
 
 ### Fixed
 
+- **`fp-division-unguarded` reads a divisor that is not a plain name, and stops asking for a
+  guard on one that cannot be zero.** A survey of the portfolio on 2026-10-09 found 103
+  suppressed findings of this rule, in seven repositories, where the divisor was provably
+  nonzero and the rule could not see it. With every `fp-safety:disable` marker removed from
+  copies of those repositories, 99 of the 103 are no longer reported (BusinessMath 44 of 46,
+  BusinessMath-UI 27 of 27, IconquerApp 12 of 12, BusinessMathPro 6 of 6, sicp-swift-companion
+  5 of 5, BioFeedbackKit 4 of 6, HRVKit 1 of 1), and all 46 findings the survey classified as
+  real defects are still reported.
+  - **A named constant is the literal it names.** A local `let`, a stored `let` with an
+    initializer, a `static let` (by bare name, `Self.name` or `Type.name`, for a type declared
+    in the file) and a file-scope `let` used outside any type. `var` and `static var` are not
+    read, and a nearer declaration of the same name shadows a constant whatever it holds.
+  - **Literal arithmetic is folded**, including `/` and shifts: `(365.25 / 12.0 * 86_400.0)`,
+    `Double(UInt64(1) << 32)`. It has to be nonzero both as integers and as floating-point, so
+    `(1 / 2)` and `(2.0 - 2.0)` are still reported.
+  - **`.pi`, the integer maxima, `.greatestFiniteMagnitude` and `.ulpOfOne`** are nonzero.
+  - **`max(x, 1)` through a `let`, and `Swift.max`.** `max(x, 0)` is still reported.
+  - **Arithmetic on a value a guard dominates:** `n - 1` under `guard n > 1`, `count + 1`,
+    `1.0 + exp(x)`, a loop index plus one, the bound of `for _ in 0..<n` inside the loop, and a
+    product one of whose factors is at least one in magnitude (`6 * area`, `Double(n) * rate`).
+  - **Guard shapes it did not read:** `if abs(x) < 1e-10 { throw … }` and its `else`,
+    `guard !(abs(x) < eps)`, a threshold of `Swift.max(1, k)` or of a named constant,
+    `guard !xs.isEmpty` reaching `let ys = xs.map { … }`, and `guard bond.isSchedulable` where
+    the predicate is declared in the file on the type `bond` is written as.
+  - **These shapes are held to dominance, not order.** The older guards count when the
+    question was asked anywhere before the division. A bound that arithmetic is then done on
+    has to hold where the division is, and nothing may have assigned, redeclared, passed
+    `inout` or called an unknown method on the value in between.
+- **`max(x, .leastNonzeroMagnitude)` is still reported, and is now tested as such.** So is
+  `.leastNormalMagnitude`. The divisor is not zero and the quotient is infinite: the floor
+  changes the spelling of the defect. Eighteen of the 103 sites carried one; they are cleared
+  because the value under the `max` was already at least one, which makes the floor dead code.
+  `max(x, .ulpOfOne)` is accepted — it is the epsilon this rule has always read as a threshold.
+- **Four of the 103 are left reported on purpose.** Two divide by `Double(1 << 53)` in a package
+  that declares `.watchOS(.v10)`. `Int` is 32 bits on arm64_32, the shift is zero there, and
+  `swiftc -target arm64_32-apple-watchos10.0 -O` folds the divisor to `0.0` with no diagnostic.
+  An untyped shift is therefore read at 32 bits; `Double(UInt64(1) << 53)` is accepted. Two
+  divide by a computed property of another value (`frequency.periodsPerYear`) whose every
+  `return` is a nonzero literal: the property is found by name, and a name does not say which
+  type's it is.
+- **A product of two guarded floating-point values is still reported.** `guard a > 0, b > 0`
+  does not make `a * b` nonzero: `1e-200 * 1e-200` underflows to zero.
+- **A division is reported on the line of its operator.** It was reported at the first line of
+  the expression it belongs to, so two divisions in one multi-line expression shared a line, and
+  one marker silenced both. In BusinessMath's `SABRModel.swift` a marker reading "divisor is the
+  literal 24" was silencing a division by `Double.pow(fk, oneBeta)` on the line below, while
+  that line's own marker did nothing. **A `// fp-safety:disable` marker or a baseline entry on
+  the first line of a multi-line expression has to move to the operator's line** when the
+  operator is on a later one. Across the 69 portfolio repositories that is one marker
+  (`SABRModel.swift:127`, which belongs on 128) and no baseline entry. A single-line division
+  keeps its line and its marker; the reported column is now the operator's.
+- **An alias is the declaration before the use** (`FallbackGuardFacts`, shared by
+  `fp-division-unguarded` and `fallback.*`). `let n = xs.count` was kept in one dictionary per
+  function body, last write wins. A second `let n = ys.count` in a closure of the same body
+  replaced the first: a guard on `xs.count` stopped reaching `Double(n)`, and — the other way
+  round — a guard on the later `n`'s value cleared a division by the earlier one's.
+
 - **`xctest-import --fix` writes code that builds, and that this gate accepts.** Used on two
   real suites (SummerJams, 16 files and 72 tests; BusinessMathExcel, 50 files and 572), its
   output did not compile in four ways, traded 50 `xctest-import` errors for 84

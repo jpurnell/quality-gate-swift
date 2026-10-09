@@ -23,7 +23,7 @@ struct FPScopeTests {
         let file = root.appendingPathComponent(relativePath)
         try FileManager.default.createDirectory(
             at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "let divisor = 2.5\nlet result = value / divisor\n"
+        try "let divisor = Double(CommandLine.arguments.count)\nlet result = value / divisor\n"
             .write(to: file, atomically: true, encoding: .utf8)
         return root
     }
