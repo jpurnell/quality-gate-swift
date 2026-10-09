@@ -198,9 +198,10 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// improving one side.
     private static func canonicalisingCategories(_ text: String) -> String {
         guard text.contains("[#") else { return text }
+        // A literal pattern that fails to compile cannot be repaired at run time, and returning
+        // the text unchanged loses deduplication rather than the diagnostic.
+        // silent: a literal pattern cannot fail to compile; unchanged text loses only deduplication
         guard let pattern = try? NSRegularExpression(pattern: "\\[#([A-Za-z0-9-]+)\\]") else {
-            // silent: a literal pattern that fails to compile cannot be repaired at run time,
-            // and returning the text unchanged loses deduplication rather than the diagnostic.
             return text
         }
         let full = NSRange(text.startIndex..<text.endIndex, in: text)
