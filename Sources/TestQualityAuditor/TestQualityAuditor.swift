@@ -15,7 +15,8 @@ import SwiftParser
 /// - `try!` in test code
 /// - Unseeded randomness (`.random`, `SystemRandomNumberGenerator`)
 /// - `@Test` functions with no assertions (`#expect` or `#require`)
-/// - Weak assertions (`!= 0`, `!= nil`) without quantitative bounds
+/// - Weak assertions (`!= 0`, `!= nil`) without quantitative bounds, in `#expect` and in
+///   XCTest's spelling of the same claim (`XCTAssertNotNil`) — see `WeakAssertion`
 ///
 /// ## Two kinds of rule live here
 ///
@@ -683,6 +684,8 @@ private final class TestQualityVisitor: SyntaxVisitor {
     }
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
+        reportWeakXCTestAssertions(in: node)
+
         // Only calls the test itself makes. A call nested inside a closure argument is part
         // of the same single statement and would double-count the one thing being measured.
         if currentTestFunctionName != nil, nestedScopeDepth == 0,
@@ -960,90 +963,48 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
     /// Analyzes expressions inside #expect for anti-patterns.
     ///
-    /// Handles both `SequenceExprSyntax` (pre-fold) and `InfixOperatorExprSyntax` (post-fold)
-    /// representations of binary expressions.
-    ///
     /// `exact-double-equality` is deliberately absent: it is detected by
     /// `FloatingPointRules` (FloatingPointSafetyAuditor), shared with `fp-safety`. Only `weak-assertion`
-    /// is decided here.
+    /// is decided here, by `WeakAssertion`, which reads XCTest's spelling of the claim too.
     private func analyzeExpressionForAntiPatterns(
         _ expr: ExprSyntax,
         in macroNode: MacroExpansionExprSyntax
     ) {
-        // Handle SequenceExprSyntax: e.g., `result != nil`
-        if let sequence = expr.as(SequenceExprSyntax.self) {
-            let elements = Array(sequence.elements)
-
-            for (index, element) in elements.enumerated() {
-                // Look for binary operators
-                if let binOp = element.as(BinaryOperatorExprSyntax.self) {
-                    // Check for weak assertions: `!= 0` or `!= nil`
-                    if binOp.operator.text == "!=" {
-                        checkWeakAssertion(
-                            elements: elements,
-                            operatorIndex: index,
-                            macroNode: macroNode
-                        )
-                    }
-                }
-            }
-        }
-
-        // Handle InfixOperatorExprSyntax (if operator folding has occurred)
-        if let infix = expr.as(InfixOperatorExprSyntax.self),
-           let binOp = infix.operator.as(BinaryOperatorExprSyntax.self),
-           binOp.operator.text == "!=" {
-            let lhs = infix.leftOperand
-            let rhs = infix.rightOperand
-            let rhsIsZero = rhs.as(IntegerLiteralExprSyntax.self)?.literal.text == "0"
-            let rhsIsNil = rhs.is(NilLiteralExprSyntax.self)
-            let lhsIsZero = lhs.as(IntegerLiteralExprSyntax.self)?.literal.text == "0"
-            let lhsIsNil = lhs.is(NilLiteralExprSyntax.self)
-
-            if rhsIsZero || rhsIsNil || lhsIsZero || lhsIsNil {
-                emitWeakAssertionDiagnostic(at: macroNode)
-            }
-        }
-    }
-
-    private func checkWeakAssertion(
-        elements: [ExprSyntax],
-        operatorIndex: Int,
-        macroNode: MacroExpansionExprSyntax
-    ) {
-        let rhsIndex = operatorIndex + 1
-        let lhsIndex = operatorIndex - 1
-
-        var isWeak = false
-
-        // Check RHS for 0 or nil
-        if rhsIndex < elements.count {
-            if let intLit = elements[rhsIndex].as(IntegerLiteralExprSyntax.self),
-               intLit.literal.text == "0" {
-                isWeak = true
-            }
-            if elements[rhsIndex].is(NilLiteralExprSyntax.self) {
-                isWeak = true
-            }
-        }
-
-        // Check LHS for 0 or nil (reversed comparison)
-        if lhsIndex >= 0 {
-            if let intLit = elements[lhsIndex].as(IntegerLiteralExprSyntax.self),
-               intLit.literal.text == "0" {
-                isWeak = true
-            }
-            if elements[lhsIndex].is(NilLiteralExprSyntax.self) {
-                isWeak = true
-            }
-        }
-
-        if isWeak {
+        for _ in 0..<WeakAssertion.weakComparisonCount(in: expr) {
             emitWeakAssertionDiagnostic(at: macroNode)
         }
     }
 
-    private func emitWeakAssertionDiagnostic(at node: some SyntaxProtocol) {
+    /// Reports the weak claims an `XCTAssert*` call makes, under the id `#expect` uses.
+    ///
+    /// Not scoped to a test function, for the reason `XCTSkip` is not: an XCTest suite
+    /// declares `func testX()` with no attribute, and its weakest assertion is as often in a
+    /// shared helper.
+    private func reportWeakXCTestAssertions(in call: FunctionCallExprSyntax) {
+        for claim in WeakAssertion.xctestClaims(in: call) {
+            switch claim {
+            case .condition:
+                emitWeakAssertionDiagnostic(at: call)
+            case .named(let assertion, let literal):
+                emitWeakAssertionDiagnostic(
+                    at: call,
+                    message: "Weak assertion: \(assertion) asserts != \(literal.rawValue), which does not validate correctness. Assert quantitative bounds.",
+                    fix: literal == .absent
+                        ? "Unwrap the value with try XCTUnwrap(...) and assert a specific expected value or range check on it"
+                        : Self.weakAssertionFix)
+            }
+        }
+    }
+
+    private static let weakAssertionMessage =
+        "Weak assertion: != 0 or != nil does not validate correctness. Assert quantitative bounds."
+    private static let weakAssertionFix = "Replace != 0 with a specific expected value or range check"
+
+    private func emitWeakAssertionDiagnostic(
+        at node: some SyntaxProtocol,
+        message: String = TestQualityVisitor.weakAssertionMessage,
+        fix: String = TestQualityVisitor.weakAssertionFix
+    ) {
         let location = node.startLocation(
             converter: converter
         )
@@ -1056,12 +1017,12 @@ private final class TestQualityVisitor: SyntaxVisitor {
 
         diagnostics.append(Diagnostic(
             severity: .warning,
-            message: "Weak assertion: != 0 or != nil does not validate correctness. Assert quantitative bounds.",
+            message: message,
             filePath: fileName,
             lineNumber: line,
             columnNumber: location.column,
             ruleId: "weak-assertion",
-            suggestedFix: "Replace != 0 with a specific expected value or range check"
+            suggestedFix: fix
         ))
     }
 
