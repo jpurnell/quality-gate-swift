@@ -110,6 +110,36 @@
 - **The `consistency` echo goes with its cause.** That run also carried *"Rule 'xcode-compiler'
   matched ViolationCluster with 61 occurrences"*, derived from the 20 findings above. Nothing in
   `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
+- **`weak-assertion` reads XCTest's spelling of the same claim.** `#expect(x != nil)` was
+  reported and `XCTAssertNotNil(x)` was not, so a suite still on XCTest reported no weak
+  assertions at all. BusinessMathExcel reported 0 before its migration and 84 after: the
+  conversion wrote the same 84 claims in the one spelling the rule could read. The rule looked
+  only inside `#expect` and `#require` (`TestQualityVisitor.visit(_: MacroExpansionExprSyntax)`).
+  - **An XCTest call is reported exactly when the `#expect` it converts to is.** The table is
+    `AssertionMapping`'s, so `--fix` neither adds nor removes a finding. Reported:
+    `XCTAssertNotNil(x)`; `XCTAssertNotEqual(a, b)` when either operand is the literal `0` or
+    `nil`; and `XCTAssert(c)` / `XCTAssertTrue(c)`, once per `!= 0` or `!= nil` at the top level
+    of `c`. Same id, same severity (`warning`), same `// TEST-QUALITY:` marker.
+  - **Not reported, because the Swift Testing form is not:** `XCTAssertNil(x)` (`== nil`),
+    `XCTAssertGreaterThan(x.count, 0)` and `XCTAssert(x.count > 0)` (`> 0`),
+    `XCTAssertFalse(x != nil)` (`!(x != nil)`), and `XCTAssertNotEqual(x, 0, accuracy: e)` (a
+    tolerance). `x.count > 0` says as little as `x.count != 0`; whether the rule should read it
+    is a question about both frameworks, and this change does not answer it for one of them.
+  - **`XCTAssertNotNil` on a non-optional value is reported like any other.** The rule reads
+    syntax and cannot tell that the check is vacuous, only that it is weak.
+  - **Reported alongside `xctest-import`, not instead of it.** One says which framework the
+    file uses and is repaired by converting it. The other says what one assertion claims and
+    survives the conversion. `skipped-test-inventory` already reads `throw XCTSkip(…)` in the
+    same files on the same reasoning.
+  - **No other assertion rule reads `XCTAssert*`.** `coalesced-assertion`,
+    `assertion-on-constant`, `non-strict-improvement`, `self-referential-expectation`,
+    `tolerance-without-magnitude`, `exact-double-equality` and `missing-assertion` still read
+    only Swift Testing. A suite on XCTest remains under-reported for those.
+  - Measured read-only on the 22 trees under the development directory whose `Tests/` still
+    imports XCTest (third-party clones excluded): 255 new findings in 5 of them, every one an
+    `XCTAssertNotNil` — FinancialAnalysis 205, BusinessMath-Persistence 40, FinancialReportKit
+    6, ModelSimulator 2, Botany 2. All five already fail on `xctest-import`, so no passing
+    tree starts failing.
 
 ### Added
 
