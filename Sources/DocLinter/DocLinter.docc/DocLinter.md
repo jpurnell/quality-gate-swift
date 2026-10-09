@@ -54,10 +54,30 @@ the run reports how many catalogues went unexamined.
 
 ### Verdict
 
-``DocLinter/createResult(output:exitCode:duration:)`` fails the check when the documentation
+``DocLinter/createResult(run:duration:)`` fails the check when the documentation
 build exits non-zero, or when any parsed diagnostic has error severity. Warnings are
 reported and do not fail the check on their own — a package can carry DocC warnings and
 still pass `doc-lint`, though the gate's own `--strict` mode escalates them.
+
+A failed check always carries a finding. Two of them are not about the documentation:
+
+| Rule | What happened |
+|---|---|
+| `doc-lint-timeout` | The documentation build was stopped at its time budget. |
+| `doc-lint-unparsed-failure` | The build exited non-zero and printed no error this checker can parse. |
+
+Both state the budget and where it came from, the elapsed time, the machine's 1-minute load
+average and the tool's last lines. A stopped build is never cached.
+
+### Time Budget
+
+The budget is three times the last successful documentation build in this checkout, never less
+than 900 seconds, and 3,600 seconds when nothing is recorded. To set it instead:
+
+```yaml
+budgets:
+  doc-lint: 2400   # seconds, used exactly as written
+```
 
 ## Topics
 
@@ -65,6 +85,7 @@ still pass `doc-lint`, though the gate's own `--strict` mode escalates them.
 
 - ``DocLinter/check(configuration:)``
 - ``DocLinter/parseDocCOutput(_:)``
+- ``DocLinter/createResult(run:duration:)``
 - ``DocLinter/createResult(output:exitCode:duration:)``
 
 ### Configuration
