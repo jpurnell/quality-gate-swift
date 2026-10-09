@@ -63,8 +63,21 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// sequentially, outside the concurrent task group.
     public var isParallelSafe: Bool { false }
 
+    /// What starts `swift build`, reads the clock around it and samples the load after it.
+    private let launcher: ToolLauncher
+
     /// Creates a new BuildChecker instance.
-    public init() {}
+    public init() {
+        self.init(launcher: .live)
+    }
+
+    /// Creates a checker whose tool launches go through `launcher`.
+    ///
+    /// - Parameter launcher: What starts `swift build`. Replaceable so a test can decide the
+    ///   exit code, the elapsed time and the load without compiling anything.
+    init(launcher: ToolLauncher) {
+        self.launcher = launcher
+    }
 
     /// Declares no cache inputs: a `build` verdict is never replayed from the result cache.
     ///
@@ -122,7 +135,8 @@ public struct BuildChecker: QualityChecker, Sendable {
         // Wall-clock, because it is compared with file modification dates: a record written
         // since this moment was written by this build.
         let buildStarted = Date()
-        let (output, exitCode) = try await runSwiftBuild(arguments: args, in: projectRoot)
+        let run = try runSwiftBuild(arguments: args, in: projectRoot, configuration: configuration)
+        let exitCode = run.exitCode
 
         // Success only. After a failure the transcript has the errors, the verdict is already
         // `.failed`, and not every unit ran — the failing file's record is the previous build's.
@@ -136,7 +150,7 @@ public struct BuildChecker: QualityChecker, Sendable {
 
         let duration = ContinuousClock.now - startTime
         return Self.createResult(
-            output: output, exitCode: exitCode, duration: duration, recorded: recorded, projectRoot: projectRoot)
+            run: run, duration: duration, recorded: recorded, projectRoot: projectRoot)
     }
 
     // MARK: - Public API for Testing
@@ -162,31 +176,45 @@ public struct BuildChecker: QualityChecker, Sendable {
     /// - Parameter text: Raw compiler output, possibly colourised.
     /// - Returns: The same text with SGR and OSC 8 escape sequences removed.
     private static func strippingANSIEscapes(_ text: String) -> String {
-        guard text.contains("\u{1B}") else { return text }
-        return text
-            .replacingOccurrences(
-                of: "\u{1B}\\]8;[^\u{1B}\u{07}]*(?:\u{1B}\\\\|\u{07})",
-                with: "",
-                options: .regularExpression
-            )
-            .replacingOccurrences(
-                of: "\u{1B}\\[[0-9;]*m",
-                with: "",
-                options: .regularExpression
-            )
+        canonicalisingCategories(ToolRun.removingTerminalEscapes(text))
     }
 
-    /// The last `lines` lines of `text`, for reporting a failure no pattern matched.
+    /// Rewrites every `[#group]` in printed output to the one spelling a recorded diagnostic
+    /// uses.
     ///
-    /// Bounded because build output can be enormous and a diagnostic is read by a human; the
-    /// tail is where the failure is.
-    static func tail(of text: String, lines: Int) -> String {
-        // `.lines`, not `split(separator: "\n")` — CRLF is one Swift `Character`, so splitting on
-        // a newline literal returns a CRLF document as a single element and the "tail" becomes
-        // the whole build log. Caught by the gate's own newline-split rule on this very helper.
-        let all = text.lines
-        guard all.count > lines else { return text }
-        return all.suffix(lines).joined(separator: "\n")
+    /// The comment above says the printed and recorded forms must compare equal, and on Darwin
+    /// they do: the compiler emits the group as an OSC 8 hyperlink whose display text is
+    /// `NoUsage`, so stripping the escapes leaves exactly what the `.dia` record renders.
+    ///
+    /// Off Darwin there is no hyperlink. The transcript carries the slug — `no-usage` — while
+    /// the record carries the group name, so the two stopped comparing equal and **every
+    /// warning that was both printed and recorded was reported twice**. Five `WarmBuildTests`
+    /// failures on each Linux leg, all of them duplication rather than absence.
+    ///
+    /// That was a regression introduced by canonicalising the reader alone. Before it, both
+    /// sides said `no-usage`: wrong against the tests' expectation, but equal to each other, so
+    /// dedup held. Normalising one of two paths that exist precisely to be compared is worse
+    /// than normalising neither — the invariant was equality, and the fix broke it while
+    /// improving one side.
+    private static func canonicalisingCategories(_ text: String) -> String {
+        guard text.contains("[#") else { return text }
+        // A literal pattern that fails to compile cannot be repaired at run time, and returning
+        // the text unchanged loses deduplication rather than the diagnostic.
+        // silent: a literal pattern cannot fail to compile; unchanged text loses only deduplication
+        guard let pattern = try? NSRegularExpression(pattern: "\\[#([A-Za-z0-9-]+)\\]") else {
+            return text
+        }
+        let full = NSRange(text.startIndex..<text.endIndex, in: text)
+        var result = text
+        // Reverse order so each replacement leaves the earlier ranges valid.
+        for match in pattern.matches(in: text, range: full).reversed() {
+            guard match.numberOfRanges == 2,
+                  let whole = Range(match.range(at: 0), in: text),
+                  let group = Range(match.range(at: 1), in: text) else { continue }
+            let canonical = SerializedDiagnosticsReader.canonicalCategory(String(text[group]))
+            result.replaceSubrange(whole, with: "[#\(canonical)]")
+        }
+        return result
     }
 
     /// Parse Swift compiler output into diagnostics.
@@ -310,6 +338,37 @@ public struct BuildChecker: QualityChecker, Sendable {
         recorded: RecordedDiagnostics? = nil,
         projectRoot: String? = nil
     ) -> CheckResult {
+        createResult(
+            run: ToolRun(
+                transcriptOf: "swift build", checkerId: "build",
+                output: output, exitCode: exitCode, elapsed: duration),
+            duration: duration, recorded: recorded, projectRoot: projectRoot)
+    }
+
+    /// Create a CheckResult from a run of `swift build` and the compiler's recorded
+    /// diagnostics.
+    ///
+    /// As ``createResult(output:exitCode:duration:recorded:projectRoot:)``, with the record of
+    /// the launch: a build stopped at its budget is reported as `build-timeout`, and a build
+    /// that failed without a compiler diagnostic as `build-unparsed-failure`, each naming the
+    /// budget, the elapsed time and the machine's load.
+    ///
+    /// - Parameters:
+    ///   - run: What launching `swift build` produced.
+    ///   - duration: How long the checker took.
+    ///   - recorded: The recorded diagnostics read after a successful build, or `nil` to judge
+    ///     the transcript alone.
+    ///   - projectRoot: The package root, so a path inside it is judged by what follows it;
+    ///     `nil` judges each path as written.
+    /// - Returns: A CheckResult summarizing the build
+    public static func createResult(
+        run: ToolRun,
+        duration: Duration,
+        recorded: RecordedDiagnostics? = nil,
+        projectRoot: String? = nil
+    ) -> CheckResult {
+        let output = run.output
+        let exitCode = run.exitCode
         let succeeded = exitCode == 0
         // Scoped to first-party source *before* the verdict is reached, not while the result
         // is assembled. The status used to be computed from every parsed diagnostic and the
@@ -341,11 +400,15 @@ public struct BuildChecker: QualityChecker, Sendable {
             status = warned ? .warning : .passed
         } else {
             let hasCompilationErrors = diagnostics.contains { $0.severity == .error }
-            // A build that was terminated at its time limit did not succeed, whatever its
-            // output mentions. 124 is the process kernel's timeout code; `test` learned this
-            // the hard way, reporting a cut-off run as passed with a signing warning.
-            let timedOut = exitCode == 124
-            if !hasCompilationErrors && !timedOut && isCodeSigningError(output) {
+            // A build that was terminated at its budget did not succeed, whatever its output
+            // mentions, and it is reported as that and nothing else. `test` learned the first
+            // half the hard way — a cut-off run reported as passed with a signing warning —
+            // and this checker learned the second: "exit 124, no parseable diagnostic" is
+            // true, and is not what happened.
+            if run.expired {
+                status = .failed
+                diagnostics.append(run.expiryDiagnostic())
+            } else if !hasCompilationErrors && isCodeSigningError(output) {
                 status = .passed
                 diagnostics.append(Diagnostic(
                     severity: .warning,
@@ -359,21 +422,21 @@ public struct BuildChecker: QualityChecker, Sendable {
                 // `parseBuildOutput` matches `File.swift:line:col: severity: message`, which is
                 // the shape of a *compiler* diagnostic. A build can fail in other shapes —
                 // linker errors (`error: Ld … failed with a nonzero exit code`), code-signing,
-                // a manifest that will not evaluate — and those parse to nothing. The result was
-                // then `.failed` with an empty diagnostics array, so the gate printed
-                // `✗ [build] FAILED (72.32s)` and not one word about why.
+                // a manifest that will not evaluate, a dependency that will not check out —
+                // and those parse to nothing. The result was then `.failed` with an empty
+                // diagnostics array, so the gate printed `✗ [build] FAILED (72.32s)` and not
+                // one word about why.
                 //
                 // Observed 2026-08-17: a test target missing a dependency took the gate red, and
                 // the cause was only found by running `swift build --build-tests` by hand. The
                 // checker that exists to surface compiler output had surfaced none of it.
+                //
+                // The tail alone was not enough either. SwiftPM reports a failed checkout once
+                // and then prints a screen of progress, so the last twenty lines of a fresh
+                // worktree's first build inside a hook were twenty lines of "Fetching" — the
+                // `error:` line is now quoted wherever it fell.
                 if diagnostics.isEmpty {
-                    diagnostics.append(Diagnostic(
-                        severity: .error,
-                        message: "swift build failed (exit \(exitCode)) with no parseable "
-                            + "compiler diagnostic — the failure is below, verbatim:\n"
-                            + Self.tail(of: output, lines: 20),
-                        ruleId: "build-unparsed-failure"
-                    ))
+                    diagnostics.append(run.unparsedFailureDiagnostic(ruleId: "build-unparsed-failure"))
                 }
             }
         }
@@ -433,18 +496,28 @@ public struct BuildChecker: QualityChecker, Sendable {
         ChildProcessEnvironment.withoutGitRepositoryScope(parent)
     }
 
-    private func runSwiftBuild(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
+    /// Runs `swift build` under the checker's budget and records the run.
+    ///
+    /// The budget is `budgets.build` when the configuration sets one, and otherwise follows
+    /// the last successful build recorded for this package — three times that, never less
+    /// than 900 seconds, and 3,600 for a tree with no record, which is a cold one. It was the
+    /// process runner's 600 seconds, a figure chosen for `git rev-parse`.
+    private func runSwiftBuild(
+        arguments: [String], in root: String, configuration: Configuration
+    ) throws -> ToolRun {
         // SAFETY: runs swift build to check compilation
-        let result = try ProcessRunner.run(
-            "/usr/bin/swift",
+        let run = try launcher.run(ToolLauncher.Request(
+            checkerId: id,
+            executable: "/usr/bin/swift",
             arguments: ["build"] + arguments,
-            currentDirectory: root,
-            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment)
-        )
+            directory: root,
+            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment),
+            budget: CheckerBudget.allowance(for: id, root: root, configuration: configuration)))
 
-        // Combine stdout and stderr since Swift outputs diagnostics to stderr
-        let combinedOutput = result.stdout + "\n" + result.stderr
-
-        return (combinedOutput, result.exitCode)
+        // Only a success says how long the build takes when it works.
+        if run.exitCode == 0 {
+            CheckerBudget.record(run.elapsed, named: id, root: root)
+        }
+        return run
     }
 }

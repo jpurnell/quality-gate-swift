@@ -62,6 +62,63 @@
   it would change and, for the rest, what stops each. The default returns `nil` and the CLI
   prints what it printed before.
 
+- **A checker stopped at its time budget says so, and so does a tool that fails without
+  explaining itself.** Under a load average of 150–290 the hook's `build`, `test` and `doc-lint`
+  ran out of time and reported something else: `swift build` at exit 124 was
+  `build-unparsed-failure` over twenty lines of whatever the compiler had been doing; a stopped
+  DocC build was `✗ [doc-lint] FAILED` with no diagnostic at all; a stopped `xcodebuild -list`
+  "exited 124 … so there is no scheme to build"; and `swift test` that failed without a test
+  failure — a target that would not compile, a package that would not resolve — was `✗ FAILED`
+  over nothing. `test-timeout` (#33) named the cut-off and not the budget, the elapsed time, the
+  load, or what to do.
+  - **One record, four checkers.** `ToolLauncher` (`QualityGateCore`) starts the tool under a
+    budget and returns a `ToolRun`: the command, the budget and where it came from, the elapsed
+    time, the machine's 1-minute load average and core count when the run ended, and the output.
+    `build`, `test`, `doc-lint` and `xcode-build` all launch through it and all report from it.
+  - **A stopped run is `<checker>-timeout`, an error, and nothing else.** `build-timeout`,
+    `doc-lint-timeout` and `xcode-build-timeout` are new; `test-timeout` gains the same message.
+    Each states the checker, the budget (`900s — three times the last successful run (212s), and
+    never less than 900s`), the elapsed time, the load (`1-minute load average 187.4 on 10 cores
+    (18.7 per core)`), the last twenty lines the tool printed, and the remedy: rerun that checker
+    alone when the load is lower, or raise `budgets.<checker>`. It is asked before anything that
+    could excuse a non-zero exit, and compiler errors or test failures already printed are kept
+    beside it.
+  - **A failure nothing could parse carries the same facts** and a sentence saying the budget was
+    not the cause. `test-unparsed-failure` and `doc-lint-unparsed-failure` are new;
+    `build-unparsed-failure` is reworded. The tool's own `error:` lines are quoted wherever they
+    fell, with the indented line that continues them: SwiftPM reports a failed checkout once and
+    then prints a screen of progress, so the last twenty lines of a fresh worktree's first build
+    inside a hook were twenty lines of `Fetching`, and `error: 'swift-numerics': Couldn’t check
+    out revision …: fatal: unable to read tree` had scrolled away. (That failure's cause was the
+    hook's `GIT_DIR` reaching SwiftPM's git, fixed in #40; this is what makes the next one
+    legible.)
+  - **`build` has a budget of its own.** It ran under the process runner's 600 seconds, a default
+    chosen for `git rev-parse`. It now follows its last successful build like `test` and
+    `doc-lint`: three times that, never less than 900 seconds, 3,600 for a tree with no record.
+  - **`budgets:` sets the figure.** `budgets: { test: 1800 }` in `.quality-gate.yml` replaces the
+    derived budget for `build`, `test`, `doc-lint` or `xcode-build`, exactly as written. A key
+    naming no budgeted checker, or a figure that is not a positive finite number of seconds,
+    stops the run at startup; neither is silently ignored.
+  - **Budgets do not follow the load.** Considered and declined: a budget that stretches itself
+    under contention is a number nobody chose and nobody can read off the configuration, and it
+    turns "stopped without saying so" into "took an hour without saying why". The derived budget
+    already follows the work. The load is in the message instead.
+  - **A stopped run is never replayed from the cache.** The runner refused to store a failure,
+    judged on the status the checker wrote — before reconciliation raises `.passed` carrying an
+    error to `.failed`. So a result reported as passed over an error was stored, and every later
+    run of the same tree replayed it, reconciled it to a failure, and never evicted it; and the
+    stopped `swift test` that #33 found reported as a signing warning had been stored and served
+    as a dated, labelled pass. The guard now reads the reconciled verdict, and a result carrying
+    a `-timeout` finding is not stored under any status and is evicted if found.
+  - **Around the edges of `test`.** A stress run no longer overwrites the suite's recorded
+    duration with the few seconds its filtered tests took, a stress run that was stopped
+    contributes no roster, and a stopped run does not update the flip detector's stored roster —
+    the tests it never reached would have read as tests that changed outcome.
+  - **A duration record that is not a duration is no record.** `inf` in
+    `.build/quality-gate-duration-*` parsed, and three times infinity is a budget the process
+    kernel refuses — and, before 1.1.0, obeyed as no deadline at all. `swift-process-kernel` is
+    now required at 1.1.0, which refuses a non-finite timeout before anything is started.
+
 - **A dependency's warning is not this package's, under `xcode-build` as under `build`.** The
   gate decided this on 2026-07-04 (`d91124a`): a warning in a dependency checkout does not count
   against the package being checked, and an error does. `build` and `doc-lint` applied it.
@@ -111,6 +168,36 @@
 - **The `consistency` echo goes with its cause.** That run also carried *"Rule 'xcode-compiler'
   matched ViolationCluster with 61 occurrences"*, derived from the 20 findings above. Nothing in
   `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
+- **`weak-assertion` reads XCTest's spelling of the same claim.** `#expect(x != nil)` was
+  reported and `XCTAssertNotNil(x)` was not, so a suite still on XCTest reported no weak
+  assertions at all. BusinessMathExcel reported 0 before its migration and 84 after: the
+  conversion wrote the same 84 claims in the one spelling the rule could read. The rule looked
+  only inside `#expect` and `#require` (`TestQualityVisitor.visit(_: MacroExpansionExprSyntax)`).
+  - **An XCTest call is reported exactly when the `#expect` it converts to is.** The table is
+    `AssertionMapping`'s, so `--fix` neither adds nor removes a finding. Reported:
+    `XCTAssertNotNil(x)`; `XCTAssertNotEqual(a, b)` when either operand is the literal `0` or
+    `nil`; and `XCTAssert(c)` / `XCTAssertTrue(c)`, once per `!= 0` or `!= nil` at the top level
+    of `c`. Same id, same severity (`warning`), same `// TEST-QUALITY:` marker.
+  - **Not reported, because the Swift Testing form is not:** `XCTAssertNil(x)` (`== nil`),
+    `XCTAssertGreaterThan(x.count, 0)` and `XCTAssert(x.count > 0)` (`> 0`),
+    `XCTAssertFalse(x != nil)` (`!(x != nil)`), and `XCTAssertNotEqual(x, 0, accuracy: e)` (a
+    tolerance). `x.count > 0` says as little as `x.count != 0`; whether the rule should read it
+    is a question about both frameworks, and this change does not answer it for one of them.
+  - **`XCTAssertNotNil` on a non-optional value is reported like any other.** The rule reads
+    syntax and cannot tell that the check is vacuous, only that it is weak.
+  - **Reported alongside `xctest-import`, not instead of it.** One says which framework the
+    file uses and is repaired by converting it. The other says what one assertion claims and
+    survives the conversion. `skipped-test-inventory` already reads `throw XCTSkip(…)` in the
+    same files on the same reasoning.
+  - **No other assertion rule reads `XCTAssert*`.** `coalesced-assertion`,
+    `assertion-on-constant`, `non-strict-improvement`, `self-referential-expectation`,
+    `tolerance-without-magnitude`, `exact-double-equality` and `missing-assertion` still read
+    only Swift Testing. A suite on XCTest remains under-reported for those.
+  - Measured read-only on the 22 trees under the development directory whose `Tests/` still
+    imports XCTest (third-party clones excluded): 255 new findings in 5 of them, every one an
+    `XCTAssertNotNil` — FinancialAnalysis 205, BusinessMath-Persistence 40, FinancialReportKit
+    6, ModelSimulator 2, Botany 2. All five already fail on `xctest-import`, so no passing
+    tree starts failing.
 
 ### Added
 

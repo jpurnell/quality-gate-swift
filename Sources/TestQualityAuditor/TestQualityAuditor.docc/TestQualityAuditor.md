@@ -6,7 +6,7 @@ Catches test-quality anti-patterns that compile cleanly but undermine confidence
 
 TestQualityAuditor uses SwiftSyntax to walk Swift test files and apply two families of rule, both targeting the ways a test silently stops proving anything. It scans every `.swift` file under `Tests/`, detects `import Testing` and `@Test` attributes, and flags patterns that produce green results without actually validating behavior.
 
-This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`). It does not analyze the assertions in XCTest-based files: it reports their import as `xctest-import`, and `--fix` converts them. See <doc:MigratingToSwiftTesting>.
+This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`). In an XCTest-based file it reports the import as `xctest-import`, which `--fix` converts (see <doc:MigratingToSwiftTesting>), and it reads one thing about the assertions: an `XCTAssert*` call that makes a `weak-assertion` claim is reported as one. Every other assertion rule reads only `#expect` and `#require`.
 
 ### Detected rules
 
@@ -17,7 +17,7 @@ This auditor targets the Swift Testing framework (`#expect`, `#require`, `@Test`
 | `force-try-in-test` | error | `try!` anywhere in test code |
 | `unseeded-random` | warning | `.random` or `SystemRandomNumberGenerator` producing non-deterministic test data |
 | `missing-assertion` | warning | A `@Test` function with no `#expect` or `#require` call |
-| `weak-assertion` | warning | `#expect(x != 0)` or `#expect(x != nil)` that checks existence without validating correctness |
+| `weak-assertion` | warning | `#expect(x != 0)` or `#expect(x != nil)` that checks existence without validating correctness, and the XCTest spellings of the same claim: `XCTAssertNotNil(x)`, `XCTAssertNotEqual(x, 0)`, `XCTAssertTrue(x != nil)` |
 
 ### Semantic rules
 
@@ -154,7 +154,7 @@ Suppressed violations appear in the `overrides` array of the `CheckResult`, not 
 
 ### Out of scope
 
-- XCTest assertions (`XCTAssertEqual`, `XCTAssertTrue`, etc.)
+- XCTest assertions (`XCTAssertEqual`, `XCTAssertTrue`, etc.), except as `weak-assertion` reads them. No other assertion rule looks at an `XCTAssert*` call.
 - Cross-file test helper analysis (a helper that calls `#expect` on behalf of the test function)
 - Assertion count thresholds (e.g., requiring more than one assertion per test)
 - Test naming conventions or `@Suite` structure

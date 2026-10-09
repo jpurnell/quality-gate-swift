@@ -387,6 +387,21 @@ xcodeBuild:
 `xcode-build` builds a plain Swift package from its directory, with no `.xcodeproj` needed.
 When it finds no workspace, project or `Package.swift`, it reports SKIPPED, not PASSED.
 
+`build`, `test`, `doc-lint` and `xcode-build` each run one long tool under a wall-clock budget.
+The first three derive it from their last successful run (three times its duration, at least
+900 s, and 3,600 s when nothing is recorded); `xcode-build` runs under 600 s. `budgets:` replaces
+the figure for a named checker, in seconds, and is used exactly as written:
+
+```yaml
+budgets:
+  test: 1800
+```
+
+A run stopped at its budget is an error named `<checker>-timeout`. It states the budget and
+where it came from, the elapsed time, the machine's load average and the tool's last lines, and
+it is never cached and never a pass. Budgets do not scale with load: see `GUIDE.md`, "Time
+budgets".
+
 Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, `keychain-secrets`, `privacy-manifest`, and `consistency`.
 
 Severity overrides let you downgrade or upgrade any rule:

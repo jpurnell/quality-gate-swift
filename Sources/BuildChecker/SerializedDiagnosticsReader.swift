@@ -80,7 +80,32 @@ public enum SerializedDiagnosticsReader {
     /// - Returns: The message as it appears in build output.
     static func message(text: String, category: String?) -> String {
         guard let category, !category.isEmpty else { return text }
-        return "\(text) [#\(category)]"
+        return "\(text) [#\(canonicalCategory(category))]"
+    }
+
+    /// The diagnostic group's name in one spelling, whatever the toolchain rendered.
+    ///
+    /// Swift prints the group as an ANSI hyperlink: the URL ends in a slug (`no-usage`) and the
+    /// display text is the group's name (`NoUsage`). Which of the two survives depends on the
+    /// toolchain — 6.2 yields the slug, 6.4 the name — so the same warning read
+    /// `[#no-usage]` on one and `[#NoUsage]` on the other, and four tests pinned the latter.
+    ///
+    /// Normalised here rather than relaxed there, because the spelling is *output*: a finding
+    /// that renders differently depending on which compiler happened to produce it is a
+    /// finding whose text cannot be matched, grepped, or compared between machines. Tests
+    /// pinning an exact string were right to; they were pinning a value that had two forms.
+    ///
+    /// Slug to name: split on the hyphens the slug uses and capitalise each part. A name that
+    /// arrives already capitalised has no hyphens and passes through untouched.
+    static func canonicalCategory(_ category: String) -> String {
+        guard category.contains("-") else { return category }
+        return category
+            .split(separator: "-")
+            .map { part -> String in
+                guard let first = part.first else { return "" }
+                return first.uppercased() + part.dropFirst()
+            }
+            .joined()
     }
 
     private static func severity(of level: SerializedDiagnostics.Diagnostic.Level) -> Diagnostic.Severity? {

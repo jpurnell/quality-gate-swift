@@ -372,6 +372,47 @@ logging:
   allowPrintInTargets: ["QualityGateCLI"]
 ```
 
+### Time budgets
+
+`build`, `test`, `doc-lint` and `xcode-build` each launch one long-running tool, and each
+gives it a wall-clock budget. Unset, `build`, `test` and `doc-lint` derive theirs from the
+last successful run in this checkout — three times its duration, never less than 900 seconds,
+and 3,600 seconds when nothing is recorded yet, which is a cold tree. `xcode-build` keeps no
+history and runs under 600 seconds. Set a figure to replace the derived one, in seconds:
+
+```yaml
+budgets:
+  test: 1800
+  doc-lint: 2400
+```
+
+A configured budget is used exactly as written. A key that names no budgeted checker, or a
+figure that is not a positive finite number, stops the run at startup instead of being ignored.
+
+Budgets do not stretch with the machine's load. A run that is stopped says so, as
+`build-timeout`, `test-timeout`, `doc-lint-timeout` or `xcode-build-timeout`, and the message
+carries what you need to choose between waiting and raising the key: the budget and where it
+came from, the elapsed time, the 1-minute load average with the core count, and the last lines
+the tool printed. A stopped run is an error, is never cached, and is never a pass:
+
+```
+❌ error: `swift test --parallel` was stopped at its time budget and did not finish. This run is incomplete: it is not a pass, and it is not a finding about the code.
+  checker: test
+  budget:  900s — three times the last successful run (212s), and never less than 900s
+  elapsed: 905s
+  load:    1-minute load average 187.4 on 10 cores (18.7 per core)
+  last 2 lines of output:
+    | 􁁛  Test run with 94 tests in 7 suites passed after 144.502 seconds.
+    | 􀟈  Test "A slow one" started.
+💡 Rerun this checker alone, when the load is lower: `quality-gate --check test`. If it needs longer than 900s on a quiet machine, raise its budget in .quality-gate.yml — `budgets:` then `test: 1800` (seconds).
+```
+
+A tool that fails without printing anything the checker can parse — a dependency that will not
+check out, a crashed compiler — is reported as `build-unparsed-failure`,
+`test-unparsed-failure`, `doc-lint-unparsed-failure` or `xcode-build-unexplained-failure`, with
+the same facts, a sentence saying the budget was not the cause, and the tool's own `error:`
+lines quoted wherever in the transcript they fell.
+
 ### Severity overrides
 
 Override any rule's severity without modifying checker code:
