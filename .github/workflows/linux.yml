@@ -94,11 +94,16 @@ jobs:
           set -e
           # The README says `sudo`; this container is root, where sudo may not exist.
           cp .build/release/quality-gate /usr/local/bin/
-          cp -R .build/release/quality-gate-swift_*.resources /usr/local/bin/
+          cp -R .build/release/*.resources /usr/local/bin/
           echo "--- what landed in /usr/local/bin"
           ls /usr/local/bin | head -8
-          printf '  resource bundles copied: '; ls -d /usr/local/bin/*.resources 2>/dev/null | wc -l
-          printf '  resource bundles built:  '; ls -d .build/release/*.resources 2>/dev/null | wc -l
+          copied=$(ls -d /usr/local/bin/*.resources 2>/dev/null | wc -l)
+          built=$(ls -d .build/release/*.resources 2>/dev/null | wc -l)
+          echo "  resource bundles copied: $copied of $built built"
+          # An assertion, not a report. The first version of these instructions copied
+          # `quality-gate-swift_*` and left four bundles from the other packages behind; the
+          # documented command did not need them, so the gap passed as success.
+          [ "$copied" = "$built" ] || { echo "  ✗ install copies fewer bundles than the build produces"; exit 1; }
           echo "--- does the installed binary run, from outside the build tree?"
           mkdir -p /tmp/smoke/Sources/Demo && cd /tmp/smoke
           cat > Package.swift <<'SWIFT'
