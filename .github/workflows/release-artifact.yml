@@ -1,0 +1,95 @@
+name: Release artifact
+
+# Builds the tarball the Homebrew formula downloads, and prints the checksum the formula needs.
+#
+# Manual, and tied to a tag that already exists. A release that builds itself on tag-push looks
+# tidier and is worse: the artifact would be produced before anyone had seen the tag's CI, and
+# the first thing a `brew install` user would exercise is a build nobody checked.
+#
+# Runs on the self-hosted arm64 runner. Hosted macOS is 10x on private repositories — the
+# reason quality-gate.yml is self-hosted — and while this repository is public and would be
+# free, the artifact people install should come from the same machine the gate runs on rather
+# than from a runner image that floats.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. 3.5.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  artifact:
+    name: macOS arm64 tarball
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      # The literal the binary prints is hand-maintained in QualityGateCLI.swift, and
+      # `release-readiness` checks the CHANGELOG against tags without ever reading it. So it has
+      # been wrong before: 3.4.0 survived a day of deploys past its tag. A formula is versioned
+      # by the tag it downloads, so a mismatch ships a binary that misreports itself.
+      #
+      # Checked here, before anything is built, because this is the last point where it is cheap.
+      - name: The version the binary prints must be the tag being built
+        run: |
+          literal=$(grep -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' Sources/QualityGateCLI/QualityGateCLI.swift \
+            | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          # Tags here carry a `v` (11 of 13 do: v3.4.0, v3.3.0 …) and the literal does not.
+          # Comparing them raw rejected a correct release when this was first written — the
+          # literal said 3.4.0, the tag said v3.4.0, and they agree.
+          bare="${{ inputs.tag }}"; bare="${bare#v}"
+          echo "  tag:     ${{ inputs.tag }} (compared as $bare)"
+          echo "  literal: ${literal:-<none found>}"
+          [ "$literal" = "$bare" ] || {
+            echo "  ✗ QualityGateCLI.swift reports '$literal' but this is tag '$bare'."
+            echo "    Update the literal, retag, and run this again. A binary that misreports"
+            echo "    its own version makes every bug report ambiguous."
+            exit 1
+          }
+
+      - name: Build
+        run: swift build -c release
+
+      # Everything beside the binary, not a glob of this package's own bundles. The README's
+      # hand-written glob copied 40 of 44 and the shortfall passed as success, because the
+      # documented command did not need the four it missed.
+      - name: Stage the tarball
+        id: stage
+        run: |
+          bare="${{ inputs.tag }}"; bare="${bare#v}"
+          staging="$(mktemp -d)/quality-gate-$bare"
+          mkdir -p "$staging"
+          cp .build/release/quality-gate "$staging/"
+          cp -R .build/release/*.bundle "$staging/" 2>/dev/null || true
+          bundles=$(ls -d "$staging"/*.bundle 2>/dev/null | wc -l | tr -d ' ')
+          built=$(ls -d .build/release/*.bundle 2>/dev/null | wc -l | tr -d ' ')
+          echo "  bundles staged: $bundles of $built built"
+          [ "$bundles" = "$built" ] || { echo "  ✗ staged fewer bundles than were built"; exit 1; }
+
+          # Run it from the staging directory: the point is that the artifact is self-contained,
+          # and invoking it from the build tree would resolve bundles by accident.
+          ( cd "$staging" && ./quality-gate --version )
+
+          bare="${{ inputs.tag }}"; bare="${bare#v}"
+          name="quality-gate-$bare-macos-arm64.tar.gz"
+          tar -czf "/tmp/$name" -C "$(dirname "$staging")" "$(basename "$staging")"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "path=/tmp/$name" >> "$GITHUB_OUTPUT"
+
+      - name: Checksum for the formula
+        run: |
+          echo "  sha256 for packaging/homebrew/quality-gate.rb:"
+          shasum -a 256 "${{ steps.stage.outputs.path }}" | awk '{print "    " $1}'
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" "${{ steps.stage.outputs.path }}" --clobber
