@@ -77,6 +77,44 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
+      # The README's Linux install, executed rather than reasoned about.
+      #
+      # These four lines are the first thing a new user runs, and until now nobody had run
+      # them. The resource-bundle line in particular was written from a build listing: SwiftPM
+      # writes `.resources` directories on Linux where Darwin writes `.bundle`, and the glob
+      # copies `quality-gate-swift_*` only — while the build also produces
+      # `BusinessMath_*`, `SwiftDeterminism_*` and `quality-gate-corpus-kit_*`. If any of those
+      # is needed at run time the install half-works, and the symptom is the one the macOS
+      # comment already warns about: "couldn't find bundle named ...".
+      #
+      # Run from `/tmp`, deliberately. Invoking the installed binary from inside the build tree
+      # would find bundles by accident and prove nothing.
+      - name: README install steps, executed verbatim
+        run: |
+          set -e
+          # The README says `sudo`; this container is root, where sudo may not exist.
+          cp .build/release/quality-gate /usr/local/bin/
+          cp -R .build/release/*.resources /usr/local/bin/
+          echo "--- what landed in /usr/local/bin"
+          ls /usr/local/bin | head -8
+          copied=$(ls -d /usr/local/bin/*.resources 2>/dev/null | wc -l)
+          built=$(ls -d .build/release/*.resources 2>/dev/null | wc -l)
+          echo "  resource bundles copied: $copied of $built built"
+          # An assertion, not a report. The first version of these instructions copied
+          # `quality-gate-swift_*` and left four bundles from the other packages behind; the
+          # documented command did not need them, so the gap passed as success.
+          [ "$copied" = "$built" ] || { echo "  ✗ install copies fewer bundles than the build produces"; exit 1; }
+          echo "--- does the installed binary run, from outside the build tree?"
+          mkdir -p /tmp/smoke/Sources/Demo && cd /tmp/smoke
+          cat > Package.swift <<'SWIFT'
+          // swift-tools-version: 6.0
+          import PackageDescription
+          let package = Package(name: "Demo", targets: [.target(name: "Demo")])
+          SWIFT
+          printf 'public struct Demo { public init() {} }\n' > Sources/Demo/Demo.swift
+          # The exact command the README gives the reader.
+          quality-gate --check safety --check concurrency 2>&1 | tail -20
+
       - name: Test
         run: |
           swift test \

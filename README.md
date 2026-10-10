@@ -41,8 +41,13 @@ swift build -c release
 # The binary needs its resource bundles beside it: SwiftPM resolves them relative
 # to the executable, so copying the binary alone fails at runtime with
 # "couldn't find bundle named quality-gate-swift_ControlMapping".
+#
+# Every bundle, not just this package's: the build also writes BusinessMath_*,
+# SwiftDeterminism_* and quality-gate-corpus-kit_*. A `quality-gate-swift_*` glob
+# copies 40 of 44 and the four it leaves behind are needed by checkers the
+# documented command happens not to run.
 sudo cp .build/release/quality-gate /usr/local/bin/
-sudo cp -R .build/release/quality-gate-swift_*.bundle /usr/local/bin/
+sudo cp -R .build/release/*.bundle /usr/local/bin/
 ```
 
 ### Linux
@@ -62,9 +67,9 @@ swift build -c release \
   -Xcxx -I/usr/lib/swift/Block
 
 # Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
-# `.resources` directories here, not `.bundle`.
+# `.resources` directories here, not `.bundle`. All of them, for the same reason.
 sudo cp .build/release/quality-gate /usr/local/bin/
-sudo cp -R .build/release/quality-gate-swift_*.resources /usr/local/bin/
+sudo cp -R .build/release/*.resources /usr/local/bin/
 ```
 
 Run the same way on both:
