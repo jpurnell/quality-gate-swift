@@ -86,7 +86,7 @@ struct FPDivisionTopLevelTests {
     @Test("An unchecked division at file scope is still reported")
     func topLevelUncheckedIsReported() {
         let code = """
-        let n = 3
+        let n = CommandLine.arguments.count - 1
         let d = Double(n)
         print(1.0 / d)
         """
@@ -96,7 +96,7 @@ struct FPDivisionTopLevelTests {
     @Test("A check written after the division at file scope did not protect it")
     func topLevelCheckAfterIsReported() {
         let code = """
-        let n = 3
+        let n = CommandLine.arguments.count - 1
         let d = Double(n)
         print(1.0 / d)
         if d > 0 { print("positive") }
@@ -107,7 +107,7 @@ struct FPDivisionTopLevelTests {
     @Test("A guard inside a type's member does not answer for file-scope code")
     func memberGuardDoesNotReachFileScope() {
         let code = """
-        let n = 3
+        let n = CommandLine.arguments.count - 1
         let d = Double(n)
         struct Rate {
             let value: Double
@@ -128,7 +128,7 @@ struct FPDivisionTopLevelTests {
     @Test("A guard inside a function does not answer for file-scope code")
     func functionGuardDoesNotReachFileScope() {
         let code = """
-        let n = 3
+        let n = CommandLine.arguments.count - 1
         let d = Double(n)
         func half(_ d: Double) -> Double {
             guard d > 0 else { return 0 }

@@ -109,8 +109,25 @@ struct FallbackGuardFacts: Sendable {
     /// Every check found.
     var facts: [Fact] = []
 
+    /// One `let alias = target`, at one place.
+    struct Alias: Sendable {
+        /// The new name.
+        let name: String
+        /// The value it names, as ``FallbackSubjectKey`` names it.
+        let target: String
+        /// UTF-8 offset of the declaration.
+        let offset: Int
+    }
+
     /// Locals that are another value under a new name: `let sizable = Double(budget)`.
-    var aliases: [String: String] = [:]
+    ///
+    /// Every declaration is kept, with where it was written. This was one
+    /// dictionary per body, last write wins, and a body is allowed to declare
+    /// `n` twice — once in each of two closures, say. The later `let n` then
+    /// replaced the earlier one for the whole body: a guard on the first `n`'s
+    /// value stopped reaching the division it was written for, and a guard on
+    /// the second's cleared a division by the first.
+    var aliases: [Alias] = []
 
     /// The kinds of check made on any of `keys` before `offset`.
     ///
@@ -127,15 +144,27 @@ struct FallbackGuardFacts: Sendable {
         return found
     }
 
-    /// `key`, plus every name that is the same value: its aliases, and what it
-    /// is itself an alias of.
-    func equivalents(of key: String) -> Set<String> {
-        var keys: Set<String> = [key]
-        if let target = aliases[key] {
-            keys.insert(target)
+    /// `key`, plus every name that is the same value at `offset`: its aliases,
+    /// and what it is itself an alias of.
+    ///
+    /// A name means its most recent declaration before the use. A declaration
+    /// after the use says nothing about it.
+    ///
+    /// - Parameters:
+    ///   - key: The value, as ``FallbackSubjectKey`` names it.
+    ///   - offset: Where the value is used.
+    func equivalents(of key: String, at offset: Int) -> Set<String> {
+        var current: [String: Alias] = [:]
+        for alias in aliases where alias.offset < offset {
+            if let known = current[alias.name], known.offset > alias.offset { continue }
+            current[alias.name] = alias
         }
-        for (alias, target) in aliases where target == key {
-            keys.insert(alias)
+        var keys: Set<String> = [key]
+        if let own = current[key] {
+            keys.insert(own.target)
+        }
+        for alias in current.values where alias.target == key {
+            keys.insert(alias.name)
         }
         return keys
     }
@@ -186,7 +215,7 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         for item in file.statements where !declaresAType(item.item) {
             let found = collect(from: Syntax(item), genericNames: genericNames)
             facts.facts.append(contentsOf: found.facts)
-            facts.aliases.merge(found.aliases) { earlier, _ in earlier }
+            facts.aliases.append(contentsOf: found.aliases)
         }
         return facts
     }
@@ -505,7 +534,11 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
             }
             let alias = pattern.identifier.text
             if alias != target {
-                result.aliases[alias] = target
+                result.aliases.append(FallbackGuardFacts.Alias(
+                    name: alias,
+                    target: target,
+                    offset: binding.positionAfterSkippingLeadingTrivia.utf8Offset
+                ))
             }
         }
         return .visitChildren
