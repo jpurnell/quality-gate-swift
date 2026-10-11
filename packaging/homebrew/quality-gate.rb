@@ -38,18 +38,26 @@ class QualityGate < Formula
   # dyld error, so the floor is stated here rather than discovered by a user.
   depends_on macos: :sequoia
 
-  # arm64 only, stated rather than implied.
+  # The artifacts `scripts/release.sh` already publishes, per architecture, rather than a
+  # second release path producing a universal file beside them. One set of artifacts serves the
+  # action and this formula; two would drift.
   #
-  # The package's floor is macOS 15, so an Intel bottle needs an Intel machine *running* 15 to
-  # build on: GitHub's `macos-15` runner is arm64, and building on `macos-13` fails outright
-  # because SwiftPM refuses the platform. Rather than ship an Intel artifact nothing verifies,
-  # this says arm64 and sends everyone else to the source build, which does work there.
-  depends_on arch: :arm64
+  # The x86_64 slice is cross-compiled on the arm64 machine and executed nowhere: verifying it
+  # needs an Intel Mac running macOS 15, which the package's floor requires and neither this
+  # project nor GitHub's hosted runners have. Said here rather than implied, because `on_intel`
+  # otherwise reads as a tested platform.
+  #
+  # The tag carries a `v`, `version` does not, and the filename carries neither. All three
+  # appear below on purpose; getting one wrong is a 404 at install time.
+  on_arm do
+    url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-macos-arm64.tar.gz"
+    sha256 "REPLACE_WITH_ARM64_SHA256"
+  end
 
-  # The tag carries a `v`; `version` does not. Both appear here on purpose, and getting it
-  # wrong gives a 404 on install rather than an error anyone can read.
-  url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-3.5.0-macos-arm64.tar.gz"
-  sha256 "REPLACE_WITH_ARM64_SHA256"
+  on_intel do
+    url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-macos-x86_64.tar.gz"
+    sha256 "REPLACE_WITH_X86_64_SHA256"
+  end
 
   def install
     # Everything, not a glob: the binary and every `*.bundle` beside it.

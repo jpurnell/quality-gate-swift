@@ -2,7 +2,62 @@
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-11
+
 ### Fixed
+
+- **Seven Darwin assumptions in code paths macOS always takes.** Each was a few lines once found,
+  and each hid behind a symptom pointing somewhere else.
+  - `doc-code` invoked a hardcoded `/usr/bin/xcrun` as the compiler. `Toolchain` resolved `swiftc`
+    from `PATH` for the *flags* while the invocation still went through `xcrun`, so off Darwin
+    every documentation checker failed before compiling anything — reported against the article,
+    at line 1, as though the documentation were at fault.
+  - `libIndexStore` was sought only as `.dylib`, in two separate resolvers.
+    `UnreachableCodeAuditor` kept its own copy, so correcting the shared one fixed every
+    index-backed checker except the one whose tests were failing.
+  - `appendingPathComponent(_:)` is not a pure function off Darwin: corelibs-foundation stats the
+    path and appends a trailing slash for an existing directory, so the same call returned a
+    different URL before and after a `mkdir`.
+  - `Logger` was used outside the `#if canImport(os)` guard that protected its import.
+  - `CrossModuleFixture` imported `SwiftUI` and `Combine` and used `@objc` unguarded, so the
+    fixture the checker builds could not compile — which presented as the index store being
+    unavailable rather than as a fixture problem.
+  - The compiler's diagnostic group arrives as an OSC 8 hyperlink on Darwin and a bare slug
+    elsewhere, so `[#NoUsage]` and `[#no-usage]` are one finding. Both the printed and recorded
+    paths canonicalise it now; normalising one of two values that exist to be compared broke the
+    deduplication they were for.
+
+- **A released artifact that crashed on any checker reading its resources.** `scripts/release.sh`
+  packaged `quality-gate` alone, and SwiftPM resolves bundles relative to the executable, so the
+  published tarball died with `Fatal error: unable to find bundle named
+  quality-gate-swift_ControlMapping`. `--check safety` works without them, which is how it
+  survived. The script packages every bundle now, then unpacks the result elsewhere and runs a
+  resource-reading checker before publishing.
+
+- **The README's install steps, executed for the first time.** They worked, and copied 40 of 44
+  resource bundles — on both platforms. The four left behind are not needed by the command the
+  README gives, so the shortfall passed as success. The smoke test asserts the counts match now
+  rather than printing them.
+
+- **`release.sh` reconciles the tag prefix and refuses a stale version literal.** Tags carry a
+  `v` and CHANGELOG sections do not, so its own precondition could not pass whichever form was
+  given. It compares the literal in `QualityGateCLI.swift` to the release being built, because
+  `release-readiness` checks CHANGELOG-against-tag parity without ever reading it — which is how
+  the binary reported 3.4.0 through a day of deploys past that tag.
+
+- **The git hooks warm the build and test caches before invoking the gate**, so a budget bounds
+  how long a check runs rather than how long 120 targets take to compile. They resolve
+  `quality-gate` through `PATH` too: anywhere other than one machine the hook found nothing at
+  its hardcoded path, printed "skipping" and exited 0 — so a repository with hooks installed was
+  not gated, and said so only in a line nobody reads.
+
+- **One test was 65% of the suite and asserted a tautology.** `ComplexityAnalyzer`'s advisory
+  test built a bare `Configuration()`, whose root falls back to the working directory, so it ran
+  the analyzer over all 659 files here — 667 seconds — to assert that an advisory checker is
+  advisory. Over a tree that may hold nothing complex, `.passed` is also what an analyzer that
+  found nothing returns, so it held either way. Scoped to a fixture built to score badly, it
+  asserts findings *and* a passing status. `MemoryLifecycleGuard` had the same shape, including an
+  unfalsifiable `.passed || .warning`. Suite: 1028s to 453s.
 
 - **A dependency's warning is not this package's, under `xcode-build` as under `build`.** The
   gate decided this on 2026-07-04 (`d91124a`): a warning in a dependency checkout does not count
@@ -55,6 +110,43 @@
   `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
 
 ### Added
+
+- **Linux is a supported platform, and the job that says so runs on every pull request.** The
+  README said "macOS only, today — Linux is not supported and not tested", on the grounds that
+  `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. The premise was true
+  and the conclusion was not: the toolchain ships the header, just not on the default include
+  path, so the build needs `-Xcxx -I/usr/lib/swift -Xcxx -I/usr/lib/swift/Block` rather than a
+  port of a C++ dependency. 130 failures to 13.
+  - **Both toolchains, deliberately.** 6.2 is the manifest's `swift-tools-version` and what the
+    README promises; 6.4 is what development runs. Neither is redundant — `ambiguous use of
+    'reversed()'` is legal in 6.4 and an error in 6.2, so a 6.4-only job would have reported the
+    same green the macOS gate did.
+  - **Pull requests, not just pushes.** The job began as `workflow_dispatch` only, reasoning that
+    a red X on a public repository about code quality trains readers to ignore the tick. Right
+    about the cost, wrong about the risk: nothing dispatched it, and `main` sat unbuildable on
+    Linux through fourteen merged pull requests, each with a green pre-push gate, because that
+    gate runs the local toolchain and the local toolchain compiled the line CI could not.
+
+- **`brew tap jpurnell/tap && brew install quality-gate`.** `packaging/homebrew/quality-gate.rb`
+  installs the artifacts `scripts/release.sh` publishes. `write_exec_script` rather than
+  `install_symlink`, because SwiftPM resolves a resource bundle relative to the running executable
+  and a symlink in `bin` leaves the executable path where the bundles are not. Its test compares
+  `--version` against the formula's own version, which makes it the only place a hand-written
+  version literal is checked against the tag that ships it.
+
+- **A committed Xcode scheme, and `scripts/install-xcode-phase.sh`.** Opening `Package.swift`
+  generated a scheme per contributor, none in the repository; the committed one builds the
+  executable alone rather than all 120 targets. The script adds a Run Script phase so findings
+  reach the issue navigator, through the `xcodeproj` gem and refusing without it — a malformed
+  project file is worse than an absent build phase. `development-guidelines`' `bootstrap.sh`
+  installs it for a new project, so nobody has to remember.
+
+- **`CheckerBudget`: a wall-clock budget derived from what the work last took.**
+  `ProcessRunner.run` defaults to 600s, which suits `git rev-parse` and was inherited by callers
+  running a whole test suite or a DocC build across 34 targets. The suite outgrew it — measured at
+  1028s — and every commit and push then failed at exactly 600.0s having produced no finding,
+  which reads as a hung tool rather than a budget. `test` and `doc-lint` size themselves from
+  their own history now. `StoreLocator` and `XcodeBuildChecker` still inherit the default.
 
 - **`dependency-advisory`: a pinned version with a published advisory is a finding.** Fourteen
   repositories in the portfolio pinned a version with a published advisory — `swift-nio` before
@@ -1486,6 +1578,15 @@
   `unasserted-optional-unwrap`, `hig.secure-field`. The registry exists so a mapping cannot cite
   a rule that does not exist; a registry that does not list a rule that *does* makes that rule
   unmappable, and nothing reported it because nothing had tried.
+
+### Known
+
+- **`build`'s warm-run verification is weaker on Linux.** Eleven `WarmBuildTests` cases fail
+  there, in the path that reads recorded diagnostics for units a build did not recompile. Three
+  explanations were tested and discarded: no output file map (225 are named in the manifest, 450
+  exist on disk), the paths not being double-quoted in llbuild's YAML (all 225 are), and the build
+  configuration not being threaded through (it is). The cause is not known, and is recorded as
+  unknown rather than given a label that would read as understanding.
 
 ## [3.4.0] - 2026-09-30
 
@@ -3860,7 +3961,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...v3.2.1
