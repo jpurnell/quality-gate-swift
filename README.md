@@ -46,8 +46,13 @@ swift build -c release
 # SwiftDeterminism_* and quality-gate-corpus-kit_*. A `quality-gate-swift_*` glob
 # copies 40 of 44 and the four it leaves behind are needed by checkers the
 # documented command happens not to run.
-sudo cp .build/release/quality-gate /usr/local/bin/
-sudo cp -R .build/release/*.bundle /usr/local/bin/
+# Ask SwiftPM where the products landed rather than assuming `.build/release`.
+# Swift 6.4 builds with the `swiftbuild` backend, which writes to `.build/out`;
+# on macOS `.build/release` survives as a symlink to it, on Linux it does not
+# exist at all. `--show-bin-path` is correct under either backend.
+BIN="$(swift build -c release --show-bin-path)"
+sudo cp "$BIN/quality-gate" /usr/local/bin/
+sudo cp -R "$BIN"/*.bundle /usr/local/bin/
 ```
 
 ### Linux
@@ -68,8 +73,15 @@ swift build -c release \
 
 # Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
 # `.resources` directories here, not `.bundle`. All of them, for the same reason.
-sudo cp .build/release/quality-gate /usr/local/bin/
-sudo cp -R .build/release/*.resources /usr/local/bin/
+# `--show-bin-path`, not `.build/release`. Swift 6.4 on Linux builds with the
+# `swiftbuild` backend and writes to `.build/out`, where this command's earlier
+# form failed outright: `cp: cannot stat '.build/release/*.resources'`. The
+# documented install was broken on the newer of the two supported toolchains.
+BIN="$(swift build -c release --show-bin-path \
+  -Xcxx -I/usr/lib/swift \
+  -Xcxx -I/usr/lib/swift/Block)"
+sudo cp "$BIN/quality-gate" /usr/local/bin/
+sudo cp -R "$BIN"/*.resources /usr/local/bin/
 ```
 
 Run the same way on both:
@@ -427,8 +439,11 @@ struct LegacyWrapper: @unchecked Sendable { ... }
 - name: Build Quality Gate
   run: swift build -c release
 
+# `--show-bin-path` for the same reason as the install steps above: under the
+# swiftbuild backend (Swift 6.4's default) products are in `.build/out`, and on
+# Linux no `.build/release` symlink exists to hide the difference.
 - name: Run Quality Gate
-  run: .build/release/quality-gate --format sarif > results.sarif
+  run: $(swift build -c release --show-bin-path)/quality-gate --format sarif > results.sarif
 
 - name: Upload SARIF
   uses: github/codeql-action/upload-sarif@v2

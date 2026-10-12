@@ -126,12 +126,24 @@ jobs:
         run: |
           set -e
           # The README says `sudo`; this container is root, where sudo may not exist.
-          cp .build/release/quality-gate /usr/local/bin/
-          cp -R .build/release/*.resources /usr/local/bin/
+          #
+          # `--show-bin-path`, not `.build/release`. On 6.4 this step failed with
+          # `cp: cannot stat '.build/release/*.resources'` — 6.4 builds with the
+          # swiftbuild backend and writes to `.build/out`, and on Linux there is no
+          # `.build/release` symlink to paper over the difference. A failed step skips
+          # every step after it, so this break also skipped the suite — the job reported
+          # zero failing tests because zero tests ran, which reads exactly like a pass
+          # if you count failures instead of checking that the tests happened.
+          BIN="$(swift build -c release --show-bin-path \
+            -Xcxx -I/usr/lib/swift \
+            -Xcxx -I/usr/lib/swift/Block)"
+          echo "--- products are at: $BIN"
+          cp "$BIN/quality-gate" /usr/local/bin/
+          cp -R "$BIN"/*.resources /usr/local/bin/
           echo "--- what landed in /usr/local/bin"
           ls /usr/local/bin | head -8
           copied=$(ls -d /usr/local/bin/*.resources 2>/dev/null | wc -l)
-          built=$(ls -d .build/release/*.resources 2>/dev/null | wc -l)
+          built=$(ls -d "$BIN"/*.resources 2>/dev/null | wc -l)
           echo "  resource bundles copied: $copied of $built built"
           # An assertion, not a report. The first version of these instructions copied
           # `quality-gate-swift_*` and left four bundles from the other packages behind; the
