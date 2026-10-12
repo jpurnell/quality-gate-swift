@@ -464,7 +464,7 @@ struct ArchiveExtractionTests {
         #expect(findings(result, rule).isEmpty)
         let override = try #require(result.overrides.first { $0.ruleId == rule })
         #expect(override.lineNumber == 4)
-        #expect(override.justification == "archives are produced by our own build step and signed before upload")
+        #expect(SuppressionRecord(override).reason == "archives are produced by our own build step and signed before upload")
     }
 
     @Test("A short acknowledgement is refused and the error stands", arguments: [

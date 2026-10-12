@@ -36,6 +36,9 @@ struct BoundedIOScan: Sendable {
     let sitesExamined: Int
     /// Sites carrying a reasoned `// Unbounded:` marker.
     let acknowledged: Int
+    /// One record per site in ``acknowledged``, so the reports can list what the coverage
+    /// note only counts.
+    var overrides: [DiagnosticOverride] = []
 
     /// The kernel this run measured against, named so a foreign repository's note is true.
     let kernelName: String
@@ -79,6 +82,7 @@ final class BoundedIOVisitor: SyntaxVisitor {
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var sitesExamined = 0
     private(set) var acknowledged = 0
+    private(set) var overrides: [DiagnosticOverride] = []
 
     init(fileName: String, converter: SourceLocationConverter, sourceLines: [String], isKernel: Bool, kernelName: String) {
         self.fileName = fileName
@@ -146,8 +150,15 @@ final class BoundedIOVisitor: SyntaxVisitor {
         // ways out would be deleting the rule or ignoring the colour. Aggregating keeps the
         // number in front of the reader on every run — which is the point — without making a
         // recorded decision indistinguishable from an unfixed defect.
-        guard !acknowledgement(above: location.line) else {
+        if let marker = acknowledgement(above: location.line) {
             acknowledged += 1
+            // The marker demands a reason and takes any: non-empty is all it checks. So the
+            // reason is judged here like every other unvalidated form, and a site whose
+            // reason is two words is counted as what it is.
+            overrides.append(.inlineMarker(
+                form: Self.acknowledgementForm, ruleId: ruleId, filePath: fileName,
+                findingLine: location.line, markerLine: marker.line, comment: marker.text,
+                reportOnly: true))
             return
         }
 
@@ -168,11 +179,15 @@ final class BoundedIOVisitor: SyntaxVisitor {
     /// the finding: `PluginRunner` arms a watchdog that terminates the child, which reads as
     /// bounding the run and does not bound the read, because a grandchild holding the inherited
     /// write end keeps the pipe open. No honest sentence describes that as bounded.
-    private func acknowledgement(above line: Int) -> Bool {
+    private func acknowledgement(above line: Int) -> InlineMarker.Location? {
         let index = line - 2   // 1-based line numbers, and we want the line above.
-        guard index >= 0, index < sourceLines.count else { return false }
+        guard index >= 0, index < sourceLines.count else { return nil }
         let text = sourceLines[index].trimmingCharacters(in: .whitespaces)
-        guard let range = text.range(of: "// Unbounded:") else { return false }
-        return !text[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty
+        guard let range = text.range(of: Self.acknowledgementForm),
+              !text[range.upperBound...].trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return InlineMarker.Location(line: line - 1, text: text)
     }
+
+    /// The marker that acknowledges a blocking primitive outside the kernel.
+    static let acknowledgementForm = "// Unbounded:"
 }

@@ -104,8 +104,11 @@ struct SecurityAcknowledgementTests {
                                     "\(rule) was silenced with no record of it")
         #expect(override.filePath == "test.swift")
         #expect(override.lineNumber == findingLine)
-        #expect(override.justification.contains("compile-time constant"))
-        #expect(!override.justification.contains("// SECURITY:"), "the marker is not the reason")
+        let record = SuppressionRecord(override)
+        #expect(record.reason.contains("compile-time constant"))
+        #expect(!record.reason.contains("// SECURITY:"), "the marker is not the reason")
+        #expect(record.form == "// SECURITY:")
+        #expect(record.kind == .acknowledged)
     }
 
     @Test("The same reason at two sites is accepted twice")

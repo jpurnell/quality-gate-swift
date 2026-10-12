@@ -243,8 +243,11 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         // extraction) — same rule, one implementation, composed per file.
         let cancellation = CancellationScan.scanSource(
             source, fileName: fileName, strict: cancellationCheckpointStrict)
+        // VigilKit returns a plain override for its `// concurrency:exempt` escape hatch; it
+        // is named here so the report can say which marker silenced the loop.
         return (visitor.diagnostics + cancellation.diagnostics,
-                visitor.overrides + cancellation.overrides)
+                visitor.overrides
+                    + cancellation.overrides.map { $0.classified(among: ["// concurrency:exempt"]) })
     }
 
     // MARK: - Pass 2 (index-backed)

@@ -78,7 +78,7 @@ struct GoldenReAuditTests {
         #expect(after.overrides.count == 1)
         let override = try #require(after.overrides.first)
         #expect(override.ruleId == "idiom.empty-count")
-        #expect(override.justification == "// idiom:exempt")
+        #expect(SuppressionRecord(override).form == "// idiom:exempt")
         #expect(override.lineNumber == 1)
     }
 
@@ -109,7 +109,7 @@ struct GoldenReAuditTests {
         #expect(after.overrides.count == 1)
         let override = try #require(after.overrides.first)
         #expect(override.ruleId == "smell.parameter-count")
-        #expect(override.justification == "// smell:exempt")
+        #expect(SuppressionRecord(override).form == "// smell:exempt")
         #expect(override.lineNumber == 1)
     }
 
@@ -142,7 +142,7 @@ struct GoldenReAuditTests {
         #expect(after.overrides.count == 1)
         let override = try #require(after.overrides.first)
         #expect(override.ruleId == "no-print")
-        #expect(override.justification == "// custom:exempt")
+        #expect(SuppressionRecord(override).form == "// custom:exempt")
         #expect(override.lineNumber == 1)
     }
 }

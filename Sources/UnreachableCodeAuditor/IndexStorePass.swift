@@ -38,7 +38,16 @@ struct IndexStorePass {
         }
     }
 
-    static func run(inputs: Inputs) async throws -> [Diagnostic] {
+    /// Runs the pass, returning the `// LIVE:` markers it honoured beside its findings.
+    ///
+    /// A `// LIVE:` declaration is made a root of the reachability graph. Whether it would
+    /// have been reported without the marker is not computed — that is a second traversal
+    /// from a different root set — so a record here says the declaration was *exempted from
+    /// the analysis*, which is what is known, and counts as one.
+    static func runRecordingMarkers(
+        inputs: Inputs
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        var liveRooted: [(file: String, line: Int)] = []
         var pathCache: [String: String] = [:]
         func canonicalize(_ path: String) -> String {
             if let cached = pathCache[path] { return cached }
@@ -136,6 +145,7 @@ struct IndexStorePass {
             if rec.targetType == "test" { roots.insert(usr); continue }
             // // LIVE: exemption → root.
             if liveness.hasLiveExemption(file: rec.defFile, line: rec.defLine) {
+                liveRooted.append((rec.defFile, rec.defLine))
                 roots.insert(usr); continue
             }
             // @objc / @IBAction / @_cdecl / @_silgen_name → root.
@@ -332,7 +342,25 @@ struct IndexStorePass {
             return (lhs.lineNumber ?? 0) < (rhs.lineNumber ?? 0)
         }
 
-        return diagnostics
+        // One record per marked declaration line, in a stable order. Several symbols can be
+        // defined on one line; the marker is one decision.
+        var seen: Set<String> = []
+        var overrides: [DiagnosticOverride] = []
+        for site in liveRooted.sorted(by: { ($0.file, $0.line) < ($1.file, $1.line) })
+        where seen.insert("\(site.file):\(site.line)").inserted
+            && !SourceWalker.isExcluded(path: site.file, patterns: inputs.excludePatterns) {
+            let onLine = liveness.lineText(file: site.file, line: site.line) ?? ""
+            let above = liveness.lineText(file: site.file, line: site.line - 1) ?? ""
+            let markerLine = onLine.contains("LIVE:") ? site.line : site.line - 1
+            let text = onLine.contains("LIVE:") ? onLine : above
+            let form = text.contains("// LIVE:") ? "// LIVE:" : "//LIVE:"
+            overrides.append(.inlineMarker(
+                form: form, ruleId: "unreachable.cross_module.unreachable_from_entry",
+                filePath: site.file, findingLine: site.line, markerLine: markerLine, comment: text,
+                reportOnly: true))
+        }
+
+        return (diagnostics, overrides)
     }
 
     // MARK: - Helpers

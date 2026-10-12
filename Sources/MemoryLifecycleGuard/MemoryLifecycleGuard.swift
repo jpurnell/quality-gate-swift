@@ -78,6 +78,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         var allStreamInfos: [LifecycleIndexPass.StreamCreationInfo] = []
 
         let result = auditFiles(scan.files, config: config)
+        let markerRecords = result.overrides
         allDiagnostics = result.diagnostics
         allTaskInfos = result.taskInfos
         allDelegateInfos = result.delegateInfos
@@ -121,6 +122,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: markerRecords,
             duration: duration
         )
     }
@@ -209,6 +211,33 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         let taskInfos: [LifecycleIndexPass.TaskPropertyInfo]
         let delegateInfos: [LifecycleIndexPass.DelegatePropertyInfo]
         let streamInfos: [LifecycleIndexPass.StreamCreationInfo]
+        /// What `lifecycle:exempt` silenced, measured against the syntactic pass.
+        var overrides: [DiagnosticOverride] = []
+    }
+
+    /// The marker that exempts a declaration or a loop from the lifecycle rules.
+    static let exemptionForm = "lifecycle:exempt"
+
+    /// The findings `lifecycle:exempt` silenced in one file.
+    ///
+    /// The visitor consults the marker while it is still collecting members, long before it
+    /// knows whether a rule would fire, so there is no point at which "this marker silenced
+    /// that finding" can be recorded as it happens. The file is therefore analysed a second
+    /// time with the marker blanked — only when it contains one — and what appears is what
+    /// the marker hid. Measured against the syntactic pass: the index pass can retract some
+    /// of these, so a record here may be for a finding pass 2 would have withdrawn.
+    static func markerRecords(
+        source: String, filePath: String, real: [Diagnostic], config: MemoryLifecycleConfig
+    ) -> [DiagnosticOverride] {
+        guard let shadowSource = MarkerShadow.neutralised(source, markers: [exemptionForm]) else {
+            return []
+        }
+        let tree = Parser.parse(source: shadowSource)
+        let shadow = LifecycleVisitor(filePath: filePath, source: shadowSource, config: config, tree: tree)
+        shadow.walk(tree)
+        return MarkerShadow.silenced(
+            real: real, shadow: shadow.diagnostics, form: exemptionForm,
+            sourceLines: source.lines, filePath: filePath)
     }
 
     /// Audits an already-scoped list of Swift files; the walk decides what the run owns.
@@ -226,6 +255,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
         var taskInfos: [LifecycleIndexPass.TaskPropertyInfo] = []
         var delegateInfos: [LifecycleIndexPass.DelegatePropertyInfo] = []
         var streamInfos: [LifecycleIndexPass.StreamCreationInfo] = []
+        var overrides: [DiagnosticOverride] = []
 
         for fullPath in paths {
             guard !fullPath.contains("Tests/") else { continue }
@@ -246,6 +276,8 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 )
                 visitor.walk(tree)
                 diagnostics.append(contentsOf: visitor.diagnostics)
+                overrides.append(contentsOf: Self.markerRecords(
+                    source: source, filePath: fullPath, real: visitor.diagnostics, config: config))
                 taskInfos.append(contentsOf: visitor.taskPropertyInfos)
                 delegateInfos.append(contentsOf: visitor.delegatePropertyInfos)
                 streamInfos.append(contentsOf: visitor.streamCreationInfos)
@@ -254,6 +286,8 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
                 continue
             }
         }
-        return AuditResult(diagnostics: diagnostics, taskInfos: taskInfos, delegateInfos: delegateInfos, streamInfos: streamInfos)
+        return AuditResult(
+            diagnostics: diagnostics, taskInfos: taskInfos, delegateInfos: delegateInfos,
+            streamInfos: streamInfos, overrides: overrides)
     }
 }

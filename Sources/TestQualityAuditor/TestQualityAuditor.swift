@@ -1164,12 +1164,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
             guard lineContent.contains("// TEST-QUALITY:"), lineContent.contains(ruleId) else {
                 continue
             }
-            return DiagnosticOverride(
-                ruleId: ruleId,
-                justification: lineContent.trimmingCharacters(in: .whitespaces),
-                filePath: fileName,
-                lineNumber: line
-            )
+            return .inlineMarker(
+                form: "// TEST-QUALITY:", ruleId: ruleId, filePath: fileName, findingLine: line,
+                markerLine: lineNum, comment: lineContent)
         }
 
         return fileScopedOverride(line: line, ruleId: ruleId)
@@ -1201,12 +1198,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
         guard let marker = fileScopedMarkers.first(where: { $0.contains(ruleId) }) else {
             return nil
         }
-        return DiagnosticOverride(
-            ruleId: ruleId,
-            justification: marker.trimmingCharacters(in: .whitespaces),
-            filePath: fileName,
-            lineNumber: line
-        )
+        return .inlineMarker(
+            form: Self.fileMarker, ruleId: ruleId, filePath: fileName, findingLine: line,
+            markerLine: sourceLines.firstIndex(of: marker).map { $0 + 1 }, comment: marker)
     }
 
     private func overrideIfExempted(line: Int, ruleId: String) -> DiagnosticOverride? {
@@ -1217,12 +1211,9 @@ private final class TestQualityVisitor: SyntaxVisitor {
             let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns {
                 if lineContent.contains(pattern) {
-                    return DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: lineContent.trimmingCharacters(in: .whitespaces),
-                        filePath: fileName,
-                        lineNumber: line
-                    )
+                    return .inlineMarker(
+                        form: pattern, ruleId: ruleId, filePath: fileName, findingLine: line,
+                        markerLine: lineNum, comment: lineContent)
                 }
             }
         }

@@ -162,16 +162,9 @@ final class AppStructureVisitor: SyntaxVisitor {
         for lineNum in linesToCheck {
             let content = sourceLines[lineNum - 1]
             if content.contains(HIGRules.exemptionPrefix) {
-                let justification = content
-                    .components(separatedBy: HIGRules.exemptionPrefix)
-                    .last?
-                    .trimmingCharacters(in: .whitespaces) ?? ""
-                return DiagnosticOverride(
-                    ruleId: ruleId,
-                    justification: justification,
-                    filePath: fileName,
-                    lineNumber: lineNum
-                )
+                return .inlineMarker(
+                    form: HIGRules.exemptionPrefix, ruleId: ruleId, filePath: fileName,
+                    findingLine: line, markerLine: lineNum, comment: content)
             }
         }
         return nil
@@ -358,16 +351,9 @@ final class NavigationPatternVisitor: SyntaxVisitor {
         for lineNum in linesToCheck {
             let content = sourceLines[lineNum - 1]
             if content.contains(HIGRules.exemptionPrefix) {
-                let justification = content
-                    .components(separatedBy: HIGRules.exemptionPrefix)
-                    .last?
-                    .trimmingCharacters(in: .whitespaces) ?? ""
-                return DiagnosticOverride(
-                    ruleId: HIGRules.navigationPattern.id,
-                    justification: justification,
-                    filePath: fileName,
-                    lineNumber: lineNum
-                )
+                return .inlineMarker(
+                    form: HIGRules.exemptionPrefix, ruleId: HIGRules.navigationPattern.id, filePath: fileName,
+                    findingLine: line, markerLine: lineNum, comment: content)
             }
         }
         return nil

@@ -208,8 +208,12 @@ struct SafetyAuditorTests {
         #expect(result.diagnostics.filter { $0.ruleId == "force-unwrap" }.isEmpty)
     }
 
-    @Test("SAFETY exemption does not create override record")
-    func safetyExemptionNoOverride() async throws {
+    // These two tests used to assert `result.overrides.isEmpty` under the names "SAFETY
+    // exemption does not create override record". They pinned the silence: a marker that
+    // switched a finding off and left nothing behind. They now pin the opposite.
+
+    @Test("A SAFETY exemption is recorded as an override")
+    func safetyExemptionIsRecorded() async throws {
         let code = """
         let value = optional! // SAFETY: Guaranteed non-nil by initialization
         """
@@ -217,7 +221,11 @@ struct SafetyAuditorTests {
         let result = try await auditCode(code)
 
         #expect(result.diagnostics.filter { $0.ruleId == "force-unwrap" }.isEmpty)
-        #expect(result.overrides.isEmpty)
+        let records = result.overrides.map(SuppressionRecord.init)
+        #expect(records.map(\.ruleId) == ["force-unwrap"])
+        #expect(records.map(\.form) == ["// SAFETY:"])
+        #expect(records.map(\.reason) == ["Guaranteed non-nil by initialization"])
+        #expect(records.map(\.kind) == [.suppressed])
     }
 
     @Test("Respects SAFETY exemption comment on previous line")
@@ -232,8 +240,8 @@ struct SafetyAuditorTests {
         #expect(result.diagnostics.filter { $0.ruleId == "force-cast" }.isEmpty)
     }
 
-    @Test("SAFETY exemption on previous line does not create override record")
-    func safetyExemptionPreviousLineNoOverride() async throws {
+    @Test("A SAFETY exemption on the previous line is recorded with both line numbers")
+    func safetyExemptionPreviousLineIsRecorded() async throws {
         let code = """
         // SAFETY: Required for UIKit callback
         let view = sender as! UIButton
@@ -241,7 +249,10 @@ struct SafetyAuditorTests {
 
         let result = try await auditCode(code)
 
-        #expect(result.overrides.isEmpty)
+        let records = result.overrides.map(SuppressionRecord.init)
+        #expect(records.map(\.ruleId) == ["force-cast"])
+        #expect(records.map(\.lineNumber) == [2])
+        #expect(records.map(\.markerLine) == [1])
     }
 
     @Test("Does not exempt without SAFETY comment")

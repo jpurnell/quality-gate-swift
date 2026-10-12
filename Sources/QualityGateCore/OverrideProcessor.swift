@@ -58,25 +58,51 @@ public struct OverrideProcessor: Sendable {
         // Skipped results pass through unchanged.
         guard result.status != .skipped else { return result }
 
+        // Every finding hidden or lowered here is recorded as it goes. `off` used to be a bare
+        // `return nil`, and a finding removed that way appeared in no output format at all.
+        var recorded: [DiagnosticOverride] = []
+        let alreadyRecorded = Set(result.overrides.map(RecordKey.init))
+        func record(_ override: DiagnosticOverride) {
+            // Idempotent: the transform this runs in may see a result twice (the consistency
+            // stage re-applies it), and a finding lowered to a note is still there to match.
+            if !alreadyRecorded.contains(RecordKey(override)) { recorded.append(override) }
+        }
+
         let processedDiagnostics = result.diagnostics.compactMap { diagnostic -> Diagnostic? in
             // Rule-based overrides first.
-            if let ruleId = diagnostic.ruleId, let override = resolveOverride(for: ruleId) {
+            if let ruleId = diagnostic.ruleId, let (key, override) = resolveOverride(for: ruleId) {
+                let target: Diagnostic.Severity?
                 switch override {
-                case .off:
-                    return nil
-                case .error:
-                    return withSeverity(.error, for: diagnostic)
-                case .warning:
-                    return withSeverity(.warning, for: diagnostic)
-                case .info:
-                    return withSeverity(.note, for: diagnostic)
+                case .off: target = nil
+                case .error: target = .error
+                case .warning: target = .warning
+                case .info: target = .note
                 }
+                // Only a lowering is a suppression. Raising a rule's severity hides nothing.
+                if target.map({ $0 < diagnostic.severity }) ?? true {
+                    let was = target == nil ? "" : " (was \(diagnostic.severity.rawValue))"
+                    record(.configuration(
+                        form: "config overrides: \(override.rawValue)",
+                        ruleId: ruleId,
+                        filePath: diagnostic.filePath,
+                        findingLine: diagnostic.lineNumber,
+                        entry: "overrides: \(key): \(override.rawValue)\(was)",
+                        reportOnly: true))
+                }
+                return target.map { withSeverity($0, for: diagnostic) }
             }
 
             // Vendor path demotion: demote warnings/errors to notes.
             if diagnostic.severity != .note,
                let filePath = diagnostic.filePath,
-               isVendorPath(filePath) {
+               let vendor = vendorPath(containing: filePath) {
+                record(.configuration(
+                    form: "config vendorPaths",
+                    ruleId: diagnostic.ruleId ?? "(no rule id)",
+                    filePath: filePath,
+                    findingLine: diagnostic.lineNumber,
+                    entry: "vendorPaths: \(vendor) (was \(diagnostic.severity.rawValue))",
+                    reportOnly: true))
                 return withSeverity(.note, for: diagnostic)
             }
 
@@ -89,16 +115,32 @@ public struct OverrideProcessor: Sendable {
             checkerId: result.checkerId,
             status: newStatus,
             diagnostics: processedDiagnostics,
-            overrides: result.overrides,
+            overrides: result.overrides + recorded,
+            complianceRecords: result.complianceRecords,
             duration: result.duration
         )
     }
 
     // MARK: - Private Helpers
 
-    /// Returns true if the file path falls under any configured vendor path.
-    private func isVendorPath(_ filePath: String) -> Bool {
-        vendorPaths.contains { vendor in
+    /// What makes two override records the same record.
+    private struct RecordKey: Hashable {
+        let ruleId: String
+        let justification: String
+        let filePath: String?
+        let lineNumber: Int?
+
+        init(_ override: DiagnosticOverride) {
+            ruleId = override.ruleId
+            justification = override.justification
+            filePath = override.filePath
+            lineNumber = override.lineNumber
+        }
+    }
+
+    /// The configured vendor path the file falls under, if any.
+    private func vendorPath(containing filePath: String) -> String? {
+        vendorPaths.first { vendor in
             filePath.contains("/\(vendor)/")
         }
     }
@@ -107,11 +149,12 @@ public struct OverrideProcessor: Sendable {
     /// over wildcard patterns.
     ///
     /// - Parameter ruleId: The diagnostic's rule identifier.
-    /// - Returns: The matching override, or nil if none applies.
-    private func resolveOverride(for ruleId: String) -> SeverityOverride? {
+    /// - Returns: The matching override and the key it was written under, or nil if none
+    ///   applies.
+    private func resolveOverride(for ruleId: String) -> (key: String, override: SeverityOverride)? {
         // Exact match takes precedence.
         if let exact = overrides[ruleId] {
-            return exact
+            return (ruleId, exact)
         }
 
         // Try wildcard: split on first "." and check for "prefix.*".
@@ -119,7 +162,7 @@ public struct OverrideProcessor: Sendable {
             let prefix = String(ruleId[ruleId.startIndex..<dotIndex])
             let wildcardKey = "\(prefix).*"
             if let wildcard = overrides[wildcardKey] {
-                return wildcard
+                return (wildcardKey, wildcard)
             }
         }
 
@@ -140,7 +183,9 @@ public struct OverrideProcessor: Sendable {
             lineNumber: diagnostic.lineNumber,
             columnNumber: diagnostic.columnNumber,
             ruleId: diagnostic.ruleId,
-            suggestedFix: diagnostic.suggestedFix
+            suggestedFix: diagnostic.suggestedFix,
+            origin: diagnostic.origin,
+            endLine: diagnostic.endLine
         )
     }
 

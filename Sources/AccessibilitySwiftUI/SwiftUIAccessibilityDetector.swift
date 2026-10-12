@@ -852,12 +852,9 @@ final class SwiftUIAccessibilityVisitor: SyntaxVisitor {
             let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns {
                 if lineContent.contains(pattern) {
-                    return DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: lineContent.trimmingCharacters(in: .whitespaces),
-                        filePath: fileName,
-                        lineNumber: line
-                    )
+                    return .inlineMarker(
+                        form: pattern, ruleId: ruleId, filePath: fileName, findingLine: line,
+                        markerLine: lineNum, comment: lineContent)
                 }
             }
         }

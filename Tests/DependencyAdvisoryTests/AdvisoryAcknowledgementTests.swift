@@ -38,13 +38,14 @@ struct AdvisoryAcknowledgementTests {
         ])
 
         #expect(outcome.findings.isEmpty)
-        #expect(outcome.overrides == [
-            DiagnosticOverride(
-                ruleId: "dep-advisory.vulnerable-pin",
-                justification: "GHSA-g454-wj9r-jpg4 on github.com/marmelroy/Zip, acknowledged until 2027-01-01: "
-                    + Self.reason,
-                filePath: "Package.resolved",
-                lineNumber: 7),
+        #expect(outcome.overrides.map(SuppressionRecord.init) == [
+            SuppressionRecord(
+                kind: .acknowledged, source: .configuration,
+                form: "dependencyAudit.acknowledgedAdvisories", validator: "advisory-acknowledgement",
+                rejection: nil, ruleId: "dep-advisory.vulnerable-pin", filePath: "Package.resolved",
+                lineNumber: 7, markerLine: nil,
+                reason: "GHSA-g454-wj9r-jpg4 on github.com/marmelroy/Zip, acknowledged until 2027-01-01: "
+                    + Self.reason),
         ])
         #expect(outcome.status == .passed)
         #expect(outcome.diagnostics.last?.message.contains("1 affected by 1 advisory · 1 acknowledged") == true)

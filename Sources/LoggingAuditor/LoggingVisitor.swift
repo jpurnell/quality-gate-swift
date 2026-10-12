@@ -136,8 +136,8 @@ final class LoggingVisitor: SyntaxVisitor {
                 hasPrintOrNSLog = true
                 if !isCLI {
                     let line = startLine(of: Syntax(node))
-                    if isExempted(line: line, keyword: "logging:") {
-    
+                    if isExempted(line: line, keyword: "logging:", ruleId: "logging.print-statement") {
+                        // Silenced, and recorded as silenced by `isExempted`.
                     } else {
                         diagnostics.append(Diagnostic(
                             severity: .error,
@@ -198,14 +198,14 @@ final class LoggingVisitor: SyntaxVisitor {
             return
         }
 
-        if isExempted(line: line, keyword: "logging:") {
-
-            return
-        }
-
         let segments = argText.components(separatedBy: "\\(")
         for segment in segments.dropFirst() {
             if !segment.contains("privacy:") {
+                // Asked only once a finding exists, so a marker beside a call that is already
+                // annotated is not recorded as having silenced anything.
+                if isExempted(line: line, keyword: "logging:", ruleId: "logging.missing-privacy") {
+                    return
+                }
                 diagnostics.append(Diagnostic(
                     severity: .warning,
                     message: "Logger call contains interpolation without privacy: annotation",
@@ -249,8 +249,7 @@ final class LoggingVisitor: SyntaxVisitor {
               node.arguments.isEmpty else { return }
 
         let line = startLine(of: Syntax(node))
-        if isExempted(line: line, keyword: "logging:") {
-
+        if isExempted(line: line, keyword: "logging:", ruleId: "logging.bare-logger-init") {
             return
         }
 
@@ -318,8 +317,7 @@ final class LoggingVisitor: SyntaxVisitor {
         }
 
         let line = startLine(of: Syntax(node))
-        if isExempted(line: line, keyword: "logging:") {
-
+        if isExempted(line: line, keyword: "logging:", ruleId: "logging.catch-without-logging") {
             return .visitChildren
         }
 
@@ -385,14 +383,15 @@ final class LoggingVisitor: SyntaxVisitor {
             }
         }
 
-        // Check for suppression comment
-        if isExempted(line: line, keyword: silentTryKeyword) {
-
+        // Adjacent logging first (within +/- 2 lines): it is why the finding does not exist,
+        // so a marker that happens to sit beside it silenced nothing and must not be
+        // recorded as having silenced something.
+        if hasAdjacentLogging(line: line) {
             return .visitChildren
         }
 
-        // Check for adjacent logging call (within +/- 2 lines)
-        if hasAdjacentLogging(line: line) {
+        // Check for suppression comment
+        if isExempted(line: line, keyword: silentTryKeyword, ruleId: "logging.silent-try") {
             return .visitChildren
         }
 
@@ -412,8 +411,8 @@ final class LoggingVisitor: SyntaxVisitor {
 
     override func visitPost(_ node: SourceFileSyntax) {
         if hasPrintOrNSLog && !hasOSImport && !isCLI {
-            if isExempted(line: 1, keyword: "logging:") {
-                // Exempted — suppress without override record
+            if isExempted(line: 1, keyword: "logging:", ruleId: "logging.no-os-logger-import") {
+                // Silenced, and recorded as silenced by `isExempted`.
             } else {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
@@ -434,21 +433,32 @@ final class LoggingVisitor: SyntaxVisitor {
         return location.line
     }
 
-    private func isExempted(line: Int, keyword: String) -> Bool {
-        let index0 = line - 1
-        if index0 >= 0, index0 < sourceLines.count,
-           sourceLines[index0].contains("// \(keyword)") {
-            return true
+    /// Whether a marker silences the finding at `line` — and, when one does, records that it
+    /// did.
+    ///
+    /// This returned a bare `Bool` from June 2026, when a commit titled "Eliminate all
+    /// override records" made the logging and concurrency checkers suppress without a trace
+    /// so that the override count would read zero. It read zero. Every `// silent:` and
+    /// `// logging:` in the portfolio — 388 of them when they were next counted — went on
+    /// silencing findings while the summary said nothing had been silenced. The record is
+    /// the point: call this only where the finding would otherwise be raised.
+    ///
+    /// - Parameters:
+    ///   - line: The 1-based line the finding would be reported at.
+    ///   - keyword: The marker keyword, without its `//`.
+    ///   - ruleId: The rule being silenced.
+    /// - Returns: `true` when the line or the one above carries the marker.
+    private func isExempted(line: Int, keyword: String, ruleId: String) -> Bool {
+        let form = "// \(keyword)"
+        guard let marker = InlineMarker.find(form, nearLine: line, in: sourceLines) else {
+            return false
         }
-        let prev = index0 - 1
-        if prev >= 0, prev < sourceLines.count,
-           sourceLines[prev].contains("// \(keyword)") {
-            return true
-        }
-        return false
+        overrides.append(.inlineMarker(
+            form: form, ruleId: ruleId, filePath: fileName, findingLine: line,
+            markerLine: marker.line, comment: marker.text, reportOnly: true))
+        return true
     }
 
-    /// Checks if any line within +/- 2 lines contains a logging call.
     private func hasAdjacentLogging(line: Int) -> Bool {
         let index0 = line - 1
         let range = max(0, index0 - 2)...min(sourceLines.count - 1, index0 + 2)

@@ -135,11 +135,9 @@ public struct CustomRulesChecker: QualityChecker, Sendable {
                 let range = NSRange(line.startIndex..., in: line)
                 guard regex.firstMatch(in: line, options: [], range: range) != nil else { continue }
                 if line.contains("// custom:exempt") {
-                    overrides.append(DiagnosticOverride(
-                        ruleId: rule.id,
-                        justification: "// custom:exempt",
-                        filePath: file,
-                        lineNumber: index + 1))
+                    overrides.append(.inlineMarker(
+                        form: "// custom:exempt", ruleId: rule.id, filePath: file,
+                        findingLine: index + 1, markerLine: index + 1, comment: line))
                     continue
                 }
                 diagnostics.append(Diagnostic(

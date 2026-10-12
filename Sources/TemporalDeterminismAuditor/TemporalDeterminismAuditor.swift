@@ -78,7 +78,7 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: scan.findings.diagnostics,
-            overrides: scan.findings.overrides,
+            overrides: Self.classified(scan.findings.overrides),
             duration: duration
         )
     }
@@ -107,8 +107,20 @@ public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: findings.diagnostics,
-            overrides: findings.overrides,
+            overrides: Self.classified(findings.overrides),
             duration: duration
         )
+    }
+
+    /// The markers `VigilKit`'s wall-clock scan honours.
+    static let markerForms = ["// temporal:exempt", "// TIMING:"]
+
+    /// Names the marker behind each override the scan returns.
+    ///
+    /// The scan lives in `VigilKit` and returns the published override type, whose
+    /// justification is the marked line. Naming the form here is what lets a report say
+    /// `// TIMING:` rather than "unclassified".
+    static func classified(_ overrides: [DiagnosticOverride]) -> [DiagnosticOverride] {
+        overrides.map { $0.classified(among: markerForms) }
     }
 }

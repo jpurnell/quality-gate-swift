@@ -300,7 +300,7 @@ struct XMLEntityTests {
         let recorded = result.overrides.filter { $0.ruleId == Self.external || $0.ruleId == Self.expansion }
         #expect(recorded.map(\.ruleId).sorted() == [Self.expansion, Self.external])
         #expect(recorded.allSatisfy { $0.lineNumber == 4 })
-        #expect(recorded.allSatisfy { $0.justification == "bundled resource compiled into the app, never user input" })
+        #expect(recorded.allSatisfy { SuppressionRecord($0).reason == "bundled resource compiled into the app, never user input" })
     }
 
     @Test("a short acknowledgement is rejected and the error stands")

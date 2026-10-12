@@ -352,12 +352,10 @@ extension FallbackVisitor {
                     suggestedFix: "Say why '\(claim.display)' is the right answer here, or remove the marker."
                 ))
             } else {
-                overrides.append(DiagnosticOverride(
-                    ruleId: FallbackRuleID.guardReturnsAValue,
-                    justification: reason,
-                    filePath: filePath,
-                    lineNumber: location.line
-                ))
+                overrides.append(.inlineMarker(
+                    form: Self.justificationMarker, ruleId: FallbackRuleID.guardReturnsAValue,
+                    filePath: filePath, findingLine: location.line, markerLine: location.line - 1,
+                    comment: reason))
                 return
             }
         }

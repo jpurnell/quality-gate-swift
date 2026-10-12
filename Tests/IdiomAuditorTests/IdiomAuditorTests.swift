@@ -796,7 +796,7 @@ struct ExemptionAndSeverityTests {
         #expect(audit.overrides.count == 1)
         let override = try #require(audit.overrides.first)
         #expect(override.ruleId == "idiom.empty-count")
-        #expect(override.justification == "// idiom:exempt")
+        #expect(SuppressionRecord(override).form == "// idiom:exempt")
         #expect(override.filePath == "fixture.swift")
         #expect(override.lineNumber == 1)
     }

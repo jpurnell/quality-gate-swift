@@ -444,6 +444,14 @@ overrides:
 
 ## Exemptions
 
+Every marker that silences a finding is recorded, and the summary says how many were
+**acknowledged** (the reason was validated: eight words or more, not a stock phrase, not
+pasted down the file) and how many were **suppressed** (it was not), beside the count on the
+decaying baseline. `--format json` lists each one. Nothing new gates by default; set
+`suppressions: warn` or `error` once a repository's suppressed count is zero. The forms, and
+which of them the gate validates itself, are in
+[GUIDE.md](GUIDE.md#acknowledgements-are-not-suppressions).
+
 Suppress specific warnings with inline comments:
 
 ```swift

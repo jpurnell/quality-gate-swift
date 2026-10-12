@@ -203,7 +203,7 @@ struct SmellPackTests {
         #expect(result.overrides.count == 1)
         let override = try #require(result.overrides.first)
         #expect(override.ruleId == "smell.parameter-count")
-        #expect(override.justification == "// smell:exempt")
+        #expect(SuppressionRecord(override).form == "// smell:exempt")
         #expect(override.filePath == "/fixtures/Fixture.swift")
         #expect(override.lineNumber == 1)
     }
@@ -289,7 +289,7 @@ struct SmellPackTests {
         #expect(result.overrides.count == 1)
         let override = try #require(result.overrides.first)
         #expect(override.ruleId == "smell.parameter-count")
-        #expect(override.justification == "// smell:exempt")
+        #expect(SuppressionRecord(override).form == "// smell:exempt")
         #expect(override.lineNumber == 19)
     }
 }

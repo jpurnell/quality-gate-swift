@@ -10,6 +10,8 @@ final class ContextVisitor: SyntaxVisitor {
     let source: String
     let sourceLines: [String]
     var diagnostics: [Diagnostic] = []
+    /// Findings an annotation comment answered in place of a guard.
+    var overrides: [DiagnosticOverride] = []
 
     private var functionBodyStack: [FunctionScope] = []
 
@@ -108,6 +110,11 @@ final class ContextVisitor: SyntaxVisitor {
 
     private func checkMissingConsentGuard(for node: some SyntaxProtocol) {
         if let bodyText = currentFunctionBody(), hasConsentGuard(in: bodyText) {
+            // The annotation is recorded only when it is the reason the rule is quiet: a
+            // function that also has a real permission check was never going to be reported.
+            if !hasConsentGuard(in: Self.blanking("CONSENT:", in: bodyText)) {
+                recordAnnotation("CONSENT:", in: bodyText, node: node, ruleId: "context.missing-consent-guard")
+            }
             return
         }
 
@@ -150,6 +157,9 @@ final class ContextVisitor: SyntaxVisitor {
 
     private func checkUnguardedAnalytics(for node: some SyntaxProtocol) {
         if let bodyText = currentFunctionBody(), hasAnalyticsGuard(in: bodyText) {
+            if !hasAnalyticsGuard(in: Self.blanking("ANALYTICS:", in: bodyText)) {
+                recordAnnotation("ANALYTICS:", in: bodyText, node: node, ruleId: "context.unguarded-analytics")
+            }
             return
         }
 
@@ -187,6 +197,7 @@ final class ContextVisitor: SyntaxVisitor {
         guard hasPrediction && hasDenial else { return }
 
         if bodyText.contains("REVIEWED:") {
+            recordAnnotation("REVIEWED:", in: bodyText, node: node, ruleId: "context.automated-decision-without-review")
             return
         }
 
@@ -209,6 +220,7 @@ final class ContextVisitor: SyntaxVisitor {
 
     private func checkSurveillancePattern(for node: some SyntaxProtocol) {
         if let bodyText = currentFunctionBody(), bodyText.contains("DISCLOSURE:") {
+            recordAnnotation("DISCLOSURE:", in: bodyText, node: node, ruleId: "context.surveillance-pattern")
             return
         }
 
@@ -231,5 +243,28 @@ final class ContextVisitor: SyntaxVisitor {
 
     private func currentFunctionBody() -> String? {
         functionBodyStack.last?.bodyText
+    }
+
+    /// `bodyText` with an annotation keyword overwritten, to ask what the rule says without it.
+    private static func blanking(_ annotation: String, in bodyText: String) -> String {
+        bodyText.replacingOccurrences(
+            of: annotation, with: String(repeating: "_", count: annotation.count))
+    }
+
+    /// Records that an annotation comment, rather than code, is why a rule did not report.
+    ///
+    /// The four annotations — `CONSENT:`, `ANALYTICS:`, `REVIEWED:`, `DISCLOSURE:` — are
+    /// matched anywhere in the enclosing function's text, and until now left no trace: the
+    /// rule simply did not fire. Each takes a justification that nothing checks, so the
+    /// reason is judged like any other unvalidated form.
+    private func recordAnnotation(
+        _ annotation: String, in bodyText: String, node: some SyntaxProtocol, ruleId: String
+    ) {
+        let location = node.startLocation(converter: converter)
+        let comment = bodyText.lines.first { $0.contains(annotation) } ?? annotation
+        overrides.append(.inlineMarker(
+            form: "// \(annotation)", ruleId: ruleId, filePath: fileName, findingLine: location.line,
+            markerLine: nil, comment: InlineMarker.reason(in: comment, after: annotation),
+            reportOnly: true))
     }
 }

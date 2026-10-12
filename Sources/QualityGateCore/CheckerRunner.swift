@@ -166,10 +166,16 @@ public struct CheckerRunner: Sendable {
                 message: "Replayed from cache: this checker did not run\(when). Every finding below is from that run, as are any coverage or timing figures. Re-run with --no-cache to recompute them.",
                 ruleId: "cache.replayed"
             ), at: 0)
+            // Every field, not four of six. `overrides` and `complianceRecords` were the
+            // two left out, so what a run had been told not to raise was listed on the run
+            // that filled the cache and missing from every replay of it — the suppression
+            // totals were a function of whether the cache was warm.
             return CheckResult(
                 checkerId: result.checkerId,
                 status: result.status,
                 diagnostics: diagnostics,
+                overrides: result.overrides,
+                complianceRecords: result.complianceRecords,
                 duration: result.duration
             )
         }

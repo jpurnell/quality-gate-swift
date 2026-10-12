@@ -72,6 +72,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: result.status,
             diagnostics: result.diagnostics,
+            overrides: result.overrides,
             duration: duration
         )
     }
@@ -105,6 +106,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         var allDeclarations: [DeclarationInfo] = []
         var allDiagnostics: [Diagnostic] = []
         var pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)] = []
+        var allOverrides: [DiagnosticOverride] = []
+        var pendingSuppressions: [(signature: Signature, override: DiagnosticOverride)] = []
         var signatureDiscriminators: [Signature: Set<TypeDiscriminator>] = [:]
         for entry in sources {
             let analysis = analyzeFile(
@@ -115,6 +118,8 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             allDeclarations.append(contentsOf: analysis.declarations)
             allDiagnostics.append(contentsOf: analysis.diagnostics)
             pendingSelfCalls.append(contentsOf: analysis.pendingSelfCalls)
+            allOverrides.append(contentsOf: analysis.overrides)
+            pendingSuppressions.append(contentsOf: analysis.pendingSuppressions)
             for (signature, discriminators) in analysis.signatureDiscriminators {
                 signatureDiscriminators[signature, default: []].formUnion(discriminators)
             }
@@ -125,19 +130,26 @@ public struct RecursionAuditor: QualityChecker, Sendable {
         // spans files, and swift-collections declares `_ptr(at:)` for `Bucket` in one
         // file and for `Int` in another. Deciding per file reported the first as
         // recursion because it could not see the second.
-        for pending in pendingSelfCalls {
+        func isOverloaded(_ signature: Signature) -> Bool {
             // Widen to overloads reachable by conformance: a default in `extension
             // SchemaType` can be calling a member of `extension QueryType`.
-            var visible = signatureDiscriminators[pending.signature] ?? []
+            var visible = signatureDiscriminators[signature] ?? []
             for ancestor in inheritedClosure(
-                of: pending.signature.typeContext, in: protocolGraph.inherits
+                of: signature.typeContext, in: protocolGraph.inherits
             ) {
                 let inherited = Signature(
-                    typeContext: ancestor, displayName: pending.signature.displayName)
+                    typeContext: ancestor, displayName: signature.displayName)
                 visible.formUnion(signatureDiscriminators[inherited] ?? [])
             }
-            let isOverloaded = visible.count > 1
-            allDiagnostics.append(isOverloaded ? pending.unresolved : pending.confident)
+            return visible.count > 1
+        }
+        for pending in pendingSelfCalls {
+            allDiagnostics.append(isOverloaded(pending.signature) ? pending.unresolved : pending.confident)
+        }
+        // A marker is recorded where it silenced the confident finding. On an overloaded
+        // signature there was only ever a note, and a marker beside a note silenced nothing.
+        for pending in pendingSuppressions where !isOverloaded(pending.signature) {
+            allOverrides.append(pending.override)
         }
 
         // Pass 1: Project-wide mutual cycle detection (name-based, rule 8).
@@ -201,6 +213,7 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: allOverrides,
             duration: duration
         )
     }
@@ -242,7 +255,9 @@ public struct RecursionAuditor: QualityChecker, Sendable {
             diagnostics: visitor.diagnostics,
             declarations: visitor.declarations,
             pendingSelfCalls: visitor.pendingSelfCalls,
-            signatureDiscriminators: visitor.signatureDiscriminators
+            signatureDiscriminators: visitor.signatureDiscriminators,
+            overrides: visitor.overrides,
+            pendingSuppressions: visitor.pendingSuppressions
         )
     }
 
@@ -593,4 +608,8 @@ struct FileAnalysis {
     let pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)]
     /// How many implementations of each signature this file contributes.
     let signatureDiscriminators: [Signature: Set<TypeDiscriminator>]
+    /// Findings a `// recursion:safe` marker silenced outright.
+    let overrides: [DiagnosticOverride]
+    /// Self-call findings a marker would silence, awaiting the same census.
+    let pendingSuppressions: [(signature: Signature, override: DiagnosticOverride)]
 }

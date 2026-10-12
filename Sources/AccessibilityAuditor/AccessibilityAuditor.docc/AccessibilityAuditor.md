@@ -52,7 +52,7 @@ safety_exemptions:
   - "// SAFETY:"
 ```
 
-A `// SAFETY:` comment on the same line or the line above a flagged expression suppresses that diagnostic and records a `DiagnosticOverride` in the result. The comment must explain why the violation is intentional.
+A `// SAFETY:` comment on the same line or the line above a flagged expression suppresses that diagnostic and records a `DiagnosticOverride` in the result. The comment should explain why the violation is intentional: nothing enforces that here, so the reason is judged when the run is reported, and one of fewer than eight words — or a stock phrase, or the sentence already used on another marker in the file — is counted as a *suppression* rather than an *acknowledgement*.
 
 ### Out of scope
 

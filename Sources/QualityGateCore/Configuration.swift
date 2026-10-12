@@ -2139,6 +2139,13 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// silently running old rules (Phase 0.6). nil means no pin.
     public var minimumGateVersion: String?
 
+    /// What the run does about a finding silenced without a validated reason.
+    ///
+    /// `note` — the default — counts and lists them. `warn` and `error` turn each into a
+    /// `gate.unvalidated-suppression` finding, so a repository that has reached zero can
+    /// keep it. See ``SuppressionPolicy`` for why the default does not gate.
+    public var suppressions: SuppressionPolicy
+
     /// Keys the file set that this version does not define, recorded during decoding.
     ///
     /// Transient and deliberately outside `CodingKeys`: it describes *this read* of the
@@ -2206,9 +2213,11 @@ public struct Configuration: Sendable, Codable, Equatable {
         privacyManifest: PrivacyManifestConfig = PrivacyManifestConfig(),
         docCode: DocCodeConfig = DocCodeConfig(),
         docGenerated: DocGeneratedConfig = DocGeneratedConfig(),
-        minimumGateVersion: String? = nil
+        minimumGateVersion: String? = nil,
+        suppressions: SuppressionPolicy = .note
     ) {
         self.minimumGateVersion = minimumGateVersion
+        self.suppressions = suppressions
         self.parallelWorkers = parallelWorkers
         self.excludePatterns = excludePatterns
         self.vendorPaths = vendorPaths
@@ -2300,8 +2309,41 @@ public struct Configuration: Sendable, Codable, Equatable {
             // written down and then quietly replaced by a default is the silence the key
             // exists to end, so this one error keeps its type and stops the run.
             if let refusal = Self.budgetRefusal(in: error) { throw refusal }
-            throw QualityGateError.configurationError("Invalid YAML: \(error.localizedDescription)")
+            throw QualityGateError.configurationError(Self.describe(decodingFailure: error))
         }
+    }
+
+    /// Says which key a decoding failure is about, and what was wrong with it.
+    ///
+    /// `DecodingError.localizedDescription` is "The data couldn't be read because it isn't in
+    /// the correct format." for every failure there is. That was survivable while an
+    /// unreadable configuration was replaced by defaults and the message went to a log; now
+    /// that it stops the run, the message is the whole of what the reader has to go on, so
+    /// it names the key path and repeats what the decoder said about it.
+    ///
+    /// - Parameter error: What `YAMLDecoder` threw.
+    /// - Returns: A one-line description naming the key where the decoder supplied one.
+    static func describe(decodingFailure error: any Error) -> String {
+        guard let decoding = error as? DecodingError else {
+            return "Invalid YAML: \(error.localizedDescription)"
+        }
+        let context: DecodingError.Context
+        let problem: String
+        switch decoding {
+        case .typeMismatch(let type, let found):
+            (context, problem) = (found, "is not a \(type)")
+        case .valueNotFound(let type, let found):
+            (context, problem) = (found, "has no value where a \(type) is required")
+        case .keyNotFound(let key, let found):
+            (context, problem) = (found, "is missing the required key `\(key.stringValue)`")
+        case .dataCorrupted(let found):
+            (context, problem) = (found, "has a value the schema does not accept")
+        @unknown default:
+            return "Invalid YAML: \(error.localizedDescription)"
+        }
+        let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+        let subject = path.isEmpty ? "the document" : "`\(path)`"
+        return "\(subject) \(problem) — \(context.debugDescription)"
     }
 
     /// The refused `budgets:` entry behind a decoding failure, if that is what it was.
@@ -2403,6 +2445,7 @@ extension Configuration {
         case docCode = "doc-code"
         case docGenerated = "doc-generated"
         case minimumGateVersion
+        case suppressions
     }
 
     /// Creates a configuration by decoding from the given decoder.
@@ -2492,5 +2535,6 @@ extension Configuration {
         docCode = try container.decodeIfPresent(DocCodeConfig.self, forKey: .docCode) ?? DocCodeConfig()
         docGenerated = try container.decodeIfPresent(DocGeneratedConfig.self, forKey: .docGenerated) ?? DocGeneratedConfig()
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)
+        suppressions = try container.decodeIfPresent(SuppressionPolicy.self, forKey: .suppressions) ?? .note
     }
 }

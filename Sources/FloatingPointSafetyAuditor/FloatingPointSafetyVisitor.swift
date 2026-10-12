@@ -901,15 +901,10 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         let line = location.line
         let column = location.column
 
-        if let justification = suppressionJustification(forLine: line) {
-            overrides.append(
-                DiagnosticOverride(
-                    ruleId: ruleId,
-                    justification: justification,
-                    filePath: filePath,
-                    lineNumber: line
-                )
-            )
+        if let marker = suppressionMarker(forLine: line) {
+            overrides.append(.inlineMarker(
+                form: marker.form, ruleId: ruleId, filePath: filePath, findingLine: line,
+                markerLine: marker.line, comment: marker.text))
             return
         }
 
@@ -935,13 +930,13 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     /// reach downward from a trailing marker: several hundred sites in consumer
     /// projects carry an inline `// fp-safety:disable`, and letting those bleed
     /// onto the next line would silently suppress code nobody examined.
-    private func suppressionJustification(forLine line: Int) -> String? {
+    private func suppressionMarker(forLine line: Int) -> (form: String, line: Int, text: String)? {
         let lineIndex = line - 1
         guard lineIndex >= 0, lineIndex < sourceLines.count else { return nil }
 
         let ownLine = sourceLines[lineIndex]
         for marker in suppressionMarkers where ownLine.contains(marker) {
-            return ownLine.trimmingCharacters(in: .whitespaces)
+            return (marker, line, ownLine)
         }
 
         let aboveIndex = lineIndex - 1
@@ -949,7 +944,7 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         let above = sourceLines[aboveIndex].trimmingCharacters(in: .whitespaces)
         guard above.hasPrefix("//") else { return nil }
         for marker in suppressionMarkers where above.contains(marker) {
-            return above
+            return (marker, line - 1, above)
         }
 
         return nil

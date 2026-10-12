@@ -177,7 +177,7 @@ struct ServerSurfaceReleaseRuleTests {
             of: "    let transport", with: "    \(Self.reason)\n    let transport"))
         #expect(findings(outcome, Self.auth).isEmpty)
         #expect(outcome.overrides.map(\.ruleId) == [Self.auth])
-        #expect(outcome.overrides.map(\.justification) == [
+        #expect(outcome.overrides.map { SuppressionRecord($0).reason } == [
             "bound to loopback and reached only through the nginx proxy, which authenticates",
         ])
         #expect(findings(outcome, Self.coverage).map { $0.message.hasSuffix(" · 1 acknowledged") } == [true])

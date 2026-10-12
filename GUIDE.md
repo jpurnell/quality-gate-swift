@@ -227,6 +227,94 @@ safetyExemptions:
   - "// REVIEWED:"
 ```
 
+### Acknowledgements are not suppressions
+
+Every marker and every configuration entry that keeps a finding from gating is **recorded**,
+and each record says which of two things it is:
+
+- **acknowledged** — the reason was validated: at least eight words, not a stock phrase
+  (`safe`, `needed`, `legacy`, `temporary`, …), and not the same sentence as another marker in
+  the same file. That is a decision somebody made and wrote down.
+- **suppressed** — the reason was absent, too short, generic or pasted, or the silencing was
+  done in configuration, which has no place to state one. That is a finding switched off.
+
+The summary keeps them apart, with the decaying baseline as a third number:
+
+```
+   Silenced findings: 12 acknowledged (reason validated) · 31 suppressed (not validated) · 4 baselined
+     suppressed by form: // silent: 20 · // SAFETY: 9 · config overrides: off 2
+     acknowledged by form: // SECURITY: 7 · // Justification: 5
+     by checker: logging 20 suppressed · safety 12 acknowledged, 9 suppressed · fp-safety 4 baselined
+     ℹ️  note: 31 suppressed finding(s) do not gate (suppressions: note). Set `suppressions: warn` in .quality-gate.yml to gate on them; --format json lists each one.
+   Exclusions in force (what they hid is not measured):
+     excludePatterns — 1 pattern(s) matched 14 .swift file(s); they were not audited
+```
+
+`--format json` carries the same totals under `summary.suppressions` (overall, `byChecker`,
+by form, the `policy`, the `exclusions`) and lists every record under each result's
+`suppressions`: `kind`, `source`, `form`, `ruleId`, `filePath`, `lineNumber` (the finding),
+`markerLine` (the comment), `reason`, and either `validator` or `rejection`. The totals are
+the same on a cache replay as on the run that filled the cache.
+
+**Which forms are which.** Three forms are validated by the checker that honours them — a
+reason that fails leaves the finding standing — so every record of them is an
+acknowledgement:
+
+| Form | Honoured by | Validator |
+|---|---|---|
+| `// SECURITY: <reason>` | every `security.*` rule | `justification-validator` |
+| `// Justification: <reason>` | `concurrency` (`@unchecked Sendable`, `nonisolated(unsafe)`), the weak-crypto policy, `stochastic-unseeded-test-call` | `justification-validator` |
+| `dependencyAudit.acknowledgedAdvisories` | `dependency-advisory` | `advisory-acknowledgement` (reason and expiry) |
+
+Every other inline form takes whatever is written after it. Its reason is judged by the same
+rules (`reason-quality`): one that passes is an acknowledgement, one that does not is a
+suppression. **The marker's effect is the same either way** — it still silences the finding.
+
+| Form | Honoured by |
+|---|---|
+| `// SAFETY:` and anything in `safetyExemptions` | `safety`, `accessibility`, `test-quality` |
+| `// Justification:` above a trap, where `trapPolicy` asks for one | `safety` |
+| `// silent:` (or `logging.silentTryKeyword`), `// logging:` | `logging` |
+| `// fp-safety:disable` (and the legacy `// TEST-QUALITY:`) | `fp-safety` |
+| `// fallback-justified:` | `fallback` |
+| `// TEST-QUALITY: <rule>`, `// TEST-QUALITY-FILE: <rule>` | `test-quality` |
+| `// recursion:safe` | `recursion` |
+| `// process-safety:disable` | `process-safety` |
+| `// Unbounded:` | `bounded-io` |
+| `lifecycle:exempt` | `memory-lifecycle` |
+| `stochastic:exempt` | `stochastic-determinism` (a bare one is reported in its own right) |
+| `// LIVE:` | `unreachable` — recorded per marked declaration; whether it would otherwise have been reported is not computed |
+| `HIG-EXEMPT:` | `hig-auditor` |
+| `// CONSENT:`, `// ANALYTICS:`, `// REVIEWED:`, `// DISCLOSURE:` | `context` |
+| `// concurrency:exempt`, `// temporal:exempt`, `// TIMING:` | `concurrency`, `temporal-determinism` |
+| `// idiom:exempt`, `// smell:exempt`, `// custom:exempt`, `// keychain:exempt` | `idiom`, `smells`, `custom-rules`, `keychain-secrets` |
+
+Configuration is always a suppression, because a YAML file has nowhere to state a validated
+reason: `overrides:` entries that lower or remove a finding (`off`, `info`, `warning` on an
+error), `vendorPaths` demotions and `security.atsAllowedInsecureDomains` are recorded per
+finding. Exclusions that stop a finding being computed at all — `excludePatterns`,
+`enabledCheckers` / `excludedCheckers`, and the per-checker allow and exempt lists — are
+listed under *Exclusions in force* with what they contain; what they hid is not counted,
+because it is not known without doing the work they exist to skip.
+
+**Ratcheting.** The default policy gates on nothing new:
+
+```yaml
+suppressions: note     # the default: count and list
+# suppressions: warn   # each suppression is a gate.unvalidated-suppression warning (gates under --strict)
+# suppressions: error  # each suppression is an error
+```
+
+Set `warn` or `error` once a repository's suppressed count is zero, and a new bare marker is
+a finding from then on. The ratchet covers every record that is a suppression — markers and
+the per-finding configuration records alike — and cannot be turned off by `overrides:` or
+absorbed by the baseline. It does not cover *Exclusions in force*.
+
+Not recorded as overrides: `// legibility:reserved` and a pointer passed to a
+`pointerEscape.allowedEscapeFunctions` entry (both are compliance records, as before),
+exempted documentation fences (counted in the `doc-code` coverage note), and the
+run-level `--advisory-all`.
+
 ### Run specific checkers
 
 For faster feedback during development, run only the checkers relevant to your current work:
@@ -419,11 +507,31 @@ Override any rule's severity without modifying checker code:
 
 ```yaml
 overrides:
-  - ruleId: "force-unwrap"
-    severity: warning    # downgrade from error
-  - ruleId: "security.insecure-transport"
-    severity: error      # upgrade from warning
+  force-unwrap: warning                  # downgrade from error
+  security.insecure-transport: error     # upgrade from warning
+  safety.*: info                         # a whole family, to notes
+  legacy.rule: off                       # removed from the output
 ```
+
+`overrides:` is a mapping from a rule id — or a `family.*` wildcard — to `error`, `warning`,
+`info` or `off`. (This section showed a list of `ruleId:` / `severity:` pairs until
+2026-10-09. That shape never decoded; the whole file was silently replaced by defaults.)
+
+An entry that lowers or removes a finding is recorded as a suppression, per finding — see
+[Acknowledgements are not suppressions](#acknowledgements-are-not-suppressions). An entry
+that raises a severity hides nothing and records nothing.
+
+**A configuration file that cannot be read stops the run.** A value of the wrong type, a
+malformed document or an unknown `suppressions:` value exits 1 before any checker runs:
+
+```
+❌ configuration: .quality-gate.yml could not be read: `excludePatterns` is not a Sequence — Expected to decode Sequence but found Node instead.
+   Nothing was run. Correct .quality-gate.yml and run again.
+```
+
+It used to be replaced by the built-in defaults, with a log line visible only under
+`--verbose`. A top-level key the schema does not define is different: the file decoded and
+the key was merely not applied, so that is a warning naming the key, and the run continues.
 
 ## Integrating with Your Workflow
 
@@ -504,6 +612,13 @@ quality-gate --format json | jq '.results[] | select(.status == "failed")'
 ```
 
 The JSON format includes timing data, diagnostic counts, and suggested fixes — useful for dashboards, Slack notifications, or custom reporting.
+
+What a run was told not to raise is there too:
+
+```bash
+quality-gate --format json | jq '.summary.suppressions | {acknowledged, suppressed, baselined, suppressedByForm}'
+quality-gate --format json | jq '.results[].suppressions[] | select(.kind == "suppressed") | {form, ruleId, filePath, lineNumber, reason, rejection}'
+```
 
 ### Security rule staleness
 

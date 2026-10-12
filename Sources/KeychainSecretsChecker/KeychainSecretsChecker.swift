@@ -343,11 +343,9 @@ final class KeychainSecretsVisitor: SyntaxVisitor {
     /// Recorded, never silent.
     private func record(severity: Diagnostic.Severity, message: String, line: Int, column: Int) {
         if line >= 1, line <= lines.count, lines[line - 1].contains("// keychain:exempt") {
-            overrides.append(DiagnosticOverride(
-                ruleId: "keychain-secrets",
-                justification: "// keychain:exempt",
-                filePath: filePath,
-                lineNumber: line))
+            overrides.append(.inlineMarker(
+                form: "// keychain:exempt", ruleId: "keychain-secrets", filePath: filePath,
+                findingLine: line, markerLine: line, comment: lines[line - 1]))
             return
         }
         findings.append(Diagnostic(
