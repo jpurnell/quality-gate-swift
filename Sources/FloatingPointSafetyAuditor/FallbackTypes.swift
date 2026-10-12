@@ -99,6 +99,68 @@ enum FallbackTypes {
         return nil
     }
 
+    // MARK: Parameters
+
+    /// One parameter, as its body sees it.
+    struct Parameter {
+        /// The name the body uses: the internal name where there is one.
+        let name: String
+        /// The type as written, with ownership and attributes removed, or nil
+        /// for a closure parameter that has none.
+        let typeText: String?
+        /// Whether the parameter is variadic — `Double...` is a collection of
+        /// `Double`, and its `typeText` is the element's.
+        let isVariadic: Bool
+    }
+
+    /// A type as written, without what is wrapped around it.
+    ///
+    /// `inout Double`, `borrowing Double` and `consuming Double` are `Double`:
+    /// the specifier says how the value is passed, not what it is. Reading the
+    /// whole spelling made every such parameter an unknown type.
+    static func spelling(of type: TypeSyntax) -> String {
+        if let attributed = type.as(AttributedTypeSyntax.self) {
+            return attributed.baseType.trimmedDescription
+        }
+        return type.trimmedDescription
+    }
+
+    /// The parameters of a function, initializer or subscript. `_` is skipped:
+    /// the body cannot name it.
+    static func parameters(of list: FunctionParameterListSyntax) -> [Parameter] {
+        list.compactMap { parameter in
+            let name = (parameter.secondName ?? parameter.firstName).text
+            guard name != "_" else { return nil }
+            return Parameter(
+                name: name,
+                typeText: spelling(of: parameter.type),
+                isVariadic: parameter.ellipsis != nil
+            )
+        }
+    }
+
+    /// The parameters a closure names in its signature. `{ x, d in … }` names
+    /// them without types; they are declared all the same, and shadow.
+    static func parameters(of signature: ClosureSignatureSyntax?) -> [Parameter] {
+        guard let clause = signature?.parameterClause else { return [] }
+        switch clause {
+        case .simpleInput(let names):
+            return names.compactMap { name in
+                name.name.text == "_" ? nil : Parameter(name: name.name.text, typeText: nil, isVariadic: false)
+            }
+        case .parameterClause(let typed):
+            return typed.parameters.compactMap { parameter in
+                let name = (parameter.secondName ?? parameter.firstName).text
+                guard name != "_" else { return nil }
+                return Parameter(
+                    name: name,
+                    typeText: parameter.type.map(spelling(of:)),
+                    isVariadic: parameter.ellipsis != nil
+                )
+            }
+        }
+    }
+
     /// True for a `let` whose value is a numeric literal.
     ///
     /// `static let deadline: TimeInterval = 30` is floating-point and is also

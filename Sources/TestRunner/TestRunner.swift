@@ -1,8 +1,6 @@
 import Foundation
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Executes `swift test` with parallel workers and reports results.
@@ -60,8 +58,21 @@ public struct TestRunner: QualityChecker, Sendable {
     /// sequentially, outside the concurrent task group.
     public var isParallelSafe: Bool { false }
 
+    /// What starts `swift test`, reads the clock around it and samples the load after it.
+    private let launcher: ToolLauncher
+
     /// Creates a new TestRunner instance.
-    public init() {}
+    public init() {
+        self.init(launcher: .live)
+    }
+
+    /// Creates a runner whose tool launches go through `launcher`.
+    ///
+    /// - Parameter launcher: What starts `swift test`. Replaceable so a test can decide the
+    ///   exit code, the elapsed time and the load without running a suite.
+    init(launcher: ToolLauncher) {
+        self.launcher = launcher
+    }
 
     /// Declares the suite cacheable on the whole source tree.
     ///
@@ -111,12 +122,15 @@ public struct TestRunner: QualityChecker, Sendable {
         }
 
         let args = testArguments(for: configuration)
-        let (output, exitCode) = try await runSwiftTest(arguments: args, in: projectRoot)
+        let run = try runSwiftTest(arguments: args, in: projectRoot, configuration: configuration)
+        let output = run.output
 
-        var result = Self.createResult(output: output, exitCode: exitCode, duration: ContinuousClock.now - startTime)
+        var result = Self.createResult(run: run, duration: ContinuousClock.now - startTime)
 
         // Test-outcome flip detection (scheduler-dependent behavior across runs).
-        if configuration.flipDetector.enabled {
+        // Not after an expiry: the roster of a run that was stopped is missing every test it
+        // had not reached, and storing it would make the next complete run look like a flip.
+        if configuration.flipDetector.enabled && !run.expired {
             result = runFlipDetection(
                 on: result,
                 output: output,
@@ -169,9 +183,18 @@ public struct TestRunner: QualityChecker, Sendable {
         await Self.withCPUContention(enabled: stress.contention) {
             for _ in 0..<stress.runs {
                 do {
-                    let (output, _) = try await self.runSwiftTest(
-                        arguments: ["--parallel"] + filterArgs, in: projectRoot)
-                    rosters.append(TestRosterParser.parse(output))
+                    let run = try self.runSwiftTest(
+                        arguments: ["--parallel"] + filterArgs, in: projectRoot,
+                        configuration: configuration, recordsDuration: false)
+                    // A stress run that was stopped at its budget is not a roster: the tests
+                    // it never reached would read as tests that vanished.
+                    guard !run.expired else {
+                        failedInvocations += 1
+                        Self.logger.warning(
+                            "stress invocation was stopped at its \(run.budget.seconds, privacy: .public)s budget after \(run.elapsed, privacy: .public)s; that run contributes no roster")
+                        continue
+                    }
+                    rosters.append(TestRosterParser.parse(run.output))
                 } catch {
                     failedInvocations += 1
                     Self.logger.warning(
@@ -552,7 +575,11 @@ public struct TestRunner: QualityChecker, Sendable {
         return nil
     }
 
-    /// Create a CheckResult from test output.
+    /// Create a CheckResult from a transcript of `swift test`, without the record of the run.
+    ///
+    /// For callers that hold output and an exit code only. The budget reported for a
+    /// cut-off run is the one the process kernel named in the transcript; the load is not
+    /// known. ``createResult(run:duration:)`` is what the checker itself uses.
     ///
     /// - Parameters:
     ///   - output: The raw test output
@@ -564,11 +591,38 @@ public struct TestRunner: QualityChecker, Sendable {
         exitCode: Int32,
         duration: Duration
     ) -> CheckResult {
+        createResult(
+            run: ToolRun(
+                transcriptOf: "swift test", checkerId: "test",
+                output: output, exitCode: exitCode, elapsed: duration),
+            duration: duration)
+    }
+
+    /// Create a CheckResult from a run of `swift test`.
+    ///
+    /// Three outcomes are not a test failure and each says so in its own words: a run
+    /// stopped at its budget (`test-timeout`), a run that passed and then could not be signed
+    /// (`test-codesign`), and a run that failed without recording a single test failure
+    /// (`test-unparsed-failure`) — a build error, a crash, a missing toolchain. The last used
+    /// to be `✗ FAILED` over an empty list.
+    ///
+    /// - Parameters:
+    ///   - run: What launching `swift test` produced.
+    ///   - duration: How long the checker took.
+    /// - Returns: A CheckResult summarizing the test run
+    public static func createResult(run: ToolRun, duration: Duration) -> CheckResult {
+        let output = run.output
         var diagnostics = parseTestOutput(output)
 
         let status: CheckResult.Status
-        if exitCode == 0 {
+        if run.exitCode == 0 {
             status = .passed
+        } else if run.expired {
+            // Asked before anything else that could excuse a non-zero exit. A run that was
+            // terminated has usually printed a "passed" line for whichever bundles finished
+            // first, and that line says nothing about the ones that had not started.
+            status = .failed
+            diagnostics.append(run.expiryDiagnostic())
         } else {
             let hasTestFailures = !diagnostics.isEmpty
             let summary = parseTestSummary(output)
@@ -583,6 +637,12 @@ public struct TestRunner: QualityChecker, Sendable {
                 ))
             } else {
                 status = .failed
+                // A failure must always say something. `swift test` exits non-zero for a
+                // target that does not compile, a crashed test process and a package that
+                // does not resolve, and none of those prints a line `parseTestOutput` knows.
+                if !hasTestFailures {
+                    diagnostics.append(run.unparsedFailureDiagnostic(ruleId: "test-unparsed-failure"))
+                }
             }
         }
 
@@ -594,8 +654,18 @@ public struct TestRunner: QualityChecker, Sendable {
         )
     }
 
+    /// True if the toolchain reported that it could not sign a built product.
+    ///
+    /// Read line by line, and never from a line that reports on a test: a test or suite is
+    /// free to be *named* "Passes on codesign failed variant", and this package has one. The
+    /// name appearing in the output is not the toolchain failing to sign anything.
     private static func isCodeSigningError(_ output: String) -> Bool {
-        output.contains("Code Signing subsystem") || output.contains("codesign failed")
+        output.split(whereSeparator: \.isNewline).contains { line in
+            guard line.contains("Code Signing subsystem") || line.contains("codesign failed") else {
+                return false
+            }
+            return !line.contains("Test \"") && !line.contains("Suite \"") && !line.contains("Test Case ")
+        }
     }
 
     /// Generate test arguments based on configuration.
@@ -620,7 +690,7 @@ public struct TestRunner: QualityChecker, Sendable {
     // MARK: - Private Implementation
 
     /// The environment for the spawned `swift test`, with this run's own control
-    /// variables removed.
+    /// variables removed — and, with them, the repository git scoped to a hook.
     ///
     /// `QG_NO_INDEX_BUILD` tells `StoreLocator` "do not compile to produce an index;
     /// degrade to AST-only". That is correct for *this* process's checkers — a
@@ -634,29 +704,49 @@ public struct TestRunner: QualityChecker, Sendable {
     /// have thrown. Only a clean checkout forces the build that the flag forbids, so
     /// local hooks structurally could not see it — the first self-hosted CI run did.
     ///
-    /// Same leak class as ``CorpusGitTransport/scrubbed(environment:)`` and
-    /// `GIT_INDEX_FILE`: a variable scoped to the tool leaking into a child that is
-    /// not the tool.
+    /// Same leak class as `GIT_INDEX_FILE`: a variable scoped to the tool leaking into a
+    /// child that is not the tool. That one is removed here too, by
+    /// `ChildProcessEnvironment.withoutGitRepositoryScope(_:)` — `swift test` resolves
+    /// dependencies with git before it builds, and a project's own tests routinely create
+    /// repositories of their own, neither of which should happen inside the repository a
+    /// hook happens to be running for.
     static func childEnvironment(from parent: [String: String]) -> [String: String] {
-        var environment = parent
+        var environment = ChildProcessEnvironment.withoutGitRepositoryScope(parent)
         environment.removeValue(forKey: "QG_NO_INDEX_BUILD")
         return environment
     }
 
-    private func runSwiftTest(arguments: [String], in root: String) async throws -> (output: String, exitCode: Int32) {
+    /// Runs `swift test` under the checker's budget and records the run.
+    ///
+    /// The budget is `budgets.test` when the configuration sets one, and otherwise follows
+    /// the last successful run recorded for this package.
+    ///
+    /// - Parameter recordsDuration: Whether a success is recorded as the suite's duration.
+    ///   `false` for a stress run, which executes a filtered handful of tests: recording its
+    ///   few seconds would size the next whole-suite run against a figure that is not the
+    ///   suite's.
+    private func runSwiftTest(
+        arguments: [String], in root: String, configuration: Configuration,
+        recordsDuration: Bool = true
+    ) throws -> ToolRun {
         // SAFETY: runs swift test to execute the project's test suite
-        let result = try ProcessRunner.run(
-            "/usr/bin/swift",
+        let run = try launcher.run(ToolLauncher.Request(
+            checkerId: id,
+            executable: "/usr/bin/swift",
             arguments: ["test"] + arguments,
-            currentDirectory: root,
-            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment)
-        )
+            directory: root,
+            environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment),
+            budget: CheckerBudget.allowance(for: id, root: root, configuration: configuration)))
 
-        // Combine stdout and stderr
-        let combinedOutput = result.stdout + "\n" + result.stderr
-
-        return (combinedOutput, result.exitCode)
+        // Recorded only on success. A killed or failing run says nothing about how long the
+        // suite takes when it works, and feeding a timeout back in would ratchet the budget
+        // up on exactly the runs that should not extend it.
+        if run.exitCode == 0 && recordsDuration {
+            CheckerBudget.record(run.elapsed, named: id, root: root)
+        }
+        return run
     }
+
 }
 
 /// Thread-safe stop flag for the best-effort CPU-contention harness.

@@ -38,7 +38,7 @@ struct ProjectRootEndToEndTests {
         // `/var` → `/private/var`, so the raw strings name one file in two spellings.
         let base = fixtureRoot.resolvingSymlinksInPath().path
         let fixtureFindings = result.diagnostics.filter {
-            (($0.filePath ?? "") as NSString).resolvingSymlinksInPath.hasPrefix(base)
+            (($0.filePath ?? "") as NSString).resolvingSymlinksInPath.hasPrefix(base + "/")
         }
         #expect(fixtureFindings.contains { ($0.ruleId ?? "").contains("force-unwrap") },
                 "expected the fixture's force unwrap to be found; got: \(result.diagnostics.map { ($0.ruleId ?? "?", $0.filePath ?? "?") })")

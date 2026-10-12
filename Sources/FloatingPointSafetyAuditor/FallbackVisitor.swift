@@ -142,6 +142,16 @@ final class FallbackVisitor: SyntaxVisitor {
         return nil
     }
 
+    /// Seeds the file scope with the checks top-level code makes.
+    ///
+    /// Without this a script that bounds a value and then converts it was
+    /// reported as though it had not: every enclosing body's facts were read
+    /// except the outermost one, which had none.
+    override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
+        scopes[0].facts = FallbackGuardFactCollector.collectTopLevel(from: node, genericNames: genericNames)
+        return .visitChildren
+    }
+
     /// Leaves the innermost scope. The file scope is never popped.
     private func popScope() {
         guard scopes.count > 1 else { return }
@@ -244,10 +254,8 @@ final class FallbackVisitor: SyntaxVisitor {
     // MARK: - Bodies
 
     private func bind(parameters: FunctionParameterListSyntax) {
-        for parameter in parameters {
-            let name = (parameter.secondName ?? parameter.firstName).text
-            guard name != "_" else { continue }
-            bind(name, kind: kind(ofTypeText: parameter.type.trimmedDescription))
+        for parameter in FallbackTypes.parameters(of: parameters) {
+            bind(parameter.name, kind: parameter.typeText.map(kind(ofTypeText:)) ?? .other)
         }
     }
 
@@ -306,20 +314,10 @@ final class FallbackVisitor: SyntaxVisitor {
 
     override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
         pushScope(body: Syntax(node.statements), documentation: .undocumented)
-        guard let parameterClause = node.signature?.parameterClause else { return .visitChildren }
-
-        switch parameterClause {
-        case .simpleInput(let names):
-            // Untyped, so unknown — but declared, so they shadow.
-            for name in names {
-                bind(name.name.text, kind: .other)
-            }
-        case .parameterClause(let clause):
-            for parameter in clause.parameters {
-                let name = (parameter.secondName ?? parameter.firstName).text
-                guard name != "_" else { continue }
-                bind(name, kind: parameter.type.map { kind(ofTypeText: $0.trimmedDescription) } ?? .other)
-            }
+        // Typed parameters are what they are declared to be. Untyped ones are
+        // unknown — but declared, so they shadow.
+        for parameter in FallbackTypes.parameters(of: node.signature) {
+            bind(parameter.name, kind: parameter.typeText.map(kind(ofTypeText:)) ?? .other)
         }
         return .visitChildren
     }
@@ -499,7 +497,7 @@ final class FallbackVisitor: SyntaxVisitor {
         var keys: Set<String> = [key]
         for scope in scopes {
             guard let facts = scope.facts else { continue }
-            keys.formUnion(facts.equivalents(of: key))
+            keys.formUnion(facts.equivalents(of: key, at: offset))
         }
 
         var found: Set<FallbackGuardFacts.Kind> = []

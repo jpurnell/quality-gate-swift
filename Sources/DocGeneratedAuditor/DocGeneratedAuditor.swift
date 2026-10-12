@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Checks that derived content committed as prose still matches what it was derived from.

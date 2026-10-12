@@ -1,5 +1,6 @@
 import Foundation
 import QualityGateCore
+import SafetyAuditor
 import SwiftSyntax
 
 // MARK: - Constants
@@ -8,6 +9,11 @@ import SwiftSyntax
 private let globalRandomFunctions: Set<String> = [
     "drand48", "srand48", "arc4random", "arc4random_uniform"
 ]
+
+/// The global functions that are cryptographically secure, and so stand down in a security
+/// context (`ASeedIsNotASecret.md` §3.6). `drand48` is not among them: in a security context it
+/// is a `security.weak-prng` finding *and* a determinism one, and both are true.
+private let secureGlobalFunctions: Set<String> = ["arc4random", "arc4random_uniform"]
 
 /// Names that look like randomness but are exempt (crypto or identity).
 private let exemptReferenceNames: Set<String> = [
@@ -211,7 +217,7 @@ final class StochasticVisitor: SyntaxVisitor {
                     return .visitChildren
                 }
 
-                if !functionHasRNGParameter && !isExemptFunction() {
+                if !functionHasRNGParameter && !isExemptFunction(), !ownedBySecurityRules(parent) {
                     emitDiagnostic(
                         ruleId: "stochastic-no-seed",
                         message: "`.random()` called without seed injection; enclosing function should accept `inout some RandomNumberGenerator`",
@@ -267,7 +273,7 @@ final class StochasticVisitor: SyntaxVisitor {
         // reproduce; what is permitted here is naming the production generator, which is what
         // an entry point is for.
         if name == "SystemRandomNumberGenerator", !isTestFile, !isCompositionRoot {
-            if !functionHasRNGParameter && !isExemptFunction() {
+            if !functionHasRNGParameter && !isExemptFunction(), !ownedBySecurityRules(Syntax(node)) {
                 emitDiagnostic(
                     ruleId: "stochastic-no-seed",
                     message: "`SystemRandomNumberGenerator` used directly; enclosing function should accept `inout some RandomNumberGenerator`",
@@ -278,7 +284,8 @@ final class StochasticVisitor: SyntaxVisitor {
         }
 
         // Check for global C-style random functions
-        if flagGlobalState && globalRandomFunctions.contains(name) {
+        if flagGlobalState && globalRandomFunctions.contains(name),
+           !(secureGlobalFunctions.contains(name) && ownedBySecurityRules(Syntax(node))) {
             emitDiagnostic(
                 ruleId: "stochastic-global-state",
                 message: "`\(name)` uses global mutable state; prefer `RandomNumberGenerator`-based APIs",
@@ -293,6 +300,19 @@ final class StochasticVisitor: SyntaxVisitor {
     }
 
     // MARK: - Helpers
+
+    /// Whether the value `node` is part of is in a security context, where the `security.*`
+    /// rules own the line (`ASeedIsNotASecret.md` §3.6).
+    ///
+    /// This checker's remedy — accept an injectable generator — is the right one for a
+    /// simulation and the defect for a credential: a token a caller can reproduce is a token an
+    /// attacker can reproduce. So on a safe source that makes a security value, this checker
+    /// says nothing and the security rules, which have cleared it, own the line. The question is
+    /// asked through `SecurityValueSite`, the same reading the security rules use, so the two
+    /// checkers cannot both claim a line or both miss it.
+    private func ownedBySecurityRules(_ node: Syntax) -> Bool {
+        SecurityValueSite.resolve(node) != nil
+    }
 
     /// Checks whether a function declaration accepts a `RandomNumberGenerator` parameter.
     ///

@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Checks release readiness by scanning for changelog entries, README markers, and source TODOs.

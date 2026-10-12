@@ -55,6 +55,16 @@ final class PointerEscapeVisitor: SyntaxVisitor {
     private(set) var overrides: [DiagnosticOverride] = []
     private(set) var complianceRecords: [ComplianceRecord] = []
 
+    /// The with-blocks enclosing the code currently being analysed, outermost first.
+    ///
+    /// `pointer-escape.assigned-to-outer-member` needs to know *which* block lent a pointer,
+    /// because the pointer is valid until that block — not the innermost one — returns.
+    private var withScopes: [WithScope] = []
+    /// The with-blocks enclosing the code currently being analysed, outermost first.
+    ///
+    /// `pointer-escape.assigned-to-outer-member` needs to know *which* block lent a pointer,
+    /// because the pointer is valid until that block — not the innermost one — returns.
+
     init(
         fileName: String,
         converter: SourceLocationConverter,
@@ -145,6 +155,8 @@ final class PointerEscapeVisitor: SyntaxVisitor {
     /// nested-scope tests).
     fileprivate func analyzeWithBlock(closure: ClosureExprSyntax, parentTracked: Set<String>) {
         let bound = extractClosureBoundNames(closure)
+        withScopes.append(WithScope(closure: closure, bound: bound))
+        defer { withScopes.removeLast() }
         if bound.isEmpty && parentTracked.isEmpty {
             // Nothing to track (e.g. `{ _ in ... }` and no parent context).
             // Still need to scan for nested with-blocks.
@@ -228,6 +240,10 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             walkBodyItems(whileStmt.body.statements, tracked: &tracked, locals: &locals)
             return
         }
+        if let repeatStmt = stmt.as(RepeatStmtSyntax.self) {
+            walkBodyItems(repeatStmt.body.statements, tracked: &tracked, locals: &locals)
+            return
+        }
         if let doStmt = stmt.as(DoStmtSyntax.self) {
             walkBodyItems(doStmt.body.statements, tracked: &tracked, locals: &locals)
             return
@@ -243,6 +259,15 @@ final class PointerEscapeVisitor: SyntaxVisitor {
     }
 
     private func processTopLevelExpression(_ expr: ExprSyntax, tracked: inout Set<String>, locals: inout Set<String>) {
+        // `try buf.withUnsafeBytes { … }` opens a nested with-block exactly as the bare call
+        // does. Only the with-block is unwrapped here: other `try` calls keep their existing
+        // treatment, which `BorrowedArgumentTests` pins.
+        if let call = unwrappingEffects(expr).as(FunctionCallExprSyntax.self),
+           !expr.is(FunctionCallExprSyntax.self), isWithUnsafeCall(call), let closure = call.trailingClosure {
+            analyzeWithBlock(closure: closure, parentTracked: tracked)
+            return
+        }
+
         // If expression: walk both branches
         if let ifExpr = expr.as(IfExprSyntax.self) {
             walkBodyItems(ifExpr.body.statements, tracked: &tracked, locals: &locals)
@@ -290,6 +315,13 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             guard let initializer = binding.initializer else { continue }
             let rhs = initializer.value
 
+            // `let n = buf.withUnsafeBytes { … }` opens a nested with-block, which is analysed
+            // like one written as a statement.
+            if let call = unwrappingEffects(rhs).as(FunctionCallExprSyntax.self),
+               isWithUnsafeCall(call), let closure = call.trailingClosure {
+                analyzeWithBlock(closure: closure, parentTracked: tracked)
+            }
+
             // Local closure binding (`let local = { ... }`) — never an escape.
             if rhs.is(ClosureExprSyntax.self) {
                 continue
@@ -311,6 +343,13 @@ final class PointerEscapeVisitor: SyntaxVisitor {
     // MARK: Escape sinks
 
     private func handleReturn(expression: ExprSyntax, tracked: Set<String>) {
+        // An assignment is the closure's last statement, not its result: its value is `()`.
+        // Without this, `{ p in stream.next_in = p.baseAddress }` reported the *assignment's*
+        // escape a second time, as a return the closure never makes.
+        if let sequence = expression.as(SequenceExprSyntax.self),
+           sequence.elements.contains(where: { $0.is(AssignmentExprSyntax.self) }) {
+            return
+        }
         // 0. If the implicit-return expression is itself a call to an
         //    allowlisted function, the user has opted in to letting that
         //    function receive the borrowed pointer.
@@ -387,16 +426,26 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             } else if rhsContainsTrackedPointer {
                 emitAssignedToOuterCapture(at: lhs)
             }
+        case .outerMember(let root, let path):
+            let storesClosure = rhsIsClosureCapturingTracked
+            guard storesClosure || isPointerExpression(rhs, tracked: tracked) else { return }
+            guard storedPointerOutlivesBlock(rhs: rhs, tracked: tracked, root: root, path: path) else { return }
+            if storesClosure {
+                emitStoredClosure(at: lhs)
+            } else {
+                emitAssignedToOuterMember(at: lhs, root: root)
+            }
         case .local, .unknown:
             break
         }
     }
 
     private enum LHSKind {
-        case selfMember            // self.x
+        case selfMember            // self.x, self.a.b, self[i]
         case outerVar              // bare identifier not in locals
         case typeStaticMember      // Type.x where Type is uppercase
-        case local                 // bare identifier in locals
+        case outerMember(root: String, path: [String]) // outer.x, outer.a.b, outer[i]
+        case local                 // bare identifier, or a chain rooted at one, in locals
         case unknown
     }
 
@@ -404,19 +453,185 @@ final class PointerEscapeVisitor: SyntaxVisitor {
         if let ident = expr.as(DeclReferenceExprSyntax.self) {
             return locals.contains(ident.baseName.text) ? .local : .outerVar
         }
-        if let member = expr.as(MemberAccessExprSyntax.self) {
-            if let base = member.base {
-                if base.trimmedDescription == "self" {
-                    return .selfMember
-                }
-                if let baseIdent = base.as(DeclReferenceExprSyntax.self),
-                   baseIdent.baseName.text.first?.isUppercase == true {
-                    return .typeStaticMember
-                }
+        guard let (root, path) = storagePath(of: expr), !path.isEmpty else { return .unknown }
+        if root == "self" { return .selfMember }
+        if root.first?.isUppercase == true { return .typeStaticMember }
+        if locals.contains(root) { return .local }
+        return .outerMember(root: root, path: path)
+    }
+
+    // MARK: Outer-member escape: is the stored pointer read after its block returns?
+
+    /// Decides whether a pointer stored into `root.path` can be read after the with-block that
+    /// lent it has returned.
+    ///
+    /// The rule is textual and deliberately simple, because it has to be predictable to the
+    /// person reading the diagnostic:
+    ///
+    /// 1. **The lending block.** The pointer is valid until the with-block that *bound* it
+    ///    returns — for `outer.baseAddress` assigned inside an inner block, that is the outer
+    ///    one. A name the stack cannot place (a local alias) is charged to the innermost block,
+    ///    which is the conservative choice: the earliest end.
+    /// 2. **The root's home.** `root` is looked up outward from that block to the nearest
+    ///    declaration of it — a `var`/`let` or `guard let` earlier in an enclosing block, a
+    ///    closure parameter, or an `if`/`while`/`for` binding. If none is found before the
+    ///    enclosing function, the root is a parameter, a property or a global, and it outlives
+    ///    the function: the store escapes regardless of what follows, and this returns `true`.
+    /// 3. **Later reads.** Otherwise the store escapes if the home scope references `root`
+    ///    textually after the lending block's call ends, or anywhere inside a loop that lies
+    ///    between the block and the home (the next iteration runs it after the block). The
+    ///    block's own closure is excluded: everything there runs while the pointer is live.
+    /// 4. **Which references count.** A reference reads the stored pointer unless its member
+    ///    path is disjoint from the stored one (`stream.total_out` after storing
+    ///    `stream.next_in`), or it is the target of a plain `=` that overwrites the stored path
+    ///    or a prefix of it. A bare `root`, `&root` or `root.method()` counts: the whole value
+    ///    is handed over. A subscript is treated as matching any element.
+    ///
+    /// What it does not see, by construction: a `defer` written *before* the block (it runs
+    /// at scope exit, but `defer { inflateEnd(&stream) }` is teardown and is the idiom the
+    /// correct shape uses), reads through another variable that aliases `root`, and the
+    /// `else` branch of an `if` whose `then` branch holds the block (counted, conservatively).
+    private func storedPointerOutlivesBlock(
+        rhs: ExprSyntax, tracked: Set<String>, root: String, path: [String]
+    ) -> Bool {
+        guard let lender = lendingScope(of: rhs, tracked: tracked) else { return true }
+        let blockNode: Syntax = lender.closure.parent.map { Syntax($0) } ?? Syntax(lender.closure)
+        guard let home = homeScope(of: root, from: blockNode) else { return true }
+
+        let blockRange = lender.closure.position..<lender.closure.endPosition
+        let afterBlock = blockNode.endPosition
+        let loopRanges = home.loops.map { $0.position..<$0.endPosition }
+
+        let finder = RootReferenceFinder(root: root)
+        finder.walk(home.scope)
+        return finder.references.contains { reference in
+            let at = reference.position
+            if blockRange.contains(at) { return false }
+            let isLater = at >= afterBlock || loopRanges.contains { $0.contains(at) }
+            return isLater && referenceReadsStoredPath(reference, stored: path)
+        }
+    }
+
+    /// The with-block whose lifetime bounds the pointer in `rhs`.
+    private func lendingScope(of rhs: ExprSyntax, tracked: Set<String>) -> WithScope? {
+        let names = TrackedNameCollector(tracked: tracked)
+        names.walk(rhs)
+        var lender: Int?
+        for name in names.found {
+            let owner = withScopes.lastIndex { $0.bound.contains(name) } ?? (withScopes.count - 1)
+            lender = max(lender ?? owner, owner)
+        }
+        guard let index = lender, withScopes.indices.contains(index) else { return withScopes.last }
+        return withScopes[index]
+    }
+
+    /// The scope that declares `root`, searched outward from `start`, and the loops crossed on
+    /// the way. `nil` when the search reaches a function boundary first.
+    private func homeScope(of root: String, from start: Syntax) -> (scope: Syntax, loops: [Syntax])? {
+        var loops: [Syntax] = []
+        var child = start
+        var current = start.parent
+        while let node = current {
+            if let list = node.as(CodeBlockItemListSyntax.self),
+               declaresBefore(root, in: list, child: child) {
+                return (Syntax(list), loops)
+            }
+            if let closure = node.as(ClosureExprSyntax.self),
+               extractClosureBoundNames(closure).contains(root) {
+                return (Syntax(closure), loops)
+            }
+            if let ifExpr = node.as(IfExprSyntax.self), conditionsBind(root, ifExpr.conditions) {
+                return (Syntax(ifExpr), loops)
+            }
+            if let whileStmt = node.as(WhileStmtSyntax.self) {
+                if conditionsBind(root, whileStmt.conditions) { return (Syntax(whileStmt), loops) }
+                loops.append(node)
+            }
+            if let forStmt = node.as(ForStmtSyntax.self) {
+                if patternBinds(root, forStmt.pattern) { return (Syntax(forStmt), loops) }
+                loops.append(node)
+            }
+            if node.is(RepeatStmtSyntax.self) {
+                loops.append(node)
+            }
+            if node.is(FunctionDeclSyntax.self) || node.is(InitializerDeclSyntax.self)
+                || node.is(AccessorDeclSyntax.self) || node.is(DeinitializerDeclSyntax.self)
+                || node.is(SubscriptDeclSyntax.self) || node.is(MemberBlockSyntax.self) {
+                return nil
+            }
+            child = node
+            current = node.parent
+        }
+        return nil
+    }
+
+    private func declaresBefore(_ root: String, in list: CodeBlockItemListSyntax, child: Syntax) -> Bool {
+        for item in list {
+            if item.id == child.id { return false }
+            if let decl = item.item.as(VariableDeclSyntax.self),
+               decl.bindings.contains(where: { patternBinds(root, $0.pattern) }) {
+                return true
+            }
+            if let guardStmt = item.item.as(GuardStmtSyntax.self), conditionsBind(root, guardStmt.conditions) {
+                return true
             }
         }
-        // self[i] or other subscript-style LHS not modeled
-        return .unknown
+        return false
+    }
+
+    private func conditionsBind(_ root: String, _ conditions: ConditionElementListSyntax) -> Bool {
+        conditions.contains { element in
+            guard let binding = element.condition.as(OptionalBindingConditionSyntax.self) else { return false }
+            return patternBinds(root, binding.pattern)
+        }
+    }
+
+    private func patternBinds(_ root: String, _ pattern: PatternSyntax) -> Bool {
+        let names = PatternNameCollector(viewMode: .sourceAccurate)
+        names.walk(pattern)
+        return names.names.contains(root)
+    }
+
+    /// Whether a later reference to the root can read the pointer stored at `stored`.
+    private func referenceReadsStoredPath(_ reference: DeclReferenceExprSyntax, stored: [String]) -> Bool {
+        var path: [String] = []
+        var node = Syntax(reference)
+        while let parent = node.parent {
+            if let member = parent.as(MemberAccessExprSyntax.self), member.base?.id == node.id {
+                path.append(member.declName.baseName.text)
+            } else if let subscriptCall = parent.as(SubscriptCallExprSyntax.self),
+                      subscriptCall.calledExpression.id == node.id {
+                path.append("[]")
+            } else if !parent.is(ForceUnwrapExprSyntax.self), !parent.is(OptionalChainingExprSyntax.self) {
+                break
+            }
+            node = parent
+        }
+        // `root.reset()` hands the whole value to a method: it is a use of `root`, not of a field.
+        if let call = node.parent?.as(FunctionCallExprSyntax.self), call.calledExpression.id == node.id,
+           let last = path.last, last != "[]" {
+            path.removeLast()
+        }
+        guard pathsOverlap(path, stored) else { return false }
+        // `root.field = …` over the stored path or a prefix of it replaces the pointer unread.
+        if path.count <= stored.count, isAssignmentTarget(node) { return false }
+        return true
+    }
+
+    private func pathsOverlap(_ lhs: [String], _ rhs: [String]) -> Bool {
+        for (left, right) in zip(lhs, rhs) where left != "[]" && right != "[]" && left != right {
+            return false
+        }
+        return true
+    }
+
+    private func isAssignmentTarget(_ node: Syntax) -> Bool {
+        guard let list = node.parent?.as(ExprListSyntax.self) else { return false }
+        let elements = Array(list)
+        guard let index = elements.firstIndex(where: { $0.id == node.id }), index + 1 < elements.count else {
+            return false
+        }
+        return elements[index + 1].is(AssignmentExprSyntax.self)
     }
 
     // MARK: Function-call rules
@@ -560,6 +775,17 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             suggestedFix: "Copy the pointee value instead of the pointer."
         ))
     }
+    private func emitAssignedToOuterMember(at node: some SyntaxProtocol, root: String) {
+        diagnostics.append(Diagnostic(
+            severity: .error,
+            message: "pointer is stored into '\(root)', which is read after the with-block returns and the memory is no longer lent",
+            filePath: fileName,
+            lineNumber: line(of: node),
+            columnNumber: 1,
+            ruleId: "pointer-escape.assigned-to-outer-member",
+            suggestedFix: "Make every use of '\(root)' that reads the pointer inside the with-block (nest the blocks when there are several buffers), or clear the field before the block returns."
+        ))
+    }
     private func emitStoredInProperty(at node: some SyntaxProtocol) {
         diagnostics.append(Diagnostic(
             severity: .error,
@@ -625,6 +851,91 @@ final class PointerEscapeVisitor: SyntaxVisitor {
             ruleId: "pointer-escape.opaque-roundtrip",
             suggestedFix: "Keep both the typed and opaque forms inside the same with-block."
         ))
+    }
+}
+
+// MARK: - Outer-member support
+
+/// One `withUnsafe*` closure on the analysis stack, with the names it binds.
+struct WithScope {
+    let closure: ClosureExprSyntax
+    let bound: Set<String>
+}
+
+/// The variable an assignment target is rooted at, and the path from it to the stored slot.
+///
+/// `stream.next_in` is `("stream", ["next_in"])`, `outer.a.b` is `("outer", ["a", "b"])`, and
+/// `buf[0]` is `("buf", ["[]"])` — any element, since the index is not modelled. `!` and `?`
+/// are transparent. Returns `nil` when the chain is not rooted at a plain name.
+///
+/// - Parameter expr: The assignment target.
+/// - Returns: The root name and member path, or `nil`.
+func storagePath(of expr: ExprSyntax) -> (root: String, path: [String])? {
+    var path: [String] = []
+    var current = expr
+    while let (inner, component) = storageStep(current) {
+        if let component { path.insert(component, at: 0) }
+        current = inner
+    }
+    guard let root = current.as(DeclReferenceExprSyntax.self) else { return nil }
+    return (root.baseName.text, path)
+}
+
+/// One step inward along an assignment target: the inner expression, and the path component
+/// the step crossed (`nil` for `!` and `?`). `nil` once nothing more can be peeled.
+private func storageStep(_ expr: ExprSyntax) -> (ExprSyntax, String?)? {
+    if let member = expr.as(MemberAccessExprSyntax.self), let base = member.base {
+        return (base, member.declName.baseName.text)
+    }
+    if let subscriptCall = expr.as(SubscriptCallExprSyntax.self) {
+        return (subscriptCall.calledExpression, "[]")
+    }
+    if let unwrap = expr.as(ForceUnwrapExprSyntax.self) {
+        return (unwrap.expression, nil)
+    }
+    if let chain = expr.as(OptionalChainingExprSyntax.self) {
+        return (chain.expression, nil)
+    }
+    return nil
+}
+
+/// Every reference to a name as a value — not as a member name after a dot.
+private final class RootReferenceFinder: SyntaxVisitor {
+    let root: String
+    var references: [DeclReferenceExprSyntax] = []
+    init(root: String) {
+        self.root = root
+        super.init(viewMode: .sourceAccurate)
+    }
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        if node.baseName.text == root,
+           node.parent?.as(MemberAccessExprSyntax.self)?.declName.id != node.id {
+            references.append(node)
+        }
+        return .skipChildren
+    }
+}
+
+/// The tracked pointer names an expression mentions.
+private final class TrackedNameCollector: SyntaxVisitor {
+    let tracked: Set<String>
+    var found: Set<String> = []
+    init(tracked: Set<String>) {
+        self.tracked = tracked
+        super.init(viewMode: .sourceAccurate)
+    }
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        if tracked.contains(node.baseName.text) { found.insert(node.baseName.text) }
+        return .skipChildren
+    }
+}
+
+/// The names a pattern binds (`stream`, `(a, b)`, `var s`).
+private final class PatternNameCollector: SyntaxVisitor {
+    var names: Set<String> = []
+    override func visit(_ node: IdentifierPatternSyntax) -> SyntaxVisitorContinueKind {
+        names.insert(node.identifier.text)
+        return .skipChildren
     }
 }
 
@@ -811,6 +1122,15 @@ func expressionContainsTrackedPointer(_ expr: ExprSyntax, tracked: Set<String>) 
             }
             return .visitChildren
         }
+        override func visit(_ node: SubscriptCallExprSyntax) -> SyntaxVisitorContinueKind {
+            // `buf[i]` is an element — a value, like `.pointee`. A range subscript is not:
+            // `buf[0..<n]` is a slice that still points into the buffer.
+            guard isElementSubscript(node) else { return .visitChildren }
+            for arg in node.arguments {
+                walk(arg.expression)
+            }
+            return .skipChildren
+        }
         override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind {
             // Don't descend into closure bodies — those are escapes via a
             // separate rule path, not a value-flow escape of the outer expr.
@@ -826,6 +1146,21 @@ func expressionContainsTrackedPointer(_ expr: ExprSyntax, tracked: Set<String>) 
     let walker = Walker(tracked: tracked)
     walker.walk(expr)
     return walker.found
+}
+
+/// Whether a subscript reads one element rather than a slice.
+///
+/// One unlabelled index that is not a range (`..<`, `...`, or a one-sided form) reads an
+/// element. Anything else — a range, a labelled subscript, several indices — is assumed to
+/// produce something that may still refer to the subscripted memory.
+///
+/// - Parameter node: The subscript expression.
+/// - Returns: `true` for a single-element read.
+func isElementSubscript(_ node: SubscriptCallExprSyntax) -> Bool {
+    guard node.arguments.count == 1, let only = node.arguments.first, only.label == nil else {
+        return false
+    }
+    return !only.expression.trimmedDescription.contains("..")
 }
 
 /// True if a closure literal references any tracked name in its body, even

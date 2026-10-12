@@ -11,8 +11,16 @@ import Foundation
 /// ```
 public struct JSONReporter: Reporter, Sendable {
 
+    /// Whether a counted warning fails the run, as under `--strict`.
+    public let strict: Bool
+
     /// Creates a new JSONReporter instance.
-    public init() {}
+    ///
+    /// - Parameter strict: Whether a non-zero `totalWarnings` makes the summary status
+    ///   `failed`, matching the CLI's exit code under `--strict`.
+    public init(strict: Bool = false) {
+        self.strict = strict
+    }
 
     /// Outputs results in JSON format for programmatic consumption.
     ///
@@ -20,7 +28,7 @@ public struct JSONReporter: Reporter, Sendable {
     ///   - results: The check results to report.
     ///   - output: The text stream to write to.
     public func report(_ results: [CheckResult], to output: inout some TextOutputStream) throws {
-        let report = JSONReport(results: results)
+        let report = JSONReport(results: results, strict: strict)
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -41,9 +49,11 @@ private struct JSONReport: Codable {
     let summary: Summary
     let results: [CheckResult]
 
-    init(results: [CheckResult]) {
-        self.results = results
-        self.summary = Summary(from: results)
+    init(results: [CheckResult], strict: Bool) {
+        // Reconciled so each result's `status` is the one the summary was computed from.
+        let reconciled = results.map { $0.reconciled() }
+        self.results = reconciled
+        self.summary = Summary(from: reconciled, strict: strict)
     }
 
     struct Summary: Codable {
@@ -57,22 +67,29 @@ private struct JSONReport: Codable {
         let totalWarnings: Int
         let totalDuration: Double
 
-        init(from results: [CheckResult]) {
+        init(from results: [CheckResult], strict: Bool) {
+            // Every count and the status come off one tally — the same one the terminal
+            // summary and the exit code read. `warnings` is the number of checkers that
+            // warned; `totalWarnings` is the number of warning findings, and is what
+            // `--strict` gates on.
+            let tally = RunTally(results)
             totalChecks = results.count
-            passed = results.filter { $0.status == .passed }.count
-            failed = results.filter { $0.status == .failed }.count
-            warnings = results.filter { $0.status == .warning }.count
-            skipped = results.filter { $0.status == .skipped }.count
-            totalErrors = results.reduce(0) { $0 + $1.errorCount }
-            totalWarnings = results.reduce(0) { $0 + $1.warningCount }
+            passed = tally.passedCheckers.count
+            failed = tally.failedCheckers.count
+            warnings = tally.warnedCheckers.count
+            skipped = tally.skippedCheckers.count
+            totalErrors = tally.errors
+            totalWarnings = tally.warnings
 
             let totalDurationValue = results.reduce(Duration.zero) { sum, result in
                 sum + result.duration
             }
-            totalDuration = Double(totalDurationValue.components.seconds) + // fp-safety:disable
+            totalDuration = Double(totalDurationValue.components.seconds) +
                            Double(totalDurationValue.components.attoseconds) / 1e18
 
-            status = failed > 0 ? "failed" : "passed"
+            // This reporter is not told whether the run was truncated, so it cannot say
+            // `incomplete`; the exit code still does.
+            status = tally.verdict(strict: strict, truncated: false) == .passed ? "passed" : "failed"
         }
     }
 }

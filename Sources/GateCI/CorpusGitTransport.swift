@@ -84,12 +84,11 @@ public struct CorpusGitTransport: Sendable {
     /// (GIT_INDEX_FILE/GIT_DIR/GIT_WORK_TREE point at the *hooked* repo when
     /// running inside a commit hook — the Phase 1 war story), credential
     /// transport (GIT_SSH_COMMAND, deploy keys) preserved.
+    ///
+    /// The list is `ChildProcessEnvironment.repositoryScopedGitVariables` — one shared
+    /// definition, a superset of the five names this function used to spell out itself.
     static func scrubbed(environment: [String: String]) -> [String: String] {
-        var scrubbed = environment
-        for leaked in ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE", "GIT_PREFIX", "GIT_COMMON_DIR"] {
-            scrubbed.removeValue(forKey: leaked)
-        }
-        return scrubbed
+        ChildProcessEnvironment.withoutGitRepositoryScope(environment)
     }
 
     /// Runs git, throwing with combined output on a nonzero exit.

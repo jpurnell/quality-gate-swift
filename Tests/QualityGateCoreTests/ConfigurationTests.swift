@@ -194,4 +194,14 @@ struct ConfigurationTests {
 
         #expect(workers == 8)
     }
+
+    @Test("includedCheckers decodes from YAML and defaults to empty")
+    func includedCheckersDecodes() throws {
+        #expect(Configuration().includedCheckers.isEmpty)
+        let config = try Configuration.from(yaml: """
+        includedCheckers:
+          - xcode-build
+        """)
+        #expect(config.includedCheckers == ["xcode-build"])
+    }
 }

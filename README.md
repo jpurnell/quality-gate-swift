@@ -1,10 +1,160 @@
 # quality-gate-swift
 
-**Your documentation is a build artifact. This compiles it, runs it, and checks whether it is telling the truth.**
+**Static analysis for Swift 6, built on SwiftSyntax and the index store — plus three checkers that ask whether your documentation still compiles, still runs, and still tells the truth.**
 
-A code sample in a DocC article is just a string. It can call a function you deleted two releases ago and nothing anywhere goes red. quality-gate-swift closes that with a three-rung ladder, then brings 46 checkers for correctness, safety, concurrency, and security — with structured output for CI and GitHub Code Scanning.
+49 checkers for correctness, safety, concurrency and security. AST-based rather than regex, so rules understand scope, type context and control flow. Terminal, JSON, SARIF and Xcode output. It runs its own checkers on every commit and every push.
 
-## The documentation ladder
+> **Looking for testers.** If you try this and it misfires on your code, that is the most useful thing you can send — open an issue with the snippet. False positives are tracked and published per checker; see [Checkers report their own precision](#3-checkers-report-their-own-precision).
+
+## Requirements
+
+- **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
+- **Swift 6.2+** — the manifest is `swift-tools-version: 6.2`; earlier toolchains cannot parse it.
+- **Linux: builds, tests and runs on Swift 6.2 and 6.4.** The
+  [Linux job](../../actions/workflows/linux.yml) runs both on every pull request and every
+  push to `main`, and is the live answer to how much passes — this sentence deliberately does
+  not carry a number, because the first draft of it did and the next CI run falsified it
+  within the hour. Both toolchains are tested on purpose: 6.2 is the floor this README
+  promises, 6.4 is what development runs, and a defect that is legal in one and an error in
+  the other is how `main` once sat unbuildable on Linux through fourteen green pull requests.
+  macOS is still the platform every release is cut against, and the one to pick if you have a
+  choice. See [Install on Linux](#linux) for the two build flags it needs and
+  [Honest limits](#honest-limits) for what is known to differ.
+
+  This entry used to read "macOS only, today — Linux is not supported and not tested", on the
+  grounds that `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. That
+  much was true; the conclusion was not. The toolchain ships the header, just not on the
+  default include path, so the build needs two `-Xcxx` flags rather than a port of a C++
+  dependency. The rest of the gap was a handful of Darwin names written in as literals —
+  `/usr/bin/xcrun` as the compiler, `libIndexStore.dylib` as the library — each in a code path
+  macOS always takes and nothing else ever had.
+
+## Install
+
+### macOS
+
+```bash
+git clone https://github.com/jpurnell/quality-gate-swift.git
+cd quality-gate-swift
+# `--disable-automatic-resolution` builds exactly the versions `Package.resolved` pins and
+# fails if that file is out of date, rather than quietly resolving something else. The
+# lockfile is committed, and a build that ignores it is not the build that was tested.
+swift build -c release --disable-automatic-resolution
+
+# The binary needs its resource bundles beside it: SwiftPM resolves them relative
+# to the executable, so copying the binary alone fails at runtime with
+# "couldn't find bundle named quality-gate-swift_ControlMapping".
+#
+# Every bundle, not just this package's: the build also writes BusinessMath_*,
+# SwiftDeterminism_*, swift-crypto_*, swift-vigil_* and quality-gate-corpus-kit_*. A
+# `quality-gate-swift_*` glob leaves those behind — 40 of 45 on this machine, 40 of 44 on
+# the Linux CI containers, the total differing with the dependency set — and the ones it
+# skips are a dependency's, which is the wrong set to skip: their absence surfaces as a
+# crash inside code the user did not write.
+# Ask SwiftPM where the products landed rather than assuming `.build/release`.
+# Swift 6.4 builds with the `swiftbuild` backend, which writes to `.build/out`;
+# on macOS `.build/release` survives as a symlink to it, on Linux it does not
+# exist at all. `--show-bin-path` is correct under either backend.
+BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
+sudo cp "$BIN/quality-gate" /usr/local/bin/
+sudo cp -R "$BIN"/*.bundle /usr/local/bin/
+```
+
+### Linux
+
+Tested in CI on the official `swift:6.2` and `swift:6.4` containers. Both `-Xcxx` flags are
+required, not optional:
+`indexstore-db`'s C++ sources include `<dispatch/dispatch.h>` and `Block.h` with no platform
+guard, and the Swift toolchain ships both headers — just not on the default include path.
+Without them the build fails in a C++ dependency, which is where the "macOS only" claim in
+this README came from for longer than it was true.
+
+```bash
+git clone https://github.com/jpurnell/quality-gate-swift.git
+cd quality-gate-swift
+swift build -c release --disable-automatic-resolution \
+  -Xcxx -I/usr/lib/swift \
+  -Xcxx -I/usr/lib/swift/Block
+
+# Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
+# `.resources` directories here, not `.bundle`. All of them, for the same reason.
+# Two things this line used to get wrong, both found by running it in CI rather
+# than reading it. `--show-bin-path`, because Swift 6.4 builds with the
+# `swiftbuild` backend and writes to `.build/out`, not `.build/release`. And
+# either bundle spelling, because the suffix follows the *build system*, not the
+# operating system: SwiftPM's native build writes `.resources` directories,
+# swiftbuild writes `.bundle` — on Linux too, which "Linux means .resources"
+# did not survive.
+BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution \
+  -Xcxx -I/usr/lib/swift \
+  -Xcxx -I/usr/lib/swift/Block)"
+sudo cp "$BIN/quality-gate" /usr/local/bin/
+sudo find "$BIN" -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) \
+  -exec cp -R {} /usr/local/bin/ \;
+```
+
+Run the same way on both:
+
+```bash
+quality-gate --check safety --check concurrency
+```
+
+## First run
+
+Point it at any Swift package:
+
+```
+$ quality-gate --check safety --check fp-safety --check concurrency
+
+==========================================
+  Quality Gate Results
+==========================================
+
+✓ [safety] PASSED (1.15s)
+  ℹ️  note: safety examined 656 files · 1 git-ignored directory, 1 nested package
+
+✓ [concurrency] PASSED (89.80s)
+  ℹ️  note: concurrency examined 656 files · 1 git-ignored directory, 1 nested package
+
+✓ [fp-safety] PASSED (804ms)
+  ℹ️  note: floating-point examined 656 files · 1 git-ignored directory, 1 nested package
+```
+
+Every checker prints what it examined, computed rather than hardcoded. A bare `quality-gate` runs the default set, which includes `build` and `test` — expect it to take as long as your build does.
+
+```bash
+quality-gate                                   # default set
+quality-gate --check all --exclude test        # everything but the slow one
+quality-gate --fix --dry-run                   # preview auto-fixes
+quality-gate --format sarif > results.sarif    # GitHub Code Scanning
+```
+
+Adopting it on an existing codebase with a backlog? See [Suppression that expires](#2-suppression-that-expires) — `quality-gate adopt` gives you a green gate on day one without hiding anything permanently.
+
+## Why not just SwiftLint?
+
+Use both. They answer different questions, and SwiftLint is better at the one it asks.
+
+SwiftLint is a **style and convention** engine with a large rule set, fast incremental runs and universal editor integration. If you want consistent formatting and idiom across a team, reach for that first.
+
+This is a **correctness and safety** gate:
+
+| | SwiftLint | quality-gate-swift |
+|---|---|---|
+| Analysis | Mostly syntactic | AST throughout, plus index-store symbol resolution across files |
+| Cross-file reasoning | Limited | Call graphs, USR-based recursion detection, dead code via index cross-reference |
+| Suppression | `// swiftlint:disable`, permanent | Dated debt that expires and comes back |
+| Documentation | Not its job | Compiles, runs and fact-checks DocC articles |
+| False positives | Not published | Measured and published per checker |
+| Speed | Fast | Slower; some checkers need a build or an index |
+
+It is slower and narrower. It is meant to sit beside SwiftLint, not replace it.
+
+## Three things it does that other linters don't
+
+### 1. Your documentation is a build artifact
+
+A code sample in a DocC article is just a string. It can call a function you deleted two releases ago and nothing anywhere goes red. Three rungs close that:
 
 | Rung | Checker | Asks | Default |
 |---|---|---|---|
@@ -21,108 +171,53 @@ $ quality-gate --check doc-run
      reproducibly, 0 produced different output on a second run.
 ```
 
-The two that could not be built are reported as **not run**, not as passes. Every documentation checker prints its own coverage on every run, computed rather than hardcoded, because the gap between articles *found* and articles *checked* is the whole difference between a coverage number and a fiction. A scope claim written into prose goes stale; a scope claim the checker computes cannot.
+The two that could not be built are reported as **not run**, not as passes. The gap between articles *found* and articles *checked* is the difference between a coverage number and a fiction, so every documentation checker computes its own scope on every run. A scope claim written into prose goes stale; a computed one cannot.
 
-### Rung 3, honestly
+### 2. Suppression that expires
 
-`doc-claims` is the rung with the least evidence *here*. On another package it caught a bond documented at `$1,043.30` that prices at `$1,043.76` — the stale figure was exactly the annual-coupon price, so the documentation had preserved a payment-frequency bug the code had already fixed. It passes rungs 1 and 2 cleanly.
-
-This repository has zero adoption of the claim convention (`// Result:` / `// Output:`), so `doc-claims` currently reports **0 claims across 0 articles** here. It is real code with a real find, measured elsewhere.
-
-**`doc-claims` will never support `--fix`.** Not deferred — prohibited. An autofixer that rewrites a documented number to match the program can never fail, and therefore never means anything. The pressure when this checker is red at 5pm is precisely to edit the comment until it goes green, and a tool that automates that pressure is worse than no tool.
-
-## Suppression that expires
-
-Every linter's real failure is the `// swiftlint:disable` that outlives the person who wrote it. `quality-gate adopt` records each existing finding as **dated debt** with a decay window:
+Every linter's real failure is the `// swiftlint:disable` that outlives the person who wrote it. `quality-gate adopt` records each existing finding as **dated debt**:
 
 ```bash
 quality-gate adopt --decay-days 180
 ```
 
-Green gate on day one. New findings gate immediately. Every recorded debt comes due on a date, and `quality-gate re-verify` works the queue of what has expired — re-affirm consciously, or retire. Sonar's "new code" ergonomics without institutionalized suppression.
+Green gate on day one. New findings gate immediately. Every recorded debt comes due on a date, and `quality-gate re-verify` works the queue of what has expired — re-affirm consciously, or retire.
 
-## Checkers report their own precision
+### 3. Checkers report their own precision
 
 ```bash
 quality-gate calibrate --coverage
 ```
 
-Per-checker sample counts and false-positive rates, with every override classified by root cause — `imprecise`, `structural`, `deferred`, `external`, or `expedient`. A checker whose findings are mostly waved away should have to say so.
+Per-checker sample counts and false-positive rates, with every override classified by root cause: `imprecise`, `structural`, `deferred`, `external`, or `expedient`. A checker whose findings are mostly waved away should have to say so.
 
 ## Highlights
 
-- **AST-first analysis** — SwiftSyntax-based visitors instead of regex, so rules understand scope, type context, and control flow; index-store-backed checkers resolve symbols across files
-- **Modular architecture** — every checker an independent SPM module with its own test target
-  and DocC catalogue.
+- **AST-first analysis** — SwiftSyntax visitors instead of regex, so rules understand scope, type context and control flow; index-store-backed checkers resolve symbols across files
+- **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **116 targets** — 58 source, 58 test
-- **46 registered checkers**
+- **124 targets** — 62 source, 62 test
+- **49 registered checkers**
 <!-- /generated:scale -->
 
-- **Structured output** — terminal, JSON, SARIF 2.1.0 for GitHub Code Scanning, and Xcode Build Phase format
-- **Auto-fix support** — checkers implementing `FixableChecker` can patch issues automatically with `--fix`, except where fixing would launder the defect (see `doc-claims` above)
+- **Structured output** — terminal, JSON, SARIF 2.1.0, and Xcode Build Phase format
+- **Auto-fix** — checkers conforming to `FixableChecker` patch issues with `--fix`, except where fixing would launder the defect (see [Honest limits](#honest-limits))
 - **Read-only on strangers' code** — `--foreign` analyses a repo you don't own without writing to it; every write redirects to an overlay and `--fix` is refused
-- **Self-dogfooding** — quality-gate-swift runs its own checkers on every commit and every push
+- **Self-dogfooding** — it runs its own checkers on every commit and every push
 
-## Installation
-
-### Build from source
-
-```bash
-git clone https://github.com/jpurnell/quality-gate-swift.git
-cd quality-gate-swift
-swift build -c release
-cp .build/release/quality-gate /usr/local/bin/
-```
-
-### SPM dependency
+## Use as a dependency
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/jpurnell/quality-gate-swift.git", from: "2.0.1"),
+    .package(url: "https://github.com/jpurnell/quality-gate-swift.git", from: "3.4.0"),
 ]
 ```
 
-### SPM plugin
+Or as an SPM plugin:
 
 ```bash
 swift package plugin quality-gate
-```
-
-## Quick start
-
-```bash
-# Run all default checkers
-quality-gate
-
-# Run specific checkers
-quality-gate --check build --check safety --check concurrency
-
-# Run everything, skip slow checkers
-quality-gate --check all --exclude build --exclude test
-
-# Preview auto-fixes without applying
-quality-gate --fix --dry-run
-
-# Apply auto-fixes
-quality-gate --fix
-
-# SARIF output for GitHub Code Scanning
-quality-gate --format sarif > results.sarif
-
-# Xcode Build Phase integration
-quality-gate --format xcode
-
-# Generate initial project status documents
-quality-gate --check status --bootstrap
-
-# Technical-control coverage report (SOC 2 / ISO 27001 / HIPAA) — not a compliance assertion
-quality-gate compliance            # human-readable
-quality-gate compliance --as json  # machine-readable evidence artifact
-
-# Detect upstream drift in the control catalogs (HIPAA via eCFR API; SOC 2 / ISO manual)
-quality-gate standards-watch       # exits non-zero on drift — schedule it
 ```
 
 ## Checkers
@@ -152,6 +247,9 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 |----|--------|-------------|
 <!-- generated:checker-table-safety-security -->
 | `safety` | SafetyAuditor | Force unwraps, force casts, `try!`, `fatalError`, OWASP Mobile Top 10 security rules |
+| `dependency-advisory` | DependencyAdvisory | Pinned dependency versions a published security advisory (OSV / GitHub Advisory Database) says are vulnerable, matched offline against a dated snapshot |
+| `dependency-advisory-freshness` | DependencyAdvisory | Advisory snapshot older than its stated maximum age — the pins were checked only against advisories known on that date (never gates by default) |
+| `dependency-advisory-drift` | DependencyAdvisory | Advisories live OSV lists for a pinned version that the snapshot lacks; skipped, with the count of pins not checked, when OSV is unreachable (opt-in, never gates by default) |
 | `stochastic-determinism` | StochasticDeterminismAuditor | Unseeded randomness in production code |
 | `temporal-determinism` | TemporalDeterminismAuditor | Wall-clock nondeterminism: simulated sources stamping `.now`, and tests asserting on measured elapsed wall-clock time |
 | `gpu-safety` | GPUSafetyAuditor | Metal kernels that index by thread id with no bound, and dispatches that round up — the conditions for silent out-of-bounds reads and writes |
@@ -209,29 +307,50 @@ quality-gate standards-watch       # exits non-zero on drift — schedule it
 |----|--------|-------------|
 <!-- generated:checker-table-specialty -->
 | `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference |
-| `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA technical-control mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
+| `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 | `appintents-readiness` | AppIntentsAuditor | App Intents entity conformance, parameter wrappers, metadata protocols |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
-| `xcode-build` | XcodeBuildChecker | Xcode project build validation and IndexStore generation (opt-in) |
+| `xcode-build` | XcodeBuildChecker | Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in) |
 <!-- /generated:checker-table-specialty -->
-| `disk-clean` | DiskCleaner | Build artifact and cache cleanup (opt-in) |
 
-`disk-clean`, `xcode-build`, `doc-run`, `doc-claims` and `doc-comment-code` are opt-in — excluded from default runs unless explicitly requested with `--check` or listed in `enabledCheckers`.
+### Whose warning is it
 
-`doc-code` was opt-in for a different reason than those two, and the reasoning is worth keeping because it was right at the time. It is not merely slow: it holds an article to being **one compilable program**, so every block in it concatenates and runs as a playground. That is a convention a repository adopts, and until it has, the checker reports true findings about documentation nobody agreed to write that way — 76 of them here. It now runs by default, because that bar was met rather than lowered: this catalogue stands at 0 findings across 56 articles and 161 fences, with every fence examined and zero exempted (`0 not analyzed`, a figure the checker computes on each run). Exclude it with `--exclude doc-code` if your own catalogue has not adopted the convention yet. `--full` still does not carry it, because `--full` means "the slow ones too", not "adopt a documentation convention you have not adopted".
+Three checkers read a build's diagnostics — `build`, `doc-lint` and `xcode-build` — and they
+share one rule:
 
-`doc-comment-code` opts out for the same reason, with the number measured: on this repository it found 43 doc fences in 26 files — 20 Swift, 23 not — of which **16 failed on the day the rule was written**, ten of them one `## Usage` template copied into ten auditors. It carries its own id rather than sharing `doc-code`'s precisely so that landing it red cannot take a green `doc-code` down with it, and so the two can be repaired independently. Its preamble is `Foundation` plus the owning module and nothing widens it — not the dependency closure, not `docCode.extraImports` — because whatever a fence needs in order to compile is exactly what a reader copying it out of Quick Help has to type.
+> **Warnings in dependencies are not counted, by every build-type checker; errors are.**
+
+A warning in a file your package does not own is one you cannot fix, and a count that can never
+reach zero stops being read. An error is different: a dependency that does not compile means
+your package does not build, and that fails the gate with the dependency's error shown.
+
+| A diagnostic whose path contains | is |
+|---|---|
+| `/.build/checkouts/<package>/`, `/.build/artifacts/<package>/` | a SwiftPM dependency's |
+| `/SourcePackages/checkouts/<package>/`, `/SourcePackages/artifacts/<package>/` | an Xcode dependency's (DerivedData) |
+| `/.build/` otherwise | the build directory's |
+| anything else | **yours** — including your package's derived sources in DerivedData, macro expansions, build-tool plugin output, local path dependencies and edited packages |
+
+Nothing is dropped without a trace. A checker that scoped anything out ends with a note saying
+how much and from where:
+
+```
+ℹ️  note: 20 warnings in dependency mlx-swift were not counted; they are not this package's source
+```
+
+The rule is `DependencyOrigin` in `QualityGateCore`; a checker of your own that parses build
+output gets the same behaviour from `diagnostics.firstPartyScope(projectRoot:)`.
 
 ## CLI reference
 
 | Flag | Description |
 |------|-------------|
-| `--check <name>` | Run specific checker(s) by ID. Use `all` for every checker |
-| `--exclude <name>` | Skip checker(s) when using `--check all` |
+| `--check <name>` | Run specific checker(s) by ID, separated by spaces or commas. Use `all` for every checker. An unknown ID is an error (exit 64) |
+| `--exclude <name>` | Skip checker(s) — from the default set, `--check all`, or an explicit `--check` |
 | `--format <fmt>` | Output format: `terminal` (default), `json`, `sarif`, `xcode` |
 | `--config <path>` | Config file path (default: `.quality-gate.yml`) |
 | `--continue-on-failure` | Run all checks even if one fails |
-| `--strict` | Treat warnings as failures (exit code 1) |
+| `--strict` | Treat warnings as failures (exit code 1): the run fails when the summary's warning count is above zero |
 | `--verbose` | Show detailed progress |
 | `--fix` | Apply auto-fixes for `FixableChecker` conformers |
 | `--dry-run` | Preview `--fix` changes without writing (requires `--fix`) |
@@ -277,6 +396,38 @@ security:
   allowedHTTPHosts: [localhost, 127.0.0.1]
 ```
 
+To add one opt-in checker to the default run without enabling the rest, list it under
+`includedCheckers:` (the mirror of `excludedCheckers:`). For example, a package whose code is
+gated `#if os(watchOS)` can build it on every run:
+
+```yaml
+includedCheckers:
+  - xcode-build
+
+xcodeBuild:
+  scheme: MyPackage
+  destinations:
+    - "generic/platform=watchOS"
+```
+
+`xcode-build` builds a plain Swift package from its directory, with no `.xcodeproj` needed.
+When it finds no workspace, project or `Package.swift`, it reports SKIPPED, not PASSED.
+
+`build`, `test`, `doc-lint` and `xcode-build` each run one long tool under a wall-clock budget.
+The first three derive it from their last successful run (three times its duration, at least
+900 s, and 3,600 s when nothing is recorded); `xcode-build` runs under 600 s. `budgets:` replaces
+the figure for a named checker, in seconds, and is used exactly as written:
+
+```yaml
+budgets:
+  test: 1800
+```
+
+A run stopped at its budget is an error named `<checker>-timeout`. It states the budget and
+where it came from, the elapsed time, the machine's load average and the tool's last lines, and
+it is never cached and never a pass. Budgets do not scale with load: see `GUIDE.md`, "Time
+budgets".
+
 Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, `keychain-secrets`, `privacy-manifest`, and `consistency`.
 
 Severity overrides let you downgrade or upgrade any rule:
@@ -310,10 +461,13 @@ struct LegacyWrapper: @unchecked Sendable { ... }
 
 ```yaml
 - name: Build Quality Gate
-  run: swift build -c release
+  run: swift build -c release --disable-automatic-resolution
 
+# `--show-bin-path` for the same reason as the install steps above: under the
+# swiftbuild backend (Swift 6.4's default) products are in `.build/out`, and on
+# Linux no `.build/release` symlink exists to hide the difference.
 - name: Run Quality Gate
-  run: .build/release/quality-gate --format sarif > results.sarif
+  run: $(swift build -c release --show-bin-path --disable-automatic-resolution)/quality-gate --format sarif > results.sarif
 
 - name: Upload SARIF
   uses: github/codeql-action/upload-sarif@v2
@@ -350,20 +504,21 @@ For the full tutorial — design philosophy, architecture walkthrough, and integ
 ```
 quality-gate-swift/
 ├── Sources/
-│   ├── QualityGateCore/                 # Protocol, models, reporters, configuration
-│   ├── QualityGateTestKit/              # Test helpers for writing checker tests
-│   ├── QualityGateCLI/                  # Umbrella CLI entry point
-│   ├── IndexStoreInfra/                  # Shared IndexStoreDB infrastructure
-│   ├── IJS*/                             # Institutional Judgment System modules
-│   ├── [45 checker modules]             # One module per checker (see table above)
-│   └── [35 DocC catalogues]            # Per-module documentation
-├── Tests/                               # 3,213 tests across 60 test targets
+│   ├── QualityGateCore/       # Protocol, models, reporters, configuration
+│   ├── QualityGateTestKit/    # Test helpers for writing checker tests
+│   ├── QualityGateCLI/        # Umbrella CLI entry point
+│   ├── IndexStoreInfra/       # Shared IndexStoreDB infrastructure
+│   ├── IJS*/                  # Institutional Judgment System modules
+│   └── <one module per checker, each with its own DocC catalogue>
+├── Tests/                     # One test target per checker module
 ├── Plugins/
-│   └── QualityGatePlugin/              # SPM command plugin
-└── .github/workflows/                   # CI, quality gate, security staleness
+│   └── QualityGatePlugin/     # SPM command plugin
+└── .github/workflows/         # CI, quality gate, security staleness
 ```
 
-All SwiftSyntax-based checkers use AST walking for precise detection. Each checker is an independent module — depend on only what you need:
+Counts live in the generated block above rather than here: a number written into prose is a number nobody regenerates.
+
+Each checker is an independent module — depend on only what you need:
 
 ```swift
 .target(
@@ -375,16 +530,38 @@ All SwiftSyntax-based checkers use AST walking for precise detection. Each check
 )
 ```
 
-## Requirements
+## Honest limits
 
-- macOS 14+
-- Swift 6.0+
+**Rung 3 has the least evidence here.** On another package `doc-claims` caught a bond documented at `$1,043.30` that prices at `$1,043.76` — the stale figure was exactly the annual-coupon price, so the documentation had preserved a payment-frequency bug the code had already fixed. But this repository has zero adoption of the claim convention (`// Result:` / `// Output:`), so `doc-claims` reports **0 claims across 0 articles** here. It is real code with a real find, measured elsewhere.
+
+**`doc-claims` will never support `--fix`.** Not deferred — prohibited. An autofixer that rewrites a documented number to match the program can never fail, and therefore never means anything. The pressure when this checker is red at 5pm is precisely to edit the comment until it goes green, and a tool that automates that pressure is worse than no tool.
+
+**It is slower than a linter.** Some checkers need a full build; `unreachable` needs an index store.
+
+**Some checkers need project context you may not have.** `status` reads a project plan from a configured path and reports unavailable rather than passing when it cannot find one.
+
+**One checker is weaker on Linux than on macOS.** `unreachable`'s cross-module pass does not
+yet flag an unreferenced symbol in an *executable* target there: the same symbol is still
+caught by the intra-file rule, so it is not missed, but it arrives as a warning about one file
+rather than as "unreachable from any entry point". Library targets are unaffected. It is
+listed here rather than left for a reader to discover, because a checker that is quieter on
+one platform is exactly the kind of thing this tool exists to make visible.
+
+**Linux is newer than the rest of this.** It builds, the suite runs, and the checkers work —
+but macOS has years of use behind it and Linux has days. The Linux job is
+[`linux.yml`](.github/workflows/linux.yml); if something misfires there specifically, say so
+in the issue, because the two platforms have already diverged in ways neither the compiler nor
+the test suite caught on its own: `appendingPathComponent(_:)` consults the filesystem on
+Linux and not on Darwin, and a checker that could not find its index store reported **passed**
+rather than reporting that it had not looked.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
 ## Contributing
+
+Issues and pull requests welcome — especially false-positive reports, which are what the calibration data is built from.
 
 1. Fork the repository
 2. Create a feature branch

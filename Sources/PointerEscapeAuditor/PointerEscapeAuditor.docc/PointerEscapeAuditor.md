@@ -6,7 +6,7 @@ Catches `Unsafe*Pointer` values that escape the `withUnsafe*` closure scope that
 
 PointerEscapeAuditor was motivated by a real Accelerate FFT incident: a backend stored a pointer borrowed from `withUnsafeBufferPointer` and used it after the closure returned, producing intermittent memory corruption. The code compiled cleanly because Swift's safety net stops at the closure boundary.
 
-This auditor walks every `withUnsafe*` call site in the file, tracks the closure parameter (`$0`, named, or tuple-destructured), and checks for nine kinds of escape patterns. It is intra-file and AST-only — no successful build or IndexStore required.
+This auditor walks every `withUnsafe*` call site in the file, tracks the closure parameter (`$0`, named, or tuple-destructured), and checks for ten kinds of escape patterns. It is intra-file and AST-only — no successful build or IndexStore required.
 
 ### Detected rules
 
@@ -14,7 +14,8 @@ This auditor walks every `withUnsafe*` call site in the file, tracks the closure
 |---------|----------|-----------------|
 | `pointer-escape.return-from-with-block` | error | Returning a tracked pointer from the closure (direct, derived, wrapped, or branched) |
 | `pointer-escape.assigned-to-outer-capture` | error | Assigning a tracked pointer to an outer var, global, or static property |
-| `pointer-escape.stored-in-property` | error | Assigning a tracked pointer to `self.x` |
+| `pointer-escape.assigned-to-outer-member` | error | Assigning a tracked pointer to a field or element of an outer variable (`stream.next_in = buf.baseAddress`) that is read again after the block returns |
+| `pointer-escape.stored-in-property` | error | Assigning a tracked pointer to `self.x`, `self.a.b` or `self[i]` |
 | `pointer-escape.appended-to-outer-collection` | error | `outerArray.append(ptr)` or `outerArray.insert(ptr, at:)` |
 | `pointer-escape.passed-as-inout` | error | Passing a tracked pointer to a non-allowlisted function call |
 | `pointer-escape.stored-closure-captures-pointer` | error | A closure literal that captures a tracked pointer and is stored or returned |
@@ -38,6 +39,7 @@ The auditor specifically does **not** treat these as pointers (they're values):
 
 - `<tracked>.pointee`
 - `<tracked>.first`, `.last`, `.count`, `.isEmpty`
+- `<tracked>[i]` — one element. A range subscript (`<tracked>[0..<n]`) is still a pointer: the slice refers to the same memory.
 - `<tracked>.reduce(...)`, `.map`, `.filter`, `.forEach`, `.compactMap`
 
 ### Nested with-blocks

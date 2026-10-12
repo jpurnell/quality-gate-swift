@@ -65,14 +65,32 @@ sudo codesign --force -s - "$INSTALL_DIR/$BINARY_NAME"
 # alone leaves the tool crashing the first time such a target is touched — e.g. "unable to
 # find bundle named quality-gate-swift_ControlMapping" on `--check all`, once ControlMapping
 # gained the regulatory catalogs. Copy whatever bundles the release build produced for us.
+#
+# `*.bundle`, not `quality-gate-swift_*.bundle`. The prefixed glob copied only this package's
+# own bundles and silently skipped every dependency's — 40 of 45, missing CorpusKit, VigilKit,
+# Crypto, BusinessMath and SwiftDeterminism. A prefix filter cannot tell "not ours" from "not
+# needed", and the bundles a dependency ships are exactly the ones whose absence surfaces as a
+# crash in someone else's code. The README install line and the release tarball each shipped
+# the same 40-of-45 and each read as correct, for the same reason: nothing counted.
 shopt -s nullglob
-for bundle in "$REPO_DIR/.build/release/"quality-gate-swift_*.bundle; do
+for bundle in "$REPO_DIR/.build/release/"*.bundle; do
     bundle_name="$(basename "$bundle")"
     echo "  bundle: $bundle_name"
     sudo rm -rf "${INSTALL_DIR:?}/$bundle_name"
     sudo cp -R "$bundle" "$INSTALL_DIR/$bundle_name"
 done
 shopt -u nullglob
+
+# Counted, because "copied some bundles" is indistinguishable from "copied the right ones"
+# in a log that only lists what it touched.
+BUILT=$(ls -d "$REPO_DIR/.build/release/"*.bundle 2>/dev/null | wc -l | tr -d ' ')
+COPIED=$(ls -d "$INSTALL_DIR/"*.bundle 2>/dev/null | wc -l | tr -d ' ')
+echo "  bundles: ${COPIED} installed of ${BUILT} built"
+if [ "$COPIED" -lt "$BUILT" ]; then
+    echo "ERROR: ${BUILT} bundles were built but only ${COPIED} are installed." >&2
+    echo "  A missing dependency bundle crashes the checker that reads it, not this script." >&2
+    exit 1
+fi
 
 STAMP_FILE="$INSTALL_DIR/.quality-gate-stamp"
 echo "$DEPLOY_COMMIT" | sudo tee "$STAMP_FILE" > /dev/null

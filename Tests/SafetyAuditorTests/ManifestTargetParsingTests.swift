@@ -192,13 +192,24 @@ struct ManifestParsingAgreementTests {
         // a package containing a duplicate of a binary deployed from elsewhere. The count
         // agreed with the manifest and the manifest was the thing that was wrong, which is
         // the limit of what a tripwire over `describe` can tell you.
-        // 114 until 2026-09-17's ShapeMetrics work landed on this branch, which adds
-        // ShapeMetrics and ShapeMetricsTests — the two targets behind `--shape-output`.
+        // 114 until 2026-10-03, when ExternalInputSyntax and its test target arrived — the
+        // SwiftSyntax adapter for the shared external-input model.
         // The number is asserted rather than computed on purpose: it is a tripwire
         // for the parser silently disagreeing with `swift package describe`, so it
         // is expected to be edited whenever the manifest genuinely changes.
-        #expect(map.targetCount == 116,
-                "describe reported 116 targets on 2026-09-29; parser found \(map.targetCount)")
+        // 118 from 2026-10-03: ServerSurface and its test target, the server-surface inventory,
+        // on top of ExternalInputSyntax and its test target.
+        // 120 from 2026-10-04: SyntaxScope and its test target — the lexical-scope code
+        // RecursionAuditor and ConcurrencyAuditor share.
+        // 122 from 2026-10-06: DependencyAdvisory and its test target — the three advisory
+        // checkers (`AnAdvisoryIsADatedFact.md`).
+        // 124 from 2026-10-12: ShapeMetrics and its test target, arriving with the shape-spans
+        // merge — the two targets behind `--shape-output`. Both sides of that merge edited this
+        // number, to 116 and 122, and neither was the answer: the branch counted its own two
+        // additions against a 114 that four other pairs had already moved past. Read off
+        // `swift package describe` after merging, not carried over from either side.
+        #expect(map.targetCount == 124,
+                "describe reported 124 targets on 2026-10-12; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

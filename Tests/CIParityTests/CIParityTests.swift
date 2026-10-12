@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateTestKit
 import QualityGateCore
 import Testing
 
@@ -12,7 +13,6 @@ import Testing
 @Suite("CI parity", .serialized)
 struct CIParityTests {
 
-    private final class BundleToken {}
 
     private enum ParityError: Error {
         case binaryNotFound
@@ -20,13 +20,13 @@ struct CIParityTests {
     }
 
     private static func gateBinary() throws -> URL {
-        let productsDirectory = Bundle(for: BundleToken.self).bundleURL
-            .deletingLastPathComponent()
-        let candidate = productsDirectory.appendingPathComponent("quality-gate")
-        guard FileManager.default.fileExists(atPath: candidate.path) else {
+        guard let binary = BuiltProducts.gateBinary else {
+
             throw ParityError.binaryNotFound
+
         }
-        return candidate
+
+        return binary
     }
 
     /// A fixture whose manifest declares a textual dependency cycle, so the

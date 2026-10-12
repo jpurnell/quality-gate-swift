@@ -137,13 +137,17 @@ private final class BigOVisitor: SyntaxVisitor {
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         let methodName = node.declName.baseName.text
 
-        // Build a qualified name (e.g., "receiver.method") for user cost matching
-        let qualifiedName: String
-        if let base = node.base?.description.trimmingCharacters(in: .whitespacesAndNewlines) {
-            qualifiedName = "\(base).\(methodName)"
-        } else {
-            qualifiedName = methodName
+        // Not every `.name` is a call on a collection. An implicit member (`case .first:`,
+        // `return .last`) has no receiver at all — it is an enum case or a static member —
+        // and `map` on an `as?` result is `Optional.map`, which runs at most once. Both were
+        // costed as O(n) by name alone: BioFeedbackKit-HealthKit's `case .first:` and
+        // `(sample as? Series).map { … }` each made a function read as O(n²) from its caller.
+        guard let base = node.base, !Self.isOptionalProducing(base) else {
+            return .visitChildren
         }
+
+        // Build a qualified name (e.g., "receiver.method") for user cost matching
+        let qualifiedName = "\(base.description.trimmingCharacters(in: .whitespacesAndNewlines)).\(methodName)"
 
         if let cost = StdlibCostTable.cost(for: qualifiedName, userCosts: userCosts) {
             let effectiveCost: String
@@ -171,7 +175,8 @@ private final class BigOVisitor: SyntaxVisitor {
     // MARK: - Higher-order iteration (map, filter, forEach treated as loops)
 
     override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self) {
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+           let base = memberAccess.base, !Self.isOptionalProducing(base) {
             let methodName = memberAccess.declName.baseName.text
             let iteratingMethods: Set<String> = ["map", "flatMap", "compactMap", "filter", "forEach", "reduce"]
 
@@ -203,6 +208,29 @@ private final class BigOVisitor: SyntaxVisitor {
     }
 
     // MARK: - Helpers
+
+    /// Whether `expression` is a parenthesised conditional cast, `(x as? T)` — whose value
+    /// is an Optional, so `.map` / `.flatMap` on it run their closure at most once.
+    ///
+    /// Recognised both folded (`AsExprSyntax`) and as the parser leaves it
+    /// (`SequenceExprSyntax` holding an `UnresolvedAsExprSyntax`).
+    static func isOptionalProducing(_ expression: ExprSyntax) -> Bool {
+        guard let tuple = expression.as(TupleExprSyntax.self),
+              tuple.elements.count == 1,
+              let inner = tuple.elements.first?.expression else {
+            return false
+        }
+        if let cast = inner.as(AsExprSyntax.self) {
+            return cast.questionOrExclamationMark?.tokenKind == .postfixQuestionMark
+        }
+        if let sequence = inner.as(SequenceExprSyntax.self) {
+            return sequence.elements.contains { element in
+                element.as(UnresolvedAsExprSyntax.self)?.questionOrExclamationMark?.tokenKind
+                    == .postfixQuestionMark
+            }
+        }
+        return false
+    }
 
     private func walkStatements(in block: CodeBlockSyntax) {
         for statement in block.statements {

@@ -197,6 +197,11 @@ For checkers that support auto-fix, preview what would change:
 quality-gate --fix --dry-run
 ```
 
+A checker that can work out its fix without applying it prints the files it would change and,
+for each file it would leave alone, what stops it. `test-quality` does: its XCTest conversion
+is run in full and nothing is written. A checker that cannot prints its rule's general advice
+for each finding.
+
 Then apply:
 
 ```bash
@@ -264,6 +269,12 @@ These checkers find bugs that compile but crash or produce wrong results at runt
 **SafetyAuditor** (`safety`) — Two visitors in one checker. The safety visitor flags crash-prone patterns: `!`, `as!`, `try!`, `fatalError()`, `precondition()`, `assertionFailure()`, `unowned`, `while true`, and `String(format:)`. The security visitor implements 10 OWASP Mobile Top 10 rules covering hardcoded secrets, command injection, weak crypto, insecure transport, eval-JS, SQL injection, insecure keychain, TLS bypass, path traversal, and SSRF. All rules use full AST context — they won't false-positive on string literals or comments.
 
 **StochasticDeterminismAuditor** (`stochastic-determinism`) — Flags randomness sources (`Int.random`, `Double.random`, `Bool.random`, `Array.shuffled`, etc.) in production code that lack seed injection. Non-deterministic code is impossible to reproduce in tests or debug in production.
+
+**DependencyAdvisoryChecker** (`dependency-advisory`) — Reports a pinned dependency version that a published security advisory (OSV / GitHub Advisory Database, ecosystem `SwiftURL`) says is vulnerable: advisory id, CVE alias, severity, affected range, fixed version and the pin's line in `Package.resolved`. It never asks a server. It reads a dated **snapshot** of the whole advisory export — one bundled with the gate, optionally a newer one committed at `.quality-gate/advisories/swifturl.json` — so the verdict is a function of the lockfile and the snapshot, works offline, and may fail a build. CRITICAL and HIGH are errors; MODERATE, LOW and unlabelled are warnings. Every finding says what date its data is from. An advisory that does not apply is acknowledged in `.quality-gate.yml` under `dependencyAudit.acknowledgedAdvisories`, with the advisory id, the package, a reason and an `until` date.
+
+**AdvisoryFreshnessChecker** (`dependency-advisory-freshness`) — Says how old that snapshot is, and reports it as stale past `advisorySnapshotMaxAgeDays` (14 by default), with the number of pins that were therefore checked only against old data. It depends on the calendar, so it reports notes and cannot fail a build unless `--include-nonhermetic` is passed.
+
+**AdvisoryDriftChecker** (`dependency-advisory-drift`) — Opt-in. Sends each pinned version to live OSV (`/v1/querybatch`, bounded in time, size and count) and reports any advisory the snapshot lacks. When OSV is unreachable it is skipped — not passed — and says how many pins it did not check. `quality-gate advisories refresh` writes a new snapshot.
 
 ### Code Hygiene
 
@@ -360,6 +371,47 @@ security:
 logging:
   allowPrintInTargets: ["QualityGateCLI"]
 ```
+
+### Time budgets
+
+`build`, `test`, `doc-lint` and `xcode-build` each launch one long-running tool, and each
+gives it a wall-clock budget. Unset, `build`, `test` and `doc-lint` derive theirs from the
+last successful run in this checkout — three times its duration, never less than 900 seconds,
+and 3,600 seconds when nothing is recorded yet, which is a cold tree. `xcode-build` keeps no
+history and runs under 600 seconds. Set a figure to replace the derived one, in seconds:
+
+```yaml
+budgets:
+  test: 1800
+  doc-lint: 2400
+```
+
+A configured budget is used exactly as written. A key that names no budgeted checker, or a
+figure that is not a positive finite number, stops the run at startup instead of being ignored.
+
+Budgets do not stretch with the machine's load. A run that is stopped says so, as
+`build-timeout`, `test-timeout`, `doc-lint-timeout` or `xcode-build-timeout`, and the message
+carries what you need to choose between waiting and raising the key: the budget and where it
+came from, the elapsed time, the 1-minute load average with the core count, and the last lines
+the tool printed. A stopped run is an error, is never cached, and is never a pass:
+
+```
+❌ error: `swift test --parallel` was stopped at its time budget and did not finish. This run is incomplete: it is not a pass, and it is not a finding about the code.
+  checker: test
+  budget:  900s — three times the last successful run (212s), and never less than 900s
+  elapsed: 905s
+  load:    1-minute load average 187.4 on 10 cores (18.7 per core)
+  last 2 lines of output:
+    | 􁁛  Test run with 94 tests in 7 suites passed after 144.502 seconds.
+    | 􀟈  Test "A slow one" started.
+💡 Rerun this checker alone, when the load is lower: `quality-gate --check test`. If it needs longer than 900s on a quiet machine, raise its budget in .quality-gate.yml — `budgets:` then `test: 1800` (seconds).
+```
+
+A tool that fails without printing anything the checker can parse — a dependency that will not
+check out, a crashed compiler — is reported as `build-unparsed-failure`,
+`test-unparsed-failure`, `doc-lint-unparsed-failure` or `xcode-build-unexplained-failure`, with
+the same facts, a sentence saying the budget was not the cause, and the tool's own `error:`
+lines quoted wherever in the transcript they fell.
 
 ### Severity overrides
 

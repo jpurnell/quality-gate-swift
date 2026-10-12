@@ -80,12 +80,36 @@ stress:
   marker: "// TIMING:"
 ```
 
+### When the Run Is Not a Test Result
+
+Three outcomes of `swift test` are not a test failure, and each has its own finding:
+
+| Rule | Severity | What happened |
+|---|---|---|
+| `test-timeout` | error | The run was stopped at its time budget. Whatever passed before that is not the suite. |
+| `test-unparsed-failure` | error | The run failed and recorded no test failure: a target that does not compile, a crashed test process, a package that does not resolve. |
+| `test-codesign` | warning | Every test passed and the toolchain then failed to sign a product. |
+
+`test-timeout` and `test-unparsed-failure` state the budget and where it came from, the elapsed
+time, the machine's 1-minute load average and the last lines `swift test` printed. A stopped run
+is never cached, records no duration, and does not update the flip detector's roster.
+
+The budget follows the suite: three times the last successful run in this checkout, never less
+than 900 seconds, and 3,600 seconds when nothing is recorded. A stress run does not count as
+that record. To set it instead:
+
+```yaml
+budgets:
+  test: 1800   # seconds, used exactly as written
+```
+
 ## Topics
 
 ### Essentials
 
 - ``TestRunner/check(configuration:)``
 - ``TestRunner/parseTestOutput(_:)``
+- ``TestRunner/createResult(run:duration:)``
 - ``TestRunner/createResult(output:exitCode:duration:)``
 
 ### Configuration

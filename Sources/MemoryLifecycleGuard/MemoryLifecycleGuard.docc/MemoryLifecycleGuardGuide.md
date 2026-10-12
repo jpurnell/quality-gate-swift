@@ -47,6 +47,27 @@ class CancellingCoordinator {
 }
 ```
 
+On a `@MainActor` class, make it an `isolated deinit`. A plain `deinit` there is nonisolated,
+and `concurrency.main-actor-deinit-touches-state` reports it for touching the stored handle;
+the suggested fix for this rule names `isolated deinit` for that reason, so following either
+checker's advice satisfies both:
+
+```swift
+// PASSES — both lifecycle and concurrency
+@MainActor
+final class MainActorCoordinator {
+    var pollingTask: Task<Void, Never>?
+
+    func startPolling() {
+        pollingTask = Task { await poll() }
+    }
+
+    isolated deinit {
+        pollingTask?.cancel()
+    }
+}
+```
+
 ### Missing Cancel in Deinit (`lifecycle-task-no-cancel`)
 
 Having a `deinit` isn't enough — it must actually cancel the task:

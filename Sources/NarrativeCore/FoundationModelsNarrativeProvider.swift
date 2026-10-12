@@ -1,8 +1,6 @@
 import Foundation
 import CorpusKit
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The on-device fallback: a map-reduce over per-project shards, small enough to
 /// fit the 4,096-token window. The map step also yields a reusable per-project

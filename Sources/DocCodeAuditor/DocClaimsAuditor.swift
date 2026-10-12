@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Checks that the numbers a DocC article publishes are the numbers its code produces.

@@ -28,7 +28,7 @@ public enum GroupDetailTUIView: Sendable {
         if memberProjects.isEmpty {
             aggregatePassRate = 0
         } else {
-            aggregatePassRate = memberProjects.reduce(0.0) { $0 + $1.passRate } / Double(memberCount) // fp-safety:disable guarded by isEmpty
+            aggregatePassRate = memberProjects.reduce(0.0) { $0 + $1.passRate } / Double(memberCount)
         }
         let totalRuns = memberProjects.reduce(0) { $0 + $1.runCount }
         let allPassing = memberProjects.allSatisfy(\.latestPassed)

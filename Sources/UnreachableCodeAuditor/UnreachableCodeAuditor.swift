@@ -1,8 +1,6 @@
 import Foundation
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import SwiftParser
 import SwiftSyntax
@@ -179,9 +177,28 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 testUnits = nil
             }
             let provenance = Self.indexProvenance(located: located2, includesTestUnits: testUnits)
-            diagnostics.append(contentsOf: provenance.diagnostics)
-            guard provenance.shouldRun else { throw SkipMarker.skipped }
-            let dylib = try Self.locateLibIndexStore()
+            guard provenance.shouldRun else {
+                diagnostics.append(contentsOf: provenance.diagnostics)
+                throw SkipMarker.skipped
+            }
+            // The store as a whole is newer than the sources. That says a build ran after the
+            // last edit; it does not say which units that build wrote. Opening the session
+            // takes the census that does, and the note — or a second barrier — comes from it.
+            let dylib: URL
+            let session: IndexStoreSession
+            do {
+                dylib = try Self.locateLibIndexStore()
+                session = try await SharedIndexStore.session(storePath: located2.url, libPath: dylib)
+            } catch {
+                // The store-wide note is still true and still worth having when the session
+                // that would have refined it could not be opened.
+                diagnostics.append(contentsOf: provenance.diagnostics)
+                throw error
+            }
+            let examined = Self.unitProvenance(
+                located: located2, census: session.unitCensus, projectSources: swiftFiles)
+            diagnostics.append(contentsOf: examined.diagnostics)
+            guard examined.shouldRun else { throw SkipMarker.skipped }
             let targetTypeByModule: [String: String]
             switch kind {
             case .swiftPM(let pkgRoot):
@@ -298,6 +315,51 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         }
     }
 
+    /// What to say about the index once its units have been examined one by one, and whether
+    /// to read it.
+    ///
+    /// Follows ``indexProvenance(located:includesTestUnits:)``, which judges the store as a
+    /// whole and has already allowed the run. This judges it file by file.
+    ///
+    /// - Parameters:
+    ///   - located: The located store, carrying its store-wide measurement.
+    ///   - census: The session's unit census, or `nil` when the units could not be examined.
+    ///   - projectSources: The files this checker reads — the project's own, after exclusions.
+    ///     A source the index no longer describes is a barrier only when it is one of these.
+    /// - Returns: The diagnostics to emit, and whether the index may be read.
+    static func unitProvenance(
+        located: StoreLocator.LocatedStore,
+        census: IndexUnitCensus?,
+        projectSources: [String]
+    ) -> (diagnostics: [Diagnostic], shouldRun: Bool) {
+        guard case .measured(let freshness)? = located.measurement else {
+            // An asserted store: nothing was measured before, and nothing is claimed now.
+            return ([], true)
+        }
+        guard let census else {
+            return ([freshness.coverageNote(checkerId: checkerId, census: nil)], true)
+        }
+
+        if !census.sourcesWithoutCurrentUnit.isEmpty {
+            // The compiler records the path it was given and the walker the path it found;
+            // only their resolved forms are comparable.
+            func resolved(_ path: String) -> String {
+                URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            }
+            let own = Set(projectSources.map(resolved))
+            let undescribed = census.sourcesWithoutCurrentUnit.filter { own.contains(resolved($0)) }
+            if !undescribed.isEmpty {
+                return ([census.undescribedSourcesBarrier(
+                    checkerId: checkerId,
+                    subject: "reachability",
+                    storeURL: located.url,
+                    sources: undescribed
+                )], false)
+            }
+        }
+        return ([freshness.coverageNote(checkerId: checkerId, census: census)], true)
+    }
+
     /// Build the Xcode project / workspace via `xcodebuild` and return a
     /// freshly-located index store. Used by the v5 `--auto-build-xcode`
     /// opt-in path.
@@ -355,27 +417,23 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         }
     }
 
+    /// The index-store library, resolved the way every other index-backed checker resolves it.
+    ///
+    /// This was a second implementation: `xcrun --find swift`, then
+    /// `usr/lib/libIndexStore.dylib`, both written in as literals. Seven other checkers —
+    /// `concurrency`, `recursion`, `complexity`, `doc-coverage`, `memory-lifecycle`,
+    /// `legibility` — already went through ``IndexStoreSession/findLibIndexStore()``, and this
+    /// one did not, so teaching that function about Linux fixed every checker except the one
+    /// whose tests were failing. The duplicate is the reason: a second copy of a resolution
+    /// does not announce itself when the first is corrected.
+    ///
+    /// Kept as a thin adapter rather than deleted so the throwing contract and
+    /// ``ToolchainError`` stay as callers expect.
     static func locateLibIndexStore() throws -> URL {
-        // `xcrun --find swift` → /…/usr/bin/swift
-        // libIndexStore lives at        /…/usr/lib/libIndexStore.dylib
-        // SAFETY: runs xcrun --find swift to locate the toolchain
-        let result = try ProcessRunner.run(
-            "/usr/bin/xcrun",
-            arguments: ["--find", "swift"]
-        )
-        guard result.exitCode == 0 else { throw ToolchainError.libIndexStoreNotFound }
-        let path = result.stdout
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { throw ToolchainError.libIndexStoreNotFound }
-        // /…/usr/bin/swift -> /…/usr/lib/libIndexStore.dylib
-        let usr = URL(fileURLWithPath: path)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let dylib = usr.appendingPathComponent("lib/libIndexStore.dylib")
-        guard FileManager.default.fileExists(atPath: dylib.path) else { // SAFETY: CLI tool checks local toolchain library
+        guard let library = IndexStoreSession.findLibIndexStore() else {
             throw ToolchainError.libIndexStoreNotFound
         }
-        return dylib
+        return library
     }
 
     /// Returns a `module name → target type` map from `swift package
@@ -385,7 +443,9 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         // SAFETY: runs swift package describe to map target types
         let result = try ProcessRunner.run(
             "/usr/bin/env",
-            arguments: ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"]
+            arguments: ["swift", "package", "--package-path", packageRoot.path, "describe", "--type", "json"],
+            // `swift package` may resolve dependencies with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool
         )
         guard result.exitCode == 0 else {
             throw ToolchainError.describeFailed(result.stderr)

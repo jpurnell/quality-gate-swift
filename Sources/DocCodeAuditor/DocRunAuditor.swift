@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Executes each DocC article as one program, and reports what happened.

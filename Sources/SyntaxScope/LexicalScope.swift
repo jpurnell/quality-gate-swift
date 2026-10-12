@@ -1,4 +1,3 @@
-import Foundation
 import SwiftSyntax
 
 /// The lexical declarations visible at a point in a syntax walk.
@@ -17,12 +16,21 @@ import SwiftSyntax
 /// Semantic resolution — typealiases, protocol witnesses, generic constraints —
 /// stays in the index-backed pass, which degrades honestly when no index exists.
 /// See `quality-gate-swift-project/plans/proposals/RecursionNeedsScopeTracking.md`.
-struct LexicalScope {
+public struct LexicalScope: Sendable {
     /// One frame per enclosing block, closure, or case body.
-    private var frames: [Set<String>] = [[]]
+    private var frames: [Set<String>]
+
+    /// Creates a scope whose root frame already binds `names`.
+    ///
+    /// The seed is for bindings made outside the subtree about to be walked — a
+    /// function's parameters, the locals above a closure — which the walk itself
+    /// will never encounter. See ``visibleBindings(at:)``.
+    public init(binding names: Set<String> = []) {
+        frames = [names]
+    }
 
     /// Enters a nested scope.
-    mutating func push() {
+    public mutating func push() {
         frames.append([])
     }
 
@@ -31,42 +39,19 @@ struct LexicalScope {
     /// Popping the root frame would leave the stack unusable, so it is refused
     /// rather than trapped: an unbalanced walk should degrade to "nothing is
     /// shadowed", which reports, rather than crash the checker.
-    mutating func pop() {
+    public mutating func pop() {
         guard frames.count > 1 else { return }
         frames.removeLast()
     }
 
     /// Records a name as bound in the innermost scope.
-    mutating func declare(_ name: String) {
+    public mutating func declare(_ name: String) {
         guard !frames.isEmpty else { return }
         frames[frames.count - 1].insert(name)
     }
 
     /// True if any enclosing scope binds `name`.
-    func shadows(_ name: String) -> Bool {
+    public func shadows(_ name: String) -> Bool {
         frames.contains { $0.contains(name) }
     }
-}
-
-
-/// The function names declared alongside `node` in its enclosing type.
-///
-/// A call `name()` inside a property named `name` resolves to the method, not to the
-/// property: a property is callable only when its own type is a function type, and in
-/// that case no sibling method of the name exists to collide with it.
-func siblingFunctionNames(of node: some SyntaxProtocol) -> Set<String> {
-    var current = Syntax(node).parent
-    while let candidate = current {
-        if let members = candidate.as(MemberBlockSyntax.self) {
-            var names: Set<String> = []
-            for member in members.members {
-                if let function = member.decl.as(FunctionDeclSyntax.self) {
-                    names.insert(function.name.text)
-                }
-            }
-            return names
-        }
-        current = candidate.parent
-    }
-    return []
 }

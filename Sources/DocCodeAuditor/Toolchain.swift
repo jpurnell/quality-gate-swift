@@ -1,8 +1,6 @@
 import Foundation
 import QualityGateCore
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The flags the active toolchain needs in order to typecheck a documentation block the
 /// same way the package's own build would.
@@ -22,6 +20,101 @@ public enum Toolchain {
 
     /// SDK, platform frameworks and macro plugin path for the active toolchain.
     public static func flags() -> [String] { cached }
+
+    /// Where `xcrun` lives on a Mac, and the reason this type needs a fallback at all.
+    private static let xcrunPath = "/usr/bin/xcrun"
+
+    /// The executable that compiles a documentation block, and whatever has to precede the
+    /// real arguments.
+    ///
+    /// A type rather than a bare path because the last resort is `xcrun swiftc`, where the
+    /// compiler is an *argument* and not the executable. Callers compose through
+    /// ``arguments(_:)`` so they never have to know which of the two they got.
+    public struct Compiler: Equatable, Sendable {
+
+        /// The program to spawn.
+        public let executable: String
+
+        /// Arguments that must come before the caller's own, empty for a direct compiler.
+        public let prefixArguments: [String]
+
+        /// Creates a compiler invocation.
+        ///
+        /// - Parameters:
+        ///   - executable: The program to spawn.
+        ///   - prefixArguments: Arguments that must precede the caller's own, empty when
+        ///     `executable` is the compiler itself.
+        public init(executable: String, prefixArguments: [String]) {
+            self.executable = executable
+            self.prefixArguments = prefixArguments
+        }
+
+        /// `tail` placed after whatever the executable requires in front of it.
+        public func arguments(_ tail: [String]) -> [String] { prefixArguments + tail }
+
+        /// The `usr` directory this compiler belongs to, or `nil` when it is not derivable.
+        ///
+        /// `nil` for the `xcrun` fallback: two levels above `/usr/bin/xcrun` is `/usr`, which
+        /// is a real directory and the wrong answer — it holds none of the plugin or manifest
+        /// directories, so deriving flags from it would quietly produce an incomplete compile.
+        var toolchainRoot: URL? {
+            guard prefixArguments.isEmpty else { return nil }
+            return URL(fileURLWithPath: executable)
+                .deletingLastPathComponent()      // …/usr/bin
+                .deletingLastPathComponent()      // …/usr
+        }
+    }
+
+    /// Resolved once, for the same reason the flags are.
+    private static let cachedCompiler: Compiler? = resolveCompiler(
+        onPath: {
+            swiftcOnPath(
+                path: ProcessInfo.processInfo.environment["PATH"],
+                // SAFETY: CLI tool probes PATH for the compiler the build itself resolves
+                isExecutable: { FileManager.default.isExecutableFile(atPath: $0) },
+                isToolchainRoot: { hasToolchainLayout(usr: $0) })
+        },
+        xcrunFindsSwiftc: { run(["-f", "swiftc"]) },
+        // SAFETY: CLI tool probes for Darwin's own developer-tools shim
+        xcrunExists: { FileManager.default.isExecutableFile(atPath: xcrunPath) })
+
+    /// The compiler to invoke, or `nil` when this machine has none that can be found.
+    ///
+    /// `nil` is a reportable state, not a failure to paper over: a checker that cannot find a
+    /// compiler has not examined anything, and must say so rather than emit the compiler's
+    /// absence as a finding against the file it was about to read.
+    public static func compiler() -> Compiler? { cachedCompiler }
+
+    /// Chooses the compiler to invoke from three probes, in order of authority.
+    ///
+    /// The order matters and is the same one ``swiftcOnPath(path:isExecutable:isToolchainRoot:)``
+    /// documents: the compiler that built the module a block imports is the one `swift build`
+    /// resolved, which is the one on `PATH`. `xcrun` answers second because on a stock Mac it
+    /// is the only one that answers at all.
+    ///
+    /// The third branch exists so Darwin behaviour is a superset of what it replaced: the code
+    /// this supersedes ran `xcrun swiftc` unconditionally, and a transient failure of
+    /// `xcrun -f swiftc` should not turn a machine that could compile into one that cannot.
+    /// Off Darwin there is no third branch to take, which is the whole point — a hardcoded
+    /// `/usr/bin/xcrun` there is not a fallback, it is a guaranteed failure reported against
+    /// the documentation.
+    ///
+    /// - Parameters:
+    ///   - onPath: Answers with a real toolchain's `swiftc` from `PATH`, or `nil`.
+    ///   - xcrunFindsSwiftc: Answers with `xcrun -f swiftc`, or `nil`.
+    ///   - xcrunExists: Answers whether `xcrun` itself is present and executable.
+    /// - Returns: The compiler to invoke, or `nil` when none of the three answered.
+    static func resolveCompiler(
+        onPath: () -> String?,
+        xcrunFindsSwiftc: () -> String?,
+        xcrunExists: () -> Bool
+    ) -> Compiler? {
+        if let direct = onPath() ?? xcrunFindsSwiftc() {
+            return Compiler(executable: direct, prefixArguments: [])
+        }
+        guard xcrunExists() else { return nil }
+        return Compiler(executable: xcrunPath, prefixArguments: ["swiftc"])
+    }
 
     /// The platform's Developer frameworks directory, or `nil` when the probe found none.
     ///
@@ -56,21 +149,29 @@ public enum Toolchain {
             }
         }
 
-        // SAFETY: CLI tool probes PATH for the compiler the build itself resolves
-        let onPath = swiftcOnPath(
-            path: ProcessInfo.processInfo.environment["PATH"],
-            isExecutable: { FileManager.default.isExecutableFile(atPath: $0) },
-            isToolchainRoot: { hasToolchainLayout(usr: $0) })
+        // Derived from the compiler that will actually run, not probed a second time. When
+        // those two disagree a block is typechecked with another toolchain's plugins, and the
+        // diagnostic for that is `no such module` — a tooling fact wearing a documentation
+        // defect's clothes, which is the failure this whole type exists to prevent.
+        if let usr = cachedCompiler?.toolchainRoot {
 
-        if let swiftc = onPath ?? run(["-f", "swiftc"]) {
-            let usr = URL(fileURLWithPath: swiftc)
-                .deletingLastPathComponent()          // …/usr/bin
-                .deletingLastPathComponent()          // …/usr
-
-            let plugins = usr.appendingPathComponent("lib/swift/host/plugins/testing").path
-            // SAFETY: CLI tool probes the toolchain's own plugin directory
-            if FileManager.default.fileExists(atPath: plugins) {
-                flags += ["-plugin-path", plugins]
+            // Two layouts, because the macro plugins do not live in the same place on every
+            // platform. An Xcode toolchain nests them under `plugins/testing`; a swift.org
+            // Linux toolchain puts them directly in `plugins`. Probing only the first meant
+            // `-plugin-path` was silently omitted on Linux — and silently is the problem:
+            // every fence using a Swift Testing macro then fails to expand, `doc-claims`
+            // cannot compile the assertions it injects, and the checker reports no claims
+            // rather than reporting that it could not check them. Measured in CI: the
+            // container has `/usr/lib/swift/pm/ManifestAPI` but no `host/plugins/testing`.
+            //
+            // Both are added when both exist. A path that is not there contributes nothing,
+            // and the compiler ignores a `-plugin-path` it finds no plugins in.
+            for candidate in ["lib/swift/host/plugins/testing", "lib/swift/host/plugins"] {
+                let plugins = usr.appendingPathComponent(candidate).path
+                // SAFETY: CLI tool probes the toolchain's own plugin directory
+                if FileManager.default.fileExists(atPath: plugins) {
+                    flags += ["-plugin-path", plugins]
+                }
             }
 
             // `PackageDescription` ships beside the toolchain rather than in the SDK, so it
@@ -153,13 +254,19 @@ public enum Toolchain {
     }
 
     /// Runs `xcrun` with `arguments`, returning its trimmed output.
+    ///
+    /// Answers `nil` without spawning anything where `xcrun` does not exist, so a Linux run
+    /// does not log a warning per probe about the absence of a tool that platform never had.
     private static func run(_ arguments: [String]) -> String? {
+        // SAFETY: CLI tool probes for Darwin's own developer-tools shim
+        guard FileManager.default.isExecutableFile(atPath: xcrunPath) else { return nil }
+
         // Through the kernel: `xcrun` can block indefinitely resolving a toolchain, and a query
         // for a compiler flag must not be able to hang the whole run.
         do {
-            // SAFETY: subprocess with hardcoded `/usr/bin/xcrun` and fixed query arguments
+            // SAFETY: subprocess with Darwin's fixed `xcrun` path and fixed query arguments
             let result = try ProcessRunner.run(
-                "/usr/bin/xcrun", arguments: arguments, timeout: 60)
+                xcrunPath, arguments: arguments, timeout: 60)
             guard result.exitCode == 0 else { return nil }
             let value = result.stdout
                 .trimmingCharacters(in: .whitespacesAndNewlines)

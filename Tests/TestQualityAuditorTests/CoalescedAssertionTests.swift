@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import TestQualityAuditor
 import QualityGateCore
 
@@ -9,7 +9,8 @@ import QualityGateCore
 /// and stays quiet on what was kept. The "must not flag" fixtures below are therefore not
 /// invented — each is a shape that exists, is correct, and would have been reported by a
 /// rule that matched `??` and stopped there.
-final class CoalescedAssertionTests: XCTestCase {
+@Suite
+struct CoalescedAssertionTests {
 
     private let auditor = TestQualityAuditor()
     private let ruleId = "coalesced-assertion"
@@ -22,7 +23,8 @@ final class CoalescedAssertionTests: XCTestCase {
 
     // MARK: - Must flag
 
-    func testFlagsCoalescedZeroInsideAToleranceComparison() async throws {
+    @Test
+    func flagsCoalescedZeroInsideAToleranceComparison() async throws {
         // `TimeSeriesAnalyticsTests.swift@2251c71a:111`, the site named in the proposal.
         let source = """
         import Testing
@@ -33,11 +35,12 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.lineNumber, 4)
+        #expect(found.count == 1)
+        #expect(found.first?.lineNumber == 4)
     }
 
-    func testFlagsCoalescedSubscriptDefaultInABoundsComparison() async throws {
+    @Test
+    func flagsCoalescedSubscriptDefaultInABoundsComparison() async throws {
         let source = """
         import Testing
 
@@ -47,10 +50,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 
-    func testFlagsCoalescedEmptyCollection() async throws {
+    @Test
+    func flagsCoalescedEmptyCollection() async throws {
         let source = """
         import Testing
 
@@ -60,10 +64,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "an empty collection is a fabricated value like any other")
+        #expect(found.count == 1, "an empty collection is a fabricated value like any other")
     }
 
-    func testFlagsInsideRequire() async throws {
+    @Test
+    func flagsInsideRequire() async throws {
         let source = """
         import Testing
 
@@ -74,10 +79,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "#require fabricates a value just as #expect does")
+        #expect(found.count == 1, "#require fabricates a value just as #expect does")
     }
 
-    func testFlagsTrueFallbackOnTheWholeCondition() async throws {
+    @Test
+    func flagsTrueFallbackOnTheWholeCondition() async throws {
         // The mirror image of the `?? false` carve-out below: `true` makes a missing value
         // *pass*, which is the entire defect this rule is named for.
         let source = """
@@ -89,10 +95,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 
-    func testSeverityIsWarningUntilTheCorpusIsClear() async throws {
+    @Test
+    func severityIsWarningUntilTheCorpusIsClear() async throws {
         // Promoted to `error` on 2026-09-16 and reverted the same day. The five repositories in
         // its proposal were clear; the corpus knows 75 that run this checker, and 19 of them
         // held 113 findings. Re-promotion is gated on a corpus query returning zero, not on a
@@ -106,10 +113,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.first?.severity, .warning)
+        #expect(found.first?.severity == .warning)
     }
 
-    func testSuggestedFixSaysRequireCannotBeInlined() async throws {
+    @Test
+    func suggestedFixSaysRequireCannotBeInlined() async throws {
         // §16 of the proposal: `#expect(abs(try #require(x) - v) < t)` does not compile,
         // because the macro expands its condition into a non-throwing closure. Every person
         // who acts on this diagnostic rediscovers that the same way unless it says so.
@@ -122,15 +130,14 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let fix = try await diagnostics(source).first?.suggestedFix ?? ""
-        XCTAssertTrue(fix.contains("#require"), "the fix names the replacement")
-        XCTAssertTrue(
-            fix.contains("throws"),
-            "and says the enclosing function must be marked throws")
+        #expect(fix.contains("#require"), "the fix names the replacement")
+        #expect(fix.contains("throws"), "and says the enclosing function must be marked throws")
     }
 
     // MARK: - Must not flag
 
-    func testIgnoresCoalescingInTheAssertionMessage() async throws {
+    @Test
+    func ignoresCoalescingInTheAssertionMessage() async throws {
         let source = """
         import Testing
 
@@ -140,12 +147,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(
-            found.isEmpty,
-            "a fallback in the failure message cannot change whether the test passes")
+        #expect(found.isEmpty, "a fallback in the failure message cannot change whether the test passes")
     }
 
-    func testIgnoresPoisonFallbackThatIsNotALiteral() async throws {
+    @Test
+    func ignoresPoisonFallbackThatIsNotALiteral() async throws {
         // `.infinity` is chosen precisely because it cannot be a plausible value, so a
         // missing `rHat` makes the comparison fail rather than pass.
         let source = """
@@ -157,10 +163,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "a non-literal fallback is a poison value, not a default")
+        #expect(found.isEmpty, "a non-literal fallback is a poison value, not a default")
     }
 
-    func testIgnoresFalseFallbackOnTheWholeCondition() async throws {
+    @Test
+    func ignoresFalseFallbackOnTheWholeCondition() async throws {
         // The canonical Swift spelling of "non-nil and true". A missing value yields
         // `false`, which fails the assertion — loudly enough, and there is no shorter
         // correct way to write it.
@@ -173,10 +180,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "false in boolean position makes absence fail")
+        #expect(found.isEmpty, "false in boolean position makes absence fail")
     }
 
-    func testIgnoresFalseFallbackInsideAConjunction() async throws {
+    @Test
+    func ignoresFalseFallbackInsideAConjunction() async throws {
         let source = """
         import Testing
 
@@ -186,12 +194,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(
-            found.isEmpty,
-            "false still propagates to failure through an &&")
+        #expect(found.isEmpty, "false still propagates to failure through an &&")
     }
 
-    func testFlagsFalseFallbackUnderANegation() async throws {
+    @Test
+    func flagsFalseFallbackUnderANegation() async throws {
         // Negated, the same fallback flips sense: a missing value now *passes*.
         let source = """
         import Testing
@@ -202,10 +209,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "under a negation, false is a benign default again")
+        #expect(found.count == 1, "under a negation, false is a benign default again")
     }
 
-    func testIgnoresCoalescingInsideAPredicateClosure() async throws {
+    @Test
+    func ignoresCoalescingInsideAPredicateClosure() async throws {
         // The distinction `unasserted-optional-unwrap` already draws: a value returned from
         // a closure answers the closure, not the test. Inside a search predicate, "missing
         // means does not match" is the correct reading, and it is how this repository's own
@@ -219,12 +227,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(
-            found.isEmpty,
-            "the fallback answers the predicate, not the assertion")
+        #expect(found.isEmpty, "the fallback answers the predicate, not the assertion")
     }
 
-    func testIgnoresCoalescingWithAComputedFallback() async throws {
+    @Test
+    func ignoresCoalescingWithAComputedFallback() async throws {
         let source = """
         import Testing
 
@@ -234,12 +241,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(
-            found.isEmpty,
-            "only a literal fallback is fabricated here; anything computed is the test's own choice")
+        #expect(found.isEmpty, "only a literal fallback is fabricated here; anything computed is the test's own choice")
     }
 
-    func testIgnoresCoalescingInsideAStringLiteral() async throws {
+    @Test
+    func ignoresCoalescingInsideAStringLiteral() async throws {
         // This repository's own `IdiomAuditorTests` asserts on fixture source that contains
         // `??`. Source text inside a string literal is not an expression.
         let source = """
@@ -251,10 +257,11 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testIgnoresCoalescingOutsideAnAssertion() async throws {
+    @Test
+    func ignoresCoalescingOutsideAnAssertion() async throws {
         let source = """
         import Testing
 
@@ -265,14 +272,13 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(
-            found.isEmpty,
-            "a fallback the test states as its own setup is visible; one buried in an assertion is not")
+        #expect(found.isEmpty, "a fallback the test states as its own setup is visible; one buried in an assertion is not")
     }
 
     // MARK: - Suppression
 
-    func testMarkerNamingTheRuleSuppressesItAndIsRecorded() async throws {
+    @Test
+    func markerNamingTheRuleSuppressesItAndIsRecorded() async throws {
         let source = """
         import Testing
 
@@ -284,13 +290,12 @@ final class CoalescedAssertionTests: XCTestCase {
 
         let result = try await auditor.auditSource(
             source, fileName: "SomeTests.swift", configuration: Configuration())
-        XCTAssertTrue(result.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
-        XCTAssertEqual(
-            result.overrides.filter { $0.ruleId == ruleId }.count, 1,
-            "the judgement is recorded, not merely absent")
+        #expect(result.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
+        #expect(result.overrides.filter { $0.ruleId == ruleId }.count == 1, "the judgement is recorded, not merely absent")
     }
 
-    func testBlanketMarkerDoesNotSuppressIt() async throws {
+    @Test
+    func blanketMarkerDoesNotSuppressIt() async throws {
         let source = """
         import Testing
 
@@ -300,14 +305,13 @@ final class CoalescedAssertionTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(
-            found.count, 1,
-            "a marker that does not name this rule must not silence it")
+        #expect(found.count == 1, "a marker that does not name this rule must not silence it")
     }
 
     // MARK: - Idempotence
 
-    func testTwoRunsReportTheSameDiagnostics() async throws {
+    @Test
+    func twoRunsReportTheSameDiagnostics() async throws {
         let source = """
         import Testing
 
@@ -319,8 +323,8 @@ final class CoalescedAssertionTests: XCTestCase {
 
         let first = try await diagnostics(source)
         let second = try await diagnostics(source)
-        XCTAssertEqual(first.count, 2)
-        XCTAssertEqual(first.map(\.lineNumber), second.map(\.lineNumber))
-        XCTAssertEqual(first.map(\.message), second.map(\.message))
+        #expect(first.count == 2)
+        #expect(first.map(\.lineNumber) == second.map(\.lineNumber))
+        #expect(first.map(\.message) == second.map(\.message))
     }
 }

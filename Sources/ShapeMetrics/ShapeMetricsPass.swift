@@ -139,9 +139,21 @@ public enum ShapeMetricsPass {
     }
 
     /// The module a file belongs to: the first path component under `Sources/`.
+    ///
+    /// Containment is decided on whole path components, with symbolic links resolved, not on a
+    /// string prefix. `hasPrefix` answered yes for `/base-evil` against `/base`, and the gate's
+    /// own `security.path-prefix` rule (CWE-22) said so the first time this branch met a `main`
+    /// that carried the rule. A sibling sharing a prefix is the cheap case; the one that matters
+    /// is that a prefix test cannot see a link leading out of the tree, so a path that merely
+    /// reads as inside it is treated as inside it.
+    ///
+    /// Comparing components also removes the slash arithmetic the prefix version needed — a
+    /// `dropFirst(sourcesRoot.count)` followed by trimming `/` to undo whether the root was
+    /// written with a trailing separator.
     static func moduleName(of path: String, under sourcesRoot: String) -> String {
-        guard path.hasPrefix(sourcesRoot) else { return "?" }
-        let relative = String(path.dropFirst(sourcesRoot.count)).trimmingCharacters(in: ["/"])
-        return relative.split(separator: "/").first.map(String.init) ?? "?"
+        let file = URL(fileURLWithPath: path).resolvingSymlinksInPath().pathComponents
+        let root = URL(fileURLWithPath: sourcesRoot).resolvingSymlinksInPath().pathComponents
+        guard file.starts(with: root), file.count > root.count else { return "?" }
+        return file[root.count]
     }
 }

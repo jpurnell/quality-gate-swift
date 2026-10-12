@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import TestQualityAuditor
 import QualityGateCore
 
@@ -8,7 +8,8 @@ import QualityGateCore
 /// Every rule here carries a negative fixture that looks like the flagged shape and is
 /// correct. That is the test that matters: a rule which fires on correct code is disabled
 /// within a week, and then it protects nothing.
-final class SemanticTestRuleTests: XCTestCase {
+@Suite
+struct SemanticTestRuleTests {
 
     private let auditor = TestQualityAuditor()
     private let config = Configuration()
@@ -40,7 +41,8 @@ final class SemanticTestRuleTests: XCTestCase {
         return result.diagnostics.filter { $0.ruleId == ruleId }
     }
 
-    func testOptInRulesAreSilentByDefault() async throws {
+    @Test
+    func optInRulesAreSilentByDefault() async throws {
         let source = """
         import Testing
 
@@ -55,12 +57,13 @@ final class SemanticTestRuleTests: XCTestCase {
         let optIn = result.diagnostics.filter {
             $0.ruleId == "assertion-on-constant" || $0.ruleId == "tolerance-without-magnitude"
         }
-        XCTAssertTrue(optIn.isEmpty, "these rules report only when a project asks for them")
+        #expect(optIn.isEmpty, "these rules report only when a project asks for them")
     }
 
     // MARK: - unvaried-parameter (§3.3)
 
-    func testFlagsSingleCallWithAllLiteralArgumentsAndOneAssertion() async throws {
+    @Test
+    func flagsSingleCallWithAllLiteralArgumentsAndOneAssertion() async throws {
         let source = """
         import Testing
 
@@ -70,11 +73,12 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.severity, .warning)
+        #expect(found.count == 1)
+        #expect(found.first?.severity == .warning)
     }
 
-    func testAllowsCallExercisedAtSeveralValues() async throws {
+    @Test
+    func allowsCallExercisedAtSeveralValues() async throws {
         let source = """
         import Testing
 
@@ -86,10 +90,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertTrue(found.isEmpty, "two call sites can distinguish an ignored parameter")
+        #expect(found.isEmpty, "two call sites can distinguish an ignored parameter")
     }
 
-    func testAllowsSingleCallWithSeveralAssertions() async throws {
+    @Test
+    func allowsSingleCallWithSeveralAssertions() async throws {
         let source = """
         import Testing
 
@@ -102,10 +107,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testAllowsSingleCallWithAComputedArgument() async throws {
+    @Test
+    func allowsSingleCallWithAComputedArgument() async throws {
         let source = """
         import Testing
 
@@ -115,12 +121,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertTrue(found.isEmpty, "a computed argument is not a fixed one")
+        #expect(found.isEmpty, "a computed argument is not a fixed one")
     }
 
     // Three shapes the first draft of this rule flagged across BusinessMath. All correct.
 
-    func testIgnoresTestWhoseOnlyCallBuildsAFixture() async throws {
+    @Test
+    func ignoresTestWhoseOnlyCallBuildsAFixture() async throws {
         let source = """
         import Testing
 
@@ -133,12 +140,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertTrue(
-            found.isEmpty,
-            "constructing a fixture is not calling the function under test")
+        #expect(found.isEmpty, "constructing a fixture is not calling the function under test")
     }
 
-    func testIgnoresConformanceTest() async throws {
+    @Test
+    func ignoresConformanceTest() async throws {
         let source = """
         import Testing
 
@@ -150,10 +156,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertTrue(found.isEmpty, "a conformance has no parameter to vary")
+        #expect(found.isEmpty, "a conformance has no parameter to vary")
     }
 
-    func testIgnoresThrowsExpectation() async throws {
+    @Test
+    func ignoresThrowsExpectation() async throws {
         let source = """
         import Testing
 
@@ -165,14 +172,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unvaried-parameter")
-        XCTAssertTrue(
-            found.isEmpty,
-            "asserting a refusal at one input is a complete statement")
+        #expect(found.isEmpty, "asserting a refusal at one input is a complete statement")
     }
 
     // MARK: - Suppression is per rule, not blanket
 
-    func testBlanketMarkerDoesNotSuppressANewRule() async throws {
+    @Test
+    func blanketMarkerDoesNotSuppressANewRule() async throws {
         // BusinessMath carries 73 lines of `#expect(true) // TEST-QUALITY: <something>`,
         // written to satisfy `missing-assertion`. Every one is exactly what
         // `assertion-on-constant` exists to find. An unscoped marker would have let the
@@ -187,12 +193,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "assertion-on-constant")
-        XCTAssertEqual(
-            found.count, 1,
-            "a marker that does not name this rule must not silence it")
+        #expect(found.count == 1, "a marker that does not name this rule must not silence it")
     }
 
-    func testMarkerNamingTheRuleSuppressesIt() async throws {
+    @Test
+    func markerNamingTheRuleSuppressesIt() async throws {
         let source = """
         import Testing
 
@@ -204,15 +209,14 @@ final class SemanticTestRuleTests: XCTestCase {
 
         let result = try await auditor.auditSource(
             source, fileName: "SomeTests.swift", configuration: configWithOptInRules)
-        XCTAssertTrue(result.diagnostics.filter { $0.ruleId == "assertion-on-constant" }.isEmpty)
-        XCTAssertEqual(
-            result.overrides.filter { $0.ruleId == "assertion-on-constant" }.count, 1,
-            "and the acknowledgement is recorded, not merely absent")
+        #expect(result.diagnostics.filter { $0.ruleId == "assertion-on-constant" }.isEmpty)
+        #expect(result.overrides.filter { $0.ruleId == "assertion-on-constant" }.count == 1, "and the acknowledgement is recorded, not merely absent")
     }
 
     // MARK: - non-strict-improvement (§3.4)
 
-    func testFlagsNonStrictComparisonInATestClaimingImprovement() async throws {
+    @Test
+    func flagsNonStrictComparisonInATestClaimingImprovement() async throws {
         let source = """
         import Testing
 
@@ -223,11 +227,12 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "non-strict-improvement")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.severity, .warning)
+        #expect(found.count == 1)
+        #expect(found.first?.severity == .warning)
     }
 
-    func testAllowsBoundsCheckAgainstALiteral() async throws {
+    @Test
+    func allowsBoundsCheckAgainstALiteral() async throws {
         // Five of the seven matches a grep produced on BusinessMath were this: a bounds
         // check in a test whose name merely contains a trigger word. A comparison against
         // a constant is not a claim that anything improved.
@@ -242,10 +247,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "non-strict-improvement")
-        XCTAssertTrue(found.isEmpty, "a bound is not an improvement claim")
+        #expect(found.isEmpty, "a bound is not an improvement claim")
     }
 
-    func testAllowsCompoundBoundsCheck() async throws {
+    @Test
+    func allowsCompoundBoundsCheck() async throws {
         // From the corpus. Splitting the flat sequence at the *first* comparison operator
         // made the right-hand side `0.0 && stats.gap <= 100.0` — not a literal, so the
         // literal exemption missed and a plain range assertion was reported.
@@ -258,10 +264,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "non-strict-improvement")
-        XCTAssertTrue(found.isEmpty, "each conjunct is a bound against a literal")
+        #expect(found.isEmpty, "each conjunct is a bound against a literal")
     }
 
-    func testFlagsImprovementClaimInsideACompound() async throws {
+    @Test
+    func flagsImprovementClaimInsideACompound() async throws {
         let source = """
         import Testing
 
@@ -271,10 +278,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "non-strict-improvement")
-        XCTAssertEqual(found.count, 1, "the conjuncts are read one at a time")
+        #expect(found.count == 1, "the conjuncts are read one at a time")
     }
 
-    func testIgnoresNonStrictComparisonInATestNotClaimingImprovement() async throws {
+    @Test
+    func ignoresNonStrictComparisonInATestNotClaimingImprovement() async throws {
         let source = """
         import Testing
 
@@ -284,10 +292,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "non-strict-improvement")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testStrictComparisonSatisfiesTheImprovementClaim() async throws {
+    @Test
+    func strictComparisonSatisfiesTheImprovementClaim() async throws {
         let source = """
         import Testing
 
@@ -297,12 +306,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "non-strict-improvement")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
     // MARK: - tolerance-without-magnitude (§3.7)
 
-    func testFlagsToleranceTooLooseForItsMagnitude() async throws {
+    @Test
+    func flagsToleranceTooLooseForItsMagnitude() async throws {
         let source = """
         import Testing
 
@@ -312,11 +322,12 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "tolerance-without-magnitude")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.severity, .warning)
+        #expect(found.count == 1)
+        #expect(found.first?.severity == .warning)
     }
 
-    func testAllowsTightToleranceForItsMagnitude() async throws {
+    @Test
+    func allowsTightToleranceForItsMagnitude() async throws {
         let source = """
         import Testing
 
@@ -326,10 +337,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "tolerance-without-magnitude")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testIgnoresToleranceWithNoKnownMagnitude() async throws {
+    @Test
+    func ignoresToleranceWithNoKnownMagnitude() async throws {
         // Both operands are computed, so there is no literal to take a ratio against.
         // Reporting here would be guessing.
         let source = """
@@ -341,12 +353,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "tolerance-without-magnitude")
-        XCTAssertTrue(found.isEmpty, "no magnitude in the expression means no ratio to judge")
+        #expect(found.isEmpty, "no magnitude in the expression means no ratio to judge")
     }
 
     // MARK: - assertion-on-constant (§3.6)
 
-    func testFlagsAssertionBetweenLiterals() async throws {
+    @Test
+    func flagsAssertionBetweenLiterals() async throws {
         let source = """
         import Testing
 
@@ -356,10 +369,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "assertion-on-constant")
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 
-    func testAllowsAssertionThatCallsIntoTheCode() async throws {
+    @Test
+    func allowsAssertionThatCallsIntoTheCode() async throws {
         let source = """
         import Testing
 
@@ -369,10 +383,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "assertion-on-constant")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testAllowsAssertionOnAComputedValue() async throws {
+    @Test
+    func allowsAssertionOnAComputedValue() async throws {
         let source = """
         import Testing
 
@@ -383,12 +398,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "assertion-on-constant")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
     // MARK: - skipped-test-inventory (§3.2)
 
-    func testInventoriesDisabledTestWithItsReason() async throws {
+    @Test
+    func inventoriesDisabledTestWithItsReason() async throws {
         let source = """
         import Testing
 
@@ -399,13 +415,12 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertTrue(
-            found.first?.message.contains("Metal initialization quirk") ?? false,
-            "the stated reason is the whole value of the inventory")
+        #expect(found.count == 1)
+        #expect(found.first?.message.contains("Metal initialization quirk") ?? false, "the stated reason is the whole value of the inventory")
     }
 
-    func testInventoryNeverGatesTheBuild() async throws {
+    @Test
+    func inventoryNeverGatesTheBuild() async throws {
         let source = """
         import Testing
 
@@ -418,13 +433,12 @@ final class SemanticTestRuleTests: XCTestCase {
         let result = try await auditor.auditSource(
             source, fileName: "SomeTests.swift", configuration: config)
         let found = result.diagnostics.filter { $0.ruleId == "skipped-test-inventory" }
-        XCTAssertEqual(found.first?.severity, .note)
-        XCTAssertEqual(
-            result.status, .passed,
-            "a standing inventory reports; it does not block an unrelated commit")
+        #expect(found.first?.severity == .note)
+        #expect(result.status == .passed, "a standing inventory reports; it does not block an unrelated commit")
     }
 
-    func testInventoriesXCTSkip() async throws {
+    @Test
+    func inventoriesXCTSkip() async throws {
         let source = """
         import XCTest
 
@@ -436,11 +450,12 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertTrue(found.first?.message.contains("40 minutes") ?? false)
+        #expect(found.count == 1)
+        #expect(found.first?.message.contains("40 minutes") ?? false)
     }
 
-    func testInventoriesEnvironmentGatedEarlyReturn() async throws {
+    @Test
+    func inventoriesEnvironmentGatedEarlyReturn() async throws {
         let source = """
         import Testing
 
@@ -451,10 +466,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 
-    func testEnvironmentGateIsNotAlsoAnUnassertedUnwrap() async throws {
+    @Test
+    func environmentGateIsNotAlsoAnUnassertedUnwrap() async throws {
         let source = """
         import Testing
 
@@ -466,11 +482,12 @@ final class SemanticTestRuleTests: XCTestCase {
 
         let unwrap = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
         let skip = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertTrue(unwrap.isEmpty, "an environment gate is a skip, not a defect")
-        XCTAssertEqual(skip.count, 1, "and it is reported as exactly one of the two")
+        #expect(unwrap.isEmpty, "an environment gate is a skip, not a defect")
+        #expect(skip.count == 1, "and it is reported as exactly one of the two")
     }
 
-    func testInventoriesConditionallyEnabledTest() async throws {
+    @Test
+    func inventoriesConditionallyEnabledTest() async throws {
         // The shape BusinessMath actually uses for its nine environment-gated tests. It is
         // the *good* form — the skip is recorded by the framework rather than hidden behind
         // an early return — and it still belongs in the inventory, because a test that runs
@@ -486,12 +503,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.severity, .note)
-        XCTAssertTrue(found.first?.message.contains("RUN_BENCHMARKS") ?? false)
+        #expect(found.count == 1)
+        #expect(found.first?.severity == .note)
+        #expect(found.first?.message.contains("RUN_BENCHMARKS") ?? false)
     }
 
-    func testInventoriesDisabledSuite() async throws {
+    @Test
+    func inventoriesDisabledSuite() async throws {
         let source = """
         import Testing
 
@@ -503,13 +521,12 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertEqual(
-            found.count, 1,
-            "a disabled suite is reported once, at the suite — not once per test it hides")
-        XCTAssertTrue(found.first?.message.contains("Rewrite pending") ?? false)
+        #expect(found.count == 1, "a disabled suite is reported once, at the suite — not once per test it hides")
+        #expect(found.first?.message.contains("Rewrite pending") ?? false)
     }
 
-    func testDoesNotInventoryAnOrdinaryTest() async throws {
+    @Test
+    func doesNotInventoryAnOrdinaryTest() async throws {
         let source = """
         import Testing
 
@@ -520,12 +537,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "skipped-test-inventory")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
     // MARK: - unasserted-optional-unwrap (§3.1)
 
-    func testFlagsGuardLetWithBareReturn() async throws {
+    @Test
+    func flagsGuardLetWithBareReturn() async throws {
         let source = """
         import Testing
 
@@ -536,12 +554,13 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.severity, .error)
-        XCTAssertEqual(found.first?.lineNumber, 4)
+        #expect(found.count == 1)
+        #expect(found.first?.severity == .error)
+        #expect(found.first?.lineNumber == 4)
     }
 
-    func testAllowsGuardLetThatRecordsAnIssue() async throws {
+    @Test
+    func allowsGuardLetThatRecordsAnIssue() async throws {
         let source = """
         import Testing
 
@@ -555,10 +574,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(found.isEmpty, "a guard that reports its own failure is not silent")
+        #expect(found.isEmpty, "a guard that reports its own failure is not silent")
     }
 
-    func testAllowsGuardLetThatThrows() async throws {
+    @Test
+    func allowsGuardLetThatThrows() async throws {
         let source = """
         import Testing
 
@@ -571,10 +591,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testIgnoresGuardLetOutsideATestFunction() async throws {
+    @Test
+    func ignoresGuardLetOutsideATestFunction() async throws {
         let source = """
         import Testing
 
@@ -585,7 +606,7 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(found.isEmpty, "a helper may legitimately fall back")
+        #expect(found.isEmpty, "a helper may legitimately fall back")
     }
 
     // The three fixtures below are not invented. Each is a shape the first draft of this
@@ -593,7 +614,8 @@ final class SemanticTestRuleTests: XCTestCase {
     // kept verbatim in spirit because a rule at `error` severity earns that severity by
     // being quiet here.
 
-    func testIgnoresGuardThatContinuesALoop() async throws {
+    @Test
+    func ignoresGuardThatContinuesALoop() async throws {
         let source = """
         import Testing
 
@@ -608,12 +630,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(
-            found.isEmpty,
-            "continue skips one iteration; the test still runs its assertions")
+        #expect(found.isEmpty, "continue skips one iteration; the test still runs its assertions")
     }
 
-    func testIgnoresGuardInsideAPredicateClosure() async throws {
+    @Test
+    func ignoresGuardInsideAPredicateClosure() async throws {
         let source = """
         import Testing
 
@@ -627,12 +648,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(
-            found.isEmpty,
-            "the guard returns from the predicate, not from the test")
+        #expect(found.isEmpty, "the guard returns from the predicate, not from the test")
     }
 
-    func testIgnoresGuardInsideANestedHelperFunction() async throws {
+    @Test
+    func ignoresGuardInsideANestedHelperFunction() async throws {
         let source = """
         import Testing
 
@@ -646,12 +666,11 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(
-            found.isEmpty,
-            "the guard returns from the helper, not from the test")
+        #expect(found.isEmpty, "the guard returns from the helper, not from the test")
     }
 
-    func testIgnoresNonBindingGuard() async throws {
+    @Test
+    func ignoresNonBindingGuard() async throws {
         let source = """
         import Testing
 
@@ -662,8 +681,6 @@ final class SemanticTestRuleTests: XCTestCase {
         """
 
         let found = try await diagnostics(source, ruleId: "unasserted-optional-unwrap")
-        XCTAssertTrue(
-            found.isEmpty,
-            "platform gating is not an unasserted unwrap; §3.2 owns the skip inventory")
+        #expect(found.isEmpty, "platform gating is not an unasserted unwrap; §3.2 owns the skip inventory")
     }
 }

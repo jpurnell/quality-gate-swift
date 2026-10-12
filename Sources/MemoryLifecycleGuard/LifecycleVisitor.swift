@@ -52,7 +52,7 @@ final class LifecycleVisitor: SyntaxVisitor {
         let members = node.memberBlock.members
 
         // Collect stored Task properties (not exempt)
-        var taskProperties: [(name: String, line: Int)] = []
+        var taskProperties: [(name: String, line: Int, isOptional: Bool)] = []
         // Track deinit presence and body text
         var hasDeinit = false
         var deinitBodyText: String?
@@ -91,7 +91,11 @@ final class LifecycleVisitor: SyntaxVisitor {
                 if let typeAnnotation = binding.typeAnnotation {
                     let typeText = typeAnnotation.type.trimmedDescription
                     if isTaskType(typeText) {
-                        taskProperties.append((name: propertyName, line: line))
+                        taskProperties.append((
+                            name: propertyName,
+                            line: line,
+                            isOptional: isOptionalType(typeAnnotation.type)
+                        ))
                         taskPropertyInfos.append(LifecycleIndexPass.TaskPropertyInfo(
                             typeName: node.name.text,
                             propertyName: propertyName,
@@ -133,7 +137,18 @@ final class LifecycleVisitor: SyntaxVisitor {
         if !taskProperties.isEmpty {
             if !hasDeinit {
                 // lifecycle-task-no-deinit
+                // On a @MainActor class a plain deinit that cancels the handle is what
+                // `concurrency.main-actor-deinit-touches-state` reports, so the advice
+                // names the deinit that both checkers accept.
+                let isMainActor = hasMainActorAttribute(node.attributes)
                 for prop in taskProperties {
+                    let suggestedFix: String
+                    if isMainActor {
+                        let call = prop.isOptional ? "\(prop.name)?.cancel()" : "\(prop.name).cancel()"
+                        suggestedFix = "Add an `isolated deinit` that calls \(call)."
+                    } else {
+                        suggestedFix = "Add a deinit that calls \(prop.name).cancel()."
+                    }
                     diagnostics.append(Diagnostic(
                         severity: .warning,
                         message: "Class has stored Task property '\(prop.name)' but no deinit to cancel it; this may leak the task",
@@ -141,7 +156,7 @@ final class LifecycleVisitor: SyntaxVisitor {
                         lineNumber: prop.line,
                         columnNumber: 1,
                         ruleId: "lifecycle-task-no-deinit",
-                        suggestedFix: "Add a deinit that calls \(prop.name).cancel()."
+                        suggestedFix: suggestedFix
                     ))
                 }
             } else if let bodyText = deinitBodyText {
@@ -314,6 +329,22 @@ final class LifecycleVisitor: SyntaxVisitor {
     ///
     /// Matches: `Task<...>`, `Task<...>?`, `Task<...>!`, `Task`,
     /// `Optional<Task<...>>`.
+    /// Whether a declared type is optional (`T?`, `T!`, or `Optional<T>`), so that
+    /// suggested code calls through it with the spelling that compiles.
+    private func isOptionalType(_ type: TypeSyntax) -> Bool {
+        if type.is(OptionalTypeSyntax.self) || type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self) {
+            return true
+        }
+        return type.trimmedDescription.hasPrefix("Optional<")
+    }
+
+    /// Whether a declaration's attribute list carries `@MainActor`.
+    private func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {
+        attributes.contains { element in
+            element.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "MainActor"
+        }
+    }
+
     private func isTaskType(_ typeText: String) -> Bool {
         let trimmed = typeText.trimmingCharacters(in: .whitespaces)
         // Exact match "Task"

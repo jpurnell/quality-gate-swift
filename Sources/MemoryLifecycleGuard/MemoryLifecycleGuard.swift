@@ -1,8 +1,6 @@
 import Foundation
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
@@ -146,7 +144,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
             return pass1Diagnostics + [LifecycleIndexPass.unavailableNote()]
         }
 
-        let session = try IndexStoreSession(storePath: located.url, libPath: libPath)
+        let session = try await IndexStoreSession(storePath: located.url, libPath: libPath)
 
         // Resolve cross-file cancel sites for task properties.
         var cancelSites: [LifecycleIndexPass.CancelSite] = []

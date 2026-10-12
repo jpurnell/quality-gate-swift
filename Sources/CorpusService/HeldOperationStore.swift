@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The held-operation spool (Phase 3b §1/§3): a governed write that goes
 /// `.held` persists here, byte-faithful, until its review is decided —

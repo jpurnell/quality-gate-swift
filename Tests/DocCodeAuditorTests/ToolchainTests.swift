@@ -141,3 +141,119 @@ struct ToolchainTests {
         #expect(found == nil)
     }
 }
+
+/// Which executable the checker actually invokes to compile a block.
+///
+/// Distinct from ``ToolchainTests``, which covers how the *flags* are probed. The flags were
+/// resolved from `PATH` and the invocation was not: it ran a hardcoded `/usr/bin/xcrun`, a
+/// file that does not exist off Darwin. Every documentation checker therefore failed on Linux
+/// with `could not run swiftc: The file doesn’t exist` — reported against the article, at
+/// line 1, as though the documentation were at fault.
+@Suite("Compiler invocation")
+struct CompilerInvocationTests {
+
+    @Test("A toolchain on PATH is invoked directly, with no xcrun in front of it")
+    func pathToolchainIsInvokedDirectly() {
+        let resolved = Toolchain.resolveCompiler(
+            onPath: { "/opt/swift/usr/bin/swiftc" },
+            xcrunFindsSwiftc: { "/Applications/Xcode.app/…/usr/bin/swiftc" },
+            xcrunExists: { true })
+
+        #expect(resolved?.executable == "/opt/swift/usr/bin/swiftc")
+        #expect(resolved?.prefixArguments == [])
+    }
+
+    /// The normal Mac shape: `PATH` offers only the `/usr/bin/swiftc` shim, which
+    /// ``Toolchain/swiftcOnPath(path:isExecutable:isToolchainRoot:)`` rejects, so `xcrun`
+    /// answers — and its answer is an absolute compiler path, invocable on its own.
+    @Test("With no toolchain on PATH, xcrun's answer is invoked directly")
+    func xcrunAnswerIsInvokedDirectly() {
+        let resolved = Toolchain.resolveCompiler(
+            onPath: { nil },
+            xcrunFindsSwiftc: { "/Applications/Xcode.app/usr/bin/swiftc" },
+            xcrunExists: { true })
+
+        #expect(resolved?.executable == "/Applications/Xcode.app/usr/bin/swiftc")
+        #expect(resolved?.prefixArguments == [])
+    }
+
+    /// Kept so macOS behaviour is a superset of what it was: if `xcrun -f swiftc` fails for a
+    /// transient reason, the previous code would still have compiled, and so does this.
+    @Test("With no answer from either probe, xcrun itself is the last resort")
+    func xcrunIsTheLastResort() {
+        let resolved = Toolchain.resolveCompiler(
+            onPath: { nil },
+            xcrunFindsSwiftc: { nil },
+            xcrunExists: { true })
+
+        #expect(resolved?.executable == "/usr/bin/xcrun")
+        #expect(resolved?.prefixArguments == ["swiftc"])
+    }
+
+    /// The Linux case. Resolving to `nil` is what lets the caller say *the toolchain could not
+    /// be found* instead of blaming the article it was about to typecheck.
+    @Test("With no compiler and no xcrun, resolution fails rather than naming a missing file")
+    func noCompilerResolvesToNil() {
+        let resolved = Toolchain.resolveCompiler(
+            onPath: { nil },
+            xcrunFindsSwiftc: { nil },
+            xcrunExists: { false })
+
+        #expect(resolved == nil)
+    }
+
+    @Test("Arguments are composed after the prefix the executable needs")
+    func argumentsComposeAfterPrefix() {
+        let direct = Toolchain.Compiler(executable: "/opt/swift/usr/bin/swiftc", prefixArguments: [])
+        #expect(direct.arguments(["-typecheck", "a.swift"]) == ["-typecheck", "a.swift"])
+
+        let viaXcrun = Toolchain.Compiler(executable: "/usr/bin/xcrun", prefixArguments: ["swiftc"])
+        #expect(viaXcrun.arguments(["-typecheck", "a.swift"]) == ["swiftc", "-typecheck", "a.swift"])
+    }
+}
+
+/// Which built libraries an article's imports resolve to.
+///
+/// The suffix list is how `linkArguments` decides a module has something to link against.
+/// It named `a`, `dylib` and `tbd` — the first is shared with Linux, the other two are
+/// Darwin's. A SwiftPM package whose product is dynamic builds `lib<Module>.so` there, and a
+/// list without `so` silently contributes no `-l`: the article then fails to link, and
+/// `undefined symbol` is indistinguishable from an article importing a module it should not.
+@Suite("Link arguments")
+struct LinkArgumentsTests {
+
+    /// Creates a directory holding `lib<module>.<suffix>`, returning the directory.
+    private static func searchPath(library module: String, suffix: String) throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data().write(to: dir.appendingPathComponent("lib\(module).\(suffix)"))
+        return dir
+    }
+
+    @Test("Every platform's library suffix resolves to a -l flag",
+          arguments: ["a", "dylib", "tbd", "so"])
+    func suffixResolvesToLinkFlag(suffix: String) throws {
+        let dir = try Self.searchPath(library: "Demo", suffix: suffix)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let arguments = ArticleRunner.linkArguments(
+            imports: ["Demo"], searchPaths: [dir.path], source: "import Demo\n")
+
+        #expect(arguments.contains("-lDemo"), "lib Demo.\(suffix) should have been linked")
+    }
+
+    /// The documented behaviour, and the reason the suffix list cannot simply match anything:
+    /// a module with nothing built beside it contributes no `-l` rather than a link error.
+    @Test("A module with no built library contributes no -l flag")
+    func absentLibraryContributesNothing() throws {
+        let dir = try Self.searchPath(library: "Demo", suffix: "so")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let arguments = ArticleRunner.linkArguments(
+            imports: ["Absent"], searchPaths: [dir.path], source: "import Absent\n")
+
+        #expect(!arguments.contains("-lAbsent"))
+        #expect(arguments == ["-L", dir.path])
+    }
+}

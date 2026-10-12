@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import BuildChecker
 
@@ -34,7 +32,7 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     public let name = "Xcode Build Checker"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "Xcode project build validation and IndexStore generation (opt-in)"
+    public let summary = "Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in)"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.specialty
@@ -55,8 +53,120 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     /// outside the concurrent task group.
     public var isParallelSafe: Bool { false }
 
+    /// One launch of `xcodebuild`: what was run, where, and with which environment.
+    struct Invocation: Sendable, Equatable {
+        /// The arguments after `xcodebuild`.
+        let arguments: [String]
+        /// The working directory — the project root.
+        let directory: String
+        /// The complete environment the process is started with.
+        let environment: [String: String]
+        /// The time budget the launch is given, and where that figure came from.
+        let budget: CheckerBudget.Allowance
+    }
+
+    /// What a launch of `xcodebuild` produced.
+    struct ToolOutput: Sendable, Equatable {
+        /// Standard output.
+        let stdout: String
+        /// Standard error.
+        let stderr: String
+        /// The exit code.
+        let exitCode: Int32
+        /// Wall-clock seconds the launch took.
+        var elapsed: TimeInterval = 0
+        /// The machine's load when it ended, or `nil` if it was not read.
+        var load: MachineLoad?
+    }
+
+    /// Starts `xcodebuild`. Replaceable so a test can see what would have been launched
+    /// without launching it.
+    typealias Launcher = @Sendable (Invocation) throws -> ToolOutput
+
+    private let parentEnvironment: @Sendable () -> [String: String]
+    private let launcher: Launcher
+
     /// Creates a new XcodeBuildChecker instance.
-    public init() {}
+    public init() {
+        self.init(
+            parentEnvironment: { ProcessInfo.processInfo.environment },
+            launcher: Self.launchXcodebuild)
+    }
+
+    /// Creates a checker with its environment and launcher supplied.
+    ///
+    /// - Parameters:
+    ///   - parentEnvironment: The environment this process is running in.
+    ///   - launcher: What starts `xcodebuild`.
+    init(
+        parentEnvironment: @escaping @Sendable () -> [String: String],
+        launcher: @escaping Launcher
+    ) {
+        self.parentEnvironment = parentEnvironment
+        self.launcher = launcher
+    }
+
+    /// The environment `xcodebuild` is started with: this process's, without the
+    /// repository git scoped to a hook.
+    ///
+    /// `xcodebuild` resolves package dependencies by running git, and that git obeys
+    /// `GIT_DIR`. Inside the pre-push hook of a linked worktree `GIT_DIR` names the main
+    /// repository's `worktrees/<name>`, so every dependency checkout was attempted against
+    /// the project instead of the dependency and `-list` failed with `Couldn’t check out
+    /// revision` — in the hook only, and only until something else had resolved the
+    /// packages. See `ChildProcessEnvironment` for what is removed and what is kept.
+    static func childEnvironment(from parent: [String: String]) -> [String: String] {
+        ChildProcessEnvironment.withoutGitRepositoryScope(parent)
+    }
+
+    /// Runs the real `xcodebuild`.
+    private static func launchXcodebuild(_ invocation: Invocation) throws -> ToolOutput {
+        // SAFETY: runs xcodebuild, a hardcoded system path, to list schemes, read build settings and check compilation
+        let run = try ToolLauncher.live.run(ToolLauncher.Request(
+            checkerId: "xcode-build",
+            executable: "/usr/bin/xcodebuild",
+            arguments: invocation.arguments,
+            directory: invocation.directory,
+            environment: invocation.environment,
+            budget: invocation.budget))
+        return ToolOutput(
+            stdout: run.stdout, stderr: run.stderr, exitCode: run.exitCode,
+            elapsed: run.elapsed, load: run.load)
+    }
+
+    /// One launch of `xcodebuild` together with what it produced.
+    private struct Launch {
+        /// What was started.
+        let invocation: Invocation
+        /// What it produced.
+        let output: ToolOutput
+
+        /// The launch as the shared record every budgeted checker reports from.
+        var run: ToolRun {
+            ToolRun(
+                checkerId: "xcode-build",
+                command: (["xcodebuild"] + invocation.arguments).joined(separator: " "),
+                directory: invocation.directory,
+                stdout: output.stdout,
+                stderr: output.stderr,
+                exitCode: output.exitCode,
+                budget: invocation.budget,
+                elapsed: output.elapsed,
+                load: output.load)
+        }
+    }
+
+    /// Launches `xcodebuild` in `root` with ``childEnvironment(from:)``, under `budget`.
+    private func xcodebuild(
+        _ arguments: [String], in root: String, budget: CheckerBudget.Allowance
+    ) throws -> Launch {
+        let invocation = Invocation(
+            arguments: arguments,
+            directory: root,
+            environment: Self.childEnvironment(from: parentEnvironment()),
+            budget: budget)
+        return Launch(invocation: invocation, output: try launcher(invocation))
+    }
 
     /// Whether a destination's build should be treated as failed.
     ///
@@ -67,6 +177,16 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     /// code we cannot explain is precisely the case that must not pass quietly.
     static func buildFailed(exitCode: Int32, diagnostics: [Diagnostic]) -> Bool {
         exitCode != 0
+    }
+
+    /// The checker's status: failed if any destination failed, otherwise a warning if the
+    /// compiler warned, otherwise passed.
+    ///
+    /// Warnings used to leave the status `.passed`, so a watchOS-only warning showed up in
+    /// the summary count while the checker's line stayed green.
+    static func status(anyBuildFailed: Bool, diagnostics: [Diagnostic]) -> CheckResult.Status {
+        if anyBuildFailed { return .failed }
+        return diagnostics.contains { $0.severity == .warning } ? .warning : .passed
     }
 
     /// A diagnostic for a build that failed without any recognisable compiler output.
@@ -94,6 +214,68 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             ruleId: "xcode-build-unexplained-failure",
             suggestedFix: "Run the same xcodebuild invocation directly to see the full output."
         )
+    }
+
+    /// A diagnostic for an `xcodebuild -list` that failed — before any build was attempted.
+    ///
+    /// This used to be thrown as `QualityGateError.configurationError`, which the runner
+    /// printed as `Checker failed: Configuration error: xcodebuild -list failed: …` beside a
+    /// duration of `0ms`. Each part pointed somewhere wrong: the checker had not failed, the
+    /// configuration was not at fault, and `xcodebuild` had run for seconds. So the finding
+    /// now says what was run, where, how it exited, and — when the output shows it — that
+    /// the failure was `xcodebuild` resolving package dependencies rather than anything in
+    /// the project's own sources.
+    ///
+    /// - Parameters:
+    ///   - arguments: What was passed to `xcodebuild`.
+    ///   - directory: Where it was run.
+    ///   - exitCode: How it exited.
+    ///   - output: What it printed; the last twenty lines are quoted.
+    static func listFailureDiagnostic(
+        arguments: [String],
+        directory: String,
+        exitCode: Int32,
+        output: String
+    ) -> Diagnostic {
+        let command = (["xcodebuild"] + arguments).joined(separator: " ")
+        let tail = output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .suffix(20)
+            .joined(separator: "\n")
+        let ran = "`\(command)` exited \(exitCode) in \(directory)"
+
+        guard output.contains("Could not resolve package dependencies") else {
+            return Diagnostic(
+                severity: .error,
+                message: """
+                    \(ran), so there is no scheme to build. Nothing was compiled; the last \
+                    lines of its output follow.
+
+                    \(tail)
+                    """,
+                ruleId: "xcode-build-list-failed",
+                suggestedFix: "Run `\(command)` in \(directory) to see the full output."
+            )
+        }
+        return Diagnostic(
+            severity: .error,
+            message: """
+                \(ran) while resolving package dependencies — xcodebuild's own step, which \
+                clones and checks out each dependency before it can list a scheme. Nothing \
+                was compiled, and this is not a finding about the project's sources; the \
+                last lines of its output follow.
+
+                \(tail)
+                """,
+            ruleId: "xcode-build-package-resolution",
+            suggestedFix: "Run `\(command)` in \(directory) to see the full output; `xcodebuild -resolvePackageDependencies` there retries the resolution on its own."
+        )
+    }
+
+    /// `xcodebuild -list` exited nonzero. Carries the finding to report in its place.
+    private struct ListFailure: Error {
+        let diagnostic: Diagnostic
     }
 
     /// The scheme to build, given everything `xcodebuild -list` reported.
@@ -161,15 +343,18 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
 
         let projectArgs = try resolveProjectArguments(config, root: configuration.resolvedProjectRoot.path)
 
+        // Nothing built is `.skipped`, never `.passed`. It used to pass: a plain package,
+        // configured with a scheme and a watchOS destination, printed `✓ PASSED (0ms)`
+        // having compiled nothing — the green tick `BuildVerdictTests` exists to prevent.
         guard let projectArgs else {
             let duration = ContinuousClock.now - startTime
             return CheckResult(
                 checkerId: id,
-                status: .passed,
+                status: .skipped,
                 diagnostics: [
                     Diagnostic(
                         severity: .note,
-                        message: "No Xcode project or workspace found — skipping",
+                        message: "No Xcode workspace, Xcode project or Package.swift found — nothing to build",
                         ruleId: "xcode-build-skip"
                     )
                 ],
@@ -177,8 +362,27 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             )
         }
 
-        let scheme = try config.scheme ?? discoverScheme(
-            projectArgs: projectArgs, root: configuration.resolvedProjectRoot.path)
+        // Every launch runs under the same budget: `budgets.xcode-build` when it is set, the
+        // process runner's default otherwise. No history is kept for this checker — its
+        // products live in DerivedData, and a duration file would have to be written into a
+        // project that may have no ignored build directory to hold it.
+        let budget = CheckerBudget.fixedAllowance(for: id, configuration: configuration)
+
+        let scheme: String
+        do {
+            scheme = try config.scheme ?? discoverScheme(
+                projectArgs: projectArgs, root: configuration.resolvedProjectRoot.path, budget: budget)
+        } catch let failure as ListFailure {
+            // A result, not a throw: the tool ran and its answer is a finding. Thrown, it
+            // surfaced as `Checker failed: Configuration error` after `0ms`.
+            Self.logger.error("xcodebuild -list failed; reporting \(failure.diagnostic.ruleId ?? "", privacy: .public)")
+            return CheckResult(
+                checkerId: id,
+                status: .failed,
+                diagnostics: [failure.diagnostic],
+                duration: ContinuousClock.now - startTime
+            )
+        }
 
         // Ask the scheme what it can build before assuming the host. A blind
         // `generic/platform=macOS` reported `xcodebuild exited 70` and a wall of
@@ -191,7 +395,8 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             let discovered = discoverDestination(
                 projectArgs: projectArgs,
                 scheme: scheme,
-                root: configuration.resolvedProjectRoot.path)
+                root: configuration.resolvedProjectRoot.path,
+                budget: budget)
             destinations = [discovered ?? "generic/platform=macOS"]
         } else {
             destinations = config.destinations
@@ -215,12 +420,9 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
                 args.append(contentsOf: ["-skipPackagePluginValidation", "-skipMacroValidation"])
             }
 
-            // SAFETY: runs xcodebuild to check compilation
-            let result = try ProcessRunner.run(
-                "/usr/bin/xcodebuild",
-                arguments: args,
-                currentDirectory: configuration.resolvedProjectRoot.path
-            )
+            let launch = try xcodebuild(
+                args, in: configuration.resolvedProjectRoot.path, budget: budget)
+            let result = launch.output
 
             let combinedOutput = result.stdout + "\n" + result.stderr
             let diagnostics = BuildChecker.parseBuildOutput(combinedOutput)
@@ -239,7 +441,13 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
 
             allDiagnostics.append(contentsOf: tagged)
 
-            if Self.buildFailed(exitCode: result.exitCode, diagnostics: diagnostics) {
+            if launch.run.expired {
+                // Asked before the exit code is read as a build failure: a build that was
+                // stopped has not failed to compile, and "exited 124 … matched no diagnostic"
+                // sends the reader looking for an error that is not there.
+                anyBuildFailed = true
+                allDiagnostics.append(launch.run.expiryDiagnostic())
+            } else if Self.buildFailed(exitCode: result.exitCode, diagnostics: diagnostics) {
                 anyBuildFailed = true
                 // A failure the parser could not explain still has to be visible. Without
                 // this the run reports a failing build with no diagnostics attached, which
@@ -254,15 +462,46 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             }
         }
 
-        let deduped = dedup(allDiagnostics)
+        let verdict = Self.verdict(
+            diagnostics: allDiagnostics,
+            anyBuildFailed: anyBuildFailed,
+            projectRoot: configuration.resolvedProjectRoot.path
+        )
         let duration = ContinuousClock.now - startTime
 
         return CheckResult(
             checkerId: id,
-            status: anyBuildFailed ? .failed : .passed,
-            diagnostics: deduped,
+            status: verdict.status,
+            diagnostics: verdict.diagnostics,
             duration: duration
         )
+    }
+
+    /// The status and the diagnostics to report, from everything the builds printed.
+    ///
+    /// Repeats are removed, then warnings and notes in a dependency are scoped out — the
+    /// same rule `build` and `doc-lint` apply, from the same definition
+    /// (`DependencyOrigin`). It was not applied here at all: Xcode keeps a checkout under
+    /// `DerivedData/<project>/SourcePackages/checkouts/`, so mlx-swift's Metal shader headers
+    /// put 20 `-Wc++17-extensions` warnings on every clean build of a package that merely
+    /// depends on it, while `build` dropped the same warnings from `.build/checkouts/`.
+    ///
+    /// The status is computed from what is left, so it cannot say `WARNING` over a result
+    /// with no warning in it. Errors are never scoped: a dependency that fails to build fails
+    /// the gate, and says why. What was scoped out is counted in a closing note.
+    ///
+    /// - Parameters:
+    ///   - diagnostics: Every diagnostic parsed from every destination, in order.
+    ///   - anyBuildFailed: Whether any destination's `xcodebuild` exited nonzero.
+    ///   - projectRoot: The root of the project under audit.
+    /// - Returns: The checker's status and the diagnostics its result carries.
+    static func verdict(
+        diagnostics: [Diagnostic],
+        anyBuildFailed: Bool,
+        projectRoot: String
+    ) -> (status: CheckResult.Status, diagnostics: [Diagnostic]) {
+        let scope = dedup(diagnostics).firstPartyScope(projectRoot: projectRoot)
+        return (status(anyBuildFailed: anyBuildFailed, diagnostics: scope.counted), scope.reported)
     }
 
     // MARK: - Private
@@ -271,41 +510,70 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         _ config: XcodeBuildCheckerConfig,
         root: String
     ) throws -> [String]? {
+        if config.workspace != nil || config.project != nil {
+            return Self.projectArguments(config: config, directoryContents: [])
+        }
+        // SAFETY: CLI reads local cwd directory listing for Xcode project auto-discovery
+        let contents = try FileManager.default.contentsOfDirectory(atPath: root)
+        return Self.projectArguments(config: config, directoryContents: contents)
+    }
+
+    /// The container arguments `xcodebuild` needs, or `nil` when there is nothing to build.
+    ///
+    /// Configured workspace, then configured project, then a discovered `.xcworkspace`,
+    /// then a discovered `.xcodeproj` — and, failing all four, a `Package.swift`, which
+    /// needs **no** container arguments: `xcodebuild` builds a package from its own
+    /// directory. A project or workspace beside a `Package.swift` still wins, so nothing
+    /// that built before builds something different now.
+    ///
+    /// - Parameters:
+    ///   - config: The checker's configuration.
+    ///   - directoryContents: Entry names in the project root (sorted for determinism).
+    /// - Returns: The arguments, possibly empty for a package; `nil` for nothing to build.
+    static func projectArguments(
+        config: XcodeBuildCheckerConfig,
+        directoryContents: [String]
+    ) -> [String]? {
         if let workspace = config.workspace {
             return ["-workspace", workspace]
         }
         if let project = config.project {
             return ["-project", project]
         }
-
-        // SAFETY: CLI reads local cwd directory listing for Xcode project auto-discovery
-        let contents = try FileManager.default.contentsOfDirectory(atPath: root)
-
+        let contents = directoryContents.sorted()
         if let workspace = contents.first(where: { $0.hasSuffix(".xcworkspace") }) {
             return ["-workspace", workspace]
         }
         if let project = contents.first(where: { $0.hasSuffix(".xcodeproj") }) {
             return ["-project", project]
         }
-
+        if contents.contains("Package.swift") {
+            return []
+        }
         return nil
     }
 
-    private func discoverScheme(projectArgs: [String], root: String) throws -> String {
+    private func discoverScheme(
+        projectArgs: [String], root: String, budget: CheckerBudget.Allowance
+    ) throws -> String {
         var args = ["-list", "-json"]
         args.append(contentsOf: projectArgs)
 
-        // SAFETY: runs xcodebuild -list to discover available schemes
-        let result = try ProcessRunner.run(
-            "/usr/bin/xcodebuild",
-            arguments: args,
-            currentDirectory: root
-        )
+        let launch = try xcodebuild(args, in: root, budget: budget)
+        let result = launch.output
+
+        // A listing that was stopped is not a listing that failed: the remedy is a rerun or
+        // a larger budget, not `-resolvePackageDependencies`.
+        guard !launch.run.expired else {
+            throw ListFailure(diagnostic: launch.run.expiryDiagnostic())
+        }
 
         guard result.exitCode == 0 else {
-            throw QualityGateError.configurationError(
-                "xcodebuild -list failed: \(result.stderr)"
-            )
+            throw ListFailure(diagnostic: Self.listFailureDiagnostic(
+                arguments: args,
+                directory: root,
+                exitCode: result.exitCode,
+                output: result.stderr))
         }
 
         guard let data = result.stdout.data(using: .utf8) else {
@@ -352,17 +620,15 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
     /// the reading. `-showBuildSettings` is asked for one scheme, and the first entry that
     /// carries `SUPPORTED_PLATFORMS` answers the question.
     private func discoverDestination(
-        projectArgs: [String], scheme: String, root: String
+        projectArgs: [String], scheme: String, root: String, budget: CheckerBudget.Allowance
     ) -> String? {
         var args = ["-showBuildSettings", "-json"]
         args.append(contentsOf: projectArgs)
         args.append(contentsOf: ["-scheme", scheme])
 
-        let result: ProcessRunner.Output
+        let result: ToolOutput
         do {
-            // SAFETY: reads the scheme's platforms via -showBuildSettings
-            result = try ProcessRunner.run(
-                "/usr/bin/xcodebuild", arguments: args, currentDirectory: root)
+            result = try xcodebuild(args, in: root, budget: budget).output
         } catch {
             // Quiet, not invisible: the caller keeps its default destination either way,
             // but "xcodebuild would not run" and "the scheme names no platforms" are
@@ -408,7 +674,7 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         return destination
     }
 
-    private func dedup(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
+    private static func dedup(_ diagnostics: [Diagnostic]) -> [Diagnostic] {
         var seen = Set<String>()
         return diagnostics.filter { diag in
             let key = "\(diag.filePath ?? ""):\(diag.lineNumber ?? 0):\(diag.message)"

@@ -53,6 +53,28 @@ struct ChildEnvironmentTests {
         #expect(child.count == parent.count - 1)
     }
 
+    @Test("A hook's repository does not reach the test process, and credentials still do")
+    func stripsGitRepositoryScope() {
+        // `swift test` resolves dependencies before it builds, by running git. Measured on a
+        // package with one unresolved dependency: `GIT_DIR` alone turns `swift build` into
+        // `Couldn’t check out revision … fatal: unable to read tree`, and an absolute
+        // `GIT_INDEX_FILE` alone lets it exit 0 having overwritten the hooked repository's
+        // index with the dependency's files.
+        let parent = [
+            "GIT_DIR": "/repo/.git/worktrees/feature",
+            "GIT_INDEX_FILE": "/repo/.git/worktrees/feature/index",
+            "GIT_WORK_TREE": "/repo-feature",
+            "GIT_PREFIX": "",
+            "GIT_SSH_COMMAND": "ssh -i ~/.ssh/deploy_key",
+            "QG_NO_INDEX_BUILD": "1",
+            "PATH": "/usr/bin",
+        ]
+        #expect(TestRunner.childEnvironment(from: parent) == [
+            "GIT_SSH_COMMAND": "ssh -i ~/.ssh/deploy_key",
+            "PATH": "/usr/bin",
+        ])
+    }
+
     @Test("An environment without the flag is unchanged")
     func absentFlagIsANoOp() {
         let parent = ["PATH": "/usr/bin", "HOME": "/Users/someone"]

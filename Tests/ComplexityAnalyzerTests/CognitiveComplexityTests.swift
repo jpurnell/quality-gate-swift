@@ -387,12 +387,68 @@ struct CognitiveComplexityTests {
 
     // MARK: - Advisory behavior
 
-    @Test("Check always returns passed status regardless of complexity")
-    func alwaysPasses() async throws {
-        let analyzer = ComplexityAnalyzer()
-        let config = Configuration()
-        let result = try await analyzer.check(configuration: config)
-        #expect(result.status == .passed)
+    /// Scoped to a fixture, and the scoping is the point.
+    ///
+    /// This constructed a bare `Configuration()`, whose `resolvedProjectRoot` falls back to the
+    /// process working directory — so the test ran the analyzer, index store and all, over this
+    /// entire repository. **667 seconds, 65% of the whole suite**, to assert that an advisory
+    /// checker is advisory. The suite reached seventeen minutes and the `test` checker began
+    /// dying at its own ceiling; this single test was most of it.
+    ///
+    /// It also proved less than it appeared to. Over a repository that may contain nothing
+    /// complex, `.passed` is what an analyzer that found *nothing* returns, so the assertion
+    /// held whether or not the advisory behaviour existed. Against a fixture with a function
+    /// built to score badly, a pass means what it says: findings were produced and the run
+    /// still passed.
+    @Test("An advisory checker passes even when it has findings to report")
+    func advisoryDespiteFindings() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("complexity-advisory-\(UUID().uuidString)")
+        let sources = root.appendingPathComponent("Sources/Fixture")
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        // swift-tools-version: 6.0
+        import PackageDescription
+        let package = Package(name: "Fixture", targets: [.target(name: "Fixture")])
+        """.write(to: root.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+
+        // Deliberately bad: nesting and branching enough to score well past any threshold, so
+        // the checker has something to find and the pass is about disposition, not emptiness.
+        try """
+        public func tangled(_ a: Int, _ b: Int, _ c: Int) -> Int {
+            var total = 0
+            for i in 0..<a {
+                if i % 2 == 0 {
+                    for j in 0..<b {
+                        if j % 3 == 0 {
+                            while total < c {
+                                if total % 5 == 0 { total += 2 } else { total += 1 }
+                            }
+                        } else if j % 3 == 1 {
+                            total += i > j ? 1 : 2
+                        }
+                    }
+                } else if i % 3 == 0 {
+                    total += a > b ? (b > c ? 1 : 2) : 3
+                }
+            }
+            return total
+        }
+        """.write(to: sources.appendingPathComponent("Tangled.swift"), atomically: true, encoding: .utf8)
+
+        var config = Configuration()
+        config.projectRoot = root
+        let result = try await analyzer_check(config)
+
+        #expect(result.status == .passed, "complexity is advisory and must never fail a run")
+        #expect(!result.diagnostics.isEmpty, "the fixture is complex enough to be reported on")
+    }
+
+    /// Separated so the call site above reads as one statement.
+    private func analyzer_check(_ configuration: Configuration) async throws -> CheckResult {
+        try await ComplexityAnalyzer().check(configuration: configuration)
     }
 
     // MARK: - Ternary and nil-coalescing

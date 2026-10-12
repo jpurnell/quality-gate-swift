@@ -229,12 +229,8 @@ final class KeychainSecretsVisitor: SyntaxVisitor {
     private let converter: SourceLocationConverter
     private let userDefaultsVars: Set<String>
 
-    /// Secret nouns matched as a whole tokenized word (so `tokenizer` ≠ `token`).
-    private let singleWords: Set<String>
-    /// Secret nouns matched as a substring of the concatenated, normalized name
-    /// (so `apiKey` → `apikey` matches even though neither `api` nor `key` is a
-    /// secret on its own).
-    private let compounds: [String]
+    /// `extraPatterns` as terms added to ``SensitiveName``'s vocabulary.
+    private let extraTerms: [SensitiveName.Term]
 
     private(set) var findings: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
@@ -252,12 +248,11 @@ final class KeychainSecretsVisitor: SyntaxVisitor {
         self.converter = SourceLocationConverter(fileName: filePath, tree: tree)
         self.userDefaultsVars = userDefaultsVars
 
-        // Built-in vocabulary. Extra patterns are matched as whole words, which
-        // covers the common single-noun case (jwt, otp, pin) without the
-        // substring false positives a bare `contains` would invite.
-        let extras = config.extraPatterns.map(Self.normalize)
-        self.singleWords = Set(["token", "password", "passwd", "secret", "credential", "bearer"] + extras)
-        self.compounds = ["apikey", "authtoken", "accesstoken", "refreshtoken", "privatekey", "clientsecret", "sessionkey"]
+        // The matcher is the gate's shared one, over the words this checker shipped
+        // with. Extra patterns join them and are matched the same way: as a whole word
+        // or a run of whole words, so `license_key` matches `licenseKey` and never
+        // `licenseKeyboard`.
+        self.extraTerms = config.extraPatterns.map { SensitiveName.customTerm($0) }
 
         super.init(viewMode: .sourceAccurate)
     }
@@ -366,48 +361,10 @@ final class KeychainSecretsVisitor: SyntaxVisitor {
 
     // MARK: - Secret matching
 
-    /// True if `name` names a secret: any whole tokenized word is a single-word
-    /// secret, or the concatenated normalized form contains a compound secret.
+    /// True if `name` names a secret anywhere in it, by whole words — the shared
+    /// ``SensitiveName`` matcher, which this checker's tokenizer became.
     private func matchesSecret(_ name: String) -> Bool {
-        let words = Self.tokenizeWords(name)
-        if words.contains(where: { singleWords.contains($0) }) { return true }
-        let concatenated = words.joined()
-        return compounds.contains(where: { concatenated.contains($0) })
-    }
-
-    /// Lowercased alphanumerics only — the substring form for compound matching.
-    static func normalize(_ s: String) -> String {
-        s.lowercased().filter { $0.isLetter || $0.isNumber }
-    }
-
-    /// Splits an identifier/key into lowercased words on non-alphanumerics and
-    /// camelCase boundaries, including acronym→word boundaries (`APIKey` →
-    /// `api`, `key`).
-    static func tokenizeWords(_ s: String) -> [String] {
-        var words: [String] = []
-        var current = ""
-        let chars = Array(s)
-
-        func flush() {
-            if !current.isEmpty { words.append(current.lowercased()); current = "" }
-        }
-
-        for index in chars.indices {
-            let character = chars[index]
-            guard character.isLetter || character.isNumber else { flush(); continue }
-
-            if character.isUppercase, let last = current.last {
-                let next: Character? = index + 1 < chars.count ? chars[index + 1] : nil
-                if last.isLowercase || last.isNumber {
-                    flush()                                   // camelCase: fooBar → foo | bar
-                } else if last.isUppercase, let following = next, following.isLowercase {
-                    flush()                                   // acronym→word: APIKey → API | Key
-                }
-            }
-            current.append(character)
-        }
-        flush()
-        return words
+        SensitiveName.classify(name, restrictedTo: .keychainSecretsRule, additionalTerms: extraTerms).namesSecret
     }
 
     /// The value of a simple (non-interpolated) string literal, else nil.

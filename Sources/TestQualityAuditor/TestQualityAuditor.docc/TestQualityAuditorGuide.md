@@ -14,7 +14,7 @@ A green test suite means nothing if the tests themselves are broken. Five patter
 
 4. **Missing assertions.** A `@Test` function that calls production code but never calls `#expect` or `#require` is a smoke test at best. It proves the code doesn't crash, but it doesn't prove the code is correct.
 
-5. **Weak assertions.** `#expect(result != 0)` proves the result is non-zero but says nothing about whether it's the *right* non-zero value. `#expect(result != nil)` proves something was returned but not what. These patterns survive almost any regression.
+5. **Weak assertions.** `#expect(result != 0)` proves the result is non-zero but says nothing about whether it's the *right* non-zero value. `#expect(result != nil)` proves something was returned but not what. These patterns survive almost any regression. `XCTAssertNotNil(result)` is the same claim and is reported the same way.
 
 TestQualityAuditor catches all five at quality-gate time, before they reach the repository.
 
@@ -314,6 +314,27 @@ import Testing
 ```
 
 The rule fires for both orderings: `#expect(x != 0)` and `#expect(0 != x)` are both flagged, as are `#expect(x != nil)` and `#expect(nil != x)`.
+
+#### The same claim in XCTest
+
+A file that still imports XCTest makes the same claims in a different spelling, and the rule reads them. An `XCTAssert*` call is reported exactly when the `#expect` that `--fix` converts it to is reported, so converting a file neither adds nor removes a `weak-assertion` finding.
+
+| XCTest | Converts to | Reported |
+|---|---|---|
+| `XCTAssertNotNil(x)` | `#expect(x != nil)` | yes |
+| `XCTAssertNotEqual(x, 0)`, `XCTAssertNotEqual(0, x)` | `#expect(x != 0)` | yes |
+| `XCTAssertNotEqual(x, nil)`, `XCTAssertNotEqual(nil, x)` | `#expect(x != nil)` | yes |
+| `XCTAssertTrue(x != nil)`, `XCTAssert(x != 0)` | `#expect(x != nil)`, `#expect(x != 0)` | yes, once per weak comparison |
+| `XCTAssertNotEqual(x, 0, accuracy: e)` | `#expect(abs(x - 0) > e)` | no |
+| `XCTAssertNil(x)` | `#expect(x == nil)` | no |
+| `XCTAssertGreaterThan(x.count, 0)`, `XCTAssert(x.count > 0)` | `#expect(x.count > 0)` | no |
+| `XCTAssertFalse(x != nil)` | `#expect(!(x != nil))` | no |
+
+The last four rows are not reported because their Swift Testing spelling is not. `x.count > 0` says as little as `x.count != 0`, and the rule reads neither `#expect(x.count > 0)` nor `XCTAssertGreaterThan(x.count, 0)`: widening it is a decision about both frameworks at once, not about one of them.
+
+`XCTAssertNotNil` on a value that is not optional can never fail. XCTest accepted it because the parameter is `Any?`. It is reported like any other `XCTAssertNotNil`: the rule reads syntax and does not know the type, and the finding is right either way.
+
+A file with weak XCTest assertions is reported twice over, once for `xctest-import` and once per weak assertion. They are different findings. The first is about the framework and is repaired by converting the file. The second is about what one assertion claims, and it survives the conversion.
 
 ## False positives and how to suppress them
 

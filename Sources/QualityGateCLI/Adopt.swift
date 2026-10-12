@@ -1,8 +1,6 @@
 import ArgumentParser
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// `quality-gate adopt` — the decaying baseline's front door (Phase 4c §3).
@@ -46,6 +44,7 @@ struct Adopt: AsyncParsableCommand {
             requested: checkers,
             excluded: exclude,
             configuredEnabled: configuration.enabledCheckers,
+            configuredIncluded: configuration.includedCheckers,
             full: false,
             allIDs: registry.map(\.id))
         let checkersToRun = registry.filter { selected.contains($0.id) }

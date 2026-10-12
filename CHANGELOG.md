@@ -2,6 +2,1963 @@
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-12
+
+### Fixed
+
+- **`fp-division-unguarded` reads a divisor that is not a plain name, and stops asking for a
+  guard on one that cannot be zero.** A survey of the portfolio on 2026-10-09 found 103
+  suppressed findings of this rule, in seven repositories, where the divisor was provably
+  nonzero and the rule could not see it. With every `fp-safety:disable` marker removed from
+  copies of those repositories, 99 of the 103 are no longer reported (BusinessMath 44 of 46,
+  BusinessMath-UI 27 of 27, IconquerApp 12 of 12, BusinessMathPro 6 of 6, sicp-swift-companion
+  5 of 5, BioFeedbackKit 4 of 6, HRVKit 1 of 1), and all 46 findings the survey classified as
+  real defects are still reported.
+  - **A named constant is the literal it names.** A local `let`, a stored `let` with an
+    initializer, a `static let` (by bare name, `Self.name` or `Type.name`, for a type declared
+    in the file) and a file-scope `let` used outside any type. `var` and `static var` are not
+    read, and a nearer declaration of the same name shadows a constant whatever it holds.
+  - **Literal arithmetic is folded**, including `/` and shifts: `(365.25 / 12.0 * 86_400.0)`,
+    `Double(UInt64(1) << 32)`. It has to be nonzero both as integers and as floating-point, so
+    `(1 / 2)` and `(2.0 - 2.0)` are still reported.
+  - **`.pi`, the integer maxima, `.greatestFiniteMagnitude` and `.ulpOfOne`** are nonzero.
+  - **`max(x, 1)` through a `let`, and `Swift.max`.** `max(x, 0)` is still reported.
+  - **Arithmetic on a value a guard dominates:** `n - 1` under `guard n > 1`, `count + 1`,
+    `1.0 + exp(x)`, a loop index plus one, the bound of `for _ in 0..<n` inside the loop, and a
+    product one of whose factors is at least one in magnitude (`6 * area`, `Double(n) * rate`).
+  - **Guard shapes it did not read:** `if abs(x) < 1e-10 { throw … }` and its `else`,
+    `guard !(abs(x) < eps)`, a threshold of `Swift.max(1, k)` or of a named constant,
+    `guard !xs.isEmpty` reaching `let ys = xs.map { … }`, and `guard bond.isSchedulable` where
+    the predicate is declared in the file on the type `bond` is written as.
+  - **These shapes are held to dominance, not order.** The older guards count when the
+    question was asked anywhere before the division. A bound that arithmetic is then done on
+    has to hold where the division is, and nothing may have assigned, redeclared, passed
+    `inout` or called an unknown method on the value in between.
+- **`max(x, .leastNonzeroMagnitude)` is still reported, and is now tested as such.** So is
+  `.leastNormalMagnitude`. The divisor is not zero and the quotient is infinite: the floor
+  changes the spelling of the defect. Eighteen of the 103 sites carried one; they are cleared
+  because the value under the `max` was already at least one, which makes the floor dead code.
+  `max(x, .ulpOfOne)` is accepted — it is the epsilon this rule has always read as a threshold.
+- **Four of the 103 are left reported on purpose.** Two divide by `Double(1 << 53)` in a package
+  that declares `.watchOS(.v10)`. `Int` is 32 bits on arm64_32, the shift is zero there, and
+  `swiftc -target arm64_32-apple-watchos10.0 -O` folds the divisor to `0.0` with no diagnostic.
+  An untyped shift is therefore read at 32 bits; `Double(UInt64(1) << 53)` is accepted. Two
+  divide by a computed property of another value (`frequency.periodsPerYear`) whose every
+  `return` is a nonzero literal: the property is found by name, and a name does not say which
+  type's it is.
+- **A product of two guarded floating-point values is still reported.** `guard a > 0, b > 0`
+  does not make `a * b` nonzero: `1e-200 * 1e-200` underflows to zero.
+- **A division is reported on the line of its operator.** It was reported at the first line of
+  the expression it belongs to, so two divisions in one multi-line expression shared a line, and
+  one marker silenced both. In BusinessMath's `SABRModel.swift` a marker reading "divisor is the
+  literal 24" was silencing a division by `Double.pow(fk, oneBeta)` on the line below, while
+  that line's own marker did nothing. **A `// fp-safety:disable` marker or a baseline entry on
+  the first line of a multi-line expression has to move to the operator's line** when the
+  operator is on a later one. Across the 69 portfolio repositories that is one marker
+  (`SABRModel.swift:127`, which belongs on 128) and no baseline entry. A single-line division
+  keeps its line and its marker; the reported column is now the operator's.
+- **An alias is the declaration before the use** (`FallbackGuardFacts`, shared by
+  `fp-division-unguarded` and `fallback.*`). `let n = xs.count` was kept in one dictionary per
+  function body, last write wins. A second `let n = ys.count` in a closure of the same body
+  replaced the first: a guard on `xs.count` stopped reaching `Double(n)`, and — the other way
+  round — a guard on the later `n`'s value cleared a division by the earlier one's.
+
+- **Ten values that were true where they were written.** Each was a few lines once found, and
+  each hid behind a symptom pointing somewhere else. They are grouped together because they are
+  one mistake, not ten — but the axis they varied along was not always the operating system, and
+  guessing which axis it was cost more than any individual fix. Six vary by OS, one by the
+  distribution's `git`, and three by the *build system*, which is not a platform at all — the
+  last of those reproduces on macOS under `--build-system native -c release`, measured, so
+  calling it a Linux limitation would have left it in place for every macOS user who passes that
+  flag.
+  - `doc-code` invoked a hardcoded `/usr/bin/xcrun` as the compiler. `Toolchain` resolved `swiftc`
+    from `PATH` for the *flags* while the invocation still went through `xcrun`, so off Darwin
+    every documentation checker failed before compiling anything — reported against the article,
+    at line 1, as though the documentation were at fault.
+  - `libIndexStore` was sought only as `.dylib`, in two separate resolvers.
+    `UnreachableCodeAuditor` kept its own copy, so correcting the shared one fixed every
+    index-backed checker except the one whose tests were failing.
+  - `appendingPathComponent(_:)` is not a pure function off Darwin: corelibs-foundation stats the
+    path and appends a trailing slash for an existing directory, so the same call returned a
+    different URL before and after a `mkdir`.
+  - `Logger` was used outside the `#if canImport(os)` guard that protected its import.
+  - `CrossModuleFixture` imported `SwiftUI` and `Combine` and used `@objc` unguarded, so the
+    fixture the checker builds could not compile — which presented as the index store being
+    unavailable rather than as a fixture problem.
+  - The compiler's diagnostic group arrives as an OSC 8 hyperlink on Darwin and a bare slug
+    elsewhere, so `[#NoUsage]` and `[#no-usage]` are one finding. Both the printed and recorded
+    paths canonicalise it now; normalising one of two values that exist to be compared broke the
+    deduplication they were for.
+  - A test asserted macOS `git`'s wording of a failure — `unable to read tree (<sha>)` — where
+    Linux `git` says `reference is not a tree: <sha>` for the identical condition. It had been
+    filed separately as an environmental fault for days. The environment was innocent: a
+    third-party tool's prose had been pinned, which makes a Darwin-only test read as portable. It
+    asserts exit 128 and the full revision now, which both gits satisfy.
+  - `swiftbuild` names its configuration directory `Release-linux-x86_64` where Darwin says
+    `Release`, and the output-file-map finder accepted a path component only when it *equalled*
+    the configuration name. All 98 maps a Swift 6.4 Linux build writes were found by the walk and
+    then discarded by the filter, so the checker reported "No output file map was found in the
+    build directory" — accurate about what it could see, wrong about what was there. Eleven
+    `WarmBuildTests` failures on 6.4 and none on 6.2, which uses the native build system.
+  - The documented install was broken on Swift 6.4, in two different ways and corrected twice:
+    the directory (`--show-bin-path`, because swiftbuild writes to `.build/out` and on Linux no
+    `.build/release` symlink exists to hide it) and the bundle suffix, which follows the *build
+    system* rather than the platform — native writes `.resources`, swiftbuild writes `.bundle`,
+    on Linux as on macOS. An instruction naming either suffix is wrong on one of the two
+    supported toolchains. The README's *GitHub Actions* example carried the same literal and
+    would have failed the same way inside a user's workflow.
+  - The native build system writes one `<Module>.dia` under whole-module compilation while its
+    output file map goes on naming per-file records that are never created — and never names the
+    record it wrote. Units pointed at absent files and a warning present on the cold run was
+    reported as unverified on the warm one. The map cannot be used to tell the modes apart: the
+    debug and release maps are the same shape and only the filesystem differs, so the premise
+    that the choice could be made "from the map, rather than by looking for whichever file
+    exists" was true of swiftbuild's maps and never of native's.
+
+- **The scripts that put the tool on a machine were installing it wrong.** `deploy-local.sh`
+  copied `quality-gate-swift_*.bundle` — this package's own bundles and nothing else, 40 of 45.
+  The five it skipped belong to CorpusKit, VigilKit, Crypto, BusinessMath and SwiftDeterminism,
+  which is the wrong five: a prefix filter cannot distinguish "not ours" from "not needed", and a
+  dependency's bundle is precisely the one whose absence crashes code the user did not write. It
+  copies every bundle now and compares installed against built, refusing a partial install.
+  `install-hooks.sh` composed `<toplevel>/.git/hooks`, which in a worktree is a *file* — so it
+  died in every worktree, which is where all the work happens, and the installed hook stayed at a
+  version predating both the `QG_BIN` override and the cache warming. A hook that honours an
+  override only where nobody stands does not honour it.
+
+- **A released artifact that crashed on any checker reading its resources.** `scripts/release.sh`
+  packaged `quality-gate` alone, and SwiftPM resolves bundles relative to the executable, so the
+  published tarball died with `Fatal error: unable to find bundle named
+  quality-gate-swift_ControlMapping`. `--check safety` works without them, which is how it
+  survived. The script packages every bundle now, then unpacks the result elsewhere and runs a
+  resource-reading checker before publishing.
+
+- **The README's install steps, executed for the first time.** They worked, and copied 40 of 44
+  resource bundles — on both platforms. The four left behind are not needed by the command the
+  README gives, so the shortfall passed as success. The smoke test asserts the counts match now
+  rather than printing them.
+
+- **`release.sh` reconciles the tag prefix and refuses a stale version literal.** Tags carry a
+  `v` and CHANGELOG sections do not, so its own precondition could not pass whichever form was
+  given. It compares the literal in `QualityGateCLI.swift` to the release being built, because
+  `release-readiness` checks CHANGELOG-against-tag parity without ever reading it — which is how
+  the binary reported 3.4.0 through a day of deploys past that tag.
+
+- **The git hooks warm the build and test caches before invoking the gate**, so a budget bounds
+  how long a check runs rather than how long 120 targets take to compile. They resolve
+  `quality-gate` through `PATH` too: anywhere other than one machine the hook found nothing at
+  its hardcoded path, printed "skipping" and exited 0 — so a repository with hooks installed was
+  not gated, and said so only in a line nobody reads.
+
+- **One test was 65% of the suite and asserted a tautology.** `ComplexityAnalyzer`'s advisory
+  test built a bare `Configuration()`, whose root falls back to the working directory, so it ran
+  the analyzer over all 659 files here — 667 seconds — to assert that an advisory checker is
+  advisory. Over a tree that may hold nothing complex, `.passed` is also what an analyzer that
+  found nothing returns, so it held either way. Scoped to a fixture built to score badly, it
+  asserts findings *and* a passing status. `MemoryLifecycleGuard` had the same shape, including an
+  unfalsifiable `.passed || .warning`. Suite: 1028s to 453s.
+- **`xctest-import --fix` writes code that builds, and that this gate accepts.** Used on two
+  real suites (SummerJams, 16 files and 72 tests; BusinessMathExcel, 50 files and 572), its
+  output did not compile in four ways, traded 50 `xctest-import` errors for 84
+  `weak-assertion` warnings, and declined 12 files with "12 diagnostic(s) require manual
+  intervention" and nothing else. Run again from the pre-migration commits with this change:
+  SummerJams converts 16 of 16, builds, passes its 72 tests and passes `test-quality` with no
+  hand edit; BusinessMathExcel converts 41 of 50, builds, and runs 495 Swift Testing tests
+  beside the 77 XCTest ones in the 9 files it declines, each with its reason.
+  - **A file is converted whole or not at all.** An `XCTSkip`, an expectation or a `measure`
+    block used to be left in place while the rest of the file was rewritten. That file no
+    longer imported XCTest, so it did not compile. Such a file is now left exactly as it was,
+    and each construct is reported at its line with the reason.
+  - **The converted text is audited before it is written.** Every per-file `test-quality`
+    rule runs over it. A finding the original did not have stops the file, and is the reason
+    given: `Converted, this file would be reported as missing-assertion: Test function
+    'doesNotThrow' has no #expect or #require assertions. …` A finding the original already
+    had is not the conversion's, and does not stop it.
+  - **`XCTAssertNotNil(x)` is `_ = try #require(x)`**, not `#expect(x != nil)`, and the test
+    gains `throws`. In a closure or a helper, where `throws` cannot be added without changing
+    callers, the file is declined.
+  - **A mutating call is bound first.** `XCTAssertTrue(q.next())` on a `var` became
+    `#expect(q.next())`, which is "cannot use mutating member on immutable value". It is now
+    `let next = q.next()` and `#expect(next)`; calls to its left are bound too, in order.
+  - **An unwrap inside an assertion is bound first.** `XCTUnwrap(rows[XCTUnwrap(key)])` became
+    `#require` inside `#require`, "recursive expansion of macro".
+  - **A fallback is unwrapped, not asserted on.** `XCTAssertTrue((name ?? "").isEmpty)` became
+    an `#expect` that `coalesced-assertion` reports. It is now `try #require(name)` bound
+    first; a `Bool?` is written `as Bool?`, which is how `#require` asks to be told which of
+    its two forms was meant.
+  - **A closure's result is bound before a property is read off it.**
+    `XCTUnwrap(cells.compactMap { sheet.cell(at: $0)?.formula }.first)` did not compile as a
+    `#require`: the macro takes the `?` in the closure for an optional chain.
+  - **`XCTAssertThrowsError` keeps its handler wherever it was written.** A closure passed as
+    the last argument, not trailing, was dropped with every assertion in it. A `return` in a
+    handler that is not the test's last statement now declines the file, because in the `if`
+    body the handler becomes it would leave the test.
+  - **`do { try f(); XCTFail(…) } catch is E { }` is `#expect(throws: E.self) { try f() }`.**
+    Statement by statement it became a test with no `#expect` at all.
+  - **A leading skip is a trait.** `try XCTSkipUnless(c, why)`, `try XCTSkipIf(c, why)` and
+    `guard c else { throw XCTSkip(why) }` as a test's first statement become
+    `@Test(.enabled(if: c, why))`. Any other `XCTSkip` declines the file.
+  - **A suite marked `@available` is declined.** Swift Testing refuses `@Suite` on it.
+  - **A message built across lines no longer breaks the file.** This is what declined all 12
+    files: `"first half " + "second half"` over two lines was interpolated into a one-line
+    string literal, which cannot hold a newline, and the result did not parse. It is now
+    `Comment(rawValue: …)`. A file that still fails to parse is reported with the line that
+    does not.
+  - **An expectation is reported once**, at the call that makes it, not at every mention of a
+    local that happens to be named `expectation`.
+- **`--fix` says which files it left alone, and why.** `FixReport` (`QualityGateCore`) prints
+  one line per changed file, then each unchanged file with its reasons under it. Findings the
+  fixer was handed and never attempts are counted, not listed.
+- **`--fix --dry-run` previews the fix.** It printed each finding's general advice, which for
+  `xctest-import` is the same sentence fifty times. `FixableChecker.previewFix` lets a checker
+  run its fix without writing; `test-quality` implements it, and the preview lists the files
+  it would change and, for the rest, what stops each. The default returns `nil` and the CLI
+  prints what it printed before.
+
+- **A checker stopped at its time budget says so, and so does a tool that fails without
+  explaining itself.** Under a load average of 150–290 the hook's `build`, `test` and `doc-lint`
+  ran out of time and reported something else: `swift build` at exit 124 was
+  `build-unparsed-failure` over twenty lines of whatever the compiler had been doing; a stopped
+  DocC build was `✗ [doc-lint] FAILED` with no diagnostic at all; a stopped `xcodebuild -list`
+  "exited 124 … so there is no scheme to build"; and `swift test` that failed without a test
+  failure — a target that would not compile, a package that would not resolve — was `✗ FAILED`
+  over nothing. `test-timeout` (#33) named the cut-off and not the budget, the elapsed time, the
+  load, or what to do.
+  - **One record, four checkers.** `ToolLauncher` (`QualityGateCore`) starts the tool under a
+    budget and returns a `ToolRun`: the command, the budget and where it came from, the elapsed
+    time, the machine's 1-minute load average and core count when the run ended, and the output.
+    `build`, `test`, `doc-lint` and `xcode-build` all launch through it and all report from it.
+  - **A stopped run is `<checker>-timeout`, an error, and nothing else.** `build-timeout`,
+    `doc-lint-timeout` and `xcode-build-timeout` are new; `test-timeout` gains the same message.
+    Each states the checker, the budget (`900s — three times the last successful run (212s), and
+    never less than 900s`), the elapsed time, the load (`1-minute load average 187.4 on 10 cores
+    (18.7 per core)`), the last twenty lines the tool printed, and the remedy: rerun that checker
+    alone when the load is lower, or raise `budgets.<checker>`. It is asked before anything that
+    could excuse a non-zero exit, and compiler errors or test failures already printed are kept
+    beside it.
+  - **A failure nothing could parse carries the same facts** and a sentence saying the budget was
+    not the cause. `test-unparsed-failure` and `doc-lint-unparsed-failure` are new;
+    `build-unparsed-failure` is reworded. The tool's own `error:` lines are quoted wherever they
+    fell, with the indented line that continues them: SwiftPM reports a failed checkout once and
+    then prints a screen of progress, so the last twenty lines of a fresh worktree's first build
+    inside a hook were twenty lines of `Fetching`, and `error: 'swift-numerics': Couldn’t check
+    out revision …: fatal: unable to read tree` had scrolled away. (That failure's cause was the
+    hook's `GIT_DIR` reaching SwiftPM's git, fixed in #40; this is what makes the next one
+    legible.)
+  - **`build` has a budget of its own.** It ran under the process runner's 600 seconds, a default
+    chosen for `git rev-parse`. It now follows its last successful build like `test` and
+    `doc-lint`: three times that, never less than 900 seconds, 3,600 for a tree with no record.
+  - **`budgets:` sets the figure.** `budgets: { test: 1800 }` in `.quality-gate.yml` replaces the
+    derived budget for `build`, `test`, `doc-lint` or `xcode-build`, exactly as written. A key
+    naming no budgeted checker, or a figure that is not a positive finite number of seconds,
+    stops the run at startup; neither is silently ignored.
+  - **Budgets do not follow the load.** Considered and declined: a budget that stretches itself
+    under contention is a number nobody chose and nobody can read off the configuration, and it
+    turns "stopped without saying so" into "took an hour without saying why". The derived budget
+    already follows the work. The load is in the message instead.
+  - **A stopped run is never replayed from the cache.** The runner refused to store a failure,
+    judged on the status the checker wrote — before reconciliation raises `.passed` carrying an
+    error to `.failed`. So a result reported as passed over an error was stored, and every later
+    run of the same tree replayed it, reconciled it to a failure, and never evicted it; and the
+    stopped `swift test` that #33 found reported as a signing warning had been stored and served
+    as a dated, labelled pass. The guard now reads the reconciled verdict, and a result carrying
+    a `-timeout` finding is not stored under any status and is evicted if found.
+  - **Around the edges of `test`.** A stress run no longer overwrites the suite's recorded
+    duration with the few seconds its filtered tests took, a stress run that was stopped
+    contributes no roster, and a stopped run does not update the flip detector's stored roster —
+    the tests it never reached would have read as tests that changed outcome.
+  - **A duration record that is not a duration is no record.** `inf` in
+    `.build/quality-gate-duration-*` parsed, and three times infinity is a budget the process
+    kernel refuses — and, before 1.1.0, obeyed as no deadline at all. `swift-process-kernel` is
+    now required at 1.1.0, which refuses a non-finite timeout before anything is started.
+
+- **A dependency's warning is not this package's, under `xcode-build` as under `build`.** The
+  gate decided this on 2026-07-04 (`d91124a`): a warning in a dependency checkout does not count
+  against the package being checked, and an error does. `build` and `doc-lint` applied it.
+  `xcode-build` never did, and the rule would not have matched if it had — it looked for
+  `/.build/`, and Xcode keeps a checkout under
+  `~/Library/Developer/Xcode/DerivedData/<project>/SourcePackages/checkouts/`. So the same
+  diagnostics were dropped by one build checker and counted by the other. mlx-swift 0.32.3's
+  Metal shader headers emit `-Wc++17-extensions` at 13 sites; Xcode passes `-w` to a dependency's
+  C++ and `-suppress-warnings` to its Swift, and neither to the `metal` compiler. Every clean
+  `xcodebuild` of a package that depends on mlx-swift therefore reported 20 warnings in files it
+  does not own and cannot edit. IconquerAI v0.4.0, clean: `0 error(s), 22 warning(s)` before,
+  `0 error(s), 0 warning(s)` after.
+  - **One definition, three checkers.** `DependencyOrigin` (`QualityGateCore`) says whether a path
+    belongs to a dependency, and `build`, `doc-lint`, `xcode-build` and the compile-unit index
+    all ask it. Not first-party: `/.build/checkouts/<package>/`, `/.build/artifacts/<package>/`,
+    anything else under `/.build/` (unchanged from `d91124a`), and Xcode's
+    `/SourcePackages/checkouts/<package>/` and `/SourcePackages/artifacts/<package>/`. Everything
+    else counts, so a path the rule does not recognise is reported, not dropped.
+  - **Markers, not "is it inside the package root".** Containment is the better question and gives
+    the wrong answer three ways: SwiftPM puts checkouts *inside* the root; Xcode puts the
+    package's own derived sources *outside* it (`resource_bundle_accessor.swift` and
+    `GeneratedAssetSymbols.swift` under `DerivedData/…/Build/Intermediates.noindex/`, build-tool
+    plugin output under `DerivedData/…/SourcePackages/plugins/`, macro expansions in a temporary
+    directory); and a local path dependency is outside the root and has always counted, on
+    purpose. The root is used for the one thing it is right about: a path inside it is judged by
+    what follows it, so a package that is itself checked out under `.build/checkouts/` or
+    `SourcePackages/checkouts/` still owns its sources.
+  - **Local and edited packages are unchanged: they count.** The existing rule already had the
+    opinion (`BuildChecker.md`: "Local path dependencies are first-party"), and it is kept.
+  - **Errors are never scoped.** A dependency that fails to compile fails the gate and its error
+    is shown, by all three checkers.
+  - **Nothing is dropped silently.** `build` and `doc-lint` had been scoping warnings out since
+    July without saying so. All three now close with a note,
+    `gate.dependency-diagnostics-not-counted`: *"20 warnings in dependency mlx-swift were not
+    counted; they are not this package's source"*. Several origins are each named with a count.
+  - **Not recognised, and still counted:** a dependency's *derived* sources under Xcode
+    (`Intermediates.noindex/<dependency>.build/…`) and a dependency's plugin output. Their paths
+    have the same shape as the package's own, and telling them apart needs the package graph.
+- **`build` no longer reports `WARNING` with no warning in it.** On a clean `.build`, a package
+  whose dependency warns got `⚠ [build] WARNING` and one finding: *"[build] reported WARNING
+  without a warning-severity finding"*. `BuildChecker.createResult` computed the status from every
+  parsed diagnostic and scoped the dependency's warnings out afterwards, while assembling the
+  result; reconciliation then found a `.warning` status over no warning and said so. It appeared
+  only on a cold build because a warm one does not recompile the dependency and prints nothing to
+  mis-count. The scope is now applied first and the status computed from what is left.
+  `xcode-build` computes its status the same way, so it cannot acquire the same fault.
+- **The `consistency` echo goes with its cause.** That run also carried *"Rule 'xcode-compiler'
+  matched ViolationCluster with 61 occurrences"*, derived from the 20 findings above. Nothing in
+  `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
+- **`weak-assertion` reads XCTest's spelling of the same claim.** `#expect(x != nil)` was
+  reported and `XCTAssertNotNil(x)` was not, so a suite still on XCTest reported no weak
+  assertions at all. BusinessMathExcel reported 0 before its migration and 84 after: the
+  conversion wrote the same 84 claims in the one spelling the rule could read. The rule looked
+  only inside `#expect` and `#require` (`TestQualityVisitor.visit(_: MacroExpansionExprSyntax)`).
+  - **An XCTest call is reported exactly when the `#expect` it converts to is.** The table is
+    `AssertionMapping`'s, so `--fix` neither adds nor removes a finding. Reported:
+    `XCTAssertNotNil(x)`; `XCTAssertNotEqual(a, b)` when either operand is the literal `0` or
+    `nil`; and `XCTAssert(c)` / `XCTAssertTrue(c)`, once per `!= 0` or `!= nil` at the top level
+    of `c`. Same id, same severity (`warning`), same `// TEST-QUALITY:` marker.
+  - **Not reported, because the Swift Testing form is not:** `XCTAssertNil(x)` (`== nil`),
+    `XCTAssertGreaterThan(x.count, 0)` and `XCTAssert(x.count > 0)` (`> 0`),
+    `XCTAssertFalse(x != nil)` (`!(x != nil)`), and `XCTAssertNotEqual(x, 0, accuracy: e)` (a
+    tolerance). `x.count > 0` says as little as `x.count != 0`; whether the rule should read it
+    is a question about both frameworks, and this change does not answer it for one of them.
+  - **`XCTAssertNotNil` on a non-optional value is reported like any other.** The rule reads
+    syntax and cannot tell that the check is vacuous, only that it is weak.
+  - **Reported alongside `xctest-import`, not instead of it.** One says which framework the
+    file uses and is repaired by converting it. The other says what one assertion claims and
+    survives the conversion. `skipped-test-inventory` already reads `throw XCTSkip(…)` in the
+    same files on the same reasoning.
+  - **No other assertion rule reads `XCTAssert*`.** `coalesced-assertion`,
+    `assertion-on-constant`, `non-strict-improvement`, `self-referential-expectation`,
+    `tolerance-without-magnitude`, `exact-double-equality` and `missing-assertion` still read
+    only Swift Testing. A suite on XCTest remains under-reported for those.
+  - Measured read-only on the 22 trees under the development directory whose `Tests/` still
+    imports XCTest (third-party clones excluded): 255 new findings in 5 of them, every one an
+    `XCTAssertNotNil` — FinancialAnalysis 205, BusinessMath-Persistence 40, FinancialReportKit
+    6, ModelSimulator 2, Botany 2. All five already fail on `xctest-import`, so no passing
+    tree starts failing.
+
+### Added
+
+- **Linux is a supported platform, and the job that says so runs on every pull request.** The
+  README said "macOS only, today — Linux is not supported and not tested", on the grounds that
+  `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. The premise was true
+  and the conclusion was not: the toolchain ships the header, just not on the default include
+  path, so the build needs `-Xcxx -I/usr/lib/swift -Xcxx -I/usr/lib/swift/Block` rather than a
+  port of a C++ dependency. 130 failures to 13.
+  - **Both toolchains, deliberately.** 6.2 is the manifest's `swift-tools-version` and what the
+    README promises; 6.4 is what development runs. Neither is redundant — `ambiguous use of
+    'reversed()'` is legal in 6.4 and an error in 6.2, so a 6.4-only job would have reported the
+    same green the macOS gate did.
+  - **Pull requests, not just pushes.** The job began as `workflow_dispatch` only, reasoning that
+    a red X on a public repository about code quality trains readers to ignore the tick. Right
+    about the cost, wrong about the risk: nothing dispatched it, and `main` sat unbuildable on
+    Linux through fourteen merged pull requests, each with a green pre-push gate, because that
+    gate runs the local toolchain and the local toolchain compiled the line CI could not.
+
+- **`brew tap jpurnell/tap && brew install quality-gate`.** `packaging/homebrew/quality-gate.rb`
+  installs the artifacts `scripts/release.sh` publishes. `write_exec_script` rather than
+  `install_symlink`, because SwiftPM resolves a resource bundle relative to the running executable
+  and a symlink in `bin` leaves the executable path where the bundles are not. Its test compares
+  `--version` against the formula's own version, which makes it the only place a hand-written
+  version literal is checked against the tag that ships it.
+
+- **A committed Xcode scheme, and `scripts/install-xcode-phase.sh`.** Opening `Package.swift`
+  generated a scheme per contributor, none in the repository; the committed one builds the
+  executable alone rather than all 120 targets. The script adds a Run Script phase so findings
+  reach the issue navigator, through the `xcodeproj` gem and refusing without it — a malformed
+  project file is worse than an absent build phase. `development-guidelines`' `bootstrap.sh`
+  installs it for a new project, so nobody has to remember.
+
+- **`CheckerBudget`: a wall-clock budget derived from what the work last took.**
+  `ProcessRunner.run` defaults to 600s, which suits `git rev-parse` and was inherited by callers
+  running a whole test suite or a DocC build across 34 targets. The suite outgrew it — measured at
+  1028s — and every commit and push then failed at exactly 600.0s having produced no finding,
+  which reads as a hung tool rather than a budget. `test` and `doc-lint` size themselves from
+  their own history now. `StoreLocator` and `XcodeBuildChecker` still inherit the default.
+
+- **`dependency-advisory`: a pinned version with a published advisory is a finding.** Fourteen
+  repositories in the portfolio pinned a version with a published advisory — `swift-nio` before
+  2.100.0 in eleven of them — and every one was green, because nothing in the gate looked.
+  `dependency-audit` is hygiene and is deliberately offline. This is the checker that looks, and
+  it stays offline too (`AnAdvisoryIsADatedFact.md`).
+  - **An advisory is a dated fact, so the check reads a file.** The whole OSV `SwiftURL` export
+    (64 records on 2026-10-06) is held in a **snapshot** with the date it was fetched and a hash
+    of its records. The gate bundles one; a repository may commit its own at
+    `.quality-gate/advisories/swifturl.json`; the one fetched later is used and the coverage note
+    names it. *This lockfile against that file* is a pure function of the two, so the checker is
+    hermetic, runs offline, gives the same answer on any day, and may fail a build. Every finding
+    ends with the date its data is from.
+  - **What a finding says.** `swift-nio 2.86.0 is affected by GHSA-rj37-6j9x-74q6
+    (CVE-2026-28980, HIGH): … Affected: < 2.100.0; fixed in 2.100.0. Pin:
+    github.com/apple/swift-nio. Advisory data as of 2026-10-06. [CWE-1395]`, at the pin's line in
+    `Package.resolved`, with the update command as the suggested fix. CRITICAL and HIGH are
+    errors. MODERATE, LOW and unlabelled are warnings; MODERATE becomes an error at the
+    proposal's destination, and `AdvisorySeverity.moderate` is the one line that changes.
+    Severity is GitHub's label, not a score recomputed from the CVSS vector.
+  - **Matching is local, because the live API is wrong in three ways that were measured.** It
+    matches names case-sensitively (`…/marmelroy/zip` returns nothing, `…/marmelroy/Zip` returns
+    an advisory); it never returns the records filed under a bare name (`swift-nio-http2`,
+    `swift-crypto`, `CocoaMQTT`), which are matched here by last path component under
+    `dep-advisory.vulnerable-pin-by-name`; and a two-component bound such as `1.20` has to be
+    padded, not failed open. A bound that cannot be parsed makes the range
+    `dep-advisory.unevaluable` — never a hit, never clean. So does a branch or bare-revision pin
+    on a package some advisory names. `apple/` and `swiftlang/` are one organisation for the
+    packages that moved. Real OSV responses, recorded on 2026-10-06, hold the matcher to the API
+    wherever the API can answer.
+  - **An acknowledgement is a record with an expiry.** `Package.resolved` is JSON and has no line
+    above it, so `dependencyAudit.acknowledgedAdvisories` takes `id`, `package`, `reason` and
+    `until`. The reason is held to `JustificationValidator` — eight words, no stock phrase — like
+    every other justification in the gate. `until` is compared with the **snapshot's** date, not
+    the wall clock: the acknowledgement expires when the gate's knowledge moves past it, and the
+    same tree with the same snapshot gives the same answer on any day. Accepted ones are recorded
+    as overrides and counted; expired ones bring the finding back; unused ones are reported.
+  - **No silent success.** No snapshot is `dep-advisory.no-snapshot` with the count of pins not
+    checked. A snapshot whose records do not hash to its header is `dep-advisory.snapshot-corrupt`
+    and nothing is reported from it. A lockfile that will not parse is reported. The coverage
+    note gives every denominator: lockfiles, pins, third-party, evaluable, affected,
+    acknowledged, and the snapshot's date, size and origin.
+- **`dependency-advisory-freshness`: the snapshot's age, on every run.** Past
+  `dependencyAudit.advisorySnapshotMaxAgeDays` (14) it says how many pins were checked only
+  against advisories known on the snapshot's date. `.temporal`: a note by default, an error under
+  `--include-nonhermetic`.
+- **`dependency-advisory-drift`: what the snapshot lacks, asked of live OSV.** Opt-in
+  (`--check dependency-advisory-drift`) and `.external`. One `POST /v1/querybatch` per 500
+  distinct package versions, at most four, ten seconds and 2 MB each, to an allow-listed host.
+  When OSV cannot be reached it is **skipped** with the reason and the number of pins not
+  checked — a build does not fail because the network is down unless `--include-nonhermetic`
+  asks for that. `dependencyAudit.offlineMode` keeps it off the network entirely, and it says so.
+- **`quality-gate advisories refresh [--output <path>] [--allow-shrink]`.** The only writer of a
+  snapshot. Reads OSV's `SwiftURL/modified_id.csv` and then each record from `/v1/vulns/{id}`,
+  every request bounded; prints what arrived and what was withdrawn since the previous snapshot;
+  refuses a result with fewer records than the one it replaces. Nothing is written on any
+  failure.
+- **CWE-1395 is enforced.** `rule-to-cwe.mapping.json` maps both advisory rules to
+  *Dependency on Vulnerable Third-Party Component*, `SecurityRuleManifest` carries them with
+  OWASP Mobile M2 and Top 10 A06:2021 and a 180-day review, and `rule-registry.json` lists the
+  twelve `dep-advisory.*` ids. CWE-1104 stays a listed gap: whether a package is maintained is
+  not in a lockfile.
+- **`quality-gate reindex-corpus`.** Rebuilds the corpus's per-project run indexes
+  (`telemetry/<project>/index.jsonl`, new in quality-gate-corpus-kit 1.22) from its run files,
+  for every project or for one (`--project`). Readers never need it to be correct — a run with
+  no index line is read from its own file — they need it to be fast. It is the backfill for
+  runs recorded before the index, and the repair for one that readers report as short.
+
+### Changed
+
+- **Every run this gate records is now indexed as it is written.** The dependency on
+  quality-gate-corpus-kit moves from 1.19.0 to 1.22.1, whose `TelemetryWriter` appends one line
+  per run to the project's index after writing the run file. Nothing here calls it differently.
+  A failed append is logged and does not fail the write: the run file is the record.
+- **The terminal dashboard no longer holds the corpus.** `quality-gate dashboard` called
+  `CorpusReader.loadAll()` — every run of every project, findings included — and its
+  interactive mode kept the result for the life of the session and replaced all of it every
+  thirty seconds. Against a 3.16 GB corpus that is the shape that put the native dashboard at
+  11.9 GB (quality-gate-dashboard `e76b4a5`). It now holds `CorpusHistories`: each project's
+  history without diagnostics, plus each checker's latest standard-mode result for the findings
+  inbox. A refresh compares each project's history signature and re-reads only the projects
+  that changed. An acknowledgement reads the one run it is about, whole, at that moment.
+  `DashboardApp.run` gains an optional `histories:` parameter; passing `allRuns:` alone still
+  works.
+
+  Not addressed: each refresh still calls `CorpusReader.listAvailableLabels()`, which decodes
+  every pulse file to list them.
+
+
+- **`security.ssrf` reports a request, not a parse.** It reported every `URL(string:)` whose
+  argument was not a literal: "URL constructed from dynamic input — potential SSRF". Constructing
+  a URL is not making a request. Across the 98 gate-configured repositories that was 60 sites, 59
+  of them already answered with a `// SECURITY:` sentence, and most of those sentences said the
+  same true thing: nothing is fetched from it. A static-site generator that parses link targets
+  into `href` values had 29. The only ways to clear a finding were to write the sentence or to
+  respell the call as `URLComponents(string:)?.url`, and neither is a fix. Same id, same CWE-918;
+  what changed is the sentence (`AURLIsNotARequest.md`, as `security.path-traversal` became "a
+  join that reaches a sink" in `TraversalIsAJoin.md`).
+  - **A finding needs both halves.** A URL *built* from non-literal input — `URL(string:)`,
+    `URL(string:relativeTo:)`, `URLComponents(string:)`, AsyncHTTPClient's
+    `HTTPClientRequest(url:)`, `URI(string:)` — **and** a call that opens a connection to it:
+    the `URLSession` request methods, `Data` / `String` / `NSData` / `XMLParser(contentsOf:)`,
+    `execute(_:)` on an `HTTPClientRequest`, `WKWebView.load(_:)` on a `URLRequest`,
+    `WebSocket.connect(to:)`, `NWConnection(to: .url(…))`. Followed through the function's
+    bindings, `URLRequest(url:)`, and closures. A file URL by construction is never an operand.
+  - **The request is usually in a wrapper, so the rule is package-wide.** Each file contributes
+    what its functions do with URL-shaped values; a join finds the parameters and properties that
+    are requested. `MJPEGStream(url:)` is a sink because a method of the type hands `url` to
+    `dataTask(with:)`; a built URL passed to it is reported where it was built, naming the wrapper
+    and the sink behind it. Matching is by name and label, not type.
+  - **A checked host is not a finding.** The URL's `host` compared with something other than
+    `nil`, tested with `contains` / `hasSuffix` / `hasPrefix`, switched on, or handed to a
+    function inside a condition — before the request — clears it; so does handing the URL to a
+    function of the package that does one of those. A wrapper that validates before it requests
+    is not a sink. `host != nil` and a scheme check are not host checks.
+  - **A string that fixes the host is not dynamic.** `"https://api.example.com/users/\(id)"`,
+    `"ws://127.0.0.1:\(port)/"` and `"\(Self.baseURL)/x"` with `baseURL` a same-file constant
+    holding scheme and host: whoever supplies the rest does not choose the destination. Nor is a
+    string that begins with an existing URL's `absoluteString` and continues with a path —
+    `"\(base.absoluteString)/v1/x"` is `base.appendingPathComponent(…)` by another spelling, and
+    has `base`'s host. Without the separator it is still dynamic: `"\(base.absoluteString)\(suffix)"`
+    can extend the host.
+  - **A returned URL is followed too.** A function that returns a URL it built is a producer.
+    Built from its own input, it is reported at the construction once a caller requests the
+    result; built from the string a parameter holds (`func url(_ string: String) -> URL`), each
+    caller's argument decides — a literal is nothing, a dynamic string is reported at the call.
+    Twenty of the sixty old findings were test helpers of that second shape, given literals.
+  - **Not reported:** a URL that is returned, compared, displayed, written into markup, or stored
+    where nothing in the package requests it. **Not seen:** anything in another package, a
+    connection to a host string (`connect(host:)`), a URL assembled by assignment, a producer
+    called as a method on another value.
+  - **Severity.** A warning, as before. An **error** when the URL derives from request content,
+    an MCP tool argument or bytes from the network — a tripwire: no portfolio site has it.
+  - **Where.** On the construction, as before, so an acknowledgement that still answers a finding
+    keeps answering it. The message names the input and the sink; one URL sent to two sinks is
+    one diagnostic.
+  - **Measured**, old and new binary over the 98 gate-configured repositories, each under its own
+    configuration, findings and acknowledgements together: **60 → 9**; Ignite at `HEAD`, 29 → 0.
+    All nine kept are real requests to an address from non-literal input — one a remote server's
+    choice, eight an operator's own. Of the 52 dropped, 38 were never requested, 11 are requested
+    behind a host check, 1 has its host in the literal, and 2 are real connections this rule does
+    not see (a host string; another package). One finding is new: a URL spelled
+    `URLComponents(string:)`, which the old rule could not see. Every site was read; the table is
+    the proposal's §4.
+  - `ExternalInputFile` gains `bindingSites(at:)` (`FunctionBindings`, `BindingSite`): the
+    bindings `scope(at:)` already collected, as syntax with positions, collected once per
+    function. `scope(at:)` is built from it.
+  - The gate's own `StandardsWatchCommand` allow-lists its host before it fetches, so its
+    `// SECURITY:` marker answers a finding the new rule does not make. It stays until this is
+    deployed: the pre-commit hook runs the installed binary, whose rule still makes it.
+
+- **The server-surface inventory reads SwiftMCPServer by release, because 5.0.0 changed what the
+  same call means.** The inventory encoded 4.x as if it were the library: "`HTTPServerTransport`
+  binds `0.0.0.0` and has no host parameter", "the builder cannot set the address", and
+  authentication off only when written `nil` or `.none`. SwiftMCPServer 5.0.0 — whose changes came
+  from this gate's own findings — binds `127.0.0.1` unless asked for more, made the address a
+  setting (`host:` on the transport, `listen(host:)` on the builder, `--host` at launch), and
+  replaced `authenticator:`/`oauthServer:` with one required `authentication:` whose "no
+  authentication" is spelled `.unauthenticated`. Read with the old facts, every 5.x consumer was
+  an all-interfaces listener that is not one, and an explicitly open 5.x server was not seen.
+  - **5.x, as now recorded.** A builder or transport that names no host is a loopback listener
+    (`frameworkDefault`, as Vapor's is) and is not counted as bound to all interfaces.
+    `.listen(host: <literal>)` and `HTTPServerTransport(host: <literal>, …)` bind that literal; a
+    non-literal host is an expression, the operator's, exactly as a NIO `bind(host: host)` is.
+    `authentication: .unauthenticated` on the transport and `.authentication(.unauthenticated)` on
+    the builder are `explicitlyNone`; `.apiKey`, `.oauth`, `.apiKeyOrOAuth`, and the builder's
+    `.authenticator(_:)` / `.oauthServer(_:)`, are the new `ListenerAuthentication.authenticated(by:)`
+    — reported only when nothing weaker (a default that is off, an environment switch) is visible
+    in the target. An enforcing `.authentication(…)` on the builder stands in front of its tools as
+    `.authenticator(…)` already did.
+  - **4.x, as before.** A builder or transport is `inherited` from the library, every interface,
+    hard-coded; counted in the coverage note; the library's finding and not the consumer's.
+    `authenticator: nil` to the transport is still reported.
+  - **`security.bind-all-interfaces`** reports `.listen(host: "0.0.0.0")` and
+    `HTTPServerTransport(host: "0.0.0.0", …)` as a **warning**. Not the error: that is for a
+    literal at the socket call, where the type that owns the socket gives a caller no way to
+    narrow it. These are arguments to an API whose parameter is the way to narrow it — the shape
+    `TournamentWebSocketServer(host: "0.0.0.0")` already had — and `listen(host:)` is itself
+    overridden by `--host`, so it is a default in every sense the rule uses the word.
+  - **`security.listener-auth-optional`** reports `authentication: .unauthenticated` and
+    `.authentication(.unauthenticated)` as a **warning**, worded and graded as `authenticator: nil`
+    to a listener type was. 5.0.0 made running open a named choice; the rule asks that the reason
+    be named too. `// SECURITY: <reason>` on the line above acknowledges it and is recorded — for
+    a builder, that is the line above `.authentication(…)` inside the chain, because the finding
+    is placed on the method name and not on the `MCPServer` the chain starts at.
+  - **Which release.** `Package.swift`'s requirement, when it admits one major (`from:`, `exact:`,
+    `.upToNextMajor`, `.upToNextMinor`, a range inside one major); else the `Package.resolved`
+    pin (a branch, a revision, a range across majors, a transitive dependency); else the calls —
+    `authenticator:`/`oauthServer:` on the transport compile only before 5.0.0, `host:`,
+    `listen(host:)` and `authentication` only from it; else 5.x, **assumed and said to be**. The
+    manifest outranks the pin because SwiftPM will not build against a pin the manifest excludes;
+    a stale pin is named in the evidence rather than believed. The calls are last, not first,
+    because `MCPServer.builder().tools(…).run()` — eight of the nine consumers measured — is
+    spelled identically in both generations and binds differently. Both files are read as text
+    (`PackageDependencies`); nothing is resolved or built. Anything below major 5 gets the pre-5
+    facts.
+  - **The coverage note names the release and the evidence**, and what follows from it:
+    `SwiftMCPServer read as 4.x (from: "4.4.1" in Package.swift, 4.4.3 in Package.resolved): binds
+    0.0.0.0 and takes no host`, or `… read as 5.x (…): binds 127.0.0.1 unless source says
+    otherwise; --host at launch is not visible`. The last clause is the limit: a unit file that
+    starts a 5.x server with `--host 0.0.0.0` is not source.
+  - New public API in `ServerSurface`: `LibraryRelease`, `PackageDependencies`,
+    `ServerSurfaceInventory.libraries`, `ListenerAuthentication.authenticated(by:)`, and a
+    `dependencies:` parameter on `ServerSurfaceInventory.init(files:targets:guardTypes:dependencies:)`
+    and `build(sources:…)`, defaulting to `.unknown`.
+
+  **Measured** with `origin/main`'s gate and this branch's, release builds, on scratch copies of
+  each repository's `main` (2026-10-04):
+
+  | Package | Release read as | Before | After |
+  |---|---|---|---|
+  | SwiftMCPServer 5.0.0 | — (the library: its own `bind(host: bindHost)` is the listener) | 1 listener, 0 all-interfaces, 0 findings, 2 acknowledged | the same, plus **1 new warning**: `ConformanceServer/main.swift:21`, `authentication: .unauthenticated` |
+  | businessMathMCP | 4.x — `from: "4.4.1"`, pinned 4.4.3 | 1 listener, 1 all-interfaces | unchanged |
+  | GeoSEOMCP | 4.x — `from: "4.4.1"`, pinned 4.4.3 | 1, 1 | unchanged |
+  | SearchOperatorMCP | 4.x — `from: "4.4.1"`, pinned 4.4.1 | 1, 1 | unchanged |
+  | ijs-mcp-server | 4.x — `exact: "4.5.0"` | 1, 1 | unchanged |
+  | VaultMCP | 4.x — `from: "4.5.0"` | 2 listeners, 1 all-interfaces; `Main.swift:61` and `WebOptions.swift:161` | unchanged |
+  | HockeySimMCP | 4.x — `from: "4.5.0"`, no pin committed | 1, 1 | unchanged |
+  | IconquerMCP | 1.x — `from: "1.0.0"`, no pin committed | 2, 2; `MatchHost.swift:142` (`authenticator: nil`) | unchanged |
+  | DevGuidelinesMCP | 5.x, **assumed** — `path: "../SwiftMCPServer"` | 1, 1 | 1, **0** |
+  | panLAN | 5.x, **assumed** — `path: "../SwiftMCPServer"` | 1, 1 | 1, **0** |
+
+  The seven that declare a release below 5 are reported exactly as before: that finding was true
+  and stays until they upgrade. The two `path:` dependents were wrong before — the checkout they
+  build against is 5.0.0 — and are right now, on an assumption the note states. The one new
+  finding is real by the rule and was invisible to it: SwiftMCPServer's conformance target opens
+  an unauthenticated listener, on loopback, with a comment explaining why and no `// SECURITY:`
+  marker to record it.
+
+
+### Added
+
+- **A reader for the compiler's serialized diagnostics, and an index of a build's compile
+  units.** Both are in the `BuildChecker` target, and are the groundwork for `build` reporting
+  warnings in files a build did not recompile.
+  - `SerializedDiagnosticsReader` decodes a `.dia` file — what each compile job writes beside
+    its object file — into the gate's `Diagnostic`, rendering a message as the compiler prints
+    it (`text [#Group]`). Malformed input throws; nothing traps.
+  - `CompileUnitIndex` reads a build directory's output file maps for one configuration and
+    returns the live, first-party compile units and where each records its diagnostics. It
+    reads the map, not the directory: a `.dia` left behind by a deleted source file is not a
+    unit. Handles the `swiftbuild` layout (per-file records and the `""`-keyed emit-module
+    record in debug; the `""`-keyed whole-module record in release) and the native one.
+  - The decoder is `TSCUtility.SerializedDiagnostics`, vendored from
+    [swift-tools-support-core](https://github.com/swiftlang/swift-tools-support-core) at commit
+    `c574915fe88e942e4c4c93376f022daa2ecf05f9` (Apache-2.0 with Runtime Library Exception):
+    `Sources/TSCUtility/Bits.swift`, `Bitstream.swift`, `BitstreamReader.swift` and
+    `SerializedDiagnostics.swift`, now under `Sources/BuildChecker/SerializedDiagnostics/`.
+    `ByteString` became `[UInt8]`, so there is no new package dependency. Every trap in the
+    upstream code (`precondition`, `fatalError`, force unwraps, unchecked integer conversions)
+    became a thrown error, because this copy reads whatever is on disk; records own their
+    fields instead of borrowing an unsafe buffer; and the recursive readers are depth-bounded.
+    Source ranges, fix-its and the writer-side declarations were dropped. Each file's header
+    keeps the upstream licence notice and lists its changes.
+- **`includedCheckers:` adds one opt-in checker to the default run.** It mirrors
+  `excludedCheckers:`. Before this, the only way to opt a checker in from config was
+  `enabledCheckers: [all]`, which also turned on every convention-gated doc checker
+  (`doc-run`, `doc-claims`, `doc-comment-code`, `doc-generated`). The new key is added to
+  `enabledCheckers` when that is set. It changes neither `--check all` nor an explicit
+  `--check`, and an exclusion still wins over it. It is a new schema key, so an older binary
+  rejects a file that uses it: ratchet `minimumGateVersion` when you adopt it.
+- **`xcode-build` builds plain Swift packages.** With no workspace or project in the root but
+  a `Package.swift`, it runs `xcodebuild` from the package directory with no container
+  arguments. A workspace or project still wins when present, so nothing that built before
+  builds something different now. Prompted by BioFeedbackKit-HealthKit, whose watchOS-only
+  HealthKit adapter the macOS `build` checker has never compiled.
+- **What a cipher is keyed with: `security.hardcoded-key` (CWE-321), `security.static-iv`
+  (CWE-329, 1204, 323), `security.weak-kdf` (CWE-916) and `security.weak-key-size` (CWE-326), all
+  error.** The rest of `ACipherIsItsArguments.md`; `broken-cipher` and `ecb-mode` read the
+  algorithm and mode, these read the key, the IV, the round count and the key length.
+  - `hardcoded-key`: literal-derived bytes given to `SymmetricKey(data:)`, the key argument of
+    `CCCrypt` / `CCCryptorCreate` / `CCHmac`, a `P256` / `P384` / `P521` / `Curve25519` / `_RSA`
+    `PrivateKey(raw|pem|derRepresentation:)`, or a CryptoSwift `key:`; and a string literal holding
+    a PEM private key *with a body* — a header alone is what a PEM parser matches against.
+  - `static-iv`: a `nil` or literal IV to `CCCrypt` / `CCCryptorCreate` when encrypting outside ECB
+    (CommonCrypto turns `nil` into zeros) and `AES._CBC.encrypt` with a literal IV (329); a literal
+    CryptoSwift `iv:` in a non-CBC mode (1204); a literal `AES.GCM` / `ChaChaPoly` nonce, or one
+    held in a `static let` or file-scope `let` and passed to `seal` (323) — random once is still
+    once. A literal `kCCDecrypt`, `_CBC.decrypt` and a nonce rebuilding a `SealedBox` are the
+    decrypt side and are not reported.
+  - `weak-kdf`: `CCKeyDerivationPBKDF` with a literal round count below 210,000 (swift-crypto's
+    floor; OWASP's higher figure was not fetched); `unsafeUncheckedRounds:` — a warning, an error
+    below the floor; and `SHA256` / `384` / `512.hash` or `CC_SHA*` of a password-named value. A
+    digest of a token, key or secret is not reported: a random token has no dictionary.
+  - `weak-key-size`: `kSecAttrKeySizeInBits` below 2048 in a dictionary literal that does not ask
+    for an EC key; `_RSA` keys below 2048 bits; `SymmetricKey` below 128 bits.
+  - "Literal-derived" is syntactic and one file deep: a literal, the same through `Data(…)`,
+    `.utf8`, `.data(using:)`, `Data(base64Encoded:)`, or a `let` bound to one. The `let` is found
+    lexically (`LetResolver`), so a parameter that shadows a literal constant is not the constant.
+    A key copied into a buffer is not followed; the proposal's test 18 pins that miss (SwiftITL).
+  - Every name-based decision goes through `SensitiveName`: a CryptoSwift label is a key if it
+    classifies as key material and an IV if it is a security parameter; a digest's input is a
+    password if any identifier in it is password-class, the weak `pin` included.
+  - **One literal, one finding.** `hardcoded-secret` (CWE-798) reads a name; `hardcoded-key`
+    (321, a child of 798) reads a use. A secret-named literal that is used as a key, or that is a
+    PEM private key, is reported by `hardcoded-key` only; with `hardcoded-key` off, or in a test
+    target, `hardcoded-secret` reports it as before.
+  - **Test targets are not reported.** A known-answer test needs a fixed key and IV, and the
+    gate's determinism rules require fixed test inputs; the proposal names `Tests/` as the remedy
+    for a test vector, and a remedy has to clear the finding. The security visitor now receives
+    the file's target type, as the safety visitor already did.
+  - `weakCryptoPolicy: justified` governs `hardcoded-key` and `static-iv` as well, as the proposal
+    specifies (a published format can dictate a key). `weak-kdf` and `weak-key-size` are not under
+    it; `// SECURITY: <reason>` acknowledges any of the four and is recorded.
+  - CWE-321, 326, 329 and 916 move from `gap` to covered; CWE-323 and CWE-1204 are catalogued
+    (titles fetched from MITRE, CWE 4.20) and covered.
+
+  **Portfolio, measured with this branch's gate** on scratch copies, every security rule enabled
+  (131 package roots; 121 package directories whose git remote is somebody else's excluded):
+  `hardcoded-key` 1 — Quorum `quorum-tones/main.swift:279`, a demonstration HMAC share built with
+  `Data(repeating:count:)` in an executable, the site the proposal predicted, real by the rule's
+  definition and fixable by generating the share; `static-iv` 0, `weak-kdf` 0, `weak-key-size` 0.
+  Seven literal keys in test targets (Quorum ×6, swift-oauth ×1) are fixtures and not reported.
+  Every other security finding is identical to `main`'s. The three zero-population rules land at
+  error as tripwires; `hardcoded-key` lands at error because its one finding is real.
+- **A seed is not a secret: `security.weak-prng` (error, CWE-338), `security.seeded-secret`
+  (error, CWE-335/336/337), `security.predictable-token` (error, CWE-341) and
+  `security.uuid-as-secret` (warning, CWE-340).** A value that has to be unpredictable — named for
+  a token, nonce, salt, session, key, challenge, verifier, CSRF value or OTP by `SecurityContext`,
+  or written to a header, cookie or query item — and made by something predictable.
+  - `weak-prng`: `rand`, `random()`, `drand48` and the `*rand48` family, `rand_r`, any
+    GameplayKit source or distribution.
+  - `seeded-secret`: `using: &g` or `g.next()` where `g` is bound in the same function to a
+    generator given `seed:` / `state:` / `seeds:` or an integer literal, or whose type name says
+    it is deterministic (`SplitMix`, `Xoshiro`, `PCG`, `Mock`, `Seeded`…). CWE-336 for a literal
+    seed, 337 for a clock or pid seed, 335 otherwise. A generator the function cannot show — a
+    parameter, a stored property — is counted, not judged. Not reported in `Tests/`, where a seed
+    pins a credential's bytes on purpose (proposal §8).
+  - `predictable-token`: only literals and the clock, `getpid()`, `processIdentifier`,
+    `hashValue`, `Hasher`, `ObjectIdentifier`. The clock counts only once it is converted —
+    interpolated, `Int(…)`, encoded — so `Date()`, `now - start` and `sessionStart = start` are
+    times and durations, not tokens.
+  - `uuid-as-secret`: only literals and `UUID()`, including as a `??` default and a parameter's
+    default value. A warning permanently; `weakCryptoPolicy: justified` clears it with a
+    `// Justification:` on the line above, recorded as an override. Not reported in `Tests/`.
+  - "The value" is read by a new `SecurityValueSite`: through conversions, encoders,
+    interpolation, arithmetic and `map` closures, and through up to three locals, so
+    `let bytes = …; return bytes.hexEncoded()` inside `generateToken()` is a token and
+    `var g = SystemRandomNumberGenerator()` is known to be making one. A source under some other
+    call's label (`issue(name:, now: Date())`) is that call's business.
+  - **`stochastic-no-seed` and `stochastic-global-state` stand down** on
+    `SystemRandomNumberGenerator`, `.random(in:)` and `arc4random*` where the value is in a
+    security context (§3.6): their remedy, an injectable generator, is the defect for a
+    credential. They read the context through the same `SecurityValueSite`, so the two checkers
+    cannot both claim a line. `StochasticDeterminismAuditor` now depends on `SafetyAuditor`.
+    `drand48` keeps both findings.
+  - A `security.randomness-coverage` note on every run: values examined, safe, weak,
+    predictable, UUID, drawn from an unresolvable generator, and credential-producing functions
+    that take their caller's generator.
+  - CWE-336, 337 and 340 added to the MITRE 4.20 snapshot and catalogue (fetched from MITRE);
+    335, 336, 337, 338, 340 and 341 are covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (131 owned package roots, scratch copies,
+  third-party clones excluded): `weak-prng` 0, `seeded-secret` 0, `predictable-token` 0 — so all
+  three land at error. The first run found 21 `seeded-secret` in SwiftIdentity and both OAuth
+  repositories' tests and 4 `predictable-token` on HRVKit/NarbisKit's training-session clock;
+  each was a false positive and the rule was narrowed with a test for it. `uuid-as-secret` 9:
+  the four MCP session ids the proposal predicted (SwiftMCPServer ×3, swiftMoE), the swift-sdk
+  fork's session id ×2 and OAuth `state`, a book exercise's `token`, and sim-tap's XPC request
+  token. Note totals: 59 examined · 35 safe · 10 UUID · 8 unresolved generator · 10 seams. See
+  `ASeedIsNotASecret.md`.
+- **One external-input source model (`ExternalInput`, `QualityGateCore`) and its SwiftSyntax
+  adapter (`ExternalInputFile`, new target `ExternalInputSyntax`).** Five proposals each defined a
+  partial copy of "this value came from outside" (`TheGateIsNotYetAggressive.md` §2.2 item 3).
+  The model is their union — request content (Vapor accessors, `Content` parameters), MCP tool
+  arguments (SwiftMCPServer's `get…` accessors, argument dictionaries), command line (including
+  ArgumentParser properties), environment, file bytes, network bytes (URLSession, NIO
+  `ByteBuffer`), workbook cells (`CellValue`) and untraced decodes — each kind tagged with its
+  reach (network / local / unknown) and the proposals it came from. Propagation is one function
+  wide: binding chains up to 8 hops, member access, subscript, conversions, method calls,
+  interpolation and operators, with a *direct* flag for "the source under a name". A plain
+  parameter is answered as `.parameter` with its index — the extension point for a one-call hop.
+  Not tracked, and tested as not tracked: anything across a function boundary (86 of 120 MCP
+  integer arguments in businessMathMCP leave the function they arrive in), reassignment,
+  properties, a subscript's index, callback parameters. No shipped rule was migrated onto it.
+- **A pattern is a program: `security.regex-catastrophic` (error, CWE-1333),
+  `security.regex-from-input` (warning, CWE-1333) and `security.predicate-injection` (error,
+  CWE-943 and CWE-917).** `RegexStructure` (`QualityGateCore`) reads an ICU pattern far enough to
+  find a group quantified by `+`/`*`/`{n,}` whose body repeats with no mandatory literal
+  (`(a+)+`, `(\w+\s?)*`) or whose alternatives overlap (`(a|ab)+`, `(\w|\d)+`); `\d+(?:\.\d+)*`
+  stays clean. `regex-catastrophic` applies it at `NSRegularExpression(pattern:)`, `Regex(_:)`,
+  `of:` passed with `.regularExpression`, regex literals, and same-file `let` constants (reported
+  at the literal, once). `regex-from-input` reports a pattern — or an `NSPredicate` `MATCHES`
+  operand — that the external-input model traces to a source, naming the kind and the binding
+  path; its `// SECURITY:` acknowledgement must also **name a bound** (cap, limit, maximum,
+  ceiling, deadline, timeout, "at most") per §2.3. `predicate-injection` reports an
+  `NSPredicate`/`NSExpression` format that is interpolated or not a literal, citing 943 for a
+  predicate and 917 for an expression, one rule per §2.1. CWE-1333, 943 and 917 move from `gap`
+  to covered; all three ids are in this repository's `enabledRules`.
+
+  **Portfolio, measured with this branch's gate** (130 package roots, 11,241 Swift files, copied to
+  a scratch directory; third-party clones excluded by remote): `regex-catastrophic` 0;
+  `predicate-injection` 1 — SwiftMCPServer `CrossPlatformExpression.swift:18`,
+  `NSExpression(format: formula)` reached by businessMathMCP tool arguments, a real defect, so
+  the rule lands at error; `regex-from-input` 1 — SwiftExcelFunctions
+  `BuiltinTextConversionFunctions.swift:335`, a `REGEXTEST`/`REGEXEXTRACT`/`REGEXREPLACE`
+  pattern taken from a worksheet cell, real and a warning by design. Sites whose pattern
+  arrives through a parameter of a public helper (Shelfmark's search field, SwiftCLIKit's
+  `.pattern(String)`) are not seen: the model is one function wide. See `APatternIsAProgram.md`.
+- **The server-surface inventory (`ServerSurface`, new target): what a package exposes to a
+  network, as data.** Shared infrastructure from `TheGateIsNotYetAggressive.md` §2.2 item 1 —
+  three proposals add columns to it and none built it. Per package, syntactically:
+  - **Listeners**, with where they bind: NIO `bind(host:…)` (a host expression resolved to the
+    owning type's parameter or property default — `SSHServer.init(host: String = "0.0.0.0")`),
+    `NWListener` (its `requiredLocalEndpoint`, or every interface when there is none), Vapor
+    `Application.make` (127.0.0.1 unless a `hostname` is assigned), `MCPServer.builder()` and
+    library listeners (`HTTPServerTransport`, `SSHServer`) constructed outside their package;
+    BSD sockets by hand — a `sockaddr_in`/`sockaddr_in6` whose address is `INADDR_ANY` or
+    `in6addr_any`, or any address in a file that calls `listen(2)`.
+  - **Handlers**: Vapor routes with method, path and group lineage — guards, authenticators,
+    other middleware, `app.middleware.use`, `req.auth.require` — through `grouped`, `group`
+    closures and `RouteCollection`s registered in other files (the weaker of two registrations;
+    *unknown* when never registered); SwiftMCPServer tools, providers and `MCPHTTPRoute`s with
+    the builder's `.authenticator`/`.oauthServer`; SDK `withMethodHandler`; hand-written
+    `switch (method, path)` cases in NIOHTTP1 files; `channelRead` on handlers a bootstrap
+    installs; WebSocket upgrades.
+  - **Settings**: every host literal chosen in source, and every authentication switch — an
+    authenticator defaulting to `nil`/`.none`, a flag defaulting to `false`, a flag read from the
+    environment, an authenticator passed as `nil` to a listener type.
+  - Columns for the later proposals (`bodyCeiling`, `admission`, `credential`, `cors`,
+    `responseHeaders`, `errorDetail`) are named keys set by site, so adding one reshapes nothing.
+  - Not seen, and said so in the DocC: route composition across helper functions, dynamic
+    registration, `if request.path ==` dispatch (pinned as a miss), anything decided at deploy.
+  - Built from per-file facts collected in the safety walk's existing parse — one more visitor,
+    no second parse — and independent of file order.
+
+  Measured on 109 owned packages: 21 have a listener or a handler — 23 listeners (NIO 7,
+  `MCPServer.builder` 9, Vapor 3, `NWListener` 2, `HTTPServerTransport` 1, BSD sockets 1) and 387
+  handlers. LedgeOS 6 routes, StockOpt 9, geo-audit 31 (10 behind a guard or `require`, 16 behind
+  only an authenticator, 5 behind middleware the inventory cannot classify); 267 MCP tool rows
+  across the builder-based servers, one (VaultMCP) with its authenticator in source;
+  SwiftMCPServer's 11 dispatch cases.
+- **`security.bind-all-interfaces` (CWE-1327) and `security.listener-auth-optional`
+  (CWE-1188): the inventory's first consumers.** `AHandlerThatAnyoneCanCall.md` §3.1,
+  reconciled with `AHandlerSaysWhoMayCallIt.md` per §2.1 of the assessment: one bind rule, the
+  authenticator *parameter* rule, and the fail-open *function* rule reduced to the one case only
+  it could see — a flag read from the environment.
+  - `bind-all-interfaces` is an **error** for `"0.0.0.0"`, `"::"`, `"[::]"` or `""` at a `bind`
+    or a `requiredLocalEndpoint = .hostPort(…)`, and for `INADDR_ANY`/`in6addr_any` in a socket
+    address, where no caller can narrow it; a **warning** for
+    the same literal as a `host`-named default (`@Option` included), a `hostname` assignment, or a
+    `host:`/`bindAddress:` argument that reaches a listener, and for an `NWListener` with no
+    endpoint. Compared, listed, subscripted and commented literals choose nothing.
+  - `listener-auth-optional` is a **warning**, target-wide: an authenticator, `authMode` or
+    `authRequired`-style flag defaulting to off, or read from the environment, in a target that
+    opens a listener; an authenticator passed as `nil` to a listener type anywhere. Names are
+    exact — `author`, `authorization` (a client's credential) and an empty `apiKeys` list, which
+    rejects everyone, are not authentication left off.
+  - Both report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is validated
+    and recorded. A `security.server-surface-coverage` note states the inventory every run,
+    zeros included. A listener inherited from SwiftMCPServer is the library's finding, not each
+    consumer's. Test targets are skipped.
+  - CWE-1327 and CWE-1188 move from `gap` to covered; CWE-306 stays a gap until a handler rule
+    reaches it. First rules with an `owaspAPI` column that plainly applies (API8, API2); no Top 10
+    2021 column, because MITRE's view lists neither CWE.
+
+  **Portfolio, measured with this branch's gate** (109 owned packages, scratch copies): 14
+  findings, no false positives. `bind-all-interfaces` 7 — SwiftMCPServer
+  `HTTPServerTransport.swift:215` (error, real), swiftMoE `HTTPServer.swift:61` (error, real: a
+  hand-written BSD-socket server on `INADDR_ANY` whose log line says `localhost` — no `grep` for
+  `ServerBootstrap(` or `"0.0.0.0"` finds it, and the first measurement of this rule did not
+  either), SwiftCLIKit `SSHServer.swift:59` (real),
+  IconquerServer, IconquerTournament ×2 and VaultMCP `WebOptions.swift:161` (intended, to be
+  acknowledged). `listener-auth-optional` 7 — SwiftMCPServer `HTTPServerTransport.swift:108`,
+  `:109`, SwiftCLIKit `SSHConfiguration.swift:46`, IconquerMCP `MatchHost.swift:142` (real); the
+  `MCP_AUTH_REQUIRED` switch at SwiftMCPServer `MCPServer.swift:585`,
+  `APIKeyAuthenticator.swift:212` and VaultMCP `Main.swift:61` (intended, to be acknowledged).
+  `server-surface.unprotected-handler` is not implemented: its population is in the hundreds.
+
+- **A cipher is its arguments: `security.broken-cipher`, `security.ecb-mode` (error, CWE-327)
+  and `security.homemade-digest` (warning, CWE-1240).** `security.weak-crypto` reads callee
+  names; `CCCrypt(kCCEncrypt, kCCAlgorithmDES, kCCOptionECBMode, …)` calls a function whose
+  name is fine, and produced no finding.
+  - `broken-cipher` reports the constant wherever it appears — `kCCAlgorithmDES`, `3DES`,
+    `RC4`, `RC2`, `CAST`, `Blowfish`, `kCCModeRC4` — and CryptoSwift `Blowfish(key:…)` /
+    `Rabbit(key:…)`. A qualified reference is one finding, not two.
+  - `ecb-mode` reports `kCCOptionECBMode`, `kCCModeECB`, CryptoSwift `ECB()`, and `.ECB` /
+    `.ecb` passed as `blockMode:` (only there: `.ecb` is an ordinary case name elsewhere).
+  - Neither reports inside a CommonCrypto call whose operation is literally `kCCDecrypt`: the
+    algorithm and mode on the decrypt side were chosen by whoever encrypted. This is what keeps
+    SwiftITL's AES-128-ECB `.itl` reader quiet; the proposal excludes decrypt from `static-iv`
+    for the same reason.
+  - `homemade-digest` reports a function whose name claims a digest (`hash`, `digest`, `hmac`,
+    `mac`, `checksum`, `sha…`, as whole words) and which takes a secret-named parameter, when its
+    body names no primitive — read from identifier tokens, so a comment that says "SHA-256" or
+    "bcrypt" calls nothing. Delegating to another digest-named function clears it; so does a
+    *weak* primitive, which is `weak-crypto`'s finding at the call — one defect, one finding.
+  - `weakCryptoPolicy: justified` now governs the two cipher rules as well as `weak-crypto`. A
+    `// Justification:` on the line above must pass `JustificationValidator` — the bar
+    `// SECURITY:` is held to — and is recorded as an override. Before, `weak-crypto` accepted
+    any line containing the marker and recorded nothing.
+  - CWE-327 and CWE-1240 move from `gap` to covered in the compliance report.
+
+  **Portfolio, measured with this branch's gate** (94 owned packages, third-party clones
+  excluded): `broken-cipher` 0, `ecb-mode` 0, `homemade-digest` 1 — SwiftMCPServer's
+  `APIKeyAuthenticator.hashKey`, an XOR fold documented as SHA-256 on the API-key path, a real
+  defect. The one `weak-crypto` justification in the portfolio (SwiftExcelFunctions,
+  ECMA-376) passes the stronger bar. See `ACipherIsItsArguments.md`.
+- **`security.xml-external-entities` (error, CWE-611) and `security.xml-entity-expansion`
+  (CWE-776): an XML entity is a file read.** On macOS, `XMLDocument(data:)` with no options loads
+  every external entity that does not need the network, so a document that declares
+  `<!ENTITY x SYSTEM "file:///…">` gets that file's bytes as its text. No `XMLNode` option stops
+  internal expansion: 512 bytes of nested entities expanded to 10⁹ bytes in 1.6 s. `XMLParser`
+  refused both in every configuration probed. The portfolio is safe only because it happened to
+  use `XMLParser`.
+
+  `xml-external-entities` reports at **error**:
+  - `shouldResolveExternalEntities` set to anything but the literal `false`.
+  - `externalEntityResolvingPolicy` set to anything but `.never`. This includes `.noNetwork`,
+    because a local file is what XXE reads.
+  - An `XMLDocument(data:|contentsOf:|xmlString:)` whose `options:` is absent, or is a literal
+    without `.nodeLoadExternalEntitiesNever`.
+  - `.nodeLoadExternalEntitiesAlways` / `…SameOriginOnly` anywhere. Inside a parse call's options
+    this is still one diagnostic for the call.
+  - The libxml2 flags `XML_PARSE_NOENT`, `DTDLOAD`, `DTDATTR`, `DTDVALID`, `XINCLUDE`, and
+    `xmlSubstituteEntitiesDefault(<non-zero>)`.
+
+  It reports at **warning**:
+  - Options the rule cannot see.
+  - A `parser(_:resolveExternalEntityName:systemID:)` delegate whose body is not `nil`.
+
+  `xml-entity-expansion` reports `XML_PARSE_HUGE` at **error**. It reports an `XMLDocument` parse
+  with no `"<!DOCTYPE"`/`"<!ENTITY"` refusal before it (a `guard`, or an `if` that exits) at
+  **warning**, and that half stays a warning: no option clears it, and the rule cannot see trust.
+
+  Both rules report through `report(_:)`, so a `// SECURITY:` reason is validated and recorded as
+  an override like every other security rule's. They are on by default, like every security rule
+  when `security.enabledRules` is empty, and are added to this repository's own allow-list. A new
+  `security.xml-coverage` note states what was examined:
+  *examined N XML parse sites · X XMLParser · D XMLDocument · L libxml2 · K configured to load
+  external entities · J acknowledged*. The CWE catalogue's 611 and 776 rows move from `gap` to
+  enforced.
+
+  **Error on arrival, measured.** The release build ran over copies of 107 of the author's own
+  package roots, with forks of third-party code and book samples excluded by origin. It examined
+  7,864 files and found **0** findings for either rule. The coverage notes add up to 9 XML
+  parse sites, all `XMLParser`: SwiftXLSX 6, SwiftExcelFunctions 1, geo-audit 1, Shelfmark 1.
+  There were 0 `XMLDocument` and 0 libxml2 sites, which matches the proposal's hand count
+  exactly. A tripwire that finds nothing has nothing to stage. See `AnEntityIsAFileRead.md`.
+- **Trust has more than three off switches: `security.tls-disabled` widened, four rules beside
+  it.** The rule matched `disableEvaluation`, `allowsExpiredCertificates` and
+  `allowsExpiredRoots`. None of them appears in any owned repository, and none is URLSession,
+  Network.framework, SwiftNIO or AsyncHTTPClient API. The one way certificate validation *is*
+  switched off in owned code is NIOSSL's `tlsConfig.certificateVerification = .none`, behind a
+  "trust self-signed certificates" flag in three SwiftMCPClient transports. The rule had never
+  heard of it.
+
+  | Rule | CWE | Severity | Detects |
+  |---|---|---|---|
+  | `security.tls-disabled` (widened) | 295, 298 | error | a client's `certificateVerification` set or passed as `.none` / `.none(…)`, including either arm of a ternary and a typed `CertificateVerification` local; `SecTrustSetExceptions`; Alamofire's `DisabledTrustEvaluator` |
+  | `security.tls-no-hostname` | 297 | error | `.noHostnameVerification` on a *client* configuration; `validateHost: false` on an evaluator; `SecPolicyCreateSSL(true, nil)`; a basic X.509 policy given to `SecTrustSetPolicies` |
+  | `security.trust-handler-accepts-all` | 295 | error | A `urlSession`/`webView` handler with a `URLAuthenticationChallenge` parameter that answers `.useCredential` with `URLCredential(trust:)` and uses the result of no `SecTrustEvaluate*` / `evaluate` call (`_ =`, `try?` and bare statements count as unused); a `sec_protocol_options_set_verify_block` closure that only ever completes `true` |
+  | `security.trust-anchors-widened` | 295 | warning | `SecTrustSetAnchorCertificatesOnly(_, false)`. A warning permanently: it undoes pinning, which is a defect only when pinning was the point |
+  | `security.ats-disabled` | 319 | error / warning | `Info.plist` App Transport Security exceptions: `NSAllowsArbitraryLoads` (error; a warning when a key that makes the system ignore it is present), web-content and media arbitrary loads, an exception domain allowing cleartext HTTP, an exception domain's minimum TLS below 1.2 (warnings) |
+
+  The Swift rules report through `SecurityVisitor.report(_:)`, so a `// SECURITY:` reason is
+  validated and recorded like every other security acknowledgement. A property list keeps no
+  comments, so `ats-disabled` is acknowledged per domain with the new
+  `security.atsAllowedInsecureDomains`, recorded as an override. There is deliberately no
+  acknowledgement for the global key.
+
+  `ats-disabled` is CWE-319, not 295. ATS decides whether cleartext and weak TLS are
+  *permitted*, and switching it off leaves certificate validation on an `https` request intact.
+  The plist pass reads every `Info.plist` and `*-Info.plist` that `SourceWalker` reaches. The
+  walk now returns them as `propertyLists`, so `Pods/`, `.build/`, git-ignored trees and nested
+  packages are skipped for the same reasons a `.swift` file there is. The safety checker's
+  cache fingerprint includes them through
+  `SourceCacheInputs.wholeSourceAndPropertyLists`; leaving them out would let an edited
+  `Info.plist` replay a stale pass.
+
+  **Two departures from the proposal, both from reading the libraries rather than recalling
+  them.**
+  - A *server* configuration is exempt from both mode findings. On a server
+    `certificateVerification` governs client certificates. `.none` is NIOSSL's own server
+    default, and VaultMCP and SwiftMCPServer both build one. `.noHostnameVerification` is what
+    NIOSSL's `makeServerConfigurationWithMTLS` sets. A receiver initialised from
+    `makeServerConfiguration…` / `forServer…`, or a call so named, is a server.
+  - `performDefaultValidation: false` is not a hostname finding. Alamofire documents
+    `validateHost` as validating the host "even if `performDefaultValidation` is `false`", and
+    its evaluators do exactly that. Run against Alamofire's own tests, the label produced 27
+    findings, and in none of them was the host left unchecked.
+
+  CWE-297 moves from `gap` to `enforced` in the CWE catalogue. 295 and 319 were already
+  covered. Titles were checked against the committed MITRE 4.20 snapshot. Proposal:
+  `TrustHasMoreThanThreeOffSwitches.md`.
+
+  **Measured before choosing severities.** The branch's safety checker ran read-only
+  (`--foreign`, every rule on) over every directory under the development root with a
+  `Package.swift` or `.xcodeproj`. Archived projects, playgrounds, `.build` and worktrees were
+  excluded. That was 253 owned or unremoted roots and 204 third-party clones.
+  - **Owned: 8 findings, all accurate.**
+    - `tls-disabled` ×3 in SwiftMCPClient (`HTTPSSETransport.swift:394`,
+      `StreamableHTTPTransport.swift:685`, `WebSocketTransport.swift:66`). These are the
+      proposal's three: a "trust self-signed certificates" flag that verifies nothing. They are
+      real defects with a one-line fix (`additionalTrustRoots`, keep `.fullVerification`).
+    - `ats-disabled` ×5. Four copies of the *iOS Programming* 6th edition Photorama solution, and
+      an unremoted copy of KexpTVStream. In each `NSAllowsArbitraryLoads` really is `true`.
+      Neither tree adopts the gate.
+    - `tls-no-hostname`, `trust-handler-accepts-all` and `trust-anchors-widened`: 0. VaultMCP,
+      SwiftMCPServer, swift-oauth, geo-audit and GeoSEOMCP build NIOSSL *server* configurations
+      with the defaults and implement no URLSession trust delegate.
+  - **Third-party, as false-positive evidence.**
+    - `ats-disabled` ×6, all accurate: KexpTVStream, NetNewsWire for Mac and iOS, OpenEmu,
+      seeso-appletv, and TCA's case studies.
+    - `tls-disabled` ×3, Alamofire's tests of `DisabledTrustEvaluator`.
+    - `tls-no-hostname` ×17, all accurate. One is Alamofire's own `SecPolicyCreateSSL(true,
+      nil)`, the policy it uses when told not to validate the host. Sixteen are its tests'
+      `validateHost: false`.
+    - The 27 `performDefaultValidation: false` findings described above were wrong and are gone.
+
+  Every finding is accurate, so the destination severities apply on arrival: error, with
+  `trust-anchors-widened` a warning. A rule called `tls-disabled` that stayed silent about
+  disabled TLS should not then spend a release being polite about it.
+  SwiftMCPClient's three are the expected red.
+- **`security.archive-path-escape` (error, CWE-22) and `security.archive-symlink` (error,
+  CWE-59): zip-slip, as a tripwire.** An archive entry's name is a claim its author made.
+  `archive-path-escape` reports that name joined onto a destination (`appendingPathComponent`,
+  `appending(path:)`, `appending(component:)`, `URL(fileURLWithPath:relativeTo:)`, or
+  `NSString.appendingPathComponent`) inside a loop over an archive, and then written in the
+  same loop (`write(to:)`, `createFile`, `createDirectory`, `FileHandle(forWriting…)`,
+  `copyItem`, `moveItem`, `createSymbolicLink`, `extract`, or `fopen` with a write mode).
+  A loop is "over an archive" in one of two ways. A `for` loop or `forEach`/`map` closure counts
+  when the identifiers of its sequence (and of that sequence's declaration) contain an archive
+  word: `zip`, `archive`, `unarchive`, `unzip`, `tar`, `tarball`, `minizip` or `cpio`, as whole
+  camel-case words, so `target` is not `tar`. A `while`/`repeat` loop counts when it calls a
+  minizip or libarchive cursor. It also reports `unzip -:` and `tar -P` / `--absolute-paths` /
+  `--insecure` / `--absolute-names`. Each is correlated to its executable by variable, so
+  unzip's `-P` (a password) is not tar's.
+
+  The rule is cleared by a check before the write on the joined path. `isContained(in:)` or a
+  function in `security.containmentCheckers` clears it on its own, because both standardise by
+  contract. `pathComponents.starts(with:)` or a separated prefix clears it only on a path
+  that was standardised, since `a/b/../../etc` has components that start with `a`. A finding
+  says which half is missing. Where `path-traversal` would report the same join, only the archive
+  rule reports.
+
+  `archive-symlink` reports `createSymbolicLink` in an archive loop whose target the entry chose,
+  with no such check on the target. It also reports `symlinksValidWithin: .rootFS` and
+  `allowUncontainedSymlinks: true`, which switch ZIPFoundation's own check off.
+
+  Both are on by default, like every `security.*` rule (an empty `enabledRules` enables all),
+  and both are enabled in this repository's allow-list. They are new ids, so the deployed
+  binary has no old mechanism for the name to bind to. CWE-59 moves from `gap` to `enforced`.
+  **Measured before release:** the branch binary ran `--check safety` with every rule enabled
+  over scratch copies of 131 of the author's package roots (9,133 Swift files; third-party
+  clones excluded by remote) and found **zero findings**. The first run found 20, all one
+  false positive: `development-guidelines/setup.swift` loops over literal directory names, one
+  of them `"05_99_ARCHIVE"`. Now only identifiers count as vocabulary, and a regression test
+  pins it. The rules fire on the
+  real defect: marmelroy/Zip 2.1.2's `unzipFile` (`Zip.swift:179`, GHSA-g454-wj9r-jpg4).
+  ZIPFoundation's extraction code is clean, because it uses `isContained(in:)`. Its one finding is a test
+  that passes `allowUncontainedSymlinks: true` deliberately. That also confirms the spelling,
+  which the proposal had marked unverified. The proposal's size and decompression rules are
+  Phase 3 and not part of this change. See `AnArchiveDescribesItself.md` §4.1, §4.2.
+- **`SensitiveName` and `SecurityContext` in `QualityGateCore`: one sensitive-name matcher and
+  one security-context predicate** (`ideas/TheGateIsNotYetAggressive.md` §2.1 last row, §2.2
+  item 5). This is shared infrastructure for the Wave B rules, and adds no rules itself.
+  - `SensitiveName.classify(_:restrictedTo:additionalTerms:)` splits an identifier or key in
+    any spelling (`apiKey`, `API_KEY`, `x-api-key`, `auth.token`, `"api_key"`) into whole
+    words. It matches terms as runs of whole words, never as substrings: `tokenizer`,
+    `secretary`, `keyboard`, `passwordless` and `apiKeyboard` match nothing. It answers three
+    questions:
+    - `namesSecret`: a secret word anywhere in the name, which is what the shipped rules ask.
+    - `headCategory`: whether the secret is the head of the name. `accessToken` is a token;
+      `tokenCount` and `inputTokens` are not. `PublicIsAClaimAboutTheValue` needs this.
+    - `descriptor`: `keyName`, `sessionExpiry`, `maxTokens`. `ASeedIsNotASecret` needs this.
+  - The vocabulary is the union of every list the gate shipped or a proposal defined. It
+    has 48 terms in five categories: credential, password, key material, security
+    parameter and personal data. Every term records its origin, and `key`, `state` and
+    `pin` are weak.
+  - `SecurityContext.evaluate(_:)` is `ASeedIsNotASecret` §3.1, made syntax-free and
+    decidable. A value is in a security context when its binding, argument label or
+    returning function carries a strong security word and no descriptor. A weak word
+    counts only inside an auth- or crypto-named function or type. Separately, the value
+    argument of a header, cookie or query sink is always in context. An enclosing scope
+    alone is not enough.
+  - Tested by 36 table-driven tests covering every term, the substring traps, both clauses
+    of the predicate and the proposals' own corpus cases.
+
+- **`--fix` for `xctest-import`: a test file converted from XCTest to Swift Testing, in place.**
+  `TestQualityAuditor` is now a `FixableChecker`. The conversion works on the syntax tree, so
+  a fixture string that contains an XCTest file is never rewritten. That was the failure of
+  the script behind `1edc66e`. Each file is checked before it is written:
+  - **No test may be orphaned.** The "before" count is taken independently of the
+    conversion, because a test that loses its `@Test` stops running without failing.
+  - **The result must parse.**
+  - **The gate's own `exact-double-equality` detector must pass the output.** A converted
+    exact `XCTAssertEqual` on `Double` becomes `a.isEqual(to: b)`: the same claim, named.
+
+  `XCTSkip`, expectations, `measure`, and nil checks that can never fail are left in place and
+  returned unfixed with an instruction each. See *Migrating to Swift Testing with --fix*.
+
+  **Validated on SwiftExcelFunctions before its migration** (130 files, 2,018 tests):
+  - All 2,018 tests converted, and the result builds with no warnings once the residue is
+    decided: 39 `XCTSkip`s and one vacuous `XCTAssertNotNil`, plus one cross-file `try`
+    inside `#require` that the compiler named.
+  - Its tests behave as the hand migration's did, apart from the eleven deep-recursion
+    tests that overflow the cooperative pool's stack. The article explains why no source
+    check can see that.
+
+  The validation found four defects before this shipped, each now a regression test:
+  - Tests in an `extension` of the suite were missed, and the first orphan check, counted
+    from the conversion itself, missed them too.
+  - `try` on a named comparison covered only its left side.
+  - Optional operands could not take `isEqual(to:)`.
+  - Two untyped array literals were ambiguous to `#expect`.
+- **CWE is a fourth catalogue, and the gate can now say which weaknesses it covers.** Until now
+  CWE lived in one place — `SecurityRuleManifest`, ten `security.*` rules drawn from the OWASP
+  *Mobile* Top 10 — and every other rule that is plainly about a named weakness was untagged.
+  `force-unwrap`, `fallback.int-conversion-unguarded`, `pointer-escape.*`, `liveness.unbounded-wait`:
+  none of them said so anywhere a report could read.
+
+  `cwe.catalog.json` and `rule-to-cwe.mapping.json` go through the machinery that already maps
+  rules to SOC 2, ISO 27001 and HIPAA, so nothing new validates them: a mapping to a rule that
+  does not exist, or to a CWE the catalogue does not list, is the same `control-mapping` error it
+  always was. 69 rules were mapped to 38 weaknesses when this entry was written; 70 now, with
+  `pointer-escape.assigned-to-outer-member` (below) mapped to CWE-825 like its siblings.
+
+  The half that matters is the other one. The catalogue also lists **48 weaknesses no rule
+  reaches** — XXE, deserialisation, integer overflow, unchecked loop bounds, output encoding,
+  missing authentication and the rest — and `quality-gate compliance` reports each as `gap`, on
+  every run. Two more are listed as out of static reach. The absence of a rule is now a line in
+  a report rather than something a person has to notice.
+
+  Every id and title was fetched from cwe.mitre.org (CWE 4.20) on 2026-10-01; none is from
+  memory. Ids MITRE marks *Discouraged* or *Prohibited* for mapping are not used.
+
+### Added
+
+- **`pointer-escape.assigned-to-outer-member` (error, CWE-825): a pointer stored into a field of
+  an outer variable that is read after the with-block returns.** SwiftZIP's zlib path set
+  `stream.next_in = srcBuf.baseAddress` inside `withUnsafeMutableBufferPointer` and called
+  `deflate(&stream, …)` after it — undefined behaviour that passed the gate, because the
+  auditor only modelled a *bare* outer variable, `self.x` and `Type.x` as assignment targets.
+  `stream.next_in`, `outer.a.b` and `buf[0]` fell through as "unknown".
+
+  Storing a field is how C APIs are driven, so the rule is conditional. It reports when the root
+  is not a local of the enclosing function (parameter, property, global — it outlives the call),
+  or when the scope declaring the root references it after the call of the block that *lent*
+  the pointer, or anywhere in a loop between the two. References to a disjoint field
+  (`stream.total_out` after `stream.next_in`) and plain overwrites do not count; `&stream`, a
+  bare `stream` and `stream.method()` do. A `defer` written before the block is not counted, so
+  the correct shape's `defer { inflateEnd(&stream) }` stays clean — a known gap, chosen. The
+  full rule is in the auditor's doc comment and the guide.
+
+  **Measured.** SwiftZIP before its fix (`Deflate.swift` as shipped in 0.8.0): **4 findings**,
+  lines 136 and 143 (`compressWithZlib`) and 189 and 194 (`decompressWithZlib`); `ZlibStream`,
+  which nests the call inside both blocks, is clean, as is SwiftZIP after its fix. swiftMoE,
+  IconquerAI, SwiftCLIKit, VaultMCP, BusinessMath and edge-firmware-swift, plus swift-nio and
+  swift-collections as heavy third-party users of `withUnsafe*`: **no new finding**. The one
+  false positive the first measurement found (IconquerAI, `dest[i] = floatBuf[i]` — an element
+  copy) is fixed below and pinned by a test.
+
+- **`security.path-containment-by-prefix` (error, CWE-22 and CWE-187).** A containment check
+  written `path.hasPrefix(base)` admits `/base-evil`, and a prefix test does not follow a
+  symbolic link out of the directory. It is reported where it decides something — a `guard`,
+  `if` or `while` condition, or a one-expression predicate closure — and not where it computes a
+  relative path. IconquerAI had it four times (fixed), VaultMCP and SwiftGraphStore have it, and
+  two of the comments beside it read *"CWE-22 prefix guard"*. A separator added through a local
+  (`let prefix = root.hasSuffix("/") ? root : root + "/"`), a loop over literal prefixes, and a
+  name that merely contains a path word (`base64SentinelPrefix`) are not reported, nor is a
+  segment that is a generated identifier (`UUID().uuidString`, a process's unique string) — each was a
+  false positive in the portfolio measurement before release. Measured across 80 repositories
+  with this release: **29 findings in 10 repositories**, every one read and every one the
+  pattern — and every one fixed in its repository before release, along with the security
+  findings that `// SAFETY:` had been answering. A comparison of this gate against 3.3.0 across
+  80 repositories then reports **no new security finding anywhere**.
+
+### Changed
+
+- **`fp-division-unguarded` judges the division, not its spelling.** Two changes that ship
+  together, because either alone is worse than neither (`ALocalIsNotAGuard.md`).
+  - *A `let` carries the evidence of its initializer.* `x / Double(n)` was examined and
+    `let d = Double(n); x / d` was not: binding a conversion to a name demoted it to "inferred",
+    and the rule reads only direct evidence. A divisor escaped by having a name. Now both are
+    examined. A local bound from a file-local function's return type is still not followed, and
+    arithmetic (`let d = a - b`) is still not evidence on either side of the `=`.
+  - *A guard is read in the spellings people write, and in order.* The rule's own guard
+    collector is retired; it now reads the one `fallback.*` already used. Newly recognised:
+    `xs.isEmpty == false`, `xs.isEmpty ? 0 : s / Double(xs.count)` and `if xs.isEmpty { return }`
+    (any `isEmpty` is a question about `count`); `n >= 1`, `4 <= n`, `0 < n`; `d == 0 ? 0 : x / d`
+    and `if span <= 0 { … } else { … / span }`; a guard on `values.count` clearing a division by
+    `let count = Double(values.count)`; and a divisor of `max(n, 1)`. **Newly reported:** a
+    division whose only check comes *after* it. The old collector was order-blind, so
+    `let r = x / Double(n); if n > 0 { return r }` passed.
+  - Severity is unchanged (warning). Expect findings to move in both directions on arrival: a
+    conversion-bound divisor with no guard is new, and a `// fp-safety:disable` on a line whose
+    guard is now read no longer suppresses anything and can be deleted.
+- **`fp-division-unguarded` examines a division by a parameter** (`ParametersDivideToo.md`).
+  `func f(x: Double, d: Double) -> Double { x / d }` was never looked at: parameters were not
+  bound at all, so a division by one was examined only when its numerator happened to be a
+  literal or a conversion. The Guide's first example of a flagged division was not flagged. A
+  type written in a signature — `Double`, `Float`, `CGFloat`, `Float16`, `Float80`, `Decimal`,
+  through `inout` / `borrowing` / `consuming`, with or without a default — is now divisor
+  evidence in functions, initializers, subscripts and typed closures. Warning, as before.
+  - *The guard belongs in the function that divides.* Any check before the division counts,
+    `precondition` and `assert` included; a documented `- Precondition:` alone does not. For a
+    helper whose callers have all checked, the intended answer is `assert`, not a marker.
+  - *Deliberately not moved:* a parameter in the numerator is not evidence (`x / (a - b)` stays
+    unexamined), `fp-equality` does not read a signature, and generic parameters, typealiases
+    and stored properties below their use are as they were.
+  - *A declaration of `/` or `/=` is not a use of it* and is not examined.
+- **`fallback.*` reads the same facts, tightened.** The shared collector used to record "safe to
+  divide by" for `x != e` and `x > e` with *any* `e`. `segLen > n` is a comparison, not a
+  threshold, and it was clearing divisions by `segLen` by coincidence. `!=` and `==` now need a
+  zero on the other side; `>` / `<` need a literal (bare, or in a conversion such as `T(0)`), a
+  product of literals, or `.ulpOfOne` / `.leastNonzeroMagnitude` / `.leastNormalMagnitude`; `>=`
+  needs a literal above zero. It also gains what the division rule gained — `isEmpty`, `>=`,
+  `== 0`, `<= 0` — so a quotient by a count that was checked for emptiness is no longer a new
+  place for a NaN to come from.
+- **`task-captures-self-no-isolation` and `dispatch-queue-in-actor` apply inside unannotated
+  extensions of `@MainActor` types and actors declared in the same package.** An extension took
+  its isolation from its own attribute list, so an extension of an actor was never isolated,
+  an extension of a `@MainActor` class was isolated only if it repeated the attribute, and even
+  then implicit-`self` property access was invisible because the property set was empty. A
+  pre-pass now reads every type declaration in the run, and an extension resolves the type it
+  extends by name: its own module first, then the modules its file imports. A rule widening:
+  code that passed can now fail.
+  - Unknown means unchanged. A type declared in the SDK or a dependency, a module the file does
+    not import, a typealias, and a name whose declarations disagree on isolation all leave the
+    extension non-isolated, as before. So does an attribute that may name another global actor.
+  - `nonisolated extension` (SE-0449) is honoured; a type nested in an isolated extension does
+    not inherit.
+  - Not covered: isolation inherited from a superclass or a `@MainActor` protocol, default
+    main-actor isolation (SE-0466), and custom global actors.
+- **`SyntaxScope`, a new target, holds the lexical-scope code.** `LexicalScope` and the
+  pattern-name finder move out of `RecursionAuditor` unchanged, joined by
+  `visibleBindings(at:)`, which answers "what local names can code at this node see?" by
+  walking up to the enclosing type. SwiftSyntax only. `RecursionAuditor` depends on it and
+  behaves as before; its suite is unchanged. 120 targets, 60 source and 60 test.
+  It has a DocC catalogue, so `doc-lint` checks its symbol links and the master plan's roster
+  takes its description from the abstract, where a placeholder stood at first.
+- **`task-captures-self-no-isolation` recognises `self?.` and `self!.` receivers.** Previously
+  only `self.` and stored-property names. `Task { [weak self] in self?.sync() }` passed while
+  `Task { self.sync() }` was reported, though a weak capture changes how long the object lives
+  and not when the body runs. A rule widening: code that passed can now fail. An awaited call
+  through `self?` is still left alone. The guide's suppression list no longer recommends
+  `await self.method()`, which the same guide explains is not a fix.
+- **`--strict` fails on every warning the summary counts.** The summary counted warning
+  *diagnostics*; the exit code read checker *statuses*. Nineteen checkers compute their status
+  from errors alone, so a warning from one of them (`recursion`, `consistency` above its
+  threshold, and others) was printed, counted, and did not gate — unless the repository
+  configured any override at all, which recomputed the status as a side effect.
+  BioFeedbackKit-HRBLE printed `0 error(s), 4 warning(s)` under `--strict` and exited 0. Proposal:
+  `plans/proposals/StrictMeansTheExitCode.md` in the companion repository.
+  - `CheckResult.reconciled()` raises a result's status to what its diagnostics say: `.passed`
+    carrying a warning becomes `.warning`. It never lowers, and `.skipped` and `.failed` are
+    left alone. The runner applies it to every result, fresh or replayed from cache, and the
+    CLI applies it to the post-run `consistency` result.
+  - `RunTally` computes the counts and the verdict once. The terminal summary, the JSON summary
+    and the exit code all read it, and under `--strict` the verdict reads `warnings` — the same
+    stored number the summary prints. The verdict line names it:
+    `❌ Quality Gate: FAILED (--strict: 4 warnings)`.
+  - A `.warning` status with no warning-severity finding gains one,
+    `gate.status-without-finding`, so that run no longer fails `--strict` over a summary that
+    prints `0 warning(s)`. `consistency` was its one producer and now emits its own warning,
+    `consistency-below-threshold`, when the score is under the threshold. The `consistency-score`
+    note is unchanged; telemetry parses it. With any override configured, a below-threshold
+    `consistency` result used to be recomputed to `.passed`; it now stays `.warning`.
+  - **A warning on a skipped checker counts.** `doc-code` and `doc-comment-code` skip with a
+    `module-unavailable` warning when the module they compile against is not built. The status
+    stays `SKIPPED`, but the warning is in the count, so **`quality-gate --strict --check doc-code`
+    on a cold `.build` now fails**; it used to exit 0 having examined no fence. Run `build`
+    first. The decision is one constant, `RunTally.countsWarningsOnSkippedResults`.
+  - The baseline ledger reconciles before it reads a result's status, so a warning that
+    `quality-gate adopt` recorded on a checker reporting `PASSED` is covered as debt instead of
+    gating under `--strict` with its record unread.
+  - Statuses in telemetry move from `passed` to `warning` for the errors-only checkers that
+    warn, so per-checker pass rates step on the day this deploys. No schema change. JSON field
+    names are unchanged: `warnings` is the number of checkers that warned, `totalWarnings` the
+    number of warning findings.
+  - Not changed: `safety` and `concurrency` still fail on warnings without `--strict`. A
+    warning the compiler did not re-emit on a warm build is still not seen.
+- **A checker that carries an error fails, whatever status it reported.** The remaining rows of
+  `CheckResult.reconciled()`: a `.passed` or `.warning` result with an error-severity diagnostic
+  becomes `.failed`. `1 error(s)` above `✅ Quality Gate: PASSED` is the same disagreement as a
+  counted warning that does not gate. **This is the one part of the `--strict` work that changes
+  a run without `--strict`**: such a run now exits 1 and, without `--continue-on-failure`, stops
+  at that checker. A skipped result is left alone. It is its own commit so it can be reverted
+  without the rest; the portfolio count of such results (the proposal's §4.3 (b)) has not been
+  measured.
+- **`--check a,b` works, and a selection the gate cannot honour is an error.** `--check a,b`
+  arrived as the one id `a,b`, matched nothing, printed `No checkers enabled. Nothing to do.`
+  and exited 0. That is the form `coding_rules.md` documents for the security audit
+  (`--check safety,fp-safety,stochastic-determinism`), so every audit run as written examined
+  nothing.
+  - Values of `--check`, `--exclude`, `enabledCheckers`, `excludedCheckers` and
+    `includedCheckers` are split on commas. `--check a,b`, `--check a b` and
+    `--check a --check b` mean the same thing.
+  - An id in `--check` or `--exclude` that names no checker exits **64** and names the id, with
+    the nearest real id when one is close. Nothing runs: `--check recursion --check bogus` used
+    to run `recursion` alone and pass.
+  - An unknown id in `enabledCheckers` exits 1, when that list is what selects. An unknown id in
+    `excludedCheckers` or `includedCheckers` is a notice on stderr.
+  - An empty selection is never exit 0: 64 when `--exclude` emptied it, 1 when the
+    configuration or a `--profile` did.
+  - **`--exclude` now narrows an explicit `--check`.** `--check a b --exclude b` runs `a`; it
+    used to run both. `excludedCheckers` in the configuration still does not refuse a checker
+    named with `--check`.
+  - `--check disk-clean` keeps its message and exit 1. `--exclude disk-clean` is accepted with
+    a notice.
+
+- **A compiler warning makes `build` and `xcode-build` report WARNING, not PASSED.** A
+  successful build with warnings was counted in the summary while the checker's line stayed
+  green, so a run whose job is zero warnings could read as clean. The run still passes
+  without `--strict` and fails under it, the same as every other checker that warns.
+  Caveats: an incremental build re-emits a warning only when its file recompiles, so the
+  status appears on the run that compiles the file. Local path dependencies' warnings
+  count too (SwiftPM hides only remote dependencies'); use `vendorPaths` for those.
+  The first caveat no longer holds for `build` — see *Fixed*, "`build` reports compiler
+  warnings in files the build did not recompile". It still holds for `xcode-build`.
+- **A warning printed by two compile jobs is counted once.** Emit-module and the compile job
+  both report a warning in a declaration, so two deprecation warnings were counted as four.
+  `build` findings are now keyed on path, line, column, severity and message. Expect counts to
+  fall where they were doubled.
+- **`security.homemade-digest` names secrets through `SensitiveName`.** Its local list
+  (`password`, `passwd`, `passphrase`, `pin`, `secret`, `token`, `key`, `apikey`, `credential`)
+  is gone; a parameter is secret-named when it names a strong credential, password or
+  key-material term, or the weak `pin` / `key` the old list carried. Portfolio findings before and
+  after: the same one (SwiftMCPServer `APIKeyAuthenticator.swift:176`, `hashKey`).
+
+- **`security.hardcoded-secret` and `keychain-secrets` now use `SensitiveName`.** Both keep
+  the words they shipped with, selected by origin. Widening them to the union vocabulary
+  was measured and declined: over the portfolio it added 19 `hardcoded-secret` findings,
+  all of them OAuth constants, header names, a regex and test fixtures, and removed none.
+  - `hardcoded-secret` matches whole words instead of `name.lowercased().contains(pattern)`.
+    `tokenizer`, `BPETokenizer`, `secretary`, `secretly`, `credentialed` and
+    `kSecReturnData` are no longer credentials. `token1`, `secret123` and run-together
+    `accesstoken` still are, because letters and digits now split.
+  - `keychain-secrets` finds compounds as whole-word runs, not substrings of the joined
+    name, so `apiKeyboardLayout` is no longer a secret. `token1` now is.
+    - Plurals behave as before: `apiKeys` and `access_tokens` match. `tokens` and
+      `maxTokens` do not.
+    - An `extraPatterns` compound such as `license_key` now matches `licenseKey`.
+  - `secretPatterns` is now additive. Listing fewer words no longer removes any, so a
+    security rule cannot be weakened by configuration.
+  - **Portfolio sweep:** 101 first-party packages, `safety` + `keychain-secrets` +
+    `logging`, run before and after on read-only copies. The findings are identical.
+  - **Predicate sweep:** the old and new predicates were run over all 111,209 distinct
+    identifiers and string literals in those packages.
+    - Every `hardcoded-secret` name the new code drops is a substring false positive from
+      the list above.
+    - Its three additions are hyphenated strings, which can't be Swift identifiers.
+    - `keychain-secrets` gains 14 digit-suffixed names (`token1`, `secret123`) and loses none.
+
+- **A `// SECURITY:` acknowledgement must give a reason, and is always recorded.** Any security
+  finding used to be silenced by the bare marker on its line or the one above — no reason
+  required — and nine of the ten rules returned without a trace, so the exemption appeared in
+  no report and no telemetry. Every security rule now reports through one path: the text after
+  the marker is checked with `JustificationValidator`, the same eight-word, no-boilerplate bar
+  `concurrency.*` justifications already meet. A reason that passes is recorded as a
+  `DiagnosticOverride`. One that does not leaves the finding standing at its own severity, with
+  a sentence naming the marker's line and why it was refused.
+
+  **This will turn repositories red.** Across the 98 repositories carrying `.quality-gate.yml`,
+  about 110 `// SECURITY:` comments exist and **39 are shorter than eight words** — two read
+  *"CWE-22 prefix guard"*, which is the `hasPrefix` containment check the CWE sweep identifies
+  as itself defective. Each will be reported on its next run with the line and the reason.
+  Rewrite the sentence; the finding was always there.
+- **`// SAFETY:` no longer silences security rules.** `SafetyAuditor` passed
+  `safetyExemptions + ["// SECURITY:"]` to the security visitor, so a marker written to excuse a
+  force unwrap also excused a hard-coded secret on the same line. The security visitor now
+  accepts `// SECURITY:` only. Two existing tests asserted the old behaviour and now assert the
+  new one.
+
+- **`security.path-traversal` reports a join, not every dynamic path.** It flagged any
+  `FileManager` call whose path was not a literal: **238** findings in this repository, nearly
+  all existence probes or paths received whole, and following its own `suggestedFix` did not
+  silence it — so it was switched off here and could not be left on anywhere it was not noise.
+  It now reports a segment someone else chose (not a literal, not a loop variable over literals,
+  not a name just listed from the directory) joined onto a directory and then read, written,
+  listed, created or removed; existence probes are no longer sinks. A sound containment check on
+  the joined path clears it — `pathComponents.starts(with:)`, `isContained(in:)`, a prefix test
+  *with* the separator, or a function in the new `security.containmentCheckers` list, as a
+  condition or as a throwing statement. Here: **238 → 11**. Both rules stay out of this
+  repository's `enabledRules` until the release is deployed: the pre-commit hook runs the
+  deployed binary, whose `path-traversal` is the old one.
+
+- **`SecurityRule` carries a CWE list and three OWASP columns.** `cwe: String` became `cwes:
+  [String]` (primary first; `cwe` remains as the primary), and `owaspCategory` — documented as
+  the Mobile list — became `owaspMobile`, beside new `owaspTop10` and `owaspAPI`. Every one of
+  the 22 security proposals dated 2026-10-01 had to work around the old shape: server rules have
+  no honest Mobile category, and some rules are more than one weakness. The ten shipped rules'
+  Top 10 categories are taken from MITRE's OWASP Top Ten 2021 view, not assigned.
+  `security.tls-disabled` gains CWE-298 (*Improper Validation of Certificate Expiration*) for its
+  `allowsExpired…` forms. The Mobile M4 title is now spelled as OWASP spells it. The Semgrep
+  export emits every CWE and column. `owaspCategory` is deprecated, not removed.
+- **The CWE catalogue lists the whole problem, not the first draft of it.** It held 88 ids and
+  reported 48 gaps. It now holds 177 — every weakness `CWEApplicabilitySweep.md` classifies as
+  statically checkable and every CWE the 22 proposals map a rule to — and reports **137 gaps**,
+  39 covered, 1 out of reach. Titles and mapping status come from MITRE's catalogue (4.20), and
+  `cwe-4.20.snapshot.json` is committed beside it so a test holds every title to MITRE's and
+  refuses any id MITRE discourages or prohibits for mapping (CWE-1426 and CWE-114 were excluded
+  on that ground). CWE-307 moves from out-of-reach to gap: a rule for it is now proposed.
+- **`logging.missing-privacy` suggests `.private` first.** It read *"Add privacy: .public or
+  privacy: .private"*, and the portfolio took the first word: 758 `.public` against 10
+  `.private`.
+
+- **`security.weak-crypto` is CWE-328, not 327.** The rule matches MD5 and SHA-1 and nothing
+  else; 328 is *Use of Weak Hash*, 327 is its parent class. The diagnostic's message changes
+  accordingly.
+- **`security.insecure-keychain` is CWE-922, not 311.** MITRE marks 311 (*Missing Encryption of
+  Sensitive Data*) discouraged for mapping, and it is not the defect: a keychain item with
+  `kSecAttrAccessibleAlways` is encrypted, and readable while the device is locked. The
+  diagnostic's message changes accordingly.
+- **A security diagnostic takes its CWE from the manifest.** Both messages above spelled the
+  number in a string literal, so the manifest, the message and now the mapping were three places
+  to state one fact. `SecurityRuleManifest.cwe(for:)` is the one the message reads, and a test
+  holds the manifest and the mapping to each other.
+
+### Fixed
+
+- **`security.ssrf`: a host carried into a value and compared is now read as a host check.** A
+  same-origin check written by copying scheme, host and port out of each URL into a small
+  `Equatable` value and comparing the two — `guard Origin(endpoint) == Origin(base) else { throw … }`
+  — was reported as "no check on its host", and its author had to respell a correct check as
+  `endpoint.host?.lowercased() == expectedHost` to satisfy the rule. The rule read two things: the
+  host compared directly, and the URL handed to a validator. It now also reads a **value made from
+  the host that is then compared or switched on** (`AURLIsNotARequest.md` §12):
+  - a URL handed whole to an initialiser or function that **carries** its parameter's host — one
+    that stores it in a property, passes it to `self.init`, or returns a value or string made
+    from it. Carriers are computed by the package-wide join, as validators are, so the type may
+    be in another file; a function that compares two carried values (`sameOrigin(_:as:)`) is a
+    validator;
+  - the host given directly to an initialiser or a tuple — `Endpoint(host: url.host) == expected`,
+    `(url.scheme, url.host, url.port) == …` — or interpolated into a string that is compared;
+  - any of those bound to a name first, and the host itself bound through more than one name
+    (`let host = url.host`, then `let lowered = host.lowercased()` — one step was followed before,
+    two were not);
+  - a question asked of `URLComponents(url: url, …)` or `URLRequest(url: url)`, which is now a
+    question about `url`.
+
+  What still clears nothing, each pinned by a test: the host logged; the host or a value carrying
+  it bound and never compared; a carried value compared with `nil`; `url.host != nil`; a scheme
+  check, direct or carried (`SchemeOnly(url) == SchemeOnly(base)`); a comparison made after the
+  request. Measured on the 98 gate-configured repositories with the previous binary and this one:
+  no `security.ssrf` finding appears and none disappears — the one site that prompted this had
+  already been respelled — so the change is exercised by its fixtures and by a scratch copy of
+  that site in its original form.
+- **`security.ssrf`: connections to a host *string* were measured and are deliberately not
+  reported.** `connect(host:port:)`, `RedisConfiguration(hostname:)`, `NWConnection(host:port:)`
+  and a `URLComponents` whose `host` is assigned have no URL at the sink, and the redesign listed
+  two such connections as misses. A census of the portfolio found 12 outbound host-string
+  connections and 44 component-host assignments; every non-literal host is one the operator
+  configured (three database and cache hosts from the environment; a client library whose callers
+  are a text field and a command-line argument) and **none** is chosen by a request. A rule would
+  report nothing at its error tier and only intended behaviour below it, so none was written; the
+  design that was considered and the table it was held against are `AURLIsNotARequest.md` §11.
+- **`xcode-build` failed inside a git hook and passed when run by hand.** Twice on 2026-10-06
+  a push from a linked worktree was refused by its own pre-push hook with `Checker failed:
+  Configuration error: xcodebuild -list failed: … Could not resolve package dependencies:
+  Couldn’t check out revision ‘1abee275…’`, and `quality-gate --check xcode-build` in the
+  same directory a minute later passed. git exports `GIT_DIR` to every hook of a linked
+  worktree; the checker spawned `xcodebuild` inheriting it; and `xcodebuild` resolves package
+  dependencies by running git, which obeyed it and tried to check each dependency out of the
+  project's own repository. It needs *unresolved* packages, so it showed only in a fresh
+  worktree and one run by hand "fixed" it.
+  - **Measured, one variable at a time**, on a scratch package with one unresolved
+    dependency, for both `xcodebuild -list` and `swift build`: `GIT_DIR` gives the message
+    above (`fatal: unable to read tree`); `GIT_WORK_TREE` gives `Failed to clone repository …
+    working tree … already exists`; an absolute `GIT_INDEX_FILE` on its own lets the tool
+    **exit 0** and leaves the hooked repository's index holding the dependency's 70 files
+    where the project's 6 had been; `GIT_PREFIX`, `GIT_EXEC_PATH` and `GIT_EDITOR` do nothing.
+    An ordinary clone's hooks do not set `GIT_DIR`, which is why this was a worktree bug.
+  - **It was never only `xcode-build`.** `swift build` and `swift test` fail identically. They
+    had not, because `.build` was usually resolved by the time a hook ran, whereas
+    `xcodebuild` resolves into DerivedData, which a new worktree does not have.
+  - **One shared rule, `ChildProcessEnvironment.withoutGitRepositoryScope(_:)`** in
+    `QualityGateCore`, now supplies the environment for every build tool the gate launches:
+    `xcode-build` (all three `xcodebuild` launches), `build`, `test`, `doc-lint`,
+    `swift-version`'s verification build, `unreachable`'s `swift package describe`, and the
+    index-store builds. It removes fourteen variables: the thirteen that name a repository,
+    its work tree, its index or its object store — `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
+    `GIT_PREFIX`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
+    `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_QUARANTINE_PATH`, `GIT_IMPLICIT_WORK_TREE`,
+    `GIT_GRAFT_FILE`, `GIT_SHALLOW_FILE`, `GIT_NO_REPLACE_OBJECTS`, `GIT_REPLACE_REF_BASE` —
+    and `GIT_EXEC_PATH`, which is scoped to the git binary that ran the hook rather than to
+    the one the tool will run. It keeps everything else, deliberately including
+    `GIT_SSH_COMMAND`, `GIT_ASKPASS` and `GIT_CONFIG_*`: stripping `GIT_*` wholesale would
+    trade "could not check out revision" for "could not authenticate" on a CI runner with a
+    deploy key. `TestRunner.childEnvironment` composes it with the `QG_NO_INDEX_BUILD` removal
+    it already did; `CorpusGitTransport.scrubbed` and `CorpusWriteQueue.scrubbed`, which each
+    spelled out five of the fourteen, now call it.
+  - **The failure is legible now.** A failed `xcodebuild -list` used to be thrown, and arrived
+    as `Checker failed: Configuration error:` beside `0ms` — three statements, none true. It
+    is a finding: `xcode-build-package-resolution` when the output shows a resolution failure,
+    `xcode-build-list-failed` otherwise, saying what was run, where, how it exited, and that
+    nothing was compiled.
+
+- **A stale index unit beside a fresh one was read as though it were current.** The freshness
+  check compared the *newest* unit with the *newest* source, which establishes that a build ran
+  after the last edit and nothing about any other unit. A build adds to an index store and
+  nothing prunes it: a unit is named after its output path, so one source compiled for two
+  build variants has two units, and a variant that stops being built leaves its units behind.
+  swiftbuild compiles an executable target twice when a test target imports it; remove the
+  import and the `-testable` units stay, describing the source as of their last build. Ignite's
+  store held one from 27 August beside that day's, the note read "1m newer than the newest
+  source", and `unreachable` reported a deleted enum case at `QRCodeError.swift:11:10` — a line
+  holding a different declaration. Reproduced in a scratch package: four of six deleted symbols
+  reported, at the line their neighbour had moved up to.
+  - **Why only four of six.** `IndexStoreDB.symbols(inFilePath:)` reads one record per file,
+    from whichever unit the database enumerates first — a hash of the unit's name. With a stale
+    unit beside a fresh one the symbol list is the stale one about half the time, which also
+    means symbols *added* since are missing from it. `occurrences(ofUSR:)` reads every unit, so
+    a symbol that moved was reported at both lines.
+  - **Why deleting the unit file did not help.** IndexStoreDB learns of a removed unit only by
+    comparing two scans made in one process. A gate run makes one, so the persistent
+    `quality-gate-indexdb-*` database kept everything an earlier run had ingested from it.
+  - **Units are now judged one by one.** `IndexStoreSession` takes a census
+    (`IndexUnitCurrency`): a unit is *stale* when its main source was modified after it was
+    written, *superseded* when a newer unit exists for the same source, module and platform,
+    *orphaned* when its source is gone. The session opens IndexStoreDB in explicit-output-units
+    mode and declares only the current units; an undeclared unit is not ingested and, where an
+    earlier run already ingested it, not visible to any query. Nothing is deleted, the database
+    layout is unchanged, and existing databases need no migration. All six index-backed
+    checkers inherit this through `SharedIndexStore`.
+  - **Units for different platforms do not supersede each other.** Each sees references the
+    other's `#if os(…)` hides; dropping the older would report what only it calls as
+    unreachable. Deployment versions, and an older toolchain's `macosx12.0.0` for `macos12.0`,
+    are not a different platform.
+  - **A source with units and no current one is a barrier, not clutter.** Ignoring its stale
+    unit removes its references as well as its definitions, so `unreachable` refuses to run
+    (`unreachable.index.stale-barrier`, naming the files) rather than report what only that
+    file calls. The store-wide comparison cannot see this state.
+  - **A finding is read against the source before it is made.** `unreachable` withholds a
+    finding whose recorded line no longer mentions the symbol
+    (`IndexedDeclaration.appears(indexedName:inSourceLine:)`) and counts it in an
+    `unreachable.index.source-mismatch` note. It also prefers, among a symbol's definition
+    occurrences, the one the source agrees with.
+  - **The note says what was not read.** `…index.age` now ends `16 compiled from source: 10
+    read, 6 ignored (6 stale, 0 superseded, 0 orphaned).` If the units could not be examined
+    individually it says that instead, and every unit is read as before.
+  - **`IndexStoreSession.init(storePath:libPath:)` is now `async`**, because the census reads
+    units through `libIndexStore`'s own reader, which loads through an actor. There is no
+    synchronous overload: one would open the store without a census. `IndexStoreInfra` gains a
+    dependency on indexstore-db's `IndexStore` product, which was already in the package graph.
+  - Cost, measured on this repository's store (2,810 units, 2,574 current). Opening a session
+    against a warm database, in isolation: ~0.06s before, ~0.33s after — the census reads
+    every unit (~0.1s) and each current unit is registered (~0.2s). A cold ingest is cheaper
+    than before, 2.4s against 3.8s, because ignored units are never ingested. End to end,
+    `--check unreachable --no-cache`, binaries alternated three times each on a machine under
+    heavy load: 32.6s / 26.0s / 17.4s before, 39.0s / 17.1s / 19.1s after. The run-to-run
+    spread is larger than the difference, so the honest statement is that 0.27s could not be
+    seen in it, not that it is not there.
+
+ **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
+- **`build` no longer replays a warning that was fixed.** Reading the compiler's recorded
+  diagnostics (*`build` reports compiler warnings in files the build did not recompile*, below)
+  assumed a record is about its own source. It is not only that: every primary file of a compile batch that contains a macro expansion receives the
+  batch's diagnostics, so a warning in one Swift Testing file is also written into the records
+  of the four or five files compiled beside it. Fix the warning and only that file's unit is
+  recompiled; the sibling records keep it, at a line that no longer holds the code, and each of
+  them is *current* by the existing rule. Three sessions hit it in a day (swift-oauth,
+  SwiftMCPClient, ClassGraph), and the workaround in each was to `touch` unrelated files —
+  the checker telling people to defeat incremental builds. Reproduced with a real build: 60
+  test files, four warnings in one, fixed; five sibling records went on reporting all four.
+  - **The rule.** A recorded diagnostic is evidence about the file it points at *as it was when
+    the record was written*. One whose file was modified after the record holding it was
+    written is discarded, with its notes. A warning inside a macro expansion is located in a
+    generated buffer the compiler never rewrites, so it is judged by the expansion site its
+    note names. The file's own unit, recompiled after the edit, is the authority for the file.
+  - **Why the file's date and not its record's.** A file is recompiled whenever something it
+    depends on changes, without being edited; what a sibling recorded about it is then still
+    true, and a rule that preferred the newer record would have dropped it. Across the 115
+    built packages here, 12 hold 38 recorded warnings: 26 in the file's own record, 6 in a
+    sibling's and also in the file's own, 3 in a macro buffer, and 3 in a sibling's only — all
+    three older than the file they point at, which is this defect, live.
+  - **The coverage note says what was discarded**: *"4 recorded diagnostic(s) discarded as
+    stale: the file each points at changed after the record holding it was written."* Counted
+    once each, however many sibling records held it.
+  - **What it still cannot see.** A cross-file diagnostic that is still true, about a file
+    edited since in a way that did not make the build recompile the unit that recorded it, is
+    discarded until that unit is next compiled. And a tool that rewrites a file while keeping
+    an older modification date defeats the comparison.
+- **`build.warnings-unverified` no longer fires for a build that is gone.** A build directory
+  outlives the builds that wrote it: a renamed target, or a variant directory an older
+  toolchain named differently (`ShowcaseCLI-3E4BF3A074D2020-testable-t.build`, from August),
+  leaves an output file map that still names sources that exist. Its units looked live, nothing
+  ever refreshed their records, and the first edit to one of those sources made the checker
+  say it could not verify — on every run, failing `--strict`, until `.build` was deleted.
+  Before that edit it was worse and quieter: the orphan's records were *read*, and its units
+  doubled the count (one package listed 163 where a clean build has 87).
+  - A unit now counts only if **the build that just ran names its output file map**. Both
+    build systems write that down — swiftbuild in the build description
+    (`XCBuildData/<id>.xcbuilddata/manifest.json`), the native one in `<configuration>.yaml` —
+    so it costs no SwiftPM invocation; `swift package describe`, which the proposal suggested,
+    was not needed. Orphans are neither read nor counted as unread, and the coverage note names
+    them: *"3 compile unit(s) in 1 output file map(s) ignored as orphaned"*.
+  - **Nothing is called an orphan on a guess.** With no description on disk, or one that names
+    none of the configuration's maps, every map is live, as before. A live unit whose record is
+    missing or unreadable still warns.
+  - This closes the "target removed from `Package.swift`" gap `BuildChecker.md` listed under
+    *What It Does Not See*, in the loud direction too: such a target's warnings are no longer
+    replayed.
+- **A path in `.quality-gate.yml` is never used as a literal it was not meant to be.** Two
+  repositories set `consistency.corpusPath: ${ORG_JUDGEMENT_CORPUS:-}` to keep an absolute path
+  out of the file. Nothing in the gate expands that. `Configuration` decoded it as a string
+  (`Configuration.swift`, `ConsistencyCheckerConfig.init(from:)`), `TelemetryEmission.emit` handed
+  it to `CorpusPath(basePath:)` as read, and the writer created a directory *literally named*
+  `${ORG_JUDGEMENT_CORPUS:-}` inside each checkout — 131 files in one, over 480 in the other,
+  every run from 2026-09-12 on. The corpus received nothing. `consistency` then found that directory,
+  which exists because the gate made it, found no pulse in it, and printed `✓ PASSED` over a note
+  reading "consistency check skipped". Exporting the variable changed nothing: it was never read.
+  - **Refused, not expanded.** Across all 99 `.quality-gate.yml` files in the portfolio those two
+    lines were the only values containing `$` or `~`. Nothing relies on expansion, so adding it
+    would be new behaviour with its own quiet failures — a variable set in a terminal and absent in
+    a hook, a default that differs per machine — in exchange for no existing use. `$VAR`, `${VAR}`,
+    `${VAR:-default}`, `$(command)`, a leading `~`, and an empty value are each a configuration
+    error naming the key, the value and the fix. The run stops before any checker: exit 1,
+    `Nothing was run.`
+  - **One rule, every path-valued key.** `Configuration.pathValues` is the single list —
+    `corpusPath` (both sections), `guidelinesPath`, `masterPlanPath`, `changelogPath`, `readmePath`,
+    `kernelPath`, `artifactPath`, `advisorySnapshotPath`, `vendorPaths`, `excludePatterns`, the `excludePaths` /
+    `additionalPaths` / `exemptFiles` / `allowedFiles` lists, `xcodeBuild.project` / `.workspace`,
+    `plugins[].run`, and the `doc-code` / `doc-generated` paths. It is computed from the current
+    values rather than recorded during decoding, so `--telemetry-corpus-path '$X'` is judged too.
+  - **The gate does not write telemetry into the repository it is checking.** A *relative*
+    `corpusPath` that resolves inside the repository and is not gitignored is the same error. An
+    error rather than a warning because the alternative is to write: a warning would be printed
+    beside a run that had already dirtied the tree. A relative path git ignores — the documented
+    `corpusPath: .ijs-corpus` — still works; so does an absolute path, which an author wrote out in
+    full. git is asked about a file the gate would write (`<corpus>/telemetry/probe.json`), since a
+    `corpus/` rule does not match a directory that does not exist yet.
+  - **Every corpus reader and writer resolves through `CorpusLocation`.** The run, the telemetry
+    writer, the skip recorder and the six subcommands that read `consistency.corpusPath` no longer
+    hand it to `CorpusPath` themselves. A relative value now resolves against the project root
+    rather than the process directory; in a resident run those are the same directory.
+  - **`consistency` that compared nothing is `SKIPPED`, never `PASSED`.** No `corpusPath`, a path
+    that does not resolve to a directory, a corpus with no pulse, no recent telemetry, and an audit
+    that threw each returned `.passed` under a message saying it had skipped. Each is now
+    `.skipped` with `Not checked: … Nothing was compared; this is not a pass.` — the answer
+    `status` already gives for a missing plan. They stay notes, so nothing here fails `--strict`:
+    on a CI runner the owner's absolute corpus path is absent by design. Rule ids are unchanged.
+  - **Not fixed here, and worth knowing:** a `.quality-gate.yml` that fails to *decode* is still
+    logged and replaced by defaults (`QualityGateCLI.run`, "Using defaults"), which is why the
+    refusal above is a check after loading rather than a thrown decoding error — thrown, it would
+    have become a silent run on defaults.
+
+- **A test run that is cut off at the time limit fails.** It could be reported as
+  `Ad-hoc code signing failed (tests passed)` — a warning — and a non-strict hook then let the
+  commit through on a run that never finished. Three things had to line up, and on this package
+  under load they did: the kernel's timeout exit code is non-zero like any failure; a bundle that
+  finished before the cut-off had printed a "passed" summary; and the output contained the words
+  "codesign failed", which here is the name of a test. A timeout is now asked about first and is
+  an error (`test-timeout`), and the signing heuristic reads toolchain lines, never a line that
+  reports on a test. `build` gets the same precedence. Found on this repository's own commit hook
+  at 600.04 s with the machine's load above 130; the same warning had been seen twice that week
+  and read as a signing quirk.
+- **`fallback.*` reads the guards top-level code makes.** `fp-division-unguarded` learned this in
+  3.4.0's follow-ups; `fallback.*` has its own visitor, and its file scope still held no facts.
+  A script that wrote `guard tenor.isFinite, tenor >= 0, tenor < 1_000 else { exit(1) }` and then
+  `Int(tenor)` was reported as converting an unbounded value. Both rules now ask one collector
+  what a file's top-level code established, so they cannot disagree about it again. A guard
+  inside a function or inside a member of a file-scope type still answers only for that body.
+- **The `// SECURITY:` marker on the standards-watch fetch is gone.** The URL there is checked
+  against an allow-list of hosts on the line that builds it, which `security.ssrf` now reads as
+  the answer it is. The marker stayed one deploy longer than the rule change because the hooks
+  run the installed binary.
+- **`unreachable` treats the members of a `public extension` as exported.** `public extension`
+  makes its members public with no keyword on any of them, and the liveness facts read only a
+  declaration's own modifiers — so in a library whose API is written that way, the API was
+  reported as unreachable from any entry point. Found on a site-generator library: 107 of its 155
+  findings were its own modifiers, colours and font weights. A member that narrows its access
+  (`private`, `fileprivate`, `internal`, `package`) is still not exported; a member of a type
+  nested in the extension keeps that type's default; a local function stays local; an enum
+  nested in a public extension exports its cases.
+- **Seven `fp-safety:disable` markers in this package suppressed nothing, and are gone.** Four
+  became decorative when `ALocalIsNotAGuard` taught the rule to read `isEmpty` and `max(…, 1)`;
+  three more — two duration conversions dividing by `1e18` and a per-project mean behind an
+  `isEmpty` check — turned out to be the same once the first four were removed and the rest were
+  tried. They stayed until the new binary was installed, because the hooks run the installed one.
+- **`fp-division-unguarded` reads the guards top-level code makes.** The file scope held no
+  record of them, so `let mean = count > 0 ? sum / count : 0` in a script, a `main.swift` or a
+  playground page was reported, and the repairs on offer were to move the code into a function or
+  put the bound inline. Top-level statements are now read like any other body, in order, through
+  aliases. A guard inside a function or inside a member of a file-scope type still answers only
+  for that body. Found fixing BusinessMath ahead of `ALocalIsNotAGuard`, where an example that
+  was already guarded had to become a function to say so.
+- **A parameter did not shadow.** A name bound `Double` in an outer scope stayed `Double`
+  inside a function that redeclared it `Int`, so `func f(total: Int, rate: Int) { total / rate }`
+  in a type with a stored `rate: Double` was integer division reported as floating-point. A
+  parameter, an untyped closure parameter and a local annotated with another type now shadow.
+- **A subscript's implicit getter was not a scope**, so a guard inside
+  `subscript(d: Double) -> Double { guard d != 0 … }` was never read and the guarded division
+  was reported.
+- **`fallback.*` read `inout Double` as an unknown type.** The parameter reader is now shared
+  with the division rule and unwraps ownership specifiers, so `Int(x)` on an `inout Double` is
+  examined.
+- **A ternary condition on the right of an assignment was not read as a condition.** In
+  `rate = interval > 0 ? 60_000 / interval : 0` the element left of `interval` is `=`, which the
+  guard collector took for part of a larger operand, so the check was dropped. Latent in
+  `fallback.*`; it would have been seven false `fp-division-unguarded` findings in one consumer
+  once the division rule moved onto the same collector.
+- **`task-captures-self-no-isolation` reports the property, not its namesake.** The rule matched
+  any identifier in the Task closure spelled like a stored property, with no notion of what the
+  name was bound to. A capture-list entry (`[log]`, `[log = self.log]`), a parameter, a local
+  bound before or inside the Task, an `if let` / `guard let` / `for` / `case let` binding, a
+  nested or enclosing closure's parameter, and a member of another base (`AppLog.device`,
+  `peer.device`) were all reported as touching actor state. Bindings are now resolved first,
+  using the scope code shared with `RecursionAuditor`. Lexical order and scope are honoured: a
+  read before a later `let` of the same name, and a `let` in a sibling block, are still the
+  property. `self.x` is always the member. A narrowing — it removes findings that were never
+  true — with one addition: shorthand `if let x` *inside* the Task reads the property and is
+  reported.
+  - The suggested fix no longer says "named apart from the properties". That described the
+    rule's blind spot as though it were policy; the guide keeps it as advice.
+- **`nonisolated` members and actor statics are no longer treated as isolated.**
+  `dispatch-queue-in-actor` and `task-captures-self-no-isolation` gave every member its type's
+  isolation unless it carried `@MainActor`; the `nonisolated` modifier was never read, nor
+  `static` inside an actor, and a property or subscript body always inherited. A member's own
+  declaration now decides, for functions, initializers, properties and subscripts alike. A
+  `static` member of a `@MainActor` type stays isolated. One shape is kept on purpose:
+  `Task { @MainActor in self.x = 1 }` in a `nonisolated` member of a `@MainActor` type was
+  reported only because the member was mistaken for isolated, and is still reported, because
+  the closure is.
+- **`main-actor-deinit-touches-state` has the same correction.** Its walker matched names the
+  same way, so `let x = 1; print(x)` in a deinit, a closure parameter, and `Registry.x` were
+  reported when the class had a stored `x`. It now uses the same binding-aware walk.
+  `self.x`, a bare `x` that nothing shadows, and a property used as the base of another member
+  (`task?.cancel()`) are reported as before.
+- **`isolated deinit` is accepted in `@MainActor` classes and is the recommended fix.**
+  `concurrency.main-actor-deinit-touches-state` read only the enclosing type's isolation, so
+  a deinit the language had isolated (`isolated deinit`, or `@MainActor deinit` — SE-0371) was
+  reported like a plain one, and the only spelling the rule accepted was `nonisolated(unsafe)`.
+  It now reads the deinit's own modifiers and attributes. `nonisolated deinit` and a plain
+  `deinit` are reported as before. No severity change and no new rule id.
+  - The message said a plain deinit "will trap at runtime". It does not; it runs on whichever
+    thread drops the last reference, and the hazard is a race on state shared with main-actor
+    code. The message says that now, and the suggested fix names `isolated deinit` first.
+  - `lifecycle-task-no-deinit` suggested "Add a deinit that calls X.cancel()", which on a
+    `@MainActor` class produced exactly the deinit the concurrency rule reports. On a
+    `@MainActor` class it now suggests an `isolated deinit`, and calls through an optional
+    handle as `X?.cancel()`. Other classes keep the old text.
+- **A deinit's body has the deinit's isolation, not the type's.** The analyzer treated every
+  deinit body as isolated like its type, so `task-captures-self-no-isolation` and
+  `dispatch-queue-in-actor` ran inside a plain deinit — which is nonisolated — as though it
+  were actor code. A plain or `nonisolated` deinit body is now nonisolated; an `isolated deinit`
+  takes the type's isolation and a `@MainActor deinit` the main actor's.
+- **`build` reports compiler warnings in files the build did not recompile.** An incremental
+  `swift build` prints a diagnostic only for the files it compiles, so a warm build directory
+  reported zero warnings: the same tree gave `WARNING`, `PASSED`, `WARNING` on three runs,
+  depending on which files each run happened to rebuild, and `--strict --no-cache` exited 0 over
+  warnings that a clean build printed. After a successful build the checker now also reads the
+  serialized diagnostics (`.dia`) the compiler recorded for every first-party compile unit, found
+  through the build's output file maps, and reports the union. A unit counts only if a current
+  map names it and its source exists (a deleted file's record is not replayed), a record older
+  than its source is not trusted, and nothing is read after a failed build. Works on the
+  `swiftbuild` debug and release layouts and the native one.
+  - When a unit's record is missing, unreadable or stale — or no output file map is found at
+    all — the result carries `build.warnings-unverified`, a warning, instead of passing: *"N of
+    M compile units were up to date and their recorded diagnostics could not be read"*.
+  - Every successful result carries the note `build.diagnostic-coverage`: *"9 Swift compile
+    unit(s): 1 compiled by this run, 8 read from recorded diagnostics."*
+  - Not covered: warnings with no source location, C-family compile units (reported only when
+    recompiled, as before), `xcode-build`, and a target removed from `Package.swift` whose build
+    products remain.
+  - The `.dia` reader and the compile-unit index are described under *Added*, with the
+    provenance of the vendored code.
+- **Compiler messages no longer carry half an escape sequence.** The compiler wraps a
+  diagnostic's group in an OSC 8 hyperlink, and only colour escapes were stripped, so every
+  report format printed
+  `[#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]`.
+  It now reads `[#NoUsage]`. This changes the message text of `build` and `xcode-build`
+  findings: a baseline or override keyed on the old text needs re-recording.
+- **`build` is no longer replayed from the result cache.** Its fingerprint omitted two real
+  inputs. The build directory: whether a `PASSED` or a `WARNING` was stored depended on what
+  `.build` looked like when the entry was written. And local path dependencies: a warning fixed
+  in a sibling package was reported, *"Replayed from cache"*, on every default run until the
+  build directory was deleted. `build` now runs every time — a no-op build is a few seconds,
+  and the build system tracks every input the cache did not. Existing `build` entries expire on
+  their own, since the gate binary's hash is in every fingerprint. `test` still uses the same
+  fingerprint and has the same path-dependency hole; that is not fixed here.
+- **`--no-cache` repairs the cache instead of leaving it alone.** The flag skipped the load and
+  the store alike, so the run that proved an entry stale left it in place and the next default
+  run replayed it. It now means *do not read*: every checker runs, a passing result replaces
+  the stored entry, and a failing one removes it (failures are still never stored). Help text:
+  *"Ignore cached results: run every checker and replace its cached entry. Does not force a
+  clean build — it does not need to."*
+- **A query item or header is a security sink only when its name says so.** The randomness
+  rules (`weak-prng`, `seeded-secret`, `predictable-token`, `uuid-as-secret`) put every value
+  written to a header, cookie or URL query item in a security context
+  (`ASeedIsNotASecret` §3.1(b)). The pre-deploy portfolio run found what that costs:
+  BusinessMathMarketData's Yahoo Finance URL sends `period1` and `period2`, two timestamps that
+  are a date range, and both were reported as `security.predictable-token` at error.
+  `SecurityContext.sinkCarriesSecurityValue(named:)` now decides from the sink's name when it is
+  a string literal: `token`, `nonce`, `Authorization`, `Cookie`, `X-API-Key`, `X-CSRF-Token`
+  are contexts; `period1`, `interval`, `Content-Type`, `If-Modified-Since` are not. A weak word
+  alone (`state`) is not enough. A name that is not a literal cannot be read and stays in
+  context. `SinkMatch` gains `nameArgumentIndex`. The repo was missed by the rule's own
+  measurement because it lives under `Playgrounds/`, which that run excluded.
+- **Under `--strict`, a run that warned printed `✅ Quality Gate: PASSED` and exited 1.** The
+  exit code counted `.warning` under `--strict`, but the terminal summary and the JSON
+  `summary.status` looked only at `.failed`. Both now apply the CLI's rule. The terminal line
+  reads `❌ Quality Gate: FAILED (--strict: a checker warned)` when warnings alone caused it.
+- **`complexity` costed two non-loops as O(n).** An implicit member (`case .first:`,
+  `return .last`) has no receiver, so it is an enum case or a static member, never a
+  collection method. And `map` on an `as?` result is `Optional.map`, which runs once. Both
+  were matched by name alone. In BioFeedbackKit-HealthKit each one made a function read as
+  O(n²) from its caller. Collection `first` and `map` are still costed as before.
+- **`xcode-build` reported "nothing to build" as PASSED.** It now reports SKIPPED. Configured
+  with a scheme and a watchOS destination on a plain package, it printed
+  `✓ [xcode-build] PASSED (0ms)` having compiled nothing.
+- **`pointer-escape` no longer reports an assignment as a return, or an element as a pointer.**
+  A with-block whose last statement was an assignment (`{ buffer, count in …; count = 0 }`,
+  `{ _ = f(ptr) }`) had that statement treated as the implicit return value, so a closure
+  returning `()` was reported under `return-from-with-block`. And `buf[i]` was treated as the
+  buffer itself, where it is one element — a value, like `.pointee`; a range subscript
+  (`buf[0..<n]`) is still a pointer, since the slice refers to the same memory. Across
+  swift-collections and swift-nio this removes **46 findings**, every one read and every one
+  of these two shapes; nothing that was a real escape is lost.
+- **`pointer-escape` now analyses with-blocks nested in a `repeat` loop, in a `let`
+  initialiser, or behind `try`.** `let n = chunk.withUnsafeMutableBufferPointer { … }` inside
+  `repeat { … } while` — `ZlibStream`'s shape — was never visited, so nothing inside it could be
+  reported. `self.a.b = ptr` and `self[i] = ptr` are now `stored-in-property` like `self.x`.
+- **`control-mapping` logs when it cannot list its own resources.** Its `try?` carried a
+  three-line `// silent:` justification that the logging auditor does not read, so the gate
+  reported it. It now catches and logs, as `decode` beside it already did, and still returns
+  no mappings.
+- **Four containment checks in the gate admitted a sibling directory.** The new rule found
+  them on its first run. `DocCommentCodeAuditor.owningModule` matched the project root as a
+  string, so `/pkgSources/Evil/a.swift` was assigned to module `Evil` of package `/pkg`.
+  `DocLinter`'s context narrowing took every file of module `FooBar` for a diagnostic in `Foo`.
+  `GenerateManifest` and `DocLinter` guarded joins with `hasPrefix`. All four compare whole
+  components now, each with a test where one was possible. The dashboard's pulse directory is
+  named by a label that can come from a pulse file in the corpus; a label that is not a single
+  directory name is refused rather than written to.
+- **`rule-registry.json` was missing 21 rule ids the gate emits** — `fallback.*`, `liveness.*`,
+  `bounded-io.*`, `gpu.*`, `fatal-error`, `precondition`, `assertion-failure`, `newline-split`,
+  `unasserted-optional-unwrap`, `hig.secure-field`. The registry exists so a mapping cannot cite
+  a rule that does not exist; a registry that does not list a rule that *does* makes that rule
+  unmappable, and nothing reported it because nothing had tried.
+
+### Known
+
+- **`build`'s warm-run verification is weaker on Linux.** Eleven `WarmBuildTests` cases fail
+  there, in the path that reads recorded diagnostics for units a build did not recompile. Three
+  explanations were tested and discarded: no output file map (225 are named in the manifest, 450
+  exist on disk), the paths not being double-quoted in llbuild's YAML (all 225 are), and the build
+  configuration not being threaded through (it is). The cause is not known, and is recorded as
+  unknown rather than given a label that would read as understanding.
+
+## [3.4.0] - 2026-09-30
+
+**A passing verdict now means the whole roster ran.** A minor rather than a patch because that
+changes what a green run *means* on any adopted repository, and because a new checker and Linux
+support arrived alongside it.
+
+### Fixed
+
+- **The baseline ledger is applied before the stop decision, not after it.** This is the release.
+
+  `CheckerRunner` stops at the first checker returning `.failed` when `continueOnFailure` is off,
+  and it judges the result the `transform` hook returns. Overrides went through that hook; the
+  ledger did not — it ran afterwards, over the finished result set. So in any repository holding a
+  baseline, the checker carrying adopted debt **failed during the run and truncated it**, every
+  checker ordered after it never executed, and the ledger then rewrote that checker's verdict to
+  `.passed`. The run reported success over an unexamined majority.
+
+  BusinessMath showed it as `24 of 46 checkers · 22 NOT REACHED` under a tick. It now reports
+  `46 of 46`, and an adopted repository with no new findings **exits 0** instead of blocking.
+
+  Three things make this the worst shape a defect in this tool can take. It appears only in
+  repositories that have run `adopt`, so it cannot be reproduced in a clean one — BusinessMath,
+  SwiftExcelFunctions and SwiftCLIKit all adopted ledgers the same day and all three were exposed
+  at once. Its output is *reassuring*: a tick printed directly above a line reading "0 findings
+  from them means nothing". And the obvious recovery, `--check <one>`, works for the wrong reason —
+  a single-checker run has nothing after it to skip, so it cannot truncate at all.
+
+  Two commits, and the order matters. `41ff038` fixed the **reporter**: truncation is asked
+  before `allPassed`, an all-green truncated run reports INCOMPLETE, and `hasFailure` gains the
+  same condition so such a run cannot exit 0. That was correct and insufficient — the runner still
+  truncated, so `--continue-on-failure` remained mandatory to see past adopted debt. `6856db0`
+  fixed the **cause**: `BaselineLedger.applying(to:now:)` transforms a single result, so it
+  composes into the runner's per-result transform beside the override processor, upstream of the
+  stop decision. `summarise(_:)` counts dispositions by diagnostic origin off the
+  already-transformed results, so the summary cannot disagree with what the runner acted on.
+  `apply(ledger:to:now:)` keeps its signature and calls both.
+
+  Verified in deployed shape — the hook's own invocation, with the early exit enabled rather than
+  disabled by `--continue-on-failure`, which cannot detect a truncation bug at all:
+
+  | binary | `--check all` on BusinessMath |
+  |---|---|
+  | 3.3.0 | `✅ PASSED` · 17 of 46 · 24 NOT REACHED |
+  | 3.4.0 | `✅ PASSED` · **46 of 46** · 0 errors, 0 warnings |
+
+  The test that matters is the control, `newFindingStillTruncates`. Without it, "the ledger runs
+  before the stop decision" and "the stop decision is broken" produce identical green output.
+  Its first form asserted `outcome.truncation != nil`, which this tool's own weak-assertion rule
+  flagged — correctly, since that also passes when the runner stops at the *wrong* checker. It now
+  asserts `stoppedAt` and `unreached` by value.
+
+- **Eight Linux build failures cleared** — not the port finished. None of these are compilable on
+  macOS, so no local build could have predicted any of them: a split Foundation, the last unguarded Darwin import, four files a
+  rewrite could not see because `Logger(` wrapped across a line, an ambiguous `Logger` where two
+  packages both export one, bundled resources enumerated through an API only one Foundation has,
+  a buffer nothing wrote through, an autoreleasepool with no runtime to drain, and acceptance
+  tests that could not locate the binary they exercise.
+
+- **Findings this release's own changes introduced**, plus one they exposed.
+
+### Added
+
+- **`xctest-import`** — `import XCTest` in test code is an error. This package's tests are Swift
+  Testing: 3,602 `@Test` and 6,338 `#expect` against six files that still imported XCTest. The
+  convention held by habit because nothing checked it, and **all six exceptions were in the test
+  suite of the auditor for test quality** — the one place the rule was not kept.
+
+  It fires only on test code (a path containing `/Tests/`, or a file named `…Tests.swift`): a
+  helper target that links XCTest deliberately is not this rule's business, and flagging it is how
+  a rule teaches people to switch it off. It reports at the import rather than at each assertion,
+  because the import is the decision and 270 assertion sites would be a list rather than a task.
+  Its suggested fix carries the whole mapping, since the migration is mechanical.
+
+  The six files are converted: 222 test functions, ~270 assertions, `XCTUnwrap` → `#require`,
+  eleven `XCTestCase` classes → `@Suite` structs.
+
+- **A CI job that makes "it does not build on Linux" falsifiable — and it is still red.** Linux
+  is **not** supported as of this release; the README's "macOS only, today" stands unchanged and
+  earns it. What this release adds is the job, and eight cleared failures behind it.
+
+  Where the port actually stands, measured rather than hedged: **the library and the test target
+  both compile on Linux, and the full suite runs — and 130 of 3,411 tests fail.** 58 of those are
+  the four documentation checkers (`doc-code`, `doc-run`, `doc-claims`, `doc-comment-code`), which
+  all shell out to `swiftc` and fail as a group because toolchain and module search paths differ
+  in a container. Most of the rest are index-store locators looking for Xcode DerivedData, which
+  has no Linux equivalent. There is a tail beyond that which has not been characterised.
+
+  That is the point of having the job: the port's state is now a number one can read instead of a
+  claim one asserts. "Compiles and runs, 130 failing, 58 from one mechanism" is a position. "Should
+  work" is what this tool exists to catch.
+
+  103 files
+  wrote `#if canImport(os) / import os / #endif` and then used `Logger` unguarded — a guard that
+  covers the import and not the use, so on Linux the type is simply absent. Each guard becomes a
+  plain `import QualityGateLogging`, which re-exports Apple's `os` where it exists and supplies an
+  equivalent where it does not, so none of the 287 call sites or 443 privacy interpolations change.
+
+  Two files were left alone deliberately: `NarrativeChain` and `IndexTestCoverage` already guard
+  the declaration *and* every use inline, and `LoggingVisitor` names `Logger` only inside a string
+  literal it suggests to other projects. A rewrite that treated a fix message as a call site would
+  have been the checker misreading itself.
+
+  The job remains `workflow_dispatch` only, deliberately, until it is green: a red X on every push
+  to a public repository whose subject is code quality is worse than no signal, because it teaches
+  the reader to ignore the tick. The trigger becomes `push` in the same commit that turns it green,
+  not as a tidy-up nobody schedules — so the trigger itself records whether the port has landed.
+
+### Changed
+
+- **Every dependency resolves from a public URL.** This package was public and could not be built
+  by anyone but its author — four dependencies were private, so `swift build` after following the
+  README failed with "could not read Username for github.com". The CI canary was not flaky; it was
+  the only honest signal in the repository. `quality-gate-types` and `quality-gate-corpus-kit` are
+  public and MIT; `SwiftCLIKit` is published as `jpurnell/swift-cli-kit`; `SwiftMCPServer` is
+  removed outright, having been left behind by the 3.2.0 removal while building nothing.
+
+- **The README's four blocking claims are corrected** — macOS 14+ against a manifest declaring
+  `.macOS(.v15)`, Swift 6.0+ against `swift-tools-version: 6.2`, an install that copied the binary
+  without its resource bundles so the tool crashed on the README's own first example, and a
+  dependency pinned `from: "2.0.1"`, which SemVer resolves below 3.x.
+
+- Dependency floors: `quality-gate-types` 1.7.0, `quality-gate-corpus-kit` 1.20.0,
+  `swift-cli-kit` 1.4.2, BusinessMath 3.0.0-alpha.9.
+
+- **The parameter carrying an index build's fallback reason is documented.** It was undocumented,
+  so the barrier it feeds could not say why its own index was partial.
+
+
 ## [3.3.0] - 2026-09-29
 
 ### Added
@@ -2247,7 +4204,9 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...v3.5.0
+[3.4.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.1.2...v3.2.0

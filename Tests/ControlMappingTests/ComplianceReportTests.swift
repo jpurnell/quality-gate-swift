@@ -41,6 +41,11 @@ struct ComplianceReportTests {
         let decoded = try JSONDecoder().decode(Decoded.self, from: data)
         #expect(decoded.disclaimer.contains("NOT an assertion of compliance"))
         #expect(decoded.controls.contains { $0.controlId == "164.312(e)(1)" && $0.state == .enforced })
-        #expect(decoded.summary["out-of-scope"] == 2)
+        // The summary is a count of the rows beside it, whatever the catalogues hold. It was
+        // asserted as a literal 2 until a fourth catalogue arrived with out-of-scope rows of
+        // its own; what the report promises is that the two agree.
+        let outOfScope = decoded.controls.filter { $0.state == .outOfScope }
+        #expect(decoded.summary["out-of-scope"] == outOfScope.count)
+        #expect(outOfScope.filter { $0.framework == "hipaa-security-rule" }.count == 2)
     }
 }

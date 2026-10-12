@@ -84,7 +84,7 @@ extension PulseRefiner {
                 return SeverityWeight.weightedScore(checkerResults: checkerResults)
             }
             guard !runScores.isEmpty else { continue }
-            scores[projectID] = runScores.reduce(0, +) / Double(runScores.count) // fp-safety:disable guarded by isEmpty
+            scores[projectID] = runScores.reduce(0, +) / Double(runScores.count)
         }
         return scores
     }

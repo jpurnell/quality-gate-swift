@@ -4,9 +4,7 @@ import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Locates and ensures freshness of compiler index stores for Swift projects.
@@ -202,7 +200,7 @@ public enum StoreLocator {
         /// Returns default xcodebuild options using a `.build/xcode-derived` subdirectory under `rootURL`.
         public static func defaults(rootURL: URL) -> XcodebuildOptions {
             XcodebuildOptions(
-                derivedDataPath: rootURL.appendingPathComponent(".build/xcode-derived")
+                derivedDataPath: rootURL.appendingPathComponentUnstatted(".build/xcode-derived")
             )
         }
     }
@@ -233,6 +231,8 @@ public enum StoreLocator {
                 "-derivedDataPath", options.derivedDataPath.path,
                 "COMPILER_INDEX_STORE_ENABLE=YES",
             ],
+            // xcodebuild resolves packages with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool,
             mergeStderr: true
         )
         if result.exitCode != 0 {
@@ -240,7 +240,7 @@ public enum StoreLocator {
             throw Error.buildFailed("xcodebuild build exited \(result.exitCode): \(tail)")
         }
 
-        let store = options.derivedDataPath.appendingPathComponent("Index.noindex/DataStore")
+        let store = options.derivedDataPath.appendingPathComponentUnstatted("Index.noindex/DataStore")
         guard FileManager.default.fileExists(atPath: store.path) else { // SAFETY: CLI tool checks local index store path
             throw Error.buildFailed("xcodebuild succeeded but no index store at \(store.path)")
         }
@@ -250,7 +250,9 @@ public enum StoreLocator {
     private static func listFirstScheme(flag: String, filePath: URL) throws -> String {
         let result = try ProcessRunner.run(
             "/usr/bin/env",
-            arguments: ["xcodebuild", "-list", "-json", flag, filePath.path]
+            arguments: ["xcodebuild", "-list", "-json", flag, filePath.path],
+            // xcodebuild resolves packages with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool
         )
         if result.exitCode != 0 {
             throw Error.buildFailed("xcodebuild -list exited \(result.exitCode)")
@@ -284,8 +286,8 @@ public enum StoreLocator {
             let prefix = String(entry[..<dash])
             guard prefix == sanitized else { continue }
 
-            let entryDir = derivedDataRoot.appendingPathComponent(entry)
-            let store = entryDir.appendingPathComponent("Index.noindex/DataStore")
+            let entryDir = derivedDataRoot.appendingPathComponentUnstatted(entry)
+            let store = entryDir.appendingPathComponentUnstatted("Index.noindex/DataStore")
             guard fm.fileExists(atPath: store.path) else { continue } // SAFETY: CLI tool checks local index store path
 
             let infoPlist = entryDir.appendingPathComponent("info.plist")
@@ -334,7 +336,7 @@ public enum StoreLocator {
     /// Returns the standard Xcode DerivedData directory for the current user.
     public static func defaultDerivedDataRoot() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Developer/Xcode/DerivedData")
+            .appendingPathComponentUnstatted("Library/Developer/Xcode/DerivedData")
     }
 
     // MARK: - Where the store lives
@@ -347,7 +349,7 @@ public enum StoreLocator {
     /// has ever written to, and so reported "none found" against a store holding 2,572
     /// units that three checkers were querying in the same run.
     public static func indexBuildDirectory(packageRoot: URL) -> URL {
-        packageRoot.appendingPathComponent(".build/index-build")
+        packageRoot.appendingPathComponentUnstatted(".build/index-build")
     }
 
     /// The unit records inside an index store.
@@ -362,7 +364,7 @@ public enum StoreLocator {
 
     /// The index store the gate builds and owns for `packageRoot`.
     public static func managedStore(packageRoot: URL) -> URL {
-        indexBuildDirectory(packageRoot: packageRoot).appendingPathComponent("index-store")
+        indexBuildDirectory(packageRoot: packageRoot).appendingPathComponentUnstatted("index-store")
     }
 
     /// The store an index-backed checker would query right now, or `nil` if there is none.
@@ -436,6 +438,8 @@ public enum StoreLocator {
             _ = try ProcessRunner.run(
                 "/usr/bin/env",
                 arguments: ["swift", "build", "--build-tests", "--package-path", packageRoot.path],
+                // SwiftPM resolves packages with git; a hook's GIT_DIR must not reach it.
+                environment: ChildProcessEnvironment.forBuildTool,
                 mergeStderr: true)
         } catch {
             Self.logger.debug(
@@ -484,10 +488,20 @@ public enum StoreLocator {
             if let produced = freshSwiftbuildStore(packageRoot: packageRoot) {
                 return produced
             }
-            // Falling through would run a dedicated build whose `-index-store-path` this
-            // toolchain ignores, producing nothing. Say so instead.
-            throw Error.buildFailed(
-                "the ordinary build produced no index store at \(swiftbuildStorePath(packageRoot: packageRoot).path)")
+            // Fall through to the dedicated build rather than giving up here.
+            //
+            // This threw, reasoning that a dedicated build's `-index-store-path` is ignored by
+            // a toolchain that indexes during the ordinary build, so trying would produce
+            // nothing. That holds where the ordinary build *does* index. On Linux 6.4 it does
+            // not: `swift build` leaves no store at `.build/out`, the throw fired, and the
+            // cross-module pass was skipped for every index-backed checker — seven tests on
+            // that leg, while the same tests pass on 6.2, which never takes this branch.
+            //
+            // The premise was a property of the platform the predicate was written on, applied
+            // to a version number. Trying and reporting the outcome costs one build on a
+            // toolchain where the fast path already failed; assuming costs the entire
+            // cross-module analysis on a platform nobody checked.
+            Self.logger.info("the ordinary build produced no index store at \(swiftbuildStorePath(packageRoot: packageRoot).path, privacy: .public); falling back to a dedicated index build")
         }
 
         let buildPath = indexBuildDirectory(packageRoot: packageRoot)
@@ -547,7 +561,7 @@ public enum StoreLocator {
     /// store's records), so the caller falls back to the dedicated index build.
     /// Where swiftbuild index-while-builds during an ordinary build.
     static func swiftbuildStorePath(packageRoot: URL) -> URL {
-        packageRoot.appendingPathComponent(".build/out")
+        packageRoot.appendingPathComponentUnstatted(".build/out")
     }
 
     static func freshSwiftbuildStore(packageRoot: URL) -> URL? {
@@ -724,6 +738,8 @@ public enum StoreLocator {
         let result = try ProcessRunner.run(
             "/usr/bin/env",
             arguments: arguments,
+            // SwiftPM resolves packages with git; a hook's GIT_DIR must not reach it.
+            environment: ChildProcessEnvironment.forBuildTool,
             mergeStderr: true
         )
         if result.exitCode != 0 {

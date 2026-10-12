@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import Yams
 
 /// Configurable scorer weights for the consistency scoring algorithm.
@@ -340,12 +338,19 @@ extension PointerEscapeAuditorConfig: Codable {
 ///   secretPatterns: ["password", "secret", "apiKey", "token"]
 ///   allowedHTTPHosts: ["localhost", "127.0.0.1"]
 ///   sqlFunctionNames: ["execute", "prepare", "query"]
+///   atsAllowedInsecureDomains: ["legacy.example.com"]
 /// ```
 public struct SecurityAuditorConfig: Sendable, Equatable {
     /// Which security rules to enable. Empty means all rules are enabled.
     public var enabledRules: [String]
 
-    /// Regex patterns for variable names that indicate secrets.
+    /// Extra secret nouns for `security.hardcoded-secret`, matched by ``SensitiveName`` as a
+    /// whole word or a run of whole words (`connectionString` matches `dbConnectionString`;
+    /// `token` no longer matches `tokenizer`).
+    ///
+    /// Additive: the rule's built-in words (``SensitiveName/Origin/hardcodedSecretRule``) always
+    /// apply, so listing fewer words does not remove any. The defaults are exactly those words
+    /// and are kept for compatibility.
     public var secretPatterns: [String]
 
     /// Hosts allowed to use http:// (e.g. localhost test servers).
@@ -361,6 +366,24 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
     /// format being read rather than chosen — see ``WeakCryptoPolicy``.
     public var weakCryptoPolicy: WeakCryptoPolicy
 
+    /// Functions that answer "is this path inside that directory?" soundly.
+    ///
+    /// A call to one of these, as a condition naming the joined path, clears
+    /// `security.path-traversal`. The default is the helper IconquerAI introduced; a project with
+    /// its own names it here. A function listed here is trusted to compare whole path components
+    /// after resolving links — listing a `hasPrefix` wrapper would silence the rule that exists to
+    /// catch it.
+    public var containmentCheckers: [String]
+
+    /// Domains whose App Transport Security exception for cleartext HTTP is accepted.
+    ///
+    /// A property list has no comments the serialiser preserves, so `security.ats-disabled`
+    /// cannot be acknowledged with `// SECURITY:`. An entry here records the domain-level
+    /// finding as an override instead. Each entry is a sentence a reviewer can disagree with,
+    /// in a file with history. There is deliberately no equivalent for the global
+    /// `NSAllowsArbitraryLoads`: an app that needs it disables the rule in `enabledRules`.
+    public var atsAllowedInsecureDomains: [String]
+
     /// Creates a security auditor configuration with the given options.
     public init(
         enabledRules: [String] = [],
@@ -373,13 +396,17 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
             "execute", "prepare", "query", "rawQuery",
             "sqlite3_exec", "sqlite3_prepare"
         ],
-        weakCryptoPolicy: WeakCryptoPolicy = .default
+        weakCryptoPolicy: WeakCryptoPolicy = .default,
+        containmentCheckers: [String] = ["PathContainment.isContained"],
+        atsAllowedInsecureDomains: [String] = []
     ) {
         self.enabledRules = enabledRules
         self.secretPatterns = secretPatterns
         self.allowedHTTPHosts = allowedHTTPHosts
         self.sqlFunctionNames = sqlFunctionNames
         self.weakCryptoPolicy = weakCryptoPolicy
+        self.containmentCheckers = containmentCheckers
+        self.atsAllowedInsecureDomains = atsAllowedInsecureDomains
     }
 
     /// Default security auditor configuration.
@@ -389,6 +416,7 @@ public struct SecurityAuditorConfig: Sendable, Equatable {
 extension SecurityAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case enabledRules, secretPatterns, allowedHTTPHosts, sqlFunctionNames, weakCryptoPolicy
+        case containmentCheckers, atsAllowedInsecureDomains
     }
 
     /// Creates a security auditor configuration by decoding from the given decoder.
@@ -400,6 +428,10 @@ extension SecurityAuditorConfig: Codable {
         allowedHTTPHosts = try container.decodeIfPresent([String].self, forKey: .allowedHTTPHosts) ?? defaults.allowedHTTPHosts
         sqlFunctionNames = try container.decodeIfPresent([String].self, forKey: .sqlFunctionNames) ?? defaults.sqlFunctionNames
         weakCryptoPolicy = try container.decodeIfPresent(WeakCryptoPolicy.self, forKey: .weakCryptoPolicy) ?? defaults.weakCryptoPolicy
+        containmentCheckers = try container.decodeIfPresent([String].self, forKey: .containmentCheckers)
+            ?? defaults.containmentCheckers
+        atsAllowedInsecureDomains = try container.decodeIfPresent([String].self, forKey: .atsAllowedInsecureDomains)
+            ?? defaults.atsAllowedInsecureDomains
     }
 }
 
@@ -632,7 +664,62 @@ extension LoggingAuditorConfig: Codable {
     }
 }
 
-/// Per-checker configuration for DependencyAuditor.
+/// One advisory a repository has decided does not apply to it.
+///
+/// `Package.resolved` is JSON and has no line above it to carry a comment, so the
+/// acknowledgement lives in `.quality-gate.yml` and has to say more than a comment would:
+/// which advisory, on which package, why, and until when.
+///
+/// ```yaml
+/// dependencyAudit:
+///   acknowledgedAdvisories:
+///     - id: GHSA-g454-wj9r-jpg4
+///       package: github.com/marmelroy/Zip
+///       reason: "Transitive via polar-ble-sdk. No code path here extracts an archive."
+///       until: 2027-01-01
+/// ```
+///
+/// Every field decodes to an empty string when absent rather than failing. A decode failure
+/// drops the whole configuration to defaults, which would silently stop every *other* setting
+/// in the file from applying; an incomplete entry reaching the checker is instead rejected in
+/// a finding that names what is missing.
+public struct AcknowledgedAdvisory: Sendable, Equatable, Codable {
+    /// The advisory's id, or one of its aliases — `GHSA-…` or `CVE-…`.
+    public var id: String
+
+    /// The package the advisory is acknowledged for, as a repository URL in any spelling.
+    public var package: String
+
+    /// Why the advisory does not apply. Held to ``JustificationValidator``.
+    public var reason: String
+
+    /// `YYYY-MM-DD`. The acknowledgement expires once the advisory snapshot in use was fetched
+    /// on or after this date — the snapshot's date, not the wall clock.
+    public var until: String
+
+    /// Creates an acknowledgement.
+    public init(id: String, package: String, reason: String, until: String) {
+        self.id = id
+        self.package = package
+        self.reason = reason
+        self.until = until
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, package, reason, until
+    }
+
+    /// Decodes an acknowledgement, leaving any absent field empty.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        package = try container.decodeIfPresent(String.self, forKey: .package) ?? ""
+        reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? ""
+        until = try container.decodeIfPresent(String.self, forKey: .until) ?? ""
+    }
+}
+
+/// Per-checker configuration for DependencyAuditor and the `dependency-advisory` checkers.
 public struct DependencyAuditorConfig: Sendable, Equatable {
     /// Maximum major versions behind latest before flagging.
     public var maxMajorVersionsBehind: Int
@@ -640,23 +727,53 @@ public struct DependencyAuditorConfig: Sendable, Equatable {
     /// Branch pins that are explicitly allowed.
     public var allowBranchPins: [String]
 
-    /// Skip network calls to check latest tags.
+    /// Keep the dependency checkers off the network.
+    ///
+    /// `dependency-advisory-drift` is the only one that reaches for it; with this set it
+    /// reports that it did not check, and how many pins that leaves unchecked against the
+    /// live database, without attempting a connection.
     public var offlineMode: Bool
 
     /// Additional module names to treat as valid (e.g., Xcode-only targets, bridging modules).
     public var additionalKnownModules: [String]
+
+    /// Advisories this repository has decided do not apply — see ``AcknowledgedAdvisory``.
+    public var acknowledgedAdvisories: [AcknowledgedAdvisory]
+
+    /// Where a repository commits its own advisory snapshot, relative to the project root.
+    ///
+    /// Optional: the gate bundles a snapshot. When both exist the one fetched later is used.
+    public var advisorySnapshotPath: String
+
+    /// How many days old the advisory snapshot may be before `dependency-advisory-freshness`
+    /// says the check ran on old information.
+    public var advisorySnapshotMaxAgeDays: Int
+
+    /// Repository-URL prefixes that are the author's own packages, e.g. `github.com/jpurnell/`.
+    ///
+    /// Own packages are still matched against advisories. The list only decides what counts as
+    /// third-party in the coverage note, and whether a missing snapshot left anything unchecked.
+    public var ownPackages: [String]
 
     /// Creates a dependency auditor configuration with the given options.
     public init(
         maxMajorVersionsBehind: Int = 2,
         allowBranchPins: [String] = [],
         offlineMode: Bool = false,
-        additionalKnownModules: [String] = []
+        additionalKnownModules: [String] = [],
+        acknowledgedAdvisories: [AcknowledgedAdvisory] = [],
+        advisorySnapshotPath: String = ".quality-gate/advisories/swifturl.json",
+        advisorySnapshotMaxAgeDays: Int = 14,
+        ownPackages: [String] = []
     ) {
         self.maxMajorVersionsBehind = maxMajorVersionsBehind
         self.allowBranchPins = allowBranchPins
         self.offlineMode = offlineMode
         self.additionalKnownModules = additionalKnownModules
+        self.acknowledgedAdvisories = acknowledgedAdvisories
+        self.advisorySnapshotPath = advisorySnapshotPath
+        self.advisorySnapshotMaxAgeDays = advisorySnapshotMaxAgeDays
+        self.ownPackages = ownPackages
     }
 
     /// Default dependency auditor configuration.
@@ -666,6 +783,7 @@ public struct DependencyAuditorConfig: Sendable, Equatable {
 extension DependencyAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case maxMajorVersionsBehind, allowBranchPins, offlineMode, additionalKnownModules
+        case acknowledgedAdvisories, advisorySnapshotPath, advisorySnapshotMaxAgeDays, ownPackages
     }
 
     /// Creates a dependency auditor configuration by decoding from the given decoder.
@@ -676,6 +794,10 @@ extension DependencyAuditorConfig: Codable {
         allowBranchPins = try container.decodeIfPresent([String].self, forKey: .allowBranchPins) ?? defaults.allowBranchPins
         offlineMode = try container.decodeIfPresent(Bool.self, forKey: .offlineMode) ?? defaults.offlineMode
         additionalKnownModules = try container.decodeIfPresent([String].self, forKey: .additionalKnownModules) ?? defaults.additionalKnownModules
+        acknowledgedAdvisories = try container.decodeIfPresent([AcknowledgedAdvisory].self, forKey: .acknowledgedAdvisories) ?? defaults.acknowledgedAdvisories
+        advisorySnapshotPath = try container.decodeIfPresent(String.self, forKey: .advisorySnapshotPath) ?? defaults.advisorySnapshotPath
+        advisorySnapshotMaxAgeDays = try container.decodeIfPresent(Int.self, forKey: .advisorySnapshotMaxAgeDays) ?? defaults.advisorySnapshotMaxAgeDays
+        ownPackages = try container.decodeIfPresent([String].self, forKey: .ownPackages) ?? defaults.ownPackages
     }
 }
 
@@ -1770,6 +1892,8 @@ public struct CustomRuleConfig: Sendable, Equatable, Codable {
 ///   - pointer-escape
 /// excludedCheckers:
 ///   - doc-comment-code
+/// includedCheckers:
+///   - xcode-build
 /// concurrency:
 ///   justificationKeyword: "Justification:"
 ///   allowPreconcurrencyImports:
@@ -1852,6 +1976,18 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// claim from "this package's documentation is fine", and only the first is true there.
     /// An entry that means the second is a suppression and belongs nowhere.
     public var excludedCheckers: [String]
+
+    /// Opt-in checkers to add to the default run, by id — the mirror of
+    /// ``excludedCheckers``, and the config-file form of `--full` for one checker.
+    ///
+    /// Before this, the only config route to an opt-in checker was
+    /// `enabledCheckers: [all]`, which also opts in every convention-gated doc checker.
+    /// BioFeedbackKit-HealthKit needs `xcode-build` — its HealthKit adapter is compiled
+    /// only for watchOS, which the macOS `build` checker never compiles — and nothing else.
+    ///
+    /// Added to `enabledCheckers` when that is set. Has no effect on `--check all` or an
+    /// explicit `--check`, and an exclusion still wins over it.
+    public var includedCheckers: [String]
 
     /// Build configuration to use (debug or release). Defaults to debug.
     public var buildConfiguration: String?
@@ -1947,6 +2083,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for XcodeBuildChecker.
     public var xcodeBuild: XcodeBuildCheckerConfig
 
+    /// Time budgets for the checkers that launch a build tool — see ``CheckerBudgetsConfig``.
+    public var budgets: CheckerBudgetsConfig
+
     /// Per-checker configuration for ConsistencyChecker (IJS).
     public var consistency: ConsistencyCheckerConfig
 
@@ -2021,6 +2160,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         trapPolicy: TrapPolicy = .default,
         enabledCheckers: [String] = [],
         excludedCheckers: [String] = [],
+        includedCheckers: [String] = [],
         buildConfiguration: String? = nil,
         testFilter: String? = nil,
         docTarget: String? = nil,
@@ -2050,6 +2190,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         appIntentsReadiness: AppIntentsReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
         xcodeBuild: XcodeBuildCheckerConfig = .default,
+        budgets: CheckerBudgetsConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
         ijs: IJSConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
@@ -2075,6 +2216,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.trapPolicy = trapPolicy
         self.enabledCheckers = enabledCheckers
         self.excludedCheckers = excludedCheckers
+        self.includedCheckers = includedCheckers
         self.buildConfiguration = buildConfiguration
         self.testFilter = testFilter
         self.docTarget = docTarget
@@ -2104,6 +2246,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.appIntentsReadiness = appIntentsReadiness
         self.build = build
         self.xcodeBuild = xcodeBuild
+        self.budgets = budgets
         self.consistency = consistency
         self.ijs = ijs
         self.complexity = complexity
@@ -2143,14 +2286,37 @@ public struct Configuration: Sendable, Codable, Equatable {
     ///
     /// - Parameter yaml: The YAML content.
     /// - Returns: The parsed configuration.
-    /// - Throws: `QualityGateError.configurationError` if parsing fails.
+    /// - Throws: `QualityGateError.configurationError` if parsing fails;
+    ///   ``CheckerBudgetsConfig/Invalid`` if a `budgets:` entry is not a budget.
     public static func from(yaml: String) throws -> Configuration {
         do {
             let decoder = YAMLDecoder()
             return try decoder.decode(Configuration.self, from: yaml)
         } catch {
+            // A refused `budgets:` entry is thrown as itself, not folded into "Invalid YAML".
+            // The decoder wraps what a nested `init(from:)` throws, and the wrapper's
+            // description is "the data couldn't be read" — and the command line treats an
+            // unreadable configuration as a reason to run with defaults. A budget that was
+            // written down and then quietly replaced by a default is the silence the key
+            // exists to end, so this one error keeps its type and stops the run.
+            if let refusal = Self.budgetRefusal(in: error) { throw refusal }
             throw QualityGateError.configurationError("Invalid YAML: \(error.localizedDescription)")
         }
+    }
+
+    /// The refused `budgets:` entry behind a decoding failure, if that is what it was.
+    private static func budgetRefusal(in error: any Error) -> CheckerBudgetsConfig.Invalid? {
+        if let refusal = error as? CheckerBudgetsConfig.Invalid { return refusal }
+        guard let decoding = error as? DecodingError else { return nil }
+        let context: DecodingError.Context
+        switch decoding {
+        case .dataCorrupted(let found): context = found
+        case .typeMismatch(_, let found): context = found
+        case .valueNotFound(_, let found): context = found
+        case .keyNotFound(_, let found): context = found
+        @unknown default: return nil
+        }
+        return context.underlyingError as? CheckerBudgetsConfig.Invalid
     }
 
     /// Loads configuration from a file path.
@@ -2171,6 +2337,8 @@ public struct Configuration: Sendable, Codable, Equatable {
             return try from(yaml: contents)
         } catch let error as QualityGateError {
             throw error
+        } catch let refusal as CheckerBudgetsConfig.Invalid {
+            throw refusal
         } catch {
             throw QualityGateError.configurationError("Failed to read config: \(error.localizedDescription)")
         }
@@ -2188,6 +2356,7 @@ extension Configuration {
         case trapPolicy
         case enabledCheckers
         case excludedCheckers
+        case includedCheckers
         case buildConfiguration
         case testFilter
         case docTarget
@@ -2217,6 +2386,7 @@ extension Configuration {
         case appIntentsReadiness
         case build
         case xcodeBuild
+        case budgets
         case consistency
         case ijs
         case complexity
@@ -2273,6 +2443,7 @@ extension Configuration {
         trapPolicy = try container.decodeIfPresent(TrapPolicy.self, forKey: .trapPolicy) ?? .default
         enabledCheckers = try container.decodeIfPresent([String].self, forKey: .enabledCheckers) ?? []
         excludedCheckers = try container.decodeIfPresent([String].self, forKey: .excludedCheckers) ?? []
+        includedCheckers = try container.decodeIfPresent([String].self, forKey: .includedCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
         docTarget = try container.decodeIfPresent(String.self, forKey: .docTarget)
@@ -2304,6 +2475,7 @@ extension Configuration {
         appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
+        budgets = try container.decodeIfPresent(CheckerBudgetsConfig.self, forKey: .budgets) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         ijs = try container.decodeIfPresent(IJSConfig.self, forKey: .ijs) ?? .default
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default

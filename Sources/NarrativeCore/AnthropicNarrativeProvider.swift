@@ -1,4 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+// URLSession, URLRequest and URLResponse live in a separate module on Linux, where
+// Foundation is split. Importing it unconditionally fails on Darwin, where no such
+// module exists — hence the canImport rather than an os() check.
+import FoundationNetworking
+#endif
 import CorpusKit
 
 /// Sends a system + user prompt to a cloud model and returns the text body.

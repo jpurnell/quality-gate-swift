@@ -1,8 +1,6 @@
 import Foundation
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Lints DocC documentation for errors and warnings.
@@ -43,8 +41,21 @@ public struct DocLinter: QualityChecker, Sendable {
 
     /// Analyses source without running it — safe to point at a stranger's package.
     public let executesProjectCode = false
+    /// What starts the documentation build, reads the clock around it and samples the load.
+    private let launcher: ToolLauncher
+
     /// Creates a new DocLinter instance.
-    public init() {}
+    public init() {
+        self.init(launcher: .live)
+    }
+
+    /// Creates a linter whose tool launches go through `launcher`.
+    ///
+    /// - Parameter launcher: What starts `swift package generate-documentation`. Replaceable
+    ///   so a test can decide the exit code, the elapsed time and the load without DocC.
+    init(launcher: ToolLauncher) {
+        self.launcher = launcher
+    }
 
     /// Declares this checker cacheable on the source tree **and the DocC catalogues**.
     ///
@@ -144,13 +155,27 @@ public struct DocLinter: QualityChecker, Sendable {
 
         // Run swift package generate-documentation
         // SAFETY: runs swift package generate-documentation to lint DocC coverage
-        let result: ProcessRunner.Output
+        // Budgeted from what this has actually taken here, not from `ProcessRunner`'s 600s
+        // default. That default suits `git rev-parse`; this builds a DocC archive for every
+        // target owning a catalogue — 34 of them in this package — and on a cold tree it
+        // exceeded 600s and was killed, reporting nothing. A checker that cannot finish has
+        // not found that the documentation is clean.
+        //
+        // `budgets.doc-lint` replaces the derived figure when the configuration sets one.
+        let run: ToolRun
         do {
-            result = try ProcessRunner.run(
-                "/usr/bin/swift",
+            run = try launcher.run(ToolLauncher.Request(
+                checkerId: id,
+                executable: "/usr/bin/swift",
                 arguments: arguments,
-                currentDirectory: projectRoot
-            )
+                directory: projectRoot,
+                // `swift package` resolves dependencies with git; a hook's GIT_DIR must not reach it.
+                environment: ChildProcessEnvironment.forBuildTool,
+                budget: CheckerBudget.allowance(
+                    for: id, root: projectRoot, configuration: configuration)))
+            if run.exitCode == 0 {
+                CheckerBudget.record(run.elapsed, named: id, root: projectRoot)
+            }
         } catch {
             Self.logger.error("Failed to run documentation generator: \(error.localizedDescription, privacy: .public)")
             let duration = ContinuousClock.now - startTime
@@ -168,12 +193,9 @@ public struct DocLinter: QualityChecker, Sendable {
             )
         }
 
-        let combinedOutput = result.stdout + "\n" + result.stderr
-
         let duration = ContinuousClock.now - startTime
-        let exitCode = result.exitCode
 
-        let baseResult = Self.createResult(output: combinedOutput, exitCode: exitCode, duration: duration)
+        let baseResult = Self.createResult(run: run, duration: duration)
         let enrichedDiagnostics = Self.enrichDiagnosticsWithLocations(
             baseResult.diagnostics,
             sourceRoot: projectRoot
@@ -199,7 +221,10 @@ public struct DocLinter: QualityChecker, Sendable {
             // about this package rather than a dependency. Scoping `enrichedDiagnostics`
             // alone — as the original commit did — would let a dependency's warning through
             // any path that appended to `diagnostics` afterwards.
-            diagnostics: diagnostics.scopedToFirstParty(),
+            //
+            // `reported`, not just the counted half: what was scoped out is counted in a
+            // closing note, so a dependency's warning is never dropped without a trace.
+            diagnostics: diagnostics.firstPartyScope(projectRoot: projectRoot).reported,
             duration: duration
         )
     }
@@ -669,11 +694,39 @@ public struct DocLinter: QualityChecker, Sendable {
         exitCode: Int32,
         duration: Duration
     ) -> CheckResult {
-        let diagnostics = parseDocCOutput(output)
+        createResult(
+            run: ToolRun(
+                transcriptOf: "swift package generate-documentation", checkerId: "doc-lint",
+                output: output, exitCode: exitCode, elapsed: duration),
+            duration: duration)
+    }
+
+    /// Creates a CheckResult from a run of the documentation build.
+    ///
+    /// Fails when the build exited non-zero or printed an error. Two failures are not
+    /// findings about the documentation and each says so: a build stopped at its budget
+    /// (`doc-lint-timeout`), and one that failed without printing an error this checker can
+    /// parse (`doc-lint-unparsed-failure`). Both used to be `✗ FAILED` over an empty list —
+    /// the exit code failed the check and nothing explained it.
+    ///
+    /// - Parameters:
+    ///   - run: What launching the documentation build produced.
+    ///   - duration: How long the checker took.
+    /// - Returns: A CheckResult summarizing the documentation build.
+    public static func createResult(run: ToolRun, duration: Duration) -> CheckResult {
+        var diagnostics = parseDocCOutput(run.output)
 
         // Failed if exit code non-zero OR any errors found
         let hasErrors = diagnostics.contains { $0.severity == .error }
-        let status: CheckResult.Status = (exitCode != 0 || hasErrors) ? .failed : .passed
+        let status: CheckResult.Status = (run.exitCode != 0 || hasErrors) ? .failed : .passed
+
+        if run.exitCode != 0 {
+            if run.expired {
+                diagnostics.append(run.expiryDiagnostic())
+            } else if !hasErrors {
+                diagnostics.append(run.unparsedFailureDiagnostic(ruleId: "doc-lint-unparsed-failure"))
+            }
+        }
 
         return CheckResult(
             checkerId: "doc-lint",
@@ -764,7 +817,7 @@ public struct DocLinter: QualityChecker, Sendable {
     ) -> [Diagnostic] {
         let rootURL = URL(fileURLWithPath: sourceRoot).standardized
         let sourcesURL = rootURL.appendingPathComponent("Sources").standardized
-        guard sourcesURL.path.hasPrefix(rootURL.path) else { return diagnostics } // SAFETY: reject path traversal
+        guard RunEnvironment.path(sourcesURL, isInside: rootURL) else { return diagnostics }
         guard FileManager.default.fileExists(atPath: sourcesURL.path) else { return diagnostics } // SAFETY: validated child of sourceRoot
 
         let needsEnrichment = diagnostics.contains { $0.filePath == nil }
@@ -891,7 +944,7 @@ public struct DocLinter: QualityChecker, Sendable {
         )
     }
 
-    private static func narrowFilesForContext(
+    static func narrowFilesForContext(
         _ contextPath: String,
         sourcesPath: String,
         allFiles: [String]
@@ -900,7 +953,8 @@ public struct DocLinter: QualityChecker, Sendable {
         guard let moduleName = components.first else { return allFiles }
 
         let moduleDir = (sourcesPath as NSString).appendingPathComponent(moduleName)
-        let moduleFiles = allFiles.filter { $0.hasPrefix(moduleDir) }
+        // With the separator: a context in module `Foo` used to take every file of `FooBar`.
+        let moduleFiles = allFiles.filter { $0.hasPrefix(moduleDir + "/") }
         guard !moduleFiles.isEmpty else { return allFiles }
 
         if components.count >= 2 {

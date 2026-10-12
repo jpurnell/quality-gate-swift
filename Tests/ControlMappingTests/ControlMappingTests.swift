@@ -161,6 +161,27 @@ struct ControlMappingTests {
         #expect(ids.count > 100)
     }
 
+    /// Every id a checker can emit has to be here, or a mapping that names it is rejected as
+    /// pointing at a rule that does not exist.
+    @Test("the registry lists every rule id the advisory checkers emit", arguments: [
+        "dep-advisory.vulnerable-pin", "dep-advisory.vulnerable-pin-by-name", "dep-advisory.unevaluable",
+        "dep-advisory.no-snapshot", "dep-advisory.snapshot-corrupt", "dep-advisory.acknowledgement-expired",
+        "dep-advisory.acknowledgement-unused", "dep-advisory.coverage", "dep-advisory.snapshot-stale",
+        "dep-advisory.snapshot-age", "dep-advisory.unlisted", "dep-advisory.drift-coverage",
+    ])
+    func registryListsAdvisoryRules(ruleId: String) {
+        #expect(ControlMappingResources.registryRuleIds().contains(ruleId))
+    }
+
+    @Test("the registry stays sorted and free of repeats, so a diff shows what was added")
+    func registryIsSorted() throws {
+        struct Registry: Decodable { let ruleIds: [String] }
+        let url = try #require(Bundle.module.url(forResource: "rule-registry", withExtension: "json"))
+        let ids = try JSONDecoder().decode(Registry.self, from: Data(contentsOf: url)).ruleIds
+        #expect(ids == ids.sorted())
+        #expect(Set(ids).count == ids.count)
+    }
+
     @Test("the bundled HIPAA catalog loads with its §164.312 controls")
     func catalogLoads() throws {
         let catalogs = ControlMappingResources.catalogs()

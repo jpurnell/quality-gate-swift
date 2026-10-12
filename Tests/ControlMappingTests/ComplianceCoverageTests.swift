@@ -101,19 +101,22 @@ struct ComplianceCoverageTests {
         #expect(transmission?.rules.contains("security.insecure-transport") == true)
     }
 
-    @Test("the shipped matrix spans all three frameworks, surfacing evidence-only and out-of-scope")
+    @Test("the shipped matrix spans the three control frameworks and CWE, surfacing evidence-only and out-of-scope")
     func shippedMultiFramework() throws {
         let rows = ComplianceCoverage.matrix(
             catalogs: ControlMappingResources.catalogs(),
             mappings: ControlMappingResources.mappings(),
             knownRuleIds: ControlMappingResources.registryRuleIds())
 
-        #expect(Set(rows.map(\.framework)) == ["hipaa-security-rule", "iso-27001-annexa", "soc2-tsc"])
+        #expect(Set(rows.map(\.framework)) == ["cwe", "hipaa-security-rule", "iso-27001-annexa", "soc2-tsc"])
+        // The counts below are about the control frameworks; CWE has its own suite, and its
+        // rows would otherwise make these numbers move every time a weakness is listed.
+        let controls = rows.filter { $0.framework != "cwe" }
         // change management / secure-development lifecycle: the gate's operation is the evidence
-        #expect(rows.filter { $0.state == .evidenceOnly }.count == 2)
+        #expect(controls.filter { $0.state == .evidenceOnly }.count == 2)
         #expect(rows.contains { $0.controlId == "CC8.1" && $0.state == .evidenceOnly })
         // HIPAA audit controls + integrity: honestly out of scope, never hidden
-        #expect(rows.filter { $0.state == .outOfScope }.count == 2)
+        #expect(controls.filter { $0.state == .outOfScope }.count == 2)
         // privacy-manifest maps to the SOC 2 privacy-notice criterion
         #expect(rows.contains { $0.controlId == "P1.1" && $0.rules.contains("privacy-manifest") })
     }

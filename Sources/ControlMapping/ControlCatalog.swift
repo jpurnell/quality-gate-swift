@@ -41,7 +41,7 @@ public struct ControlCatalog: Sendable, Codable, Equatable {
     public let framework: String
     /// Human version string, e.g. `"45 CFR 164 · 2013 Final Rule"`.
     public let version: String
-    /// Where the catalog came from: `"ecfr"`, `"aicpa"`, `"iso"`.
+    /// Where the catalog came from: `"ecfr"`, `"aicpa"`, `"iso"`, `"mitre"`.
     public let source: String
     /// Canonical URL/citation for the upstream text.
     public let sourceRef: String

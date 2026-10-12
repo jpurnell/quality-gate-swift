@@ -973,15 +973,19 @@ struct CompositionRootTests {
     func ordinaryFilesAreNotExempt() {
         // The rule still has teeth where it means something: a type reaching for ambient
         // randomness in the middle of its work is the thing this auditor exists to catch.
+        //
+        // This fixture was `Minter.token()`. A token is a security value, and since
+        // `ASeedIsNotASecret.md` §3.6 the security rules own that line and this one stands down
+        // (`SecurityOwnershipTests`). A sampler keeps what the test is about: not an entry point.
         let source = """
-            struct Minter {
-                func token() -> UInt64 {
+            struct Sampler {
+                func draw() -> UInt64 {
                     var entropy = SystemRandomNumberGenerator()
                     return entropy.next()
                 }
             }
             """
-        let found = diagnose(source, filePath: "Sources/app/Minter.swift")
+        let found = diagnose(source, filePath: "Sources/app/Sampler.swift")
         #expect(found.count == 1)
         #expect(found.first?.ruleId == "stochastic-no-seed")
     }

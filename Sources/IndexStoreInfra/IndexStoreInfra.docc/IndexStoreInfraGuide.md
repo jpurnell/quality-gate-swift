@@ -68,7 +68,42 @@ For SwiftPM packages, `StoreLocator.ensureFresh(packageRoot:)` builds an isolate
 
 For Xcode projects, `StoreLocator.locateInDerivedData(projectName:projectPath:)` scans `~/Library/Developer/Xcode/DerivedData/` for matching entries, validates `info.plist` workspace paths, and picks the newest match by modification date.
 
-Staleness checking compares the index store's modification time against the newest `.swift` file under the project root. A stale index means the code changed since the last build -- results may be incomplete but are never wrong (the index reflects the last-built state).
+### What the freshness check does and does not establish
+
+There are two checks, and they answer different questions.
+
+**The store as a whole** -- `IndexFreshness` compares the newest unit file with the newest `.swift` file under the project root. When the newest source is newer, the store is stale and a checker refuses to read it (`<checker>.index.stale-barrier`). When it is not, exactly one thing has been established: *a* build wrote *a* unit after the last edit. Nothing has been established about any other unit.
+
+That matters because a build adds to an index store and nothing prunes it. A unit is named after the output path of the compilation that wrote it -- `QRCodeError.o-2EHOFO6YVTDTW` is the basename and a hash of `/Ignite.build/Debug/IgniteCLI-…-testable-t.build/Objects-normal/arm64/QRCodeError.o` -- so one source compiled for two build variants has two units, and a variant that stops being built leaves its units where they were. swiftbuild compiles an executable target twice whenever a test target imports it; when the import is removed, the `-testable` units stay behind, describing the source as it was at their last build. Ignite's store held a unit from 27 August beside that day's unit for the same file, reported "1m newer than the newest source", and yielded a finding for a symbol that had been deleted, at a line that held a different declaration.
+
+Two properties of IndexStoreDB turn that leftover into a wrong answer:
+
+- `symbols(inFilePath:)` reads **one** record for a file -- from whichever unit containing it the database enumerates first, which is decided by a hash of the unit's name. With a stale unit beside a fresh one, roughly half the time the symbol list is the stale one: deleted symbols are present and newly added ones are absent.
+- `occurrences(ofUSR:roles:)` reads **every** unit. A symbol that moved is reported at both its old line and its new one.
+
+And one property of the database makes removing the unit file insufficient: IndexStoreDB notices a removed unit only by comparing two scans made in the *same process*. A gate run makes one scan, so whatever an earlier run ingested from a unit stays in `quality-gate-indexdb-*` after the unit is gone.
+
+**Each unit** -- so `IndexStoreSession` takes a census before it opens the database. `IndexUnitCurrency` reads every unit's main source file, output path, module and target, and gives each unit compiled from a source one of four verdicts:
+
+| Verdict | Meaning | Read? |
+|---------|---------|-------|
+| current | written at or after its source's last modification, and the newest unit for its source, module and platform | yes |
+| stale | its source was modified after it was written | no |
+| superseded | a newer unit exists for the same source, module and platform | no |
+| orphaned | its source file no longer exists | no |
+
+The session then opens IndexStoreDB in explicit-output-units mode and declares only the current units. A unit that was not declared is not ingested, and -- if an earlier run already ingested it -- is not visible to any query. Nothing is deleted from the store or the database, the database layout is unchanged, and a database written before the census existed needs no migration. The census is on `IndexStoreSession.unitCensus`; `IndexFreshness.coverageNote(checkerId:census:)` renders it, so an `…index.age` note reads `… · 1716 units. 1264 compiled from source: 1254 read, 10 ignored (7 stale, 2 superseded, 1 orphaned).`
+
+Setting a stale unit aside is free when a current unit for the same source remains. When none does, the source is listed in `IndexUnitCensus.sourcesWithoutCurrentUnit`, and that is a hole rather than clutter: the file's references are gone from the index along with its definitions, so whatever only that file calls would read as unreachable. A checker whose findings depend on references must refuse to run in that state (`IndexUnitCensus.undescribedSourcesBarrier`); `unreachable` does.
+
+What this still cannot see:
+
+- **It trusts modification times.** A file rewritten with identical content looks edited; a file edited while its own compilation was running can leave a unit dated after an edit it never saw.
+- **It judges a unit by its main file alone.** A unit for `A.swift` is current if `A.swift` has not changed, even when a file it refers to has -- a build would have recompiled `A.swift` if the change mattered to it, but only in a variant that is still being built.
+- **It cannot tell "no longer compiled" from "not compiled yet".** A source with only stale units is reported as undescribed either way. If the file left every target, the barrier persists until the leftover unit or the file is removed.
+- **Platforms are told apart by triple, with the version dropped.** Units for iOS and macOS do not supersede each other, because each sees references the other's `#if os(…)` hides. Two units that differ in something the triple does not record -- a custom compilation condition -- are treated as one compilation, and the older is superseded.
+- **A current unit is read whole.** `IndexedDeclaration.appears(indexedName:inSourceLine:)` is the last check a consumer can make before quoting the index: whether the recorded line still mentions the symbol. It is a minimum, and it is applied by each consumer, because only the consumer knows which occurrence it is about to turn into a finding. Today that is `unreachable` alone.
+- **If the census cannot be taken** -- the unit reader is a second library, loaded separately -- the session reads every unit, `unitCensus` is `nil`, and the note says the units were not examined individually.
 
 ### IndexStoreSession -- open and query the index
 
@@ -76,7 +111,7 @@ Staleness checking compares the index store's modification time against the newe
 var session: IndexStoreSession?
 do {
     if let storeInfo = located, let libPath = IndexStoreSession.findLibIndexStore() {
-        session = try IndexStoreSession(
+        session = try await IndexStoreSession(
             storePath: storeInfo.url,
             libPath: libPath
         )
@@ -87,7 +122,7 @@ do {
 // session?.db is a ready-to-query IndexStoreDB instance
 ```
 
-IndexStoreSession handles the boilerplate: locating `libIndexStore.dylib` from the active toolchain, creating a temporary database directory, opening the index store, and polling for unit changes. The temporary database is cleaned up in `deinit`.
+IndexStoreSession handles the boilerplate: locating `libIndexStore.dylib` from the active toolchain, taking the unit census described above, and opening the index store against a persistent database beside it (`quality-gate-indexdb-<store name>`), so a later run registers only the units that changed. The initializer is `async` because the census is; there is deliberately no synchronous overload, which would open the store without one. The database is a cache of the store and is safe to delete at any time.
 
 `findLibIndexStore()` searches three locations in order: the Xcode toolchain at `/Applications/Xcode.app/...`, the Command Line Tools at `/Library/Developer/CommandLineTools/...`, and the result of `xcrun --find swift` for custom toolchain installations.
 
@@ -159,7 +194,8 @@ Pass 2 must never fail the gate when the index is unavailable. The contract:
 | Scenario | Behavior |
 |----------|----------|
 | No index store found | Emit `.note`, skip Pass 2 |
-| Index store is stale | Emit `.note`, run Pass 2 with caveat |
+| Index store is stale | Refuse Pass 2 and say why -- a stale index is not incomplete, it is wrong about lines and names |
+| A source has units, none current | The same refusal, per file -- see *What the freshness check does and does not establish* |
 | `libIndexStore.dylib` not found | Emit `.note`, skip Pass 2 |
 | IndexStoreDB throws on open | Emit `.note`, skip Pass 2 |
 | Pass 2 query returns empty results | Normal -- no additional diagnostics |
@@ -200,7 +236,7 @@ do {
         ))
         throw SkipMarker.skipped
     }
-    let indexSession = try IndexStoreSession(
+    let indexSession = try await IndexStoreSession(
         storePath: storeInfo.url,
         libPath: try locateLibIndexStore()
     )
@@ -283,7 +319,7 @@ IndexStoreDB is designed for IDE-speed queries. Typical overhead for a quality-g
 | Operation | Time |
 |-----------|------|
 | `StoreLocator.locate()` | ~5ms (filesystem scan) |
-| `IndexStoreSession.init()` | ~200ms (dylib load + DB open) |
+| `IndexStoreSession.init()` | ~0.3s warm on a 2,800-unit store: unit census ~0.1s, registering current units ~0.2s. Cold (no database yet) is a full ingest, seconds |
 | `ConformanceQuery.findConformers()` | ~1ms per protocol |
 | `ConformanceQuery.findReferences()` | ~2ms per symbol |
 | `SourceWalker.swiftFiles()` | ~10ms (filesystem walk) |

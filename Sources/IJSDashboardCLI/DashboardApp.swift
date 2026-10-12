@@ -3,9 +3,7 @@ import IJSAggregator
 import IJSDashboardCore
 import CorpusKit
 import JudgmentWorkbench
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import SwiftCLIKit
 import Synchronization
 
@@ -14,6 +12,21 @@ import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
+
+/// Runs `body` inside an autorelease pool where one exists.
+///
+/// Objective-C's runtime is a Darwin facility; on Linux there is no pool to drain and the
+/// call is the identity function. Written as one helper rather than a `#if` at each call
+/// site so the loop below reads the same on both platforms.
+/// - Parameter body: The work to perform.
+@inline(__always)
+private func withAutoreleasePoolIfAvailable(_ body: () -> Void) {
+    #if canImport(ObjectiveC)
+    autoreleasepool(invoking: body)
+    #else
+    body()
+    #endif
+}
 
 private let dashboardShouldExit = Atomic<Bool>(false)
 
@@ -33,6 +46,7 @@ public enum DashboardApp: Sendable {
         portfolio: PortfolioSummary,
         projects: [ProjectSummary],
         allRuns: [String: [TimestampedRun]],
+        histories: CorpusHistories? = nil,
         corpusReader: CorpusReader? = nil,
         pulse: InstitutionalPulse? = nil,
         manifest: CorpusManifest = CorpusManifest(),
@@ -41,7 +55,12 @@ public enum DashboardApp: Sendable {
     ) {
         var currentPortfolio = portfolio
         var sortedProjects = projects.sorted { $0.projectID < $1.projectID }
-        var currentAllRuns = allRuns
+        // When the caller loaded through `CorpusHistories`, the runs carry no diagnostics and
+        // the findings for each project's present state are held beside them; a reload then
+        // re-reads only the projects that changed. `allRuns` alone is the older calling
+        // convention — full runs, replaced wholesale — and still works.
+        var currentHistories = histories ?? CorpusHistories()
+        var currentAllRuns = histories?.runs ?? allRuns
         var currentPulse = pulse
         var currentManifest = manifest
         let activeIDs = sortedProjects.filter { $0.lifecycle == .active }.map(\.projectID)
@@ -57,7 +76,11 @@ public enum DashboardApp: Sendable {
             }
         }
 
-        setvbuf(stdout, nil, _IONBF, 0)
+        // No `setvbuf(stdout, …)`. It configured a stdio buffer this module never writes
+        // through — every frame goes out via `write(1, …)` below, and there is not one
+        // `print` in the target — so it was dead configuration. It is also unbuildable on
+        // Linux, where Glibc declares `stdout` as a mutable global and naming it from a
+        // concurrency-checked context is an error.
         dashboardShouldExit.store(false, ordering: .relaxed)
 
         signal(SIGINT) { _ in
@@ -84,7 +107,12 @@ public enum DashboardApp: Sendable {
         var eofReached = false
 
         while !dashboardShouldExit.load(ordering: .acquiring) && !state.shouldQuit && !eofReached {
-            autoreleasepool {
+            // `autoreleasepool` needs the Objective-C runtime, which Linux has no version
+            // of. The pool matters on Darwin: this loop redraws a frame per iteration and
+            // the framework objects behind `TerminalSize.current()` accumulate without it.
+            // Where there is no such runtime there is nothing to drain, so the body runs
+            // directly rather than through a shim that would only pretend to.
+            withAutoreleasePoolIfAvailable {
                 let size = TerminalSize.current()
                 let cols = max(size.columns, 20)
                 let rows = size.rows
@@ -207,7 +235,8 @@ public enum DashboardApp: Sendable {
                 // Rebuilt when the subject or its runs change.
                 if state.currentView == .projectDetail,
                    let projectID = state.detailProjectID ?? state.selectedProjectID {
-                    let results = TimestampedRun.latestStandardResults(of: currentAllRuns[projectID] ?? [])
+                    let results = currentHistories.latestResults[projectID]
+                        ?? TimestampedRun.latestStandardResults(of: currentAllRuns[projectID] ?? [])
                     let rows = FindingsInbox.items(fromResults: results).map { item in
                         InboxRow(
                             ruleId: item.ruleId ?? "(no rule id)",
@@ -244,7 +273,9 @@ public enum DashboardApp: Sendable {
                 // location. Governed rules (review policy) hold for a second
                 // identity instead of writing immediately.
                 if let request = state.pendingAcknowledge {
-                    consumeAcknowledge(request, allRuns: currentAllRuns, corpusPath: corpusPath, state: &state)
+                    consumeAcknowledge(
+                        request, allRuns: currentAllRuns, reader: corpusReader,
+                        corpusPath: corpusPath, state: &state)
                     state.clearPendingAcknowledge()
                     needsRedraw = true
                 }
@@ -292,6 +323,7 @@ public enum DashboardApp: Sendable {
                         portfolio: &currentPortfolio,
                         projects: &sortedProjects,
                         allRuns: &currentAllRuns,
+                        histories: &currentHistories,
                         state: &state,
                         pulse: &currentPulse,
                         manifest: &currentManifest
@@ -315,11 +347,25 @@ public enum DashboardApp: Sendable {
     private static func consumeAcknowledge(
         _ request: AcknowledgeRequest,
         allRuns: [String: [TimestampedRun]],
+        reader: CorpusReader?,
         corpusPath: String?,
         state: inout DashboardState
     ) {
-        guard let latest = allRuns[request.projectID]?
-            .max(by: { $0.metadata.timestamp < $1.metadata.timestamp }) else {
+        // The held runs carry no diagnostics, and an acknowledgement is about one finding in
+        // the latest run — so that run is read whole, now, from the corpus. Without a reader
+        // the held runs are the caller's full ones and the newest of them is used.
+        var latestRun = allRuns[request.projectID]?
+            .max(by: { $0.metadata.timestamp < $1.metadata.timestamp })
+        if let reader {
+            do {
+                latestRun = try reader.loadLatestRun(for: request.projectID)
+            } catch {
+                logger.warning("Failed to read the latest run of \(request.projectID, privacy: .public) for an acknowledgement: \(error.localizedDescription, privacy: .public)")
+                state.statusMessage = "Could not read the latest run of \(request.projectID) — nothing acknowledged."
+                return
+            }
+        }
+        guard let latest = latestRun else {
             state.statusMessage = "No runs for \(request.projectID) — nothing to acknowledge."
             return
         }
@@ -351,7 +397,7 @@ public enum DashboardApp: Sendable {
                 return
             }
             let owner = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
-            state.statusMessage = ReviewStore.submit(
+            state.statusMessage = ReviewStore.submitFromEventLoop(
                 corpusPath: corpusPath, ruleId: ruleId,
                 justification: request.reason, by: owner)
         case .awaitingSecondIdentity:
@@ -373,7 +419,7 @@ public enum DashboardApp: Sendable {
             return
         }
         let reviewer = ProcessInfo.processInfo.environment["USER"] ?? "unknown"
-        state.statusMessage = ReviewStore.apply(
+        state.statusMessage = ReviewStore.applyFromEventLoop(
             action, corpusPath: corpusPath, reviewer: reviewer)
         state.setReviewRows(ReviewStore.pending(corpusPath: corpusPath))
     }
@@ -477,17 +523,20 @@ public enum DashboardApp: Sendable {
         portfolio: inout PortfolioSummary,
         projects: inout [ProjectSummary],
         allRuns: inout [String: [TimestampedRun]],
+        histories: inout CorpusHistories,
         state: inout DashboardState,
         pulse: inout InstitutionalPulse?,
         manifest: inout CorpusManifest
     ) {
-        let freshRuns: [String: [TimestampedRun]]
+        // Only the projects whose history changed are re-read; the rest are kept. This used to
+        // be `loadAll()` — the whole corpus, findings included, every thirty seconds.
         do {
-            freshRuns = try reader.loadAll()
+            try histories.refresh(from: reader)
         } catch {
             logger.warning("Failed to reload corpus data: \(error.localizedDescription, privacy: .public)")
             return
         }
+        let freshRuns = histories.runs
         allRuns = freshRuns
         do {
             manifest = try reader.loadManifest()

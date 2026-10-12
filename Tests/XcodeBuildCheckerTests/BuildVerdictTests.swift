@@ -129,4 +129,18 @@ struct BuildDestinationTests {
         #expect(XcodeBuildChecker.defaultDestination(supportedPlatforms: "") == nil)
         #expect(XcodeBuildChecker.defaultDestination(supportedPlatforms: "linux") == nil)
     }
+
+    @Test("A successful build with compiler warnings is a warning, not a pass")
+    func warningsMakeAWarningStatus() {
+        let warning = Diagnostic(severity: .warning, message: "unused variable", ruleId: "xcode-compiler")
+        #expect(XcodeBuildChecker.status(anyBuildFailed: false, diagnostics: [warning]) == .warning)
+    }
+
+    @Test("A clean successful build passes; a failed one fails whatever else it reported")
+    func statusFollowsBuildThenWarnings() {
+        let warning = Diagnostic(severity: .warning, message: "unused variable", ruleId: "xcode-compiler")
+        let note = Diagnostic(severity: .note, message: "context", ruleId: "xcode-compiler")
+        #expect(XcodeBuildChecker.status(anyBuildFailed: false, diagnostics: [note]) == .passed)
+        #expect(XcodeBuildChecker.status(anyBuildFailed: true, diagnostics: [warning]) == .failed)
+    }
 }

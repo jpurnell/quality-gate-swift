@@ -1,8 +1,6 @@
 import Foundation
 import Crypto
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// The complete set of inputs a checker's result depends on.
 ///

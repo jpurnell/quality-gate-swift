@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// On-disk cache of checker results keyed by `(checkerId, fingerprint)`.
 ///

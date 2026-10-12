@@ -1,6 +1,15 @@
 # Build artifacts
 .build/
 .swiftpm/
+# ...except shared schemes, which are the point of committing any scheme at all.
+# Git cannot un-ignore a file whose parent directory is ignored, so every level
+# has to be re-admitted explicitly. `xcuserdata/` stays ignored by the rule below.
+!.swiftpm/
+.swiftpm/*
+!.swiftpm/xcode/
+.swiftpm/xcode/*
+!.swiftpm/xcode/xcshareddata/
+!.swiftpm/xcode/xcshareddata/xcschemes/
 *.xcodeproj/
 xcuserdata/
 DerivedData/

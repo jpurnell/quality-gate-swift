@@ -1,8 +1,6 @@
 import CorpusKit
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// One authenticated write request as it arrives at corpusd (Phase 3b §1).
 ///

@@ -1,9 +1,13 @@
 import ArgumentParser
 import ControlMapping
 import Foundation
-#if canImport(os)
-import os
+#if canImport(FoundationNetworking)
+// URLSession, URLRequest and URLResponse live in a separate module on Linux, where
+// Foundation is split. Importing it unconditionally fails on Darwin, where no such
+// module exists — hence the canImport rather than an os() check.
+import FoundationNetworking
 #endif
+import QualityGateLogging
 
 /// `quality-gate standards-watch` — detect upstream drift in the compliance
 /// control catalogs (RegulatoryControlMapping Phase 3).
@@ -115,7 +119,6 @@ struct ECFRStandardsSource: StandardsSource {
     func fetchUpstream(for catalog: ControlCatalog) async throws -> String? {
         guard catalog.source == "ecfr" else { return nil }
         let resolved = catalog.sourceRef.replacingOccurrences(of: "{date}", with: Self.todayUTC())
-        // SECURITY: URL is built from tool-bundled catalog data and the host is allow-listed to eCFR — not attacker-controllable (CWE-918 mitigated).
         guard let url = URL(string: resolved), let host = url.host, Self.allowedHosts.contains(host) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15

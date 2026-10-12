@@ -1,8 +1,6 @@
 import Foundation
 import IndexStoreInfra
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Scans Swift source for floating-point safety issues.

@@ -241,8 +241,10 @@ struct BuildCheckerTests {
             duration: .seconds(1)
         )
 
-        // Even with warnings, build succeeded so status is passed but has warnings
-        #expect(result.status == .passed)
+        // The build succeeded, but a compiler warning is a finding, and the verdict line
+        // must say so. As `.passed` it was counted in the summary and nothing else: the
+        // tick stayed green, and a run whose job is "zero warnings" read as clean.
+        #expect(result.status == .warning)
         #expect(result.diagnostics.count == 1)
         #expect(result.diagnostics.first?.severity == .warning)
     }
@@ -410,6 +412,19 @@ struct BuildCheckerTests {
         #expect(result.status == .failed)
     }
 
+    @Test("A build terminated at its time limit fails, even if its output mentions signing")
+    func timedOutBuildFails() {
+        let output = """
+        [1/3] Compiling Example Example.swift
+        /path/to/.build/debug/my-tool: codesign failed
+
+        process-kernel: `/usr/bin/swift` timed out after 600s and was terminated.
+        """
+        let result = BuildChecker.createResult(output: output, exitCode: 124, duration: .seconds(600))
+        #expect(result.status == .failed)
+        #expect(!result.diagnostics.contains { $0.message.contains("compilation succeeded") })
+    }
+
     @Test("Passes on codesign failed variant")
     func passesOnCodesignFailed() {
         let output = """
@@ -441,5 +456,179 @@ struct BuildCheckerTests {
         // Message should include the original error text
         #expect(diagnostic.message.contains("cannot find") ||
                 diagnostic.message.contains("NetworkManager"))
+    }
+
+    // MARK: - Hyperlink Escapes
+
+    @Test("An OSC 8 hyperlink around the diagnostic group is removed from the message")
+    func stripsHyperlinkEscapes() throws {
+        // Exactly what Swift 6.4 prints through a pipe: SGR colour around the severity, and the
+        // diagnostic group wrapped in an OSC 8 hyperlink to its documentation.
+        let esc = "\u{1B}"
+        let output = "/path/to/Warns.swift:6:9: \(esc)[1;33mwarning: \(esc)[1;39mresult of call to 'loud()' is unused\(esc)[0;0m "
+            + "[#\(esc)]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\(esc)\\NoUsage\(esc)]8;;\(esc)\\]"
+
+        let diagnostic = try #require(BuildChecker.parseBuildOutput(output).first)
+
+        #expect(diagnostic.message == "result of call to 'loud()' is unused [#NoUsage]")
+        #expect(!diagnostic.message.contains(esc))
+        #expect(!diagnostic.message.contains("]8;;"))
+        #expect(!diagnostic.message.contains("https://"))
+    }
+
+    @Test("A BEL-terminated OSC 8 hyperlink is removed too")
+    func stripsBellTerminatedHyperlinkEscapes() throws {
+        let esc = "\u{1B}"
+        let bel = "\u{07}"
+        let output = "/path/to/Warns.swift:6:9: warning: result of call to 'loud()' is unused "
+            + "[#\(esc)]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\(bel)NoUsage\(esc)]8;;\(bel)]"
+
+        let diagnostic = try #require(BuildChecker.parseBuildOutput(output).first)
+
+        #expect(diagnostic.message == "result of call to 'loud()' is unused [#NoUsage]")
+    }
+
+    // MARK: - Recorded Diagnostics
+
+    private static func unusedResultWarning() -> Diagnostic {
+        Diagnostic(
+            severity: .warning,
+            message: "result of call to 'loud()' is unused [#NoUsage]",
+            filePath: "/path/to/Warns.swift",
+            lineNumber: 6,
+            columnNumber: 9,
+            ruleId: "swift-compiler"
+        )
+    }
+
+    private static func recorded(_ diagnostics: [Diagnostic], compiled: Int, read: Int) -> RecordedDiagnostics {
+        RecordedDiagnostics(
+            diagnostics: diagnostics,
+            coverage: RecordedDiagnostics.Coverage(
+                mapCount: 1, unitCount: compiled + read, compiledByThisRun: compiled, readFromRecord: read)
+        )
+    }
+
+    @Test("The same warning in the transcript and the record is one diagnostic")
+    func transcriptAndRecordAreMergedOnce() {
+        let output = "/path/to/Warns.swift:6:9: warning: result of call to 'loud()' is unused [#NoUsage]"
+
+        let result = BuildChecker.createResult(
+            output: output,
+            exitCode: 0,
+            duration: .seconds(1),
+            recorded: Self.recorded([Self.unusedResultWarning()], compiled: 1, read: 0)
+        )
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning } == [Self.unusedResultWarning()])
+    }
+
+    @Test("A clean build whose only warnings are a dependency's passes — no phantom warning")
+    func dependencyOnlyWarningsPass() {
+        let output = """
+            /repo/.build/checkouts/mlx-swift/Source/Cmlx/kernel.h:108:3: warning: constexpr if is a C++17 extension
+            /repo/.build/checkouts/mlx-swift/Source/Cmlx/kernel.h:120:3: warning: constexpr if is a C++17 extension
+            Build complete! (41.20s)
+            """
+
+        let result = BuildChecker.createResult(output: output, exitCode: 0, duration: .seconds(1))
+
+        #expect(result.status == .passed)
+        #expect(result.diagnostics.filter { $0.severity == .warning }.isEmpty)
+        #expect(result.diagnostics.map(\.message)
+                == ["2 warnings in dependency mlx-swift were not counted; they are not this package's source"])
+        // The status agrees with the findings, so the gate has nothing to synthesize.
+        #expect(result.reconciled().status == .passed)
+        #expect(!result.reconciled().diagnostics.contains { $0.ruleId == CheckResult.statusWithoutFindingRuleID })
+    }
+
+    @Test("A first-party warning beside a dependency's is the one that counts")
+    func firstPartyWarningCountsBesideDependency() {
+        let output = """
+            /repo/.build/checkouts/mlx-swift/Source/Cmlx/kernel.h:108:3: warning: constexpr if is a C++17 extension
+            /repo/Sources/App/File.swift:4:9: warning: variable 'x' was never used
+            """
+
+        let result = BuildChecker.createResult(
+            output: output, exitCode: 0, duration: .seconds(1),
+            recorded: Self.recorded([], compiled: 1, read: 0))
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning }.map(\.filePath) == ["/repo/Sources/App/File.swift"])
+        #expect(result.diagnostics.contains {
+            $0.message == "1 warning in dependency mlx-swift was not counted; it is not this package's source"
+        })
+        #expect(result.diagnostics.last?.ruleId == "build.diagnostic-coverage")
+    }
+
+    @Test("A dependency that fails to compile fails the build and its error is shown")
+    func dependencyErrorFailsTheBuild() {
+        let output = "/repo/.build/checkouts/dep/Sources/Dep/File.swift:5:1: error: cannot find type 'Foo' in scope"
+
+        let result = BuildChecker.createResult(output: output, exitCode: 1, duration: .seconds(1))
+
+        #expect(result.status == .failed)
+        #expect(result.diagnostics.filter { $0.severity == .error }.map(\.message) == ["cannot find type 'Foo' in scope"])
+    }
+
+    @Test("A warning the transcript prints twice is one diagnostic")
+    func transcriptDuplicatesAreMergedOnce() {
+        let line = "/path/to/Decl.swift:7:23: warning: 'Old' is deprecated: use something else [#DeprecatedDeclaration]"
+
+        let result = BuildChecker.createResult(output: line + "\n" + line, exitCode: 0, duration: .seconds(1))
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning }.count == 1)
+    }
+
+    @Test("A warning only the record holds makes the result a warning")
+    func recordedOnlyWarningIsReported() {
+        let result = BuildChecker.createResult(
+            output: "Build complete! (0.41s)",
+            exitCode: 0,
+            duration: .seconds(1),
+            recorded: Self.recorded([Self.unusedResultWarning()], compiled: 0, read: 1)
+        )
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.filter { $0.severity == .warning } == [Self.unusedResultWarning()])
+        #expect(result.diagnostics.last?.ruleId == "build.diagnostic-coverage")
+    }
+
+    @Test("Unverified units make a clean build a warning, never a pass")
+    func unverifiedUnitsAreAWarning() {
+        let recorded = RecordedDiagnostics(
+            diagnostics: [],
+            coverage: RecordedDiagnostics.Coverage(
+                mapCount: 1, unitCount: 2, compiledByThisRun: 0, readFromRecord: 1,
+                unverified: ["Sources/Fixture/Warns.swift"])
+        )
+
+        let result = BuildChecker.createResult(
+            output: "Build complete! (0.41s)", exitCode: 0, duration: .seconds(1), recorded: recorded)
+
+        #expect(result.status == .warning)
+        #expect(result.diagnostics.contains { $0.ruleId == "build.warnings-unverified" && $0.severity == .warning })
+    }
+
+    @Test("A failed build ignores the record: the transcript has the errors")
+    func failedBuildIgnoresTheRecord() {
+        let result = BuildChecker.createResult(
+            output: "/path/to/Clean.swift:2:37: error: cannot convert value of type 'String' to specified type 'Int'",
+            exitCode: 1,
+            duration: .seconds(1),
+            recorded: Self.recorded([Self.unusedResultWarning()], compiled: 0, read: 1)
+        )
+
+        #expect(result.status == .failed)
+        #expect(result.diagnostics.map(\.severity) == [.error])
+    }
+
+    // MARK: - Result Cache
+
+    @Test("build declares no cache inputs: the build system is the cache")
+    func buildIsNotResultCached() {
+        #expect(BuildChecker().cacheInputs(configuration: Configuration()) == nil)
     }
 }

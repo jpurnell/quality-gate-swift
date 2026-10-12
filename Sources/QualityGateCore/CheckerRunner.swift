@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 /// Runs quality checkers concurrently with bounded parallelism, preserving order.
 ///
@@ -71,9 +69,12 @@ public struct CheckerRunner: Sendable {
     ///   - configuration: The gate configuration passed to each checker.
     ///   - strict: When `true`, a `.warning` result counts as failing for early-exit.
     ///   - continueOnFailure: When `false`, stop after the first failing result.
-    ///   - cache: Optional result cache consulted when `useCache` is `true`; `nil` disables caching.
+    ///   - cache: Optional result cache; `nil` disables caching altogether, reads and writes.
     ///   - gateHash: Identity hash of the gate build, mixed into each cache fingerprint so a gate rebuild invalidates stale entries.
-    ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged checker inputs.
+    ///   - useCache: When `true` and `cache` is non-`nil`, reuse cached results for unchanged
+    ///     checker inputs. When `false`, nothing is read from `cache` — every checker runs — but
+    ///     a fresh passing result still replaces the stored entry, and a fresh failure removes
+    ///     it. That is `--no-cache`: do not read, rather than do not touch.
     ///   - digests: Per-run file-digest memo shared across every fingerprint this run computes.
     ///     Callers with post-run fingerprinting of their own (telemetry sidecars) pass theirs in
     ///     so the whole process hashes each input file once.
@@ -174,7 +175,7 @@ public struct CheckerRunner: Sendable {
         }
 
         @Sendable func evaluate(_ checker: any QualityChecker) async -> CheckResult {
-            if useCache, let cache, let inputs = checker.cacheInputs(configuration: configuration) {
+            if let cache, let inputs = checker.cacheInputs(configuration: configuration) {
                 let fingerprint = CheckerFingerprint.compute(
                     checkerId: checker.id, inputs: inputs, gateHash: gateHash, digests: digests
                 )
@@ -195,24 +196,45 @@ public struct CheckerRunner: Sendable {
                 // an identical tree on purpose, so a poisoned entry stays invisible
                 // during ordinary editing and bites when someone is trying to get
                 // unstuck, and is least inclined to doubt a red result.
-                if let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
-                    if cached.status.isPassing {
+                //
+                // `useCache == false` skips only this read. It used to skip the store below
+                // as well, so the run that proved an entry stale left it in place: the next
+                // default run replayed the old verdict, and `--no-cache` — the flag people
+                // reach for when a cached result looks wrong — could show the truth and not
+                // repair anything.
+                //
+                // "A failure" is judged on the verdict the run reports, not the status the
+                // checker wrote. Reconciliation raises `.passed` carrying an error to
+                // `.failed` — after this point — so a guard on the raw status stored that
+                // result as a pass and then replayed a failure, reconciled afresh each time,
+                // from an entry it never thought to evict. And a run stopped at its budget
+                // is never stored under any status: it did not finish, so it has no verdict.
+                // That one is not hypothetical — a cut-off `swift test` was once returned as
+                // `.passed` with a signing warning, cached, and served to every later run of
+                // the same tree as a dated, labelled, replayed pass.
+                if useCache, let cached = cache.load(checkerId: checker.id, fingerprint: fingerprint) {
+                    if Self.isReplayable(cached) {
                         let producedAt = cache.entryDate(checkerId: checker.id, fingerprint: fingerprint)
-                        return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker)
+                        return clamped(transform(markReplayed(cached, producedAt: producedAt)), checker).reconciled()
                     }
                     cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }
                 let fresh = await runAndSynthesize(checker)
-                if fresh.status.isPassing {
+                if Self.isReplayable(fresh) {
                     cache.store(fresh, checkerId: checker.id, fingerprint: fingerprint)
+                } else {
+                    // Still never stored. And whatever is stored for this fingerprint has just
+                    // been contradicted by a real run, so it goes: on a reading run there is
+                    // nothing left to remove, on a no-read run this is the stale pass.
+                    cache.remove(checkerId: checker.id, fingerprint: fingerprint)
                 }
-                return clamped(transform(fresh), checker)
+                return clamped(transform(fresh), checker).reconciled()
             }
-            return clamped(transform(await runAndSynthesize(checker)), checker)
+            return clamped(transform(await runAndSynthesize(checker)), checker).reconciled()
         }
 
         func isFailing(_ result: CheckResult) -> Bool {
-            result.status == .failed || (strict && result.status == .warning)
+            result.failsRun(strict: strict)
         }
 
         // Preserve each checker's original position so results report in checker order,
@@ -263,6 +285,17 @@ public struct CheckerRunner: Sendable {
             }
         }
         return RunOutcome(results: results, truncation: truncation)
+    }
+
+    /// Whether a result is a verdict that may be stored and served to a later run.
+    ///
+    /// Two conditions, both about the result as the run reports it: its reconciled status
+    /// passes, and none of its diagnostics says the tool was stopped at its budget.
+    ///
+    /// - Parameter result: A checker's raw result, fresh or read back from the cache.
+    /// - Returns: `true` when replaying it would repeat a finished, passing run.
+    static func isReplayable(_ result: CheckResult) -> Bool {
+        result.reconciled().status.isPassing && !result.diagnostics.contains(where: ToolRun.isExpiry)
     }
 
     /// Runs the given indexed checkers concurrently, bounded by ``maxConcurrency``.

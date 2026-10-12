@@ -93,4 +93,80 @@ struct IsolationStackTests {
         let diags = result.diagnostics.filter { $0.ruleId == "concurrency.dispatch-queue-in-actor" }
         #expect(diags.count == 1, "Only the @MainActor function 'a' should fire, not 'b'")
     }
+
+    // MARK: - A deinit's body has the deinit's isolation, not the type's
+
+    private let taskRule = "concurrency.task-captures-self-no-isolation"
+    private let dispatchRule = "concurrency.dispatch-queue-in-actor"
+
+    @Test("A plain deinit body in a @MainActor class is nonisolated")
+    func plainDeinitBodyIsNonisolated() async throws {
+        // A Task spawned from a nonisolated deinit does not inherit the main actor, so
+        // the Task rule — which reports deferred work inside an isolated context — has
+        // nothing to say. (The deinit rule still reports the stored-state access.)
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            deinit {
+                Task { self.x += 1 }
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.filter { $0.ruleId == taskRule }.count == 0)
+    }
+
+    @Test("An isolated deinit body in a @MainActor class is main-actor isolated")
+    func isolatedDeinitBodyIsIsolated() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            isolated deinit {
+                Task { self.x += 1 }
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.filter { $0.ruleId == taskRule }.count == 1)
+    }
+
+    @Test("A deinit attributed @MainActor has a main-actor body")
+    func mainActorAttributedDeinitBodyIsIsolated() async throws {
+        let code = """
+        @MainActor
+        class A {
+            var x = 0
+            @MainActor deinit {
+                DispatchQueue.main.async {}
+            }
+        }
+        """
+        let result = try await TestHelpers.audit(code)
+        #expect(result.diagnostics.filter { $0.ruleId == dispatchRule }.count == 1)
+    }
+
+    @Test("A plain actor deinit is nonisolated; an isolated one is not")
+    func actorDeinitIsolationFollowsTheModifier() async throws {
+        let plain = """
+        actor B {
+            deinit {
+                DispatchQueue.main.async {}
+            }
+        }
+        """
+        let plainResult = try await TestHelpers.audit(plain)
+        #expect(plainResult.diagnostics.filter { $0.ruleId == dispatchRule }.count == 0)
+
+        let isolated = """
+        actor B {
+            isolated deinit {
+                DispatchQueue.main.async {}
+            }
+        }
+        """
+        let isolatedResult = try await TestHelpers.audit(isolated)
+        #expect(isolatedResult.diagnostics.filter { $0.ruleId == dispatchRule }.count == 1)
+    }
 }

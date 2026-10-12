@@ -2,6 +2,7 @@ import Foundation
 import QualityGateCore
 import SwiftSyntax
 import SwiftParser
+import SyntaxScope
 
 // MARK: - Protocol name pre-pass
 
@@ -989,7 +990,7 @@ func collectCalls(in body: Syntax, enclosingTypeContext: String) -> [CallSite] {
 ///
 /// - a key path component — `\.retryCount` resolves against the key path's root type;
 /// - a call to a same-named method — `asISO8601()` where the type declares one;
-/// - any identifier shadowed by a local binding, tracked by ``LexicalScope``.
+/// - any identifier shadowed by a local binding, tracked by `LexicalScope` (in `SyntaxScope`).
 /// Functions that run a closure later, on a stack this one does not own.
 ///
 /// Deliberately a short, named list rather than a general rule about closures. Measured
@@ -1106,34 +1107,9 @@ func containsIdentifierReference(
             return .visitChildren
         }
 
-        /// Collects the names a pattern binds.
-        ///
-        /// `case let .complete(completion)` parses as an expression pattern, so the
-        /// bindings are `DeclReferenceExpr` nodes rather than `IdentifierPattern`s.
-        /// The case name itself is the callee and binds nothing.
+        /// Declares the names a pattern binds — see `boundNames(in:)` in `SyntaxScope`.
         private func declareNames(in node: Syntax) {
-            final class Finder: SyntaxVisitor {
-                var names: [String] = []
-                override func visit(_ node: IdentifierPatternSyntax) -> SyntaxVisitorContinueKind {
-                    names.append(node.identifier.text)
-                    return .skipChildren
-                }
-                override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
-                    if let base = node.base { walk(base) }
-                    return .skipChildren
-                }
-                override func visit(_ node: FunctionCallExprSyntax) -> SyntaxVisitorContinueKind {
-                    for argument in node.arguments { walk(Syntax(argument)) }
-                    return .skipChildren
-                }
-                override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-                    names.append(node.baseName.text)
-                    return .skipChildren
-                }
-            }
-            let finder = Finder(viewMode: .sourceAccurate)
-            finder.walk(node)
-            for boundName in finder.names { scope.declare(boundName) }
+            for boundName in boundNames(in: node) { scope.declare(boundName) }
         }
 
         // MARK: References

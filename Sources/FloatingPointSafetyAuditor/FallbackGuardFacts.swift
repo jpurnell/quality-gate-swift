@@ -82,7 +82,9 @@ struct FallbackGuardFacts: Sendable {
         case upperBound
         /// `abs(x) < b`, `x.magnitude < b`
         case magnitudeBound
-        /// `x != 0`, `x > e`, `abs(x) > e`, `!x.isZero` — enough to divide by.
+        /// `x != 0`, `x > 0`, `x >= 1`, `abs(x) > .ulpOfOne`, `!x.isZero`,
+        /// `xs.isEmpty` (recorded on `xs.count`) — the question "can this be
+        /// zero?", asked in either sense. Enough to divide by.
         case nonZero
     }
 
@@ -107,8 +109,25 @@ struct FallbackGuardFacts: Sendable {
     /// Every check found.
     var facts: [Fact] = []
 
+    /// One `let alias = target`, at one place.
+    struct Alias: Sendable {
+        /// The new name.
+        let name: String
+        /// The value it names, as ``FallbackSubjectKey`` names it.
+        let target: String
+        /// UTF-8 offset of the declaration.
+        let offset: Int
+    }
+
     /// Locals that are another value under a new name: `let sizable = Double(budget)`.
-    var aliases: [String: String] = [:]
+    ///
+    /// Every declaration is kept, with where it was written. This was one
+    /// dictionary per body, last write wins, and a body is allowed to declare
+    /// `n` twice — once in each of two closures, say. The later `let n` then
+    /// replaced the earlier one for the whole body: a guard on the first `n`'s
+    /// value stopped reaching the division it was written for, and a guard on
+    /// the second's cleared a division by the first.
+    var aliases: [Alias] = []
 
     /// The kinds of check made on any of `keys` before `offset`.
     ///
@@ -125,15 +144,27 @@ struct FallbackGuardFacts: Sendable {
         return found
     }
 
-    /// `key`, plus every name that is the same value: its aliases, and what it
-    /// is itself an alias of.
-    func equivalents(of key: String) -> Set<String> {
-        var keys: Set<String> = [key]
-        if let target = aliases[key] {
-            keys.insert(target)
+    /// `key`, plus every name that is the same value at `offset`: its aliases,
+    /// and what it is itself an alias of.
+    ///
+    /// A name means its most recent declaration before the use. A declaration
+    /// after the use says nothing about it.
+    ///
+    /// - Parameters:
+    ///   - key: The value, as ``FallbackSubjectKey`` names it.
+    ///   - offset: Where the value is used.
+    func equivalents(of key: String, at offset: Int) -> Set<String> {
+        var current: [String: Alias] = [:]
+        for alias in aliases where alias.offset < offset {
+            if let known = current[alias.name], known.offset > alias.offset { continue }
+            current[alias.name] = alias
         }
-        for (alias, target) in aliases where target == key {
-            keys.insert(alias)
+        var keys: Set<String> = [key]
+        if let own = current[key] {
+            keys.insert(own.target)
+        }
+        for alias in current.values where alias.target == key {
+            keys.insert(alias.name)
         }
         return keys
     }
@@ -170,6 +201,31 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         let collector = FallbackGuardFactCollector(genericNames: genericNames)
         collector.walk(body)
         return collector.result
+    }
+
+    /// Collects the facts a file's top-level code establishes.
+    ///
+    /// A script, a `main.swift` or a playground page is a body: it asks its
+    /// questions in the same spellings a function does. Only statements are
+    /// read. A type or an extension declared at file scope is not part of the
+    /// top-level program, and a guard inside one of its members answers for that
+    /// member alone; a function's body is already left to the function.
+    static func collectTopLevel(from file: SourceFileSyntax, genericNames: Set<String>) -> FallbackGuardFacts {
+        var facts = FallbackGuardFacts()
+        for item in file.statements where !declaresAType(item.item) {
+            let found = collect(from: Syntax(item), genericNames: genericNames)
+            facts.facts.append(contentsOf: found.facts)
+            facts.aliases.append(contentsOf: found.aliases)
+        }
+        return facts
+    }
+
+    /// True for a file-scope declaration whose members are their own bodies.
+    private static func declaresAType(_ item: CodeBlockItemSyntax.Item) -> Bool {
+        guard case .decl(let declaration) = item else { return false }
+        return declaration.is(StructDeclSyntax.self) || declaration.is(ClassDeclSyntax.self)
+            || declaration.is(ActorDeclSyntax.self) || declaration.is(EnumDeclSyntax.self)
+            || declaration.is(ExtensionDeclSyntax.self) || declaration.is(ProtocolDeclSyntax.self)
     }
 
     private func record(_ key: String, _ kind: FallbackGuardFacts.Kind, at node: some SyntaxProtocol) {
@@ -224,7 +280,7 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         return .visitChildren
     }
 
-    // MARK: isFinite, isNaN
+    // MARK: isFinite, isNaN, isEmpty
 
     override func visit(_ node: MemberAccessExprSyntax) -> SyntaxVisitorContinueKind {
         let name = node.declName.baseName.text
@@ -232,6 +288,13 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
            let base = node.base,
            let subject = key(of: base) {
             record(subject, name == "isFinite" ? .finite : .notNaN, at: node)
+        }
+        // `xs.isEmpty` asks whether `xs.count` is zero. Either sense, on the
+        // bar already stated for `isNaN`: that the question was asked.
+        if name == "isEmpty",
+           let base = node.base,
+           let subject = key(of: base) {
+            record(subject + ".count", .nonZero, at: node)
         }
         return .visitChildren
     }
@@ -245,7 +308,14 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
             let text = op.operator.text
             let lhs = operand(in: elements, at: index - 1, neighbour: index - 2)
             let rhs = operand(in: elements, at: index + 1, neighbour: index + 2, conditional: true)
-            recordNonZero(operator: text, lhs: lhs, rhs: rhs, at: node)
+            recordNonZero(
+                operator: text,
+                lhs: lhs,
+                rhs: rhs,
+                lhsThreshold: threshold(in: elements, before: index),
+                rhsThreshold: threshold(in: elements, after: index),
+                at: node
+            )
             guard Self.comparisonOperators.contains(text) else { continue }
 
             let lessThan = text == "<" || text == "<="
@@ -263,7 +333,14 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         guard let op = node.operator.as(BinaryOperatorExprSyntax.self) else {
             return .visitChildren
         }
-        recordNonZero(operator: op.operator.text, lhs: node.leftOperand, rhs: node.rightOperand, at: node)
+        recordNonZero(
+            operator: op.operator.text,
+            lhs: node.leftOperand,
+            rhs: node.rightOperand,
+            lhsThreshold: NumericLiteralFacts.threshold(of: node.leftOperand, conversions: genericNames),
+            rhsThreshold: NumericLiteralFacts.threshold(of: node.rightOperand, conversions: genericNames),
+            at: node
+        )
         guard Self.comparisonOperators.contains(op.operator.text) else {
             return .visitChildren
         }
@@ -280,7 +357,9 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
     ///
     /// In an unfolded sequence `a + b < c`, the element left of `<` is `b`, but
     /// what is being compared is `a + b`. The operand is taken only when the
-    /// element beyond it is the edge of the sequence or a logical operator.
+    /// element beyond it is the edge of the sequence, a logical operator, or an
+    /// assignment: in `rate = interval > 0 ? 60 / interval : 0` the `=` ends
+    /// the condition as surely as the start of the line would.
     ///
     /// - Parameter conditional: Also accept a `?` beyond it, so that the
     ///   condition of `x > 0 ? a / x : 0` is read as a condition.
@@ -295,6 +374,9 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
             if conditional, elements[neighbour].is(UnresolvedTernaryExprSyntax.self) {
                 return elements[index]
             }
+            if elements[neighbour].is(AssignmentExprSyntax.self) {
+                return elements[index]
+            }
             guard let op = elements[neighbour].as(BinaryOperatorExprSyntax.self),
                   Self.logicalOperators.contains(op.operator.text) else {
                 return nil
@@ -303,16 +385,65 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         return elements[index]
     }
 
+    /// True for an element that ends a condition: a logical operator, the `?`
+    /// of a ternary, or an assignment.
+    private func endsCondition(_ element: ExprSyntax) -> Bool {
+        if element.is(UnresolvedTernaryExprSyntax.self) || element.is(AssignmentExprSyntax.self) {
+            return true
+        }
+        guard let op = element.as(BinaryOperatorExprSyntax.self) else { return false }
+        return Self.logicalOperators.contains(op.operator.text)
+    }
+
+    /// What the whole operand right of the operator at `index` is, as a threshold.
+    private func threshold(in elements: [ExprSyntax], after index: Int) -> NumericLiteralFacts.Threshold? {
+        let start = index + 1
+        guard start < elements.count else { return nil }
+        let end = elements[start...].firstIndex(where: endsCondition) ?? elements.count
+        return NumericLiteralFacts.threshold(ofRun: elements[start..<end], conversions: genericNames)
+    }
+
+    /// What the whole operand left of the operator at `index` is, as a threshold.
+    private func threshold(in elements: [ExprSyntax], before index: Int) -> NumericLiteralFacts.Threshold? {
+        guard index > 0, index <= elements.count else { return nil }
+        let start = elements[..<index].lastIndex(where: endsCondition).map { $0 + 1 } ?? 0
+        return NumericLiteralFacts.threshold(ofRun: elements[start..<index], conversions: genericNames)
+    }
+
     /// Records a test that leaves its subject safe to divide by.
     ///
-    /// `x != 0`, and `x > e` or `abs(x) > e` for any `e` — a threshold below
-    /// zero would make the last two say nothing, and nobody writes one.
-    private func recordNonZero(operator text: String, lhs: ExprSyntax?, rhs: ExprSyntax?, at node: some SyntaxProtocol) {
+    /// The other side has to be a literal, because only then is the comparison
+    /// about zero. `x != 0` and `x == 0` ask the question outright, in either
+    /// sense. `x > 0` and `x > 3` exclude zero; so does `x >= 1`, and `x >= 0`
+    /// does not. `x <= 0` is the negative sense of `x > 0`. Each is read
+    /// mirrored too: `0 < x`, `1 <= x`, `0 >= x`.
+    ///
+    /// This used to accept `x != e` and `x > e` for any `e`, on the reasoning
+    /// that nobody writes a threshold below zero. People do write `segLen > n`,
+    /// which is not a threshold at all, and it was clearing divisions by
+    /// `segLen` by coincidence.
+    private func recordNonZero(
+        operator text: String,
+        lhs: ExprSyntax?,
+        rhs: ExprSyntax?,
+        lhsThreshold: NumericLiteralFacts.Threshold?,
+        rhsThreshold: NumericLiteralFacts.Threshold?,
+        at node: some SyntaxProtocol
+    ) {
         let tested: ExprSyntax?
         switch text {
-        case "!=", ">": tested = lhs
-        case "<": tested = rhs
-        default: tested = nil
+        case "!=", "==":
+            tested = rhsThreshold == .zero ? lhs : (lhsThreshold == .zero ? rhs : nil)
+        case ">":
+            tested = rhsThreshold == nil ? nil : lhs
+        case "<":
+            tested = lhsThreshold == nil ? nil : rhs
+        case ">=":
+            tested = rhsThreshold == .positive ? lhs : (lhsThreshold == .zero ? rhs : nil)
+        case "<=":
+            tested = lhsThreshold == .positive ? rhs : (rhsThreshold == .zero ? lhs : nil)
+        default:
+            tested = nil
         }
         guard let tested else { return }
         let value = magnitudeArgument(of: tested) ?? tested
@@ -403,7 +534,11 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
             }
             let alias = pattern.identifier.text
             if alias != target {
-                result.aliases[alias] = target
+                result.aliases.append(FallbackGuardFacts.Alias(
+                    name: alias,
+                    target: target,
+                    offset: binding.positionAfterSkippingLeadingTrivia.utf8Offset
+                ))
             }
         }
         return .visitChildren

@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import TestQualityAuditor
 import QualityGateCore
 
@@ -11,7 +11,8 @@ import QualityGateCore
 /// bracketing tests while missing every reading laundered through a helper. The boundary
 /// that survives is stated in `testLeavesTimestampReadingsToHardcodedDate`: a timestamp
 /// wants `Date()`, a calendar date wants a fixed calendar.
-final class AmbientTimeInTestTests: XCTestCase {
+@Suite
+struct AmbientTimeInTestTests {
 
     private let auditor = TestQualityAuditor()
     private let ruleId = "ambient-calendar-in-test"
@@ -27,7 +28,8 @@ final class AmbientTimeInTestTests: XCTestCase {
 
     // MARK: - Must flag
 
-    func testFlagsCalendarCurrent() async throws {
+    @Test
+    func flagsCalendarCurrent() async throws {
         // `BondPricingTests.swift@2251c71a:31`.
         let source = """
         import Testing
@@ -39,14 +41,13 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.lineNumber, 4)
-        XCTAssertEqual(
-            found.first?.severity, .error,
-            "promoted 2026-09-16, after one release at warning took five repositories to zero")
+        #expect(found.count == 1)
+        #expect(found.first?.lineNumber == 4)
+        #expect(found.first?.severity == .error, "promoted 2026-09-16, after one release at warning took five repositories to zero")
     }
 
-    func testFlagsCalendarIdentifierInitialiser() async throws {
+    @Test
+    func flagsCalendarIdentifierInitialiser() async throws {
         // It looks fixed — the calendar *system* is pinned — and it is not: the initialiser
         // takes no time zone, so the value carries `TimeZone.current`, and every component
         // it computes still depends on where the test runs.
@@ -60,10 +61,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 
-    func testFlagsReadingOutsideATestFunction() async throws {
+    @Test
+    func flagsReadingOutsideATestFunction() async throws {
         // `BondPricingTests` reads the calendar as a suite-level property, so a rule scoped
         // to `@Test` bodies would have missed the site the proposal names.
         let source = """
@@ -79,11 +81,12 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
-        XCTAssertEqual(found.first?.lineNumber, 4)
+        #expect(found.count == 1)
+        #expect(found.first?.lineNumber == 4)
     }
 
-    func testFlagsEachReadingSeparately() async throws {
+    @Test
+    func flagsEachReadingSeparately() async throws {
         let source = """
         import Testing
 
@@ -95,12 +98,13 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 2)
+        #expect(found.count == 2)
     }
 
     // MARK: - Must not flag
 
-    func testIgnoresAFixedCalendarFixture() async throws {
+    @Test
+    func ignoresAFixedCalendarFixture() async throws {
         // The shape the diagnostic asks for: a named fixture that pins both the calendar
         // system and the time zone, defined once and shared.
         let source = """
@@ -113,10 +117,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testIgnoresACalendarWhoseZoneIsPinnedOnTheFollowingLine() async throws {
+    @Test
+    func ignoresACalendarWhoseZoneIsPinnedOnTheFollowingLine() async throws {
         // Nine of the twenty-three sites across four consuming repositories are this, and
         // all nine are correct: `Calendar(identifier:)` pins the calendar *system*, and the
         // statement after it pins the only ambient part left. Flagging them taught people to
@@ -132,10 +137,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "system pinned by the initialiser, zone pinned by the next line")
+        #expect(found.isEmpty, "system pinned by the initialiser, zone pinned by the next line")
     }
 
-    func testIgnoresACalendarWhoseZoneIsPinnedFromGMT() async throws {
+    @Test
+    func ignoresACalendarWhoseZoneIsPinnedFromGMT() async throws {
         let source = """
         import Testing
 
@@ -147,10 +153,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testIgnoresACalendarPinnedBySiblingArgument() async throws {
+    @Test
+    func ignoresACalendarPinnedBySiblingArgument() async throws {
         // SwiftZIP's `DOSTimeTests` and `ZIPWriterTests`, verbatim in shape. Both halves are
         // fixed in one expression, so the calendar never exists as a value whose zone is unset —
         // the cleanest form there is, and the first version of this carve-out flagged all eleven
@@ -172,10 +179,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "the zone is pinned in the same call that names the calendar")
+        #expect(found.isEmpty, "the zone is pinned in the same call that names the calendar")
     }
 
-    func testStillFlagsASiblingArgumentWithNoZone() async throws {
+    @Test
+    func stillFlagsASiblingArgumentWithNoZone() async throws {
         let source = """
         import Testing
 
@@ -189,10 +197,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "no timeZone: argument means the zone is still ambient")
+        #expect(found.count == 1, "no timeZone: argument means the zone is still ambient")
     }
 
-    func testIgnoresACalendarWhoseZoneIsPinnedInsideABranch() async throws {
+    @Test
+    func ignoresACalendarWhoseZoneIsPinnedInsideABranch() async throws {
         // `DayCountTimeZoneTests.swift:55`. The pin is real; it is inside an `if let` because
         // `TimeZone(secondsFromGMT:)` is failable and the author would not force-unwrap it.
         // Reading only the next sibling statement would call this ambient and be wrong.
@@ -207,10 +216,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "a conditional pin is still evidence the zone was considered")
+        #expect(found.isEmpty, "a conditional pin is still evidence the zone was considered")
     }
 
-    func testIgnoresACalendarPinnedThroughDateComponents() async throws {
+    @Test
+    func ignoresACalendarPinnedThroughDateComponents() async throws {
         // `TVMReferenceTests.swift:75`. The calendar is never bound to a name of its own —
         // it goes straight into a `DateComponents`, and the zone is pinned on that. The
         // question the rule is asking is the same one: was the zone decided?
@@ -226,10 +236,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testStillFlagsACalendarPutIntoComponentsWithNoZone() async throws {
+    @Test
+    func stillFlagsACalendarPutIntoComponentsWithNoZone() async throws {
         let source = """
         import Testing
 
@@ -241,10 +252,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "putting it somewhere is not deciding the zone")
+        #expect(found.count == 1, "putting it somewhere is not deciding the zone")
     }
 
-    func testStillFlagsCalendarCurrentWhenOnlyTheZoneIsPinned() async throws {
+    @Test
+    func stillFlagsCalendarCurrentWhenOnlyTheZoneIsPinned() async throws {
         // `Calendar.current` is not half-fixed by a time zone. The calendar *system* is still
         // the runner's, so a Japanese or Buddhist locale returns a different year for the
         // same instant. The carve-out is for the initialiser, which pins the system, and it
@@ -260,10 +272,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "pinning the zone does not pin the calendar system")
+        #expect(found.count == 1, "pinning the zone does not pin the calendar system")
     }
 
-    func testStillFlagsACalendarThatPinsAnotherCalendarsZone() async throws {
+    @Test
+    func stillFlagsACalendarThatPinsAnotherCalendarsZone() async throws {
         let source = """
         import Testing
 
@@ -276,10 +289,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1, "the assignment names one binding, and spares only it")
+        #expect(found.count == 1, "the assignment names one binding, and spares only it")
     }
 
-    func testIgnoresAnUnrelatedCurrentReading() async throws {
+    @Test
+    func ignoresAnUnrelatedCurrentReading() async throws {
         // The rule claims `Calendar` only. `TimeZone.current` and `Locale.current` are
         // ambient too, and are deliberately out of scope: the corpus evidence is about
         // calendar arithmetic, and a rule should claim the territory it measured.
@@ -293,10 +307,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
-    func testLeavesTimestampReadingsToHardcodedDate() async throws {
+    @Test
+    func leavesTimestampReadingsToHardcodedDate() async throws {
         // A timestamp wants `Date()`; a calendar date wants a fixed calendar.
         // `hardcoded-date` owns the first — its suggested fix is literally "Use Date()" —
         // and this rule owns the second. Neither mentions the other's territory, and a rule
@@ -311,10 +326,11 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "Date() was dropped from this rule and stays dropped")
+        #expect(found.isEmpty, "Date() was dropped from this rule and stays dropped")
     }
 
-    func testIgnoresACalendarNamedInAStringLiteral() async throws {
+    @Test
+    func ignoresACalendarNamedInAStringLiteral() async throws {
         let source = """
         import Testing
 
@@ -324,12 +340,13 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty)
+        #expect(found.isEmpty)
     }
 
     // MARK: - Suppression
 
-    func testLineMarkerSuppressesOneSiteAndIsRecorded() async throws {
+    @Test
+    func lineMarkerSuppressesOneSiteAndIsRecorded() async throws {
         let source = """
         import Testing
 
@@ -341,11 +358,12 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let outcome = try await result(source)
-        XCTAssertTrue(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
-        XCTAssertEqual(outcome.overrides.filter { $0.ruleId == ruleId }.count, 1)
+        #expect(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
+        #expect(outcome.overrides.filter { $0.ruleId == ruleId }.count == 1)
     }
 
-    func testFileMarkerSuppressesEverySiteInTheFile() async throws {
+    @Test
+    func fileMarkerSuppressesEverySiteInTheFile() async throws {
         // A suite whose *subject* is zone behaviour reads the ambient calendar on purpose,
         // in every test. Repeating a line marker forty times is the noise that gets a rule
         // switched off, so the marker can be stated once for the file — still naming the
@@ -367,15 +385,12 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let outcome = try await result(source)
-        XCTAssertTrue(
-            outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty,
-            "one marker covers the file")
-        XCTAssertEqual(
-            outcome.overrides.filter { $0.ruleId == ruleId }.count, 2,
-            "and every suppressed site is still counted")
+        #expect(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty, "one marker covers the file")
+        #expect(outcome.overrides.filter { $0.ruleId == ruleId }.count == 2, "and every suppressed site is still counted")
     }
 
-    func testFileMarkerSuppressesOnlyTheRuleItNames() async throws {
+    @Test
+    func fileMarkerSuppressesOnlyTheRuleItNames() async throws {
         let source = """
         import Testing
 
@@ -389,13 +404,12 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let outcome = try await result(source)
-        XCTAssertTrue(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
-        XCTAssertEqual(
-            outcome.diagnostics.filter { $0.ruleId == "coalesced-assertion" }.count, 1,
-            "a file marker is scoped to its named rule, exactly as a line marker is")
+        #expect(outcome.diagnostics.filter { $0.ruleId == ruleId }.isEmpty)
+        #expect(outcome.diagnostics.filter { $0.ruleId == "coalesced-assertion" }.count == 1, "a file marker is scoped to its named rule, exactly as a line marker is")
     }
 
-    func testBlanketMarkerDoesNotSuppressIt() async throws {
+    @Test
+    func blanketMarkerDoesNotSuppressIt() async throws {
         let source = """
         import Testing
 
@@ -406,12 +420,13 @@ final class AmbientTimeInTestTests: XCTestCase {
         """
 
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 
     // MARK: - Idempotence
 
-    func testTwoRunsReportTheSameDiagnostics() async throws {
+    @Test
+    func twoRunsReportTheSameDiagnostics() async throws {
         let source = """
         import Testing
 
@@ -424,8 +439,8 @@ final class AmbientTimeInTestTests: XCTestCase {
 
         let first = try await diagnostics(source)
         let second = try await diagnostics(source)
-        XCTAssertEqual(first.map(\.lineNumber), second.map(\.lineNumber))
-        XCTAssertEqual(first.map(\.message), second.map(\.message))
+        #expect(first.map(\.lineNumber) == second.map(\.lineNumber))
+        #expect(first.map(\.message) == second.map(\.message))
     }
 
     // MARK: - A pin that comes first
@@ -438,7 +453,8 @@ final class AmbientTimeInTestTests: XCTestCase {
     /// `DateFormatter` idiom writes `dateFormat`, `timeZone`, `locale`, `calendar` in that
     /// order, so the pin lands first essentially every time. Three findings in this
     /// repository's own `Sources/` had exactly this shape, every one of them correct code.
-    func testSparesAPinWrittenBeforeTheCalendar() async throws {
+    @Test
+    func sparesAPinWrittenBeforeTheCalendar() async throws {
         let source = """
         import XCTest
 
@@ -454,11 +470,12 @@ final class AmbientTimeInTestTests: XCTestCase {
         }
         """
         let found = try await diagnostics(source)
-        XCTAssertTrue(found.isEmpty, "a zone pinned before the assignment is still a pin: \(found)")
+        #expect(found.isEmpty, "a zone pinned before the assignment is still a pin: \(found)")
     }
 
     /// Widening the scan must not turn "assigned into a receiver" into the carve-out itself.
-    func testStillFlagsAReceiverThatIsNeverPinned() async throws {
+    @Test
+    func stillFlagsAReceiverThatIsNeverPinned() async throws {
         let source = """
         import XCTest
 
@@ -473,6 +490,6 @@ final class AmbientTimeInTestTests: XCTestCase {
         }
         """
         let found = try await diagnostics(source)
-        XCTAssertEqual(found.count, 1)
+        #expect(found.count == 1)
     }
 }

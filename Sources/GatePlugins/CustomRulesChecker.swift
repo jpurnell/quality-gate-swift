@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 
 /// Tier-1 declarative custom rules (Phase 4b): SwiftLint `custom_rules`

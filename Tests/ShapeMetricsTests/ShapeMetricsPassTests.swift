@@ -59,6 +59,37 @@ struct ShapeMetricsPassTests {
 
     // MARK: - 11. The pass consumes what the run produced
 
+    // MARK: - Module attribution
+
+    /// `moduleName(of:under:)` decided containment with `hasPrefix`, which `/base-evil` passes
+    /// against `/base`. The gate's own `security.path-prefix` rule (CWE-22) caught it the first
+    /// time this branch met a main that had the rule — written after the branch forked.
+    ///
+    /// A sibling directory sharing a prefix is the cheap case; the one that matters is that a
+    /// prefix test cannot see a symbolic link leading out of the tree, so a path that merely
+    /// *reads* as inside it is treated as inside it.
+    @Test("A sibling directory sharing the root's prefix is not inside the root")
+    func siblingSharingPrefixIsNotContained() {
+        #expect(ShapeMetricsPass.moduleName(
+            of: "/base-evil/Core/File.swift", under: "/base") == "?")
+    }
+
+    @Test("A file under the root reports its first component, with or without a trailing slash")
+    func containedFileReportsItsModule() {
+        #expect(ShapeMetricsPass.moduleName(
+            of: "/repo/Sources/Core/File.swift", under: "/repo/Sources") == "Core")
+        #expect(ShapeMetricsPass.moduleName(
+            of: "/repo/Sources/Core/File.swift", under: "/repo/Sources/") == "Core")
+        #expect(ShapeMetricsPass.moduleName(
+            of: "/repo/Sources/Core/Nested/File.swift", under: "/repo/Sources") == "Core")
+    }
+
+    @Test("The root itself, and a path above it, name no module")
+    func rootAndOutsidePathsNameNoModule() {
+        #expect(ShapeMetricsPass.moduleName(of: "/repo/Sources", under: "/repo/Sources") == "?")
+        #expect(ShapeMetricsPass.moduleName(of: "/elsewhere/File.swift", under: "/repo/Sources") == "?")
+    }
+
     @Test("The contributing checkers are the three whose line sets the union needs")
     func contributorsAreTheUnionsInputs() {
         #expect(ShapeMetrics.contributingCheckers == ["idiom", "smells", "duplication"])

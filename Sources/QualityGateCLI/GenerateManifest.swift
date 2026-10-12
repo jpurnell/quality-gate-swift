@@ -1,9 +1,8 @@
 import ArgumentParser
 import Foundation
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import IJSAggregator
+import QualityGateCore
 
 /// Generate or update a corpus manifest from telemetry project directories.
 struct GenerateManifest: AsyncParsableCommand {
@@ -37,9 +36,9 @@ struct GenerateManifest: AsyncParsableCommand {
                     var isDir: ObjCBool = false
                     let childPath = URL(fileURLWithPath: telemetryDir)
                         .appendingPathComponent(name).standardized.path
-                    guard childPath.hasPrefix(
-                        URL(fileURLWithPath: telemetryDir).standardized.path
-                    ) else { return false } // SAFETY: reject path traversal
+                    guard RunEnvironment.path(
+                        URL(fileURLWithPath: childPath), isInside: URL(fileURLWithPath: telemetryDir)
+                    ) else { return false }
                     return fm.fileExists(
                         atPath: childPath,
                         isDirectory: &isDir

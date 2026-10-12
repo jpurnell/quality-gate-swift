@@ -54,6 +54,49 @@ struct SecurityVisitorTests {
         #expect(!result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
     }
 
+    // MARK: - Hardcoded Secret on the shared matcher (SensitiveName)
+
+    /// Names the rule reported under substring matching and still reports on whole words.
+    @Test("hardcoded-secret still reports every name that mentions a secret word", arguments: [
+        "apiKey", "API_KEY", "api_key", "databasePassword", "authToken", "clientSecret",
+        "privateKey", "credentials", "tokenCount", "maxTokens", "githubToken", "secretValue",
+        "token1", "secret123", "SuperSecret123", "eosToken2", "accesstoken", "clientsecret",
+    ])
+    func hardcodedSecretStillReports(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.count == 1)
+    }
+
+    /// The behaviour change the migration makes (`PublicIsAClaimAboutTheValue.md` §5 test 31):
+    /// a word that only *contains* a secret word is not one.
+    @Test("hardcoded-secret no longer reports a word that merely contains a secret word", arguments: [
+        "tokenizer", "secretary", "passwordless", "tokenizerVersion", "detokenized",
+    ])
+    func hardcodedSecretWordBoundary(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.isEmpty)
+    }
+
+    /// The rule keeps the words it shipped with. Giving it the union vocabulary added nineteen
+    /// portfolio findings — `authorizationCode`, `bearer` and `sessionID` as protocol constants,
+    /// test-fixture passphrases — and removed none, so the widening is pinned *out* until a
+    /// change argues for it with its own measurement.
+    @Test("hardcoded-secret does not take the union vocabulary's other words", arguments: [
+        "bearer", "passwd", "passphrase", "jwt", "sessionId", "signingKey", "authorization",
+    ])
+    func hardcodedSecretKeepsItsWords(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.isEmpty)
+    }
+
+    @Test("hardcoded-secret ignores security parameters and personal data", arguments: [
+        "nonce", "salt", "email", "sessionLabel", "keyPath",
+    ])
+    func hardcodedSecretIgnoresNonSecrets(name: String) async throws {
+        let result = try await auditCode("let \(name) = \"literal-value\"")
+        #expect(result.diagnostics.filter { $0.ruleId == "security.hardcoded-secret" }.isEmpty)
+    }
+
     // MARK: - Command Injection (CWE-78)
 
     /// A bare `Process()` is no longer this rule's business.
@@ -87,7 +130,22 @@ struct SecurityVisitorTests {
         #expect(diag?.message.contains("CWE-78") == true)
     }
 
-    // MARK: - Weak Crypto (CWE-327)
+    // MARK: - Weak Crypto (CWE-328)
+
+    /// CWE-327 is the class; MD5 and SHA-1 are hashes, and MITRE's entry for that is 328.
+    /// The message takes its CWE from the manifest so the two cannot disagree again.
+    @Test("Weak-hash diagnostic cites the CWE the manifest records")
+    func weakCryptoCitesManifestCWE() async throws {
+        let code = """
+        CC_MD5(data, len, &digest)
+        """
+
+        let result = try await auditCode(code)
+        let diag = try #require(result.diagnostics.first { $0.ruleId == "security.weak-crypto" })
+        let recorded = try #require(SecurityRuleManifest.cwe(for: "security.weak-crypto"))
+        #expect(recorded == "CWE-328")
+        #expect(diag.message.contains("[\(recorded)]"))
+    }
 
     @Test("Detects CC_MD5 usage")
     func detectsCCMD5() async throws {
@@ -356,7 +414,15 @@ struct SecurityVisitorTests {
         #expect(result.diagnostics.contains { $0.ruleId == "security.sql-injection" })
     }
 
-    // MARK: - Insecure Keychain (CWE-311)
+    // MARK: - Insecure Keychain (CWE-922)
+
+    /// CWE-311 is "missing encryption", which MITRE discourages for mapping and which is not
+    /// what this is: the item is encrypted, and readable while the device is locked.
+    @Test("The keychain rule is recorded under insecure storage, not missing encryption")
+    func insecureKeychainCWE() {
+        #expect(SecurityRuleManifest.cwe(for: "security.insecure-keychain") == "CWE-922")
+        #expect(SecurityRuleManifest.cwe(for: "no.such-rule") == nil)
+    }
 
     @Test("Detects kSecAttrAccessibleAlways")
     func detectsInsecureKeychain() async throws {
@@ -407,10 +473,12 @@ struct SecurityVisitorTests {
 
     // MARK: - Path Traversal (CWE-22)
 
-    @Test("Detects FileManager with dynamic path")
+    @Test("Detects a joined path that is read")
     func detectsPathTraversal() async throws {
+        // A probe of a received path used to be the example; it is not traversal. See
+        // PathTraversalTests and TraversalIsAJoin.md.
         let code = """
-        FileManager.default.fileExists(atPath: userPath)
+        let data = FileManager.default.contents(atPath: base.appendingPathComponent(userPath).path)
         """
 
         let result = try await auditCode(code)
@@ -428,21 +496,45 @@ struct SecurityVisitorTests {
     }
 
     // MARK: - SSRF (CWE-918)
+    //
+    // Rewritten 2026-10-05 (`AURLIsNotARequest.md`). Each of these asserted the old sentence —
+    // "a URL was parsed from something that is not a literal" — on a bare `URL(string:)`. A
+    // parse is not a request, so each now makes the request that turns its URL into a finding,
+    // and keeps the point it was written for. `SSRFRequestTests` holds the rest of the rule.
 
-    @Test("Detects URL with interpolated string")
+    /// `construction`, bound to `url` in a function that then fetches it.
+    private func fetching(_ construction: String, in type: String = "", parameters: String = "") -> String {
+        """
+        struct Client {
+            \(type)
+            func fetch(\(parameters)) async throws -> Data {
+                guard let url = \(construction) else { return Data() }
+                return try await URLSession.shared.data(from: url).0
+            }
+        }
+        """
+    }
+
+    @Test("Detects a fetched URL with an interpolated string")
     func detectsSSRFInterpolation() async throws {
+        let result = try await auditCode(fetching(#"URL(string: "\(baseURL)/api/data")"#))
+        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" })
+    }
+
+    @Test("The same URL, parsed and never fetched, is not a finding")
+    func parsedOnlyIsNotSSRF() async throws {
         let code = #"""
         let url = URL(string: "\(baseURL)/api/data")
         """#
 
         let result = try await auditCode(code)
-        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" })
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
     // A URL built by interpolating a constant declared in the same file has no
-    // dynamic input in it. The suggested fix — validate against an allowlist —
-    // cannot be applied to a value that is already a literal, so the finding is
-    // unactionable as well as untrue.
+    // dynamic input in it. The suggested fix — check the host — cannot be applied
+    // to a value that is already a literal, so the finding is unactionable as well
+    // as untrue.
     //
     // This exemption is deliberately the narrowest that is provable from syntax:
     // the interpolated name must resolve to a `let` in this file whose initialiser
@@ -452,127 +544,90 @@ struct SecurityVisitorTests {
     // security rule that guesses in the permissive direction is worse than one
     // that occasionally over-reports.
 
-    @Test("Allows a URL interpolating a same-file string constant")
+    @Test("Allows a fetched URL interpolating a same-file string constant")
     func allowsSSRFLocalConstant() async throws {
-        let code = #"""
-        enum Endpoints {
-            static let allowedHost = "api.example.com"
-            static func make() -> URL? {
-                URL(string: "https://\(allowedHost)/data")
-            }
-        }
-        """#
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(
+            #"URL(string: "https://\(allowedHost)/data")"#,
+            in: #"static let allowedHost = "api.example.com""#))
         #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
-    @Test("Allows a URL interpolating a constant reached through Self")
+    @Test("Allows a fetched URL interpolating a constant reached through Self")
     func allowsSSRFSelfQualifiedConstant() async throws {
-        let code = #"""
-        struct Client {
-            static let allowedHost = "api.example.com"
-            func endpoint() -> URL? {
-                URL(string: "https://\(Self.allowedHost)/data")
-            }
-        }
-        """#
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(
+            #"URL(string: "https://\(Self.allowedHost)/data")"#,
+            in: #"static let allowedHost = "api.example.com""#))
         #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
-    @Test("Still flags a URL interpolating a var, which can be reassigned")
+    @Test("Still flags a fetched URL interpolating a var, which can be reassigned")
     func flagsSSRFVarInterpolation() async throws {
-        let code = #"""
-        struct Client {
-            static var host = "api.example.com"
-            func endpoint() -> URL? {
-                URL(string: "https://\(Self.host)/data")
-            }
-        }
-        """#
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(
+            #"URL(string: "https://\(Self.host)/data")"#,
+            in: #"static var host = "api.example.com""#))
         #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
                 "A var is not constant; today's literal is tomorrow's assignment")
     }
 
-    @Test("Still flags a URL interpolating a function parameter")
+    @Test("Still flags a fetched URL interpolating a function parameter")
     func flagsSSRFParameterInterpolation() async throws {
-        let code = #"""
-        func endpoint(host: String) -> URL? {
-            URL(string: "https://\(host)/data")
-        }
-        """#
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(
+            #"URL(string: "https://\(host)/data")"#, parameters: "host: String"))
         #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
                 "A parameter is the ordinary shape of the bug this rule exists for")
     }
 
-    @Test("Still flags a URL interpolating a name declared in another file")
+    @Test("Still flags a fetched URL interpolating a name declared in another file")
     func flagsSSRFUnknownName() async throws {
-        let code = #"""
-        func endpoint() -> URL? {
-            URL(string: "https://\(Config.host)/data")
-        }
-        """#
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(#"URL(string: "https://\(Config.host)/data")"#))
         #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
                 "Constness cannot be shown from this file alone, so it fails closed")
     }
 
-    @Test("Still flags when only some interpolations are constant")
+    // This test used to interpolate a constant host and a dynamic *path* and expect a finding:
+    // "one dynamic segment is enough to make the URL dynamic". Dynamic, yes; forged, no — the
+    // host is the constant's, and CWE-918 is about the destination. The dynamic segment has to
+    // be able to move the host for the request to be someone else's.
+    @Test("Still flags when a dynamic segment can move the host; not when it only extends the path")
     func flagsSSRFMixedInterpolation() async throws {
-        let code = #"""
-        struct Client {
-            static let allowedHost = "api.example.com"
-            func endpoint(path: String) -> URL? {
-                URL(string: "https://\(Self.allowedHost)/\(path)")
-            }
-        }
-        """#
+        let constant = #"static let domain = "example.com""#
+        let movesHost = try await auditCode(fetching(
+            #"URL(string: "https://\(tenant).\(Self.domain)/data")"#, in: constant, parameters: "tenant: String"))
+        #expect(movesHost.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "A dynamic label in the host is a dynamic host")
 
-        let result = try await auditCode(code)
-        #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
-                "One dynamic segment is enough to make the URL dynamic")
+        let extendsPath = try await auditCode(fetching(
+            #"URL(string: "https://\(Self.domain)/\(path)")"#, in: constant, parameters: "path: String"))
+        #expect(!extendsPath.diagnostics.contains { $0.ruleId == "security.ssrf" },
+                "The host is a constant; the path does not choose where the request goes")
+    }
+
+    @Test("A constant that holds scheme and host fixes the host of what is appended to it")
+    func allowsSSRFConstantBase() async throws {
+        let result = try await auditCode(fetching(
+            #"URL(string: "\(Self.baseURL)/repos/\(owner)")"#,
+            in: #"static let baseURL = "https://api.github.com""#, parameters: "owner: String"))
+        #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
     @Test("Still flags a constant whose own initialiser is interpolated")
     func flagsSSRFConstantBuiltFromInterpolation() async throws {
-        let code = #"""
-        struct Client {
-            static let allowedHost = "\(scheme)://api.example.com"
-            func endpoint() -> URL? {
-                URL(string: "https://\(Self.allowedHost)/data")
-            }
-        }
-        """#
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(
+            #"URL(string: "https://\(Self.allowedHost)/data")"#,
+            in: #"static let allowedHost = "\(scheme)://api.example.com""#))
         #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" },
                 "The constant is only as constant as what it was built from")
     }
 
-    @Test("Detects URL with variable argument")
+    @Test("Detects a fetched URL with a variable argument")
     func detectsSSRFVariable() async throws {
-        let code = """
-        let url = URL(string: userProvidedURL)
-        """
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching("URL(string: userProvidedURL)"))
         #expect(result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
-    @Test("Allows URL with string literal")
+    @Test("Allows a fetched URL with a string literal")
     func allowsSSRFLiteral() async throws {
-        let code = """
-        let url = URL(string: "https://api.example.com/data")
-        """
-
-        let result = try await auditCode(code)
+        let result = try await auditCode(fetching(#"URL(string: "https://api.example.com/data")"#))
         #expect(!result.diagnostics.contains { $0.ruleId == "security.ssrf" })
     }
 
@@ -580,18 +635,20 @@ struct SecurityVisitorTests {
 
     @Test("SAFETY exemption suppresses security rule")
     func safetyExemptionWorks() async throws {
+        // Changed by AnAcknowledgementIsARecord.md: `// SAFETY:` no longer reaches security
+        // rules. This test used to assert the opposite.
         let code = """
         let apiKey = "sk-test-key" // SAFETY: Test fixture only
         """
 
         let result = try await auditCode(code)
-        #expect(!result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
+        #expect(result.diagnostics.contains { $0.ruleId == "security.hardcoded-secret" })
     }
 
     @Test("SECURITY exemption suppresses security rule")
     func securityExemptionWorks() async throws {
         let code = """
-        let apiKey = "sk-test-key" // SECURITY: Required for integration test
+        let apiKey = "sk-test-key" // SECURITY: integration fixture key, revoked, and never shipped in a build
         """
 
         let result = try await auditCode(code)
@@ -601,7 +658,7 @@ struct SecurityVisitorTests {
     @Test("SECURITY exemption on previous line works")
     func securityExemptionPreviousLine() async throws {
         let code = """
-        // SECURITY: Required for integration test
+        // SECURITY: integration fixture key, revoked, and never shipped in a build
         let token = "test-token-value"
         """
 
@@ -711,16 +768,18 @@ struct SecurityVisitorTests {
 
     // MARK: - Manifest Tests
 
-    @Test("SecurityRuleManifest has 10 rules")
-    func manifestHasTenRules() {
-        #expect(SecurityRuleManifest.rules.count == 10)
+    /// 35 `security.*` rules, and the two advisory rules `dependency-advisory` emits.
+    @Test("SecurityRuleManifest has 37 rules")
+    func manifestHasThirtySevenRules() {
+        #expect(SecurityRuleManifest.rules.count == 37)
+        #expect(SecurityRuleManifest.rules.filter { $0.ruleId.hasPrefix("security.") }.count == 35)
     }
 
     @Test("All manifest rules have valid CWE references")
     func manifestRulesHaveCWE() {
         for rule in SecurityRuleManifest.rules {
             #expect(rule.cwe.hasPrefix("CWE-"))
-            #expect(rule.owaspCategory.hasPrefix("M"))
+            #expect(rule.owaspMobile.hasPrefix("M"))
         }
     }
 

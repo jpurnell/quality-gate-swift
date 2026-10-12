@@ -45,6 +45,9 @@ struct LivenessIndex: Sendable {
     /// a decl — we just store all `// LIVE:` line numbers per file and check
     /// `line` and `line - 1` at lookup time.
     private var liveLines: [String: Set<Int>] = [:]
+    /// The text of every ingested file, by line, so an index occurrence can be read against
+    /// the source it claims to describe.
+    private var lines: [String: [Substring]] = [:]
 
     /// Resolves symlinks and `..` components so that FileManager paths
     /// (used during ingestion) and IndexStoreDB paths (used during
@@ -63,12 +66,14 @@ struct LivenessIndex: Sendable {
         // attached to declarations in the syntax tree directly, but a line
         // sweep is fast and unambiguous.
         var liveSet: Set<Int> = []
-        for (idx, line) in source.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).enumerated() {
+        let sourceLines = source.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        for (idx, line) in sourceLines.enumerated() {
             if line.contains("// LIVE:") || line.contains("//LIVE:") {
                 liveSet.insert(idx + 1)
             }
         }
         liveLines[key] = liveSet
+        lines[key] = sourceLines
 
         let visitor = DeclFactVisitor(file: key, converter: converter, liveLines: liveSet)
         visitor.walk(tree)
@@ -92,6 +97,16 @@ struct LivenessIndex: Sendable {
             }
         }
         return best?.nameLine
+    }
+
+    /// The text of `line` (1-based) in the current source of `file`.
+    ///
+    /// - Returns: `nil` when the file was not ingested or no longer has that many lines —
+    ///   which is itself an answer about an index occurrence that names it.
+    func lineText(file: String, line: Int) -> String? {
+        guard let fileLines = lines[Self.normalize(file)],
+              line >= 1, line <= fileLines.count else { return nil }
+        return String(fileLines[line - 1])
     }
 
     func hasLiveExemption(file: String, line: Int) -> Bool {
@@ -184,6 +199,57 @@ private final class DeclFactVisitor: SyntaxVisitor {
         return false
     }
 
+    /// True if the declaration narrows its own access below `public`.
+    private func narrowsAccess(_ modifiers: DeclModifierListSyntax) -> Bool {
+        for modifier in modifiers where modifier.detail == nil {
+            switch modifier.name.tokenKind {
+            case .keyword(.private), .keyword(.fileprivate), .keyword(.internal), .keyword(.package):
+                return true
+            default:
+                continue
+            }
+        }
+        return false
+    }
+
+    /// True if `node` is declared directly in the body of a `public extension`.
+    ///
+    /// "Directly" means a member of the extension itself, possibly behind `#if`.
+    /// A member of a type *nested* in the extension takes that type's default,
+    /// which is internal, and a function declared inside one of the extension's
+    /// methods is a local — neither is reached by this walk, because it stops at
+    /// the first ancestor that is not member-list plumbing.
+    private func isDirectMemberOfPublicExtension(_ node: some SyntaxProtocol) -> Bool {
+        var cursor = Syntax(node).parent
+        while let current = cursor {
+            if let ext = current.as(ExtensionDeclSyntax.self) {
+                return isPublicOrOpen(ext.modifiers)
+            }
+            let isPlumbing = current.is(MemberBlockItemSyntax.self)
+                || current.is(MemberBlockItemListSyntax.self)
+                || current.is(MemberBlockSyntax.self)
+                || current.is(IfConfigClauseSyntax.self)
+                || current.is(IfConfigClauseListSyntax.self)
+                || current.is(IfConfigDeclSyntax.self)
+            guard isPlumbing else { return false }
+            cursor = current.parent
+        }
+        return false
+    }
+
+    /// True if a declaration is part of the module's exported surface.
+    ///
+    /// Either it says `public` / `open`, or it sits directly in a `public
+    /// extension` and does not narrow its own access: `public extension` makes
+    /// its members public without a keyword on any of them. Reading only the
+    /// declaration's own modifiers reported such members as unreachable — in a
+    /// library, most of what it exports.
+    private func isExported(_ node: some SyntaxProtocol, _ modifiers: DeclModifierListSyntax) -> Bool {
+        if isPublicOrOpen(modifiers) { return true }
+        if narrowsAccess(modifiers) { return false }
+        return isDirectMemberOfPublicExtension(node)
+    }
+
     private func isObjC(_ attrs: AttributeListSyntax) -> Bool {
         for attr in attrs {
             guard let a = attr.as(AttributeSyntax.self) else { continue }
@@ -252,7 +318,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         let line = node.name.startLocation(converter: converter).line
-        let isPub = isPublicOrOpen(node.modifiers) || publicProtocolDepth > 0
+        let isPub = isExported(node, node.modifiers) || publicProtocolDepth > 0
         record(
             line: line,
             name: node.name.text,
@@ -280,7 +346,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
         record(
             line: line,
             name: "init",
-            isPublic: isPublicOrOpen(node.modifiers),
+            isPublic: isExported(node, node.modifiers),
             isObjC: isObjC(node.attributes),
             isInit: true
         )
@@ -293,7 +359,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
         record(
             line: line,
             name: "subscript",
-            isPublic: isPublicOrOpen(node.modifiers) || publicProtocolDepth > 0,
+            isPublic: isExported(node, node.modifiers) || publicProtocolDepth > 0,
             isObjC: isObjC(node.attributes)
         )
         recordRange(node, nameLine: line)
@@ -304,7 +370,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
         // A property requirement of a public/open protocol is implicitly public
         // (it carries no modifier of its own), same as func/subscript
         // requirements handled above.
-        let isPub = isPublicOrOpen(node.modifiers) || publicProtocolDepth > 0
+        let isPub = isExported(node, node.modifiers) || publicProtocolDepth > 0
         let objc = isObjC(node.attributes)
         let wired = hasSwiftUIPropertyWrapper(node.attributes)
         for binding in node.bindings {
@@ -329,7 +395,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
         let line = node.name.startLocation(converter: converter).line
-        record(line: line, name: node.name.text, isPublic: isPublicOrOpen(node.modifiers), isObjC: isObjC(node.attributes))
+        record(line: line, name: node.name.text, isPublic: isExported(node, node.modifiers), isObjC: isObjC(node.attributes))
         recordRange(node, nameLine: line)
         enterTypeIfMain(node.attributes)
         enterSwiftUITypeIfNeeded(node.inheritanceClause)
@@ -342,7 +408,7 @@ private final class DeclFactVisitor: SyntaxVisitor {
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         let line = node.name.startLocation(converter: converter).line
-        record(line: line, name: node.name.text, isPublic: isPublicOrOpen(node.modifiers), isObjC: isObjC(node.attributes))
+        record(line: line, name: node.name.text, isPublic: isExported(node, node.modifiers), isObjC: isObjC(node.attributes))
         recordRange(node, nameLine: line)
         enterTypeIfMain(node.attributes)
         enterSwiftUITypeIfNeeded(node.inheritanceClause)
@@ -355,17 +421,18 @@ private final class DeclFactVisitor: SyntaxVisitor {
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
         let line = node.name.startLocation(converter: converter).line
-        record(line: line, name: node.name.text, isPublic: isPublicOrOpen(node.modifiers), isObjC: isObjC(node.attributes))
+        let isPub = isExported(node, node.modifiers)
+        record(line: line, name: node.name.text, isPublic: isPub, isObjC: isObjC(node.attributes))
         recordRange(node, nameLine: line)
         enterTypeIfMain(node.attributes)
         if isCodingKeyEnum(node) { codingKeyEnumDepth += 1 }
-        if isPublicOrOpen(node.modifiers) { publicEnumDepth += 1 }
+        if isPub { publicEnumDepth += 1 }
         return .visitChildren
     }
     override func visitPost(_ node: EnumDeclSyntax) {
         leaveTypeIfMain(node.attributes)
         if isCodingKeyEnum(node) { codingKeyEnumDepth -= 1 }
-        if isPublicOrOpen(node.modifiers) { publicEnumDepth -= 1 }
+        if isExported(node, node.modifiers) { publicEnumDepth -= 1 }
     }
 
     /// Recognises both `enum X: CodingKey` and the conventional name

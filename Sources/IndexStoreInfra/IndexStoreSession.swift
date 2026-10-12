@@ -1,9 +1,7 @@
 import Foundation
 import QualityGateCore
 import IndexStoreDB
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 
 // Justification: IndexStoreDB is immutable after init; all queries are read-only.
 extension IndexStoreDB: @retroactive @unchecked Sendable {}
@@ -25,11 +23,31 @@ extension IndexStoreDB: @retroactive @unchecked Sendable {}
 /// When the persistent directory cannot be used, the session demotes — wipe and retry
 /// once, then fall back to an ephemeral temp directory, which is the pre-persistence
 /// behaviour and the ladder's floor.
+///
+/// ## Which units the session reads
+///
+/// Not every unit in the store. A store is added to by each build and pruned by none, so it
+/// holds units from build variants nothing writes any more, and the database built from it
+/// keeps what it ingested from a unit after the unit file itself is gone — IndexStoreDB learns
+/// of a removal only by comparing two scans made in the *same* process, and a gate run makes
+/// one.
+///
+/// So the session takes a census first (``IndexUnitCurrency``), opens IndexStoreDB in its
+/// explicit-output-units mode, and declares only the current units. That mode is IndexStoreDB's
+/// own answer to this problem: a unit that was not declared is neither ingested nor — if a
+/// previous run already ingested it — visible to any query. Nothing is deleted, the database
+/// layout is unchanged, and a database written before this existed needs no migration.
 public final class IndexStoreSession: Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "IndexStoreSession")
 
     /// The ready-to-query IndexStoreDB instance opened by this session.
     public let db: IndexStoreDB
+    /// Which units this session reads, and how many it set aside.
+    ///
+    /// `nil` when the units could not be examined individually — the unit reader failed to
+    /// load, or the store would not open through it. The session then reads **every** unit, as
+    /// it did before the census existed, and a caller reporting provenance must say so.
+    public let unitCensus: IndexUnitCensus?
     /// Set only when the session demoted to a throwaway database; removed in `deinit`.
     private let ephemeralDir: URL?
 
@@ -47,24 +65,76 @@ public final class IndexStoreSession: Sendable {
 
     /// Opens an IndexStoreDB session with the persistent database for `storePath`.
     ///
+    /// Asynchronous because the unit census is: the raw unit reader loads `libIndexStore`
+    /// through an actor. There is deliberately no synchronous overload — one would open the
+    /// store without a census, and a caller in a synchronous context would get the unfiltered
+    /// session without having asked for it.
+    ///
     /// - Parameters:
     ///   - storePath: Path to the index store (e.g. `.build/index-build/index-store`).
     ///   - libPath: Path to `libIndexStore.dylib`.
     /// - Throws: If the library cannot be loaded or the store cannot be opened.
-    public convenience init(storePath: URL, libPath: URL) throws {
+    public convenience init(storePath: URL, libPath: URL) async throws {
+        let census = await Self.takeCensus(storePath: storePath, libPath: libPath)
         try self.init(
             storePath: storePath,
             libPath: libPath,
-            databaseDirectory: Self.databaseDirectory(for: storePath)
+            databaseDirectory: Self.databaseDirectory(for: storePath),
+            census: census
         )
     }
 
-    /// Internal seam: opens against an explicit database directory.
-    init(storePath: URL, libPath: URL, databaseDirectory: URL) throws {
+    /// Reads the store's units and decides which describe current source.
+    ///
+    /// - Parameters:
+    ///   - storePath: Path to the index store.
+    ///   - libPath: Path to `libIndexStore`.
+    ///   - sourceDate: The modification date of a source file, or `nil` when it is gone.
+    ///     Injected so a test can declare a file edited without editing it.
+    /// - Returns: The census, or `nil` when the units could not be read — logged, and reported
+    ///   by the session as ``unitCensus`` being absent rather than as an empty store.
+    static func takeCensus(
+        storePath: URL,
+        libPath: URL,
+        sourceDate: (String) -> Date? = IndexStoreSession.modificationDate(ofSource:)
+    ) async -> IndexUnitCensus? {
+        do {
+            let units = try await IndexUnitReader.units(inStoreAt: storePath, libPath: libPath)
+            return IndexUnitCurrency.census(units: units, sourceDate: sourceDate)
+        } catch {
+            logger.warning("index units at \(storePath.path, privacy: .public) could not be examined individually; every unit will be read as current: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// When the source file at `path` was last modified, or `nil` when it does not exist.
+    static func modificationDate(ofSource path: String) -> Date? {
+        // SAFETY: read-only probe of a source path recorded in the project's own index
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        do {
+            // SAFETY: CLI tool reads local file attributes
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            return attributes[.modificationDate] as? Date
+        } catch {
+            logger.warning("could not date source \(path, privacy: .public); its index units will be treated as orphaned: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Internal seam: opens against an explicit database directory and a census already taken.
+    ///
+    /// - Parameters:
+    ///   - storePath: Path to the index store.
+    ///   - libPath: Path to `libIndexStore`.
+    ///   - databaseDirectory: Where the persistent database lives.
+    ///   - census: The units to read. `nil` reads every unit.
+    init(storePath: URL, libPath: URL, databaseDirectory: URL, census: IndexUnitCensus?) throws {
         let lib = try IndexStoreLibrary(dylibPath: libPath.path)
+        self.unitCensus = census
 
         if let persistent = Self.openPersistent(
-            storePath: storePath, library: lib, databaseDirectory: databaseDirectory) {
+            storePath: storePath, library: lib, databaseDirectory: databaseDirectory,
+            census: census) {
             self.db = persistent
             self.ephemeralDir = nil
             return
@@ -75,21 +145,41 @@ public final class IndexStoreSession: Sendable {
             .appendingPathComponent("quality-gate-indexdb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dbPath, withIntermediateDirectories: true) // SAFETY: CLI tool creates temp directory for index DB
         self.ephemeralDir = dbPath
-        self.db = try Self.open(storePath: storePath, library: lib, databasePath: dbPath)
+        self.db = try Self.open(
+            storePath: storePath, library: lib, databasePath: dbPath, census: census)
     }
 
-    /// Opens and polls an `IndexStoreDB` at `databasePath`.
+    /// Opens an `IndexStoreDB` at `databasePath` and brings it up to date with the store.
+    ///
+    /// With a census, in explicit-output-units mode: IndexStoreDB ingests and answers from only
+    /// the units whose output paths it is given. Registering a unit the database already holds
+    /// costs a modification-time comparison, so a warm open stays a warm open. Without a census
+    /// this is the earlier behaviour — scan the units directory and ingest whatever is there.
     private static func open(
-        storePath: URL, library: IndexStoreLibrary, databasePath: URL
+        storePath: URL, library: IndexStoreLibrary, databasePath: URL, census: IndexUnitCensus?
     ) throws -> IndexStoreDB {
+        guard let census else {
+            let db = try IndexStoreDB(
+                storePath: storePath.path,
+                databasePath: databasePath.path,
+                library: library,
+                waitUntilDoneInitializing: true,
+                listenToUnitEvents: false
+            )
+            db.pollForUnitChangesAndWait()
+            return db
+        }
+        // Nothing to wait for at creation: in this mode the initial scan would visit every unit
+        // only to decline each one, since none has been declared yet.
         let db = try IndexStoreDB(
             storePath: storePath.path,
             databasePath: databasePath.path,
             library: library,
-            waitUntilDoneInitializing: true,
+            useExplicitOutputUnits: true,
+            waitUntilDoneInitializing: false,
             listenToUnitEvents: false
         )
-        db.pollForUnitChangesAndWait()
+        db.addUnitOutFilePaths(census.currentOutputPaths, waitForProcessing: true)
         return db
     }
 
@@ -102,7 +192,8 @@ public final class IndexStoreSession: Sendable {
     /// and a lock file deleted mid-hold silently stops excluding the next process.
     /// Queries after init are read-only and unserialized.
     private static func openPersistent(
-        storePath: URL, library: IndexStoreLibrary, databaseDirectory: URL
+        storePath: URL, library: IndexStoreLibrary, databaseDirectory: URL,
+        census: IndexUnitCensus?
     ) -> IndexStoreDB? {
         let lockURL = databaseDirectory.deletingLastPathComponent()
             .appendingPathComponent(databaseDirectory.lastPathComponent + ".lock")
@@ -112,13 +203,15 @@ public final class IndexStoreSession: Sendable {
                 do {
                     try FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true) // SAFETY: CLI tool creates the persistent index DB directory beside the store
                     opened = try open(
-                        storePath: storePath, library: library, databasePath: databaseDirectory)
+                        storePath: storePath, library: library, databasePath: databaseDirectory,
+                        census: census)
                 } catch {
                     logger.warning("persistent index DB at \(databaseDirectory.path, privacy: .public) failed to open (\(error.localizedDescription, privacy: .public)); wiping and retrying once")
                     try FileManager.default.removeItem(at: databaseDirectory) // SAFETY: CLI tool removes its own corrupt index DB directory
                     try FileManager.default.createDirectory(at: databaseDirectory, withIntermediateDirectories: true) // SAFETY: CLI tool recreates the persistent index DB directory
                     opened = try open(
-                        storePath: storePath, library: library, databasePath: databaseDirectory)
+                        storePath: storePath, library: library, databasePath: databaseDirectory,
+                        census: census)
                 }
             }
             return opened
@@ -137,7 +230,7 @@ public final class IndexStoreSession: Sendable {
         }
     }
 
-    /// Locates `libIndexStore.dylib`, preferring the **active** toolchain.
+    /// Locates the platform's index-store library, preferring the **active** toolchain.
     ///
     /// The library must match the toolchain that produced the index store, or
     /// cross-module lookups silently return nothing. Earlier this method returned
@@ -151,20 +244,101 @@ public final class IndexStoreSession: Sendable {
         if let active = activeToolchainLibIndexStore() { return active }
         // 2. Active toolchain via `xcrun --find swift`.
         if let viaXcrun = xcrunLibIndexStore() { return viaXcrun }
-        // 3. Last-resort hardcoded fallbacks.
-        let fallbacks = [
+        // 3. The toolchain holding `swift` on PATH, then the platform's known locations.
+        //    This is the only branch Linux can take: the two above are Darwin tools, and
+        //    before this existed the method answered `nil` there — whereupon `unreachable`
+        //    reported *passed* with no findings instead of reporting that it had no store to
+        //    consult. A checker that cannot look is not a checker that found nothing.
+        return resolveLibIndexStore(
+            toolchainBinary: swiftOnPath(),
+            fallbacks: fallbackLibraryPaths,
+            libraryFileName: libraryFileName,
+            // SAFETY: CLI tool checks candidate toolchain library paths
+            exists: { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    /// The index-store library's file name on this platform.
+    ///
+    /// Darwin ships `libIndexStore.dylib`; Linux ships `libIndexStore.so`, which the official
+    /// `swift:6.2` container puts at `/usr/lib`. The name was written in as `.dylib` at every
+    /// site, so the Linux library was never looked for even though it was installed.
+    static var libraryFileName: String {
+        #if canImport(Darwin)
+        "libIndexStore.dylib"
+        #else
+        "libIndexStore.so"
+        #endif
+    }
+
+    /// Known locations for the library, after the active toolchain has been tried.
+    static var fallbackLibraryPaths: [String] {
+        #if canImport(Darwin)
+        [
             "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libIndexStore.dylib",
             "/Library/Developer/CommandLineTools/usr/lib/libIndexStore.dylib",
         ]
-        for path in fallbacks where FileManager.default.fileExists(atPath: path) { // SAFETY: CLI tool checks hardcoded toolchain library paths
-            return URL(fileURLWithPath: path)
+        #else
+        ["/usr/lib/libIndexStore.so", "/usr/lib/swift/linux/libIndexStore.so"]
+        #endif
+    }
+
+    /// Resolves the index-store library from a toolchain's binary, then from `fallbacks`.
+    ///
+    /// The toolchain is preferred for the reason ``findLibIndexStore()`` documents: the
+    /// library must match the toolchain that produced the store, or cross-module lookups
+    /// return nothing at all — and nothing is indistinguishable from a clean result.
+    ///
+    /// - Parameters:
+    ///   - toolchainBinary: A `swift` or `swiftc` in some `usr/bin`, or `nil` when none was
+    ///     found. The library is looked for at `usr/lib/<libraryFileName>` beside it.
+    ///   - fallbacks: Full paths to try, in order, after the toolchain.
+    ///   - libraryFileName: The platform's library name.
+    ///   - exists: Answers whether a candidate path is present.
+    /// - Returns: The first candidate that exists, or `nil` when none does.
+    static func resolveLibIndexStore(
+        toolchainBinary: String?,
+        fallbacks: [String],
+        libraryFileName: String,
+        exists: (String) -> Bool
+    ) -> URL? {
+        var candidates: [String] = []
+        if let toolchainBinary {
+            let usr = URL(fileURLWithPath: toolchainBinary)
+                .deletingLastPathComponent()      // …/usr/bin
+                .deletingLastPathComponent()      // …/usr
+            candidates.append(usr.appendingPathComponent("lib/\(libraryFileName)").path)
+        }
+        candidates += fallbacks
+
+        for candidate in candidates where exists(candidate) {
+            return URL(fileURLWithPath: candidate)
+        }
+        return nil
+    }
+
+    /// The `swift` on `PATH`, or `nil` when there is none.
+    ///
+    /// Resolved from `PATH` rather than from `xcrun`, which does not exist off Darwin, and
+    /// which can in any case answer with a different toolchain than the one `swift build`
+    /// used — the mismatch that makes a cross-module lookup come back empty.
+    static func swiftOnPath() -> String? {
+        guard let path = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+        for entry in path.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = URL(fileURLWithPath: String(entry))
+                .appendingPathComponent("swift")
+            // SAFETY: CLI tool probes PATH for the compiler the build itself resolves
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate.path
+            }
         }
         return nil
     }
 
     /// Resolves `libIndexStore.dylib` from the active developer dir (`xcode-select -p`).
     private static func activeToolchainLibIndexStore() -> URL? {
-        guard let developerDir = captureStdout("/usr/bin/xcode-select", ["-p"]) else { return nil }
+        // SAFETY: CLI tool probes for Darwin's own developer-tools shim
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/xcode-select"),
+              let developerDir = captureStdout("/usr/bin/xcode-select", ["-p"]) else { return nil }
         let lib = URL(fileURLWithPath: developerDir)
             .appendingPathComponent("Toolchains/XcodeDefault.xctoolchain/usr/lib/libIndexStore.dylib")
         // SAFETY: CLI tool checks local toolchain library path
@@ -172,7 +346,9 @@ public final class IndexStoreSession: Sendable {
     }
 
     private static func xcrunLibIndexStore() -> URL? {
-        guard let swiftPath = captureStdout("/usr/bin/xcrun", ["--find", "swift"]) else { return nil }
+        // SAFETY: CLI tool probes for Darwin's own developer-tools shim
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/xcrun"),
+              let swiftPath = captureStdout("/usr/bin/xcrun", ["--find", "swift"]) else { return nil }
         let toolchainLib = URL(fileURLWithPath: swiftPath)
             .deletingLastPathComponent() // .../usr/bin
             .deletingLastPathComponent() // .../usr

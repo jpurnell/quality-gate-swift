@@ -553,6 +553,19 @@ struct FallbackIntConversionEvidenceTests {
         #expect(intConversionFindings(code).isEmpty)
     }
 
+    @Test("An inout Double parameter is a Double")
+    func flagsInoutParameter() {
+        let code = """
+        func settle(_ x: inout Double) -> Int {
+            x *= 2
+            return Int(x)
+        }
+        """
+        let findings = intConversionFindings(code)
+        #expect(findings.count == 1)
+        #expect(findings.first?.lineNumber == 3)
+    }
+
     @Test("Test files are not production code")
     func skipsTestFiles() {
         let code = """

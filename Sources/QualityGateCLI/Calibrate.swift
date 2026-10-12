@@ -1,9 +1,7 @@
 import ArgumentParser
 import Foundation
 import SwiftDeterminism
-#if canImport(os)
-import os
-#endif
+import QualityGateLogging
 import QualityGateCore
 import CorpusKit
 import IJSAggregator
@@ -82,7 +80,8 @@ struct Calibrate: AsyncParsableCommand {
             configuration = Configuration()
         }
 
-        let effectiveCorpusPath = corpusPath ?? configuration.consistency.corpusPath
+        let effectiveCorpusPath = try ConfiguredCorpus.path(
+            flag: corpusPath, configuration: configuration, tag: "calibrate")
         guard let effectiveCorpusPath else {
             print("[calibrate] Error: No corpus path configured. Set consistency.corpusPath in .quality-gate.yml or use --corpus-path.")
             throw ExitCode(1)
