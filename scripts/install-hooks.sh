@@ -7,7 +7,12 @@
 
 set -euo pipefail
 
-HOOK_DIR="$(git rev-parse --show-toplevel)/.git/hooks"
+# `--git-path hooks`, not `<toplevel>/.git/hooks`. In a worktree `.git` is a *file*, so the
+# composed path is not a directory and this script died with "Not a directory" — in every
+# worktree, which is where all the work happens. The hook therefore could not be reinstalled
+# from anywhere useful and silently stayed at whatever version predated the worktrees: an
+# installer that only runs where nobody stands is indistinguishable from no installer.
+HOOK_DIR="$(git rev-parse --git-path hooks)"
 HOOK_FILE="$HOOK_DIR/pre-push"
 
 # Refusing outright to touch an existing hook made this script write-once: every
