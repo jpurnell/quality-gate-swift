@@ -138,13 +138,24 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block)"
           echo "--- products are at: $BIN"
+          echo "--- what the build actually produced there"
+          ls -1 "$BIN" | head -12
+          printf '    .resources: %s   .bundle: %s\n' \
+            "$(find "$BIN" -maxdepth 1 -name '*.resources' | wc -l)" \
+            "$(find "$BIN" -maxdepth 1 -name '*.bundle' | wc -l)"
           cp "$BIN/quality-gate" /usr/local/bin/
-          cp -R "$BIN"/*.resources /usr/local/bin/
+          # Either spelling. SwiftPM's native build writes `.resources` directories;
+          # the swiftbuild backend writes `.bundle`, on Linux as on macOS. Assuming
+          # `.resources` because the platform is Linux was wrong — the spelling follows
+          # the build system, not the operating system.
+          find "$BIN" -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) \
+            -exec cp -R {} /usr/local/bin/ \;
           echo "--- what landed in /usr/local/bin"
           ls /usr/local/bin | head -8
-          copied=$(ls -d /usr/local/bin/*.resources 2>/dev/null | wc -l)
-          built=$(ls -d "$BIN"/*.resources 2>/dev/null | wc -l)
+          copied=$(find /usr/local/bin -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) | wc -l)
+          built=$(find "$BIN" -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) | wc -l)
           echo "  resource bundles copied: $copied of $built built"
+          [ "$built" -gt 0 ] || { echo "  ✗ the build produced no resource bundles under either name"; exit 1; }
           # An assertion, not a report. The first version of these instructions copied
           # `quality-gate-swift_*` and left four bundles from the other packages behind; the
           # documented command did not need them, so the gap passed as success.

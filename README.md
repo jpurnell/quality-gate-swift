@@ -73,15 +73,19 @@ swift build -c release \
 
 # Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
 # `.resources` directories here, not `.bundle`. All of them, for the same reason.
-# `--show-bin-path`, not `.build/release`. Swift 6.4 on Linux builds with the
-# `swiftbuild` backend and writes to `.build/out`, where this command's earlier
-# form failed outright: `cp: cannot stat '.build/release/*.resources'`. The
-# documented install was broken on the newer of the two supported toolchains.
+# Two things this line used to get wrong, both found by running it in CI rather
+# than reading it. `--show-bin-path`, because Swift 6.4 builds with the
+# `swiftbuild` backend and writes to `.build/out`, not `.build/release`. And
+# either bundle spelling, because the suffix follows the *build system*, not the
+# operating system: SwiftPM's native build writes `.resources` directories,
+# swiftbuild writes `.bundle` — on Linux too, which "Linux means .resources"
+# did not survive.
 BIN="$(swift build -c release --show-bin-path \
   -Xcxx -I/usr/lib/swift \
   -Xcxx -I/usr/lib/swift/Block)"
 sudo cp "$BIN/quality-gate" /usr/local/bin/
-sudo cp -R "$BIN"/*.resources /usr/local/bin/
+sudo find "$BIN" -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) \
+  -exec cp -R {} /usr/local/bin/ \;
 ```
 
 Run the same way on both:
