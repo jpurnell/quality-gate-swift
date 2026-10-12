@@ -203,8 +203,13 @@ struct ManifestParsingAgreementTests {
         // RecursionAuditor and ConcurrencyAuditor share.
         // 122 from 2026-10-06: DependencyAdvisory and its test target — the three advisory
         // checkers (`AnAdvisoryIsADatedFact.md`).
-        #expect(map.targetCount == 122,
-                "describe reported 122 targets on 2026-10-06; parser found \(map.targetCount)")
+        // 124 from 2026-10-12: ShapeMetrics and its test target, arriving with the shape-spans
+        // merge — the two targets behind `--shape-output`. Both sides of that merge edited this
+        // number, to 116 and 122, and neither was the answer: the branch counted its own two
+        // additions against a 114 that four other pairs had already moved past. Read off
+        // `swift package describe` after merging, not carried over from either side.
+        #expect(map.targetCount == 124,
+                "describe reported 124 targets on 2026-10-12; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

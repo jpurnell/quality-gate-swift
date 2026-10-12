@@ -143,7 +143,13 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
                 message: message,
                 filePath: files[anchor.file].absolutePath,
                 lineNumber: anchorSpan.startLine,
-                ruleId: Self.ruleId
+                ruleId: Self.ruleId,
+                // The anchor block's region, not the union of every site: a clone class
+                // spanning four files is four separate regions, and summing them would
+                // double-count code that exists once per site. The end line was already being
+                // formatted into the message and then discarded, so a consumer counting
+                // duplicated lines had to parse prose to recover what the checker knew.
+                endLine: anchorSpan.endLine
             ))
         }
 

@@ -36,13 +36,28 @@
 ```bash
 git clone https://github.com/jpurnell/quality-gate-swift.git
 cd quality-gate-swift
-swift build -c release
+# `--disable-automatic-resolution` builds exactly the versions `Package.resolved` pins and
+# fails if that file is out of date, rather than quietly resolving something else. The
+# lockfile is committed, and a build that ignores it is not the build that was tested.
+swift build -c release --disable-automatic-resolution
 
 # The binary needs its resource bundles beside it: SwiftPM resolves them relative
 # to the executable, so copying the binary alone fails at runtime with
 # "couldn't find bundle named quality-gate-swift_ControlMapping".
-sudo cp .build/release/quality-gate /usr/local/bin/
-sudo cp -R .build/release/quality-gate-swift_*.bundle /usr/local/bin/
+#
+# Every bundle, not just this package's: the build also writes BusinessMath_*,
+# SwiftDeterminism_*, swift-crypto_*, swift-vigil_* and quality-gate-corpus-kit_*. A
+# `quality-gate-swift_*` glob leaves those behind — 40 of 45 on this machine, 40 of 44 on
+# the Linux CI containers, the total differing with the dependency set — and the ones it
+# skips are a dependency's, which is the wrong set to skip: their absence surfaces as a
+# crash inside code the user did not write.
+# Ask SwiftPM where the products landed rather than assuming `.build/release`.
+# Swift 6.4 builds with the `swiftbuild` backend, which writes to `.build/out`;
+# on macOS `.build/release` survives as a symlink to it, on Linux it does not
+# exist at all. `--show-bin-path` is correct under either backend.
+BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
+sudo cp "$BIN/quality-gate" /usr/local/bin/
+sudo cp -R "$BIN"/*.bundle /usr/local/bin/
 ```
 
 ### Linux
@@ -57,14 +72,25 @@ this README came from for longer than it was true.
 ```bash
 git clone https://github.com/jpurnell/quality-gate-swift.git
 cd quality-gate-swift
-swift build -c release \
+swift build -c release --disable-automatic-resolution \
   -Xcxx -I/usr/lib/swift \
   -Xcxx -I/usr/lib/swift/Block
 
 # Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
-# `.resources` directories here, not `.bundle`.
-sudo cp .build/release/quality-gate /usr/local/bin/
-sudo cp -R .build/release/quality-gate-swift_*.resources /usr/local/bin/
+# `.resources` directories here, not `.bundle`. All of them, for the same reason.
+# Two things this line used to get wrong, both found by running it in CI rather
+# than reading it. `--show-bin-path`, because Swift 6.4 builds with the
+# `swiftbuild` backend and writes to `.build/out`, not `.build/release`. And
+# either bundle spelling, because the suffix follows the *build system*, not the
+# operating system: SwiftPM's native build writes `.resources` directories,
+# swiftbuild writes `.bundle` — on Linux too, which "Linux means .resources"
+# did not survive.
+BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution \
+  -Xcxx -I/usr/lib/swift \
+  -Xcxx -I/usr/lib/swift/Block)"
+sudo cp "$BIN/quality-gate" /usr/local/bin/
+sudo find "$BIN" -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) \
+  -exec cp -R {} /usr/local/bin/ \;
 ```
 
 Run the same way on both:
@@ -171,7 +197,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **122 targets** — 61 source, 61 test
+- **124 targets** — 62 source, 62 test
 - **49 registered checkers**
 <!-- /generated:scale -->
 
@@ -435,10 +461,13 @@ struct LegacyWrapper: @unchecked Sendable { ... }
 
 ```yaml
 - name: Build Quality Gate
-  run: swift build -c release
+  run: swift build -c release --disable-automatic-resolution
 
+# `--show-bin-path` for the same reason as the install steps above: under the
+# swiftbuild backend (Swift 6.4's default) products are in `.build/out`, and on
+# Linux no `.build/release` symlink exists to hide the difference.
 - name: Run Quality Gate
-  run: .build/release/quality-gate --format sarif > results.sarif
+  run: $(swift build -c release --show-bin-path --disable-automatic-resolution)/quality-gate --format sarif > results.sarif
 
 - name: Upload SARIF
   uses: github/codeql-action/upload-sarif@v2

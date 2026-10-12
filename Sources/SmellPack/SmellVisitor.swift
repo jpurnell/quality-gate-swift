@@ -25,6 +25,8 @@ final class SmellVisitor: SyntaxVisitor {
         let describedName: String
         let line: Int
         let column: Int
+        /// Last line of the declaration whose nesting is being measured.
+        let endLine: Int
         var currentDepth = 0
         var maxDepth = 0
     }
@@ -35,6 +37,8 @@ final class SmellVisitor: SyntaxVisitor {
     private struct TypeTally {
         let line: Int
         let column: Int
+        /// Last line of the type declaration, extended as same-file extensions are merged in.
+        var endLine: Int
         var memberCount: Int
     }
     /// Member tallies keyed by dot-qualified type name.
@@ -59,11 +63,13 @@ final class SmellVisitor: SyntaxVisitor {
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
         let location = startLocation(of: node)
+        let end = endLine(of: node)
         checkParameterCount(
             node.signature.parameterClause.parameters.count,
             describedName: "function '\(node.name.text)'",
-            location: location)
-        pushFunction(describedName: "function '\(node.name.text)'", location: location)
+            location: location,
+            endLine: end)
+        pushFunction(describedName: "function '\(node.name.text)'", location: location, endLine: end)
         return .visitChildren
     }
 
@@ -71,18 +77,23 @@ final class SmellVisitor: SyntaxVisitor {
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         let location = startLocation(of: node)
+        let end = endLine(of: node)
         checkParameterCount(
             node.signature.parameterClause.parameters.count,
             describedName: "initializer",
-            location: location)
-        pushFunction(describedName: "initializer", location: location)
+            location: location,
+            endLine: end)
+        pushFunction(describedName: "initializer", location: location, endLine: end)
         return .visitChildren
     }
 
     override func visitPost(_ node: InitializerDeclSyntax) { popFunction() }
 
     override func visit(_ node: DeinitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        pushFunction(describedName: "deinitializer", location: startLocation(of: node))
+        pushFunction(
+            describedName: "deinitializer",
+            location: startLocation(of: node),
+            endLine: endLine(of: node))
         return .visitChildren
     }
 
@@ -145,7 +156,8 @@ final class SmellVisitor: SyntaxVisitor {
                 ruleId: "smell.closure-length",
                 message: "closure body spans \(span) lines (threshold \(config.maxClosureLength))",
                 line: location.line,
-                column: location.column)
+                column: location.column,
+                endLine: rightLine)
         }
         return .visitChildren
     }
@@ -208,7 +220,8 @@ final class SmellVisitor: SyntaxVisitor {
                     ruleId: "smell.god-object",
                     message: "type '\(qualified)' has \(total) members (threshold \(config.maxTypeMemberCount))",
                     line: tally.line,
-                    column: tally.column)
+                    column: tally.column,
+                    endLine: tally.endLine)
             }
         }
     }
@@ -220,22 +233,37 @@ final class SmellVisitor: SyntaxVisitor {
         converter.location(for: node.positionAfterSkippingLeadingTrivia)
     }
 
+    /// The last line of a node, excluding trailing trivia.
+    ///
+    /// Trailing trivia is excluded because the comment and newline following a declaration are
+    /// not part of the region the rule objects to.
+    private func endLine(of node: some SyntaxProtocol) -> Int {
+        converter.location(for: node.endPositionBeforeTrailingTrivia).line
+    }
+
     /// Flags a parameter list strictly over the configured maximum.
-    private func checkParameterCount(_ count: Int, describedName: String, location: SourceLocation) {
+    private func checkParameterCount(
+        _ count: Int,
+        describedName: String,
+        location: SourceLocation,
+        endLine: Int
+    ) {
         guard count > config.maxParameterCount else { return }
         emit(
             ruleId: "smell.parameter-count",
             message: "\(describedName) has \(count) parameters (threshold \(config.maxParameterCount))",
             line: location.line,
-            column: location.column)
+            column: location.column,
+            endLine: endLine)
     }
 
     /// Opens a nesting-measurement context for a function-like body.
-    private func pushFunction(describedName: String, location: SourceLocation) {
+    private func pushFunction(describedName: String, location: SourceLocation, endLine: Int) {
         functionStack.append(FunctionContext(
             describedName: describedName,
             line: location.line,
-            column: location.column))
+            column: location.column,
+            endLine: endLine))
     }
 
     /// Closes the innermost function context, flagging over-threshold depth.
@@ -246,7 +274,8 @@ final class SmellVisitor: SyntaxVisitor {
                 ruleId: "smell.nesting-depth",
                 message: "\(context.describedName) reaches nesting depth \(context.maxDepth) (threshold \(config.maxNestingDepth))",
                 line: context.line,
-                column: context.column)
+                column: context.column,
+                endLine: context.endLine)
         }
     }
 
@@ -276,14 +305,17 @@ final class SmellVisitor: SyntaxVisitor {
         let location = startLocation(of: declaration)
         let ownCount = Self.memberCount(of: memberBlock)
 
+        let declarationEnd = endLine(of: declaration)
         if var existing = typeTallies[qualified] {
             // Duplicate declarations of one name in a file: merge tallies.
             existing.memberCount += ownCount
+            existing.endLine = max(existing.endLine, declarationEnd)
             typeTallies[qualified] = existing
         } else {
             typeTallies[qualified] = TypeTally(
                 line: location.line,
                 column: location.column,
+                endLine: declarationEnd,
                 memberCount: ownCount)
             declaredOrder.append(qualified)
         }
@@ -296,7 +328,8 @@ final class SmellVisitor: SyntaxVisitor {
                 ruleId: "smell.type-length",
                 message: "type '\(qualified)' body spans \(span) lines (threshold \(config.maxTypeBodyLength))",
                 line: location.line,
-                column: location.column)
+                column: location.column,
+                endLine: declarationEnd)
         }
     }
 
@@ -331,7 +364,7 @@ final class SmellVisitor: SyntaxVisitor {
     /// Emits an advisory `.note`, unless the flagged declaration's line
     /// carries `// smell:exempt` — then the suppression is recorded as a
     /// ``DiagnosticOverride`` instead. Recorded, never silent.
-    private func emit(ruleId: String, message: String, line: Int, column: Int) {
+    private func emit(ruleId: String, message: String, line: Int, column: Int, endLine: Int) {
         if line >= 1, line <= lines.count, lines[line - 1].contains("// smell:exempt") {
             overrides.append(DiagnosticOverride(
                 ruleId: ruleId,
@@ -346,6 +379,7 @@ final class SmellVisitor: SyntaxVisitor {
             filePath: filePath,
             lineNumber: line,
             columnNumber: column,
-            ruleId: ruleId))
+            ruleId: ruleId,
+            endLine: max(line, endLine)))
     }
 }

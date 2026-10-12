@@ -167,7 +167,8 @@ public struct IdiomAuditor: QualityChecker, Sendable {
                     lineNumber: finding.lineNumber,
                     columnNumber: finding.columnNumber,
                     ruleId: finding.ruleId,
-                    suggestedFix: finding.suggestedFix
+                    suggestedFix: finding.suggestedFix,
+                    endLine: finding.endLine
                 ))
             }
         }
@@ -204,7 +205,8 @@ public struct IdiomAuditor: QualityChecker, Sendable {
                 message: "TODO without ticket — add a reference matching '\(config.todoTicketPattern)'.",
                 lineNumber: location.line,
                 columnNumber: location.column,
-                suggestedFix: nil
+                suggestedFix: nil,
+                endLine: location.line
             ))
         }
 
