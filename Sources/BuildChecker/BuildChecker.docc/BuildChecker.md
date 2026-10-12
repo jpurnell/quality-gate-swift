@@ -130,6 +130,41 @@ buildConfiguration: release  # or debug (default)
 
 The records read are those of the configuration that was built.
 
+### When the Build Is Not a Compiler Result
+
+| Rule | What happened |
+|---|---|
+| `build-timeout` | `swift build` was stopped at its time budget. Compiler errors it had already printed are kept beside it. |
+| `build-unparsed-failure` | `swift build` exited non-zero and printed nothing shaped like a compiler diagnostic: a linker error, a manifest that will not evaluate, a dependency that will not check out. |
+
+Both state the budget and where it came from, the elapsed time, the machine's 1-minute load
+average and the last twenty lines of output. `build-unparsed-failure` also quotes the tool's own
+`error:` lines when they fall before those twenty — SwiftPM reports a failed checkout once and
+then prints a screen of progress:
+
+```
+`swift build --build-tests` exited 1 and nothing it printed is a diagnostic this checker can parse. It was not stopped by its time budget.
+  checker: build
+  budget:  3600s — the first-run budget, because no successful run is recorded yet
+  elapsed: 15s
+  load:    1-minute load average 212.5 on 10 cores (21.3 per core)
+  what the tool reported as an error, outside the lines quoted below:
+    | error: 'swift-numerics': Couldn’t check out revision ‘0c0290ff’:
+    | fatal: unable to read tree (0c0290ff)
+  last 20 of 24 lines of output:
+    | Fetching https://github.com/example/dep3.git
+```
+
+### Time Budget
+
+The budget is three times the last successful build in this checkout, never less than 900
+seconds, and 3,600 seconds when nothing is recorded — a cold tree. To set it instead:
+
+```yaml
+budgets:
+  build: 1200   # seconds, used exactly as written
+```
+
 ### The Reader
 
 The `.dia` container is the LLVM bitstream format Clang and Swift share. The reader is `TSCUtility.SerializedDiagnostics` from [swift-tools-support-core](https://github.com/swiftlang/swift-tools-support-core) (Apache-2.0), vendored under `Sources/BuildChecker/SerializedDiagnostics/` with its provenance and modifications in each file's header. The vendored copy throws where upstream traps: it reads whatever is on disk, and a truncated or overwritten record must surface as `build.warnings-unverified`, not as a crash.
@@ -140,6 +175,7 @@ The `.dia` container is the LLVM bitstream format Clang and Swift share. The rea
 
 - ``BuildChecker/check(configuration:)``
 - ``BuildChecker/parseBuildOutput(_:)``
+- ``BuildChecker/createResult(run:duration:recorded:projectRoot:)``
 - ``BuildChecker/createResult(output:exitCode:duration:recorded:projectRoot:)``
 
 ### Recorded Diagnostics

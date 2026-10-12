@@ -158,3 +158,66 @@ struct StrictExitCodeAcceptanceTests {
         #expect(excluded.output.contains("'disk-clean' is no longer a checker"))
     }
 }
+
+/// A `budgets:` entry the gate will not act on, asserted on the shipped binary.
+///
+/// Every other unreadable configuration makes the command line fall back to defaults. A
+/// budget is the remedy a timeout message tells its reader to apply, so a mistyped one that
+/// was dropped would leave the next run stopped at the old figure with the new one sitting in
+/// the file. This is the one configuration error that stops the run.
+@Suite("A refused budgets entry stops the run — acceptance")
+struct RefusedBudgetAcceptanceTests {
+
+    private enum AcceptanceError: Error {
+        case binaryNotFound
+    }
+
+    private func runGate(config: String) throws -> (exitCode: Int32, output: String) {
+        guard let binary = BuiltProducts.gateBinary else { throw AcceptanceError.binaryNotFound }
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("budget-acceptance-\(UUID().uuidString)", isDirectory: true)
+        let root = base.appendingPathComponent("Pkg", isDirectory: true)
+        let home = base.appendingPathComponent("qg-home", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("Sources/Pkg"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) } // silent: best-effort cleanup of a temporary fixture
+        try "// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: \"Pkg\", targets: [.target(name: \"Pkg\")])\n"
+            .write(to: root.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+        try "public let one = 1\n"
+            .write(to: root.appendingPathComponent("Sources/Pkg/Pkg.swift"), atomically: true, encoding: .utf8)
+        try config.write(to: root.appendingPathComponent(".quality-gate.yml"), atomically: true, encoding: .utf8)
+
+        // No `GIT_*`: inside a hook they point at the outer repository.
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+        environment["QUALITY_GATE_HOME"] = home.path
+        environment.removeValue(forKey: "QG_FOREIGN_REPO_ROOT")
+        environment.removeValue(forKey: "QG_SKIP")
+        let result = try ProcessRunner.run(
+            binary.path,
+            arguments: ["--no-cache", "--check", "recursion"],
+            currentDirectory: root.path,
+            environment: environment,
+            mergeStderr: true,
+            timeout: 300)
+        return (result.exitCode, result.stdout)
+    }
+
+    @Test("A budget for a checker that does not exist exits 1 and runs nothing")
+    func unknownCheckerStopsTheRun() throws {
+        let run = try runGate(config: "budgets:\n  tests: 1800\n")
+        #expect(run.exitCode == 1)
+        #expect(run.output.contains(
+            "❌ configuration: `budgets.tests` names no checker that has a time budget. "
+                + "Budgets apply to: build, doc-lint, test, xcode-build.\n"
+                + "   Nothing was run. Correct `budgets:` in .quality-gate.yml and run again.\n"))
+        #expect(!run.output.contains("Quality Gate Results"))
+    }
+
+    @Test("A well-formed budget does not stop a run that never uses it")
+    func validBudgetRuns() throws {
+        let run = try runGate(config: "budgets:\n  test: 1800\n")
+        #expect(run.exitCode == 0)
+        #expect(run.output.contains("Quality Gate: PASSED"))
+    }
+}

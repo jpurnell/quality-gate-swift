@@ -269,6 +269,29 @@ When the tool fails before it has built anything, report what was run, where, an
 exited as a diagnostic of your own. A thrown error reaches the reader as `Checker failed:`
 beside a duration of `0ms`, which says the gate broke and nothing ran.
 
+### A tool that can run for minutes
+
+Launch it through ``ToolLauncher`` rather than `ProcessRunner.run`, with a budget from
+``CheckerBudget``. The ``ToolRun`` that comes back records the command, the budget and where
+it came from, the elapsed time and the machine's load when the run ended, and it answers the
+two questions every such checker has to ask before it reads the exit code as a finding:
+
+- ``ToolRun/expired`` — the tool was stopped at its budget. Report
+  ``ToolRun/expiryDiagnostic()`` and fail. Do this before anything that could excuse a
+  non-zero exit: a stopped `swift test` has usually printed "passed" for the bundles that
+  finished.
+- The tool failed and your parser found nothing. Report
+  ``ToolRun/unparsedFailureDiagnostic(ruleId:)``. A failure with no diagnostic reads like a
+  hang and is retried like one.
+
+Record a duration with ``CheckerBudget/record(_:named:root:)`` only when the tool succeeded.
+A result carrying an expiry is never stored in the result cache, whatever status it reports:
+a run that did not finish has no verdict to replay. If the budget should be configurable, add
+the checker's id to ``CheckerBudgetsConfig/budgetedCheckers``.
+
+Do not scale a budget by the machine's load. A budget nobody can read off the configuration is
+a silent failure of its own; the load belongs in the message, where ``ToolRun`` puts it.
+
 ## Testing Your Checker
 
 Write tests using the Swift Testing framework:

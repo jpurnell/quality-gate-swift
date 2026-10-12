@@ -15,6 +15,8 @@
     "bounded-io.outside-kernel",
     "bounded-io.process-construction",
     "build-skip",
+    "build-timeout",
+    "build-unparsed-failure",
     "build.diagnostic-coverage",
     "build.warnings-unverified",
     "c-style-format-string",
@@ -97,6 +99,8 @@
     "doc-inherited",
     "doc-lint-execution",
     "doc-lint-skip",
+    "doc-lint-timeout",
+    "doc-lint-unparsed-failure",
     "doc-usage-priority",
     "docc",
     "exact-double-equality",
@@ -268,6 +272,7 @@
     "test-failure",
     "test-skip",
     "test-timeout",
+    "test-unparsed-failure",
     "test.outcome-flip",
     "test.stress-empty",
     "unasserted-optional-unwrap",
@@ -282,6 +287,7 @@
     "unseeded-random",
     "weak-assertion",
     "xcode-build-skip",
+    "xcode-build-timeout",
     "xcode-compiler"
   ]
 }

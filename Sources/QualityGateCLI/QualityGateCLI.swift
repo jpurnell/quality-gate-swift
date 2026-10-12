@@ -294,6 +294,16 @@ struct QualityGateCLI: AsyncParsableCommand {
                 print("Config layers in effect (run `quality-gate config` for detail):")
                 print(resolution.provenance.renderTable())
             }
+        } catch let refusal as CheckerBudgetsConfig.Invalid {
+            // Not "using defaults", which is what any other unreadable configuration gets
+            // below. A budget is the remedy a timeout message tells its reader to apply; if
+            // a mistyped one were dropped, the next run would be stopped at the old figure
+            // with the new one sitting in the file, and nothing would say why.
+            Self.logger.error("refused budgets entry in \(self.config, privacy: .public): \(refusal.localizedDescription, privacy: .public)")
+            FileHandle.standardError.write(Data(
+                ("❌ configuration: " + refusal.localizedDescription
+                 + "\n   Nothing was run. Correct `budgets:` in \(config) and run again.\n").utf8))
+            throw ExitCode(1)
         } catch {
             Self.logger.warning("Failed to load configuration from \(self.config, privacy: .public): \(error.localizedDescription, privacy: .public). Using defaults.")
             configuration = Configuration()
@@ -688,26 +698,32 @@ struct QualityGateCLI: AsyncParsableCommand {
                 if dryRun {
                     print("\n[dry-run] \(fixable.name) would apply fixes:")
                     print("  \(fixable.fixDescription)")
-                    for diag in result.diagnostics {
-                        if let fix = diag.suggestedFix, let file = diag.filePath {
-                            let lineInfo = diag.lineNumber.map { ":\($0)" } ?? ""
-                            print("    \(file)\(lineInfo): \(fix)")
+                    if let preview = try await fixable.previewFix(
+                        diagnostics: result.diagnostics,
+                        configuration: configuration
+                    ) {
+                        // A real preview: the files the fix would rewrite, and for each file
+                        // it would leave, the construct that stops it.
+                        for line in FixReport.preview(preview, given: result.diagnostics) {
+                            print(line)
+                        }
+                    } else {
+                        for diag in result.diagnostics {
+                            if let fix = diag.suggestedFix, let file = diag.filePath {
+                                let lineInfo = diag.lineNumber.map { ":\($0)" } ?? ""
+                                print("    \(file)\(lineInfo): \(fix)")
+                            }
                         }
                     }
+                    print("  No files modified (dry-run mode).")
                 } else {
                     print("\n[\(fixable.id)] Applying fixes...")
                     let fixResult = try await fixable.fix(
                         diagnostics: result.diagnostics,
                         configuration: configuration
                     )
-
-                    for mod in fixResult.modifications {
-                        let backup = mod.backupPath.map { " (backup: \($0))" } ?? ""
-                        print("  ✓ \(mod.filePath) — \(mod.description)\(backup)")
-                    }
-
-                    if !fixResult.unfixed.isEmpty {
-                        print("  ℹ  \(fixResult.unfixed.count) diagnostic(s) require manual intervention")
+                    for line in FixReport.applied(fixResult, given: result.diagnostics) {
+                        print(line)
                     }
                 }
             }

@@ -14,25 +14,30 @@ import SwiftSyntax
 ///
 /// ## Checked before anything is written
 ///
-/// A conversion is only offered for writing if three things hold (see ``Outcome``):
+/// A conversion is only offered for writing if four things hold (see ``Outcome``):
 /// - **No test is orphaned.** XCTest discovers tests by name, Swift Testing by attribute. A
 ///   `func test*` that loses its way to `@Test` does not fail; it stops running.
 /// - **The output parses.**
+/// - **Nothing in the file needed a decision.** An expectation, a `measure` block, an
+///   `XCTSkip` in a helper: each has more than one Swift Testing form, and which one depends
+///   on what the test meant. Such a file is declined whole, and ``Outcome/declines`` names
+///   each construct and its line. Converting the rest and leaving those in place was tried:
+///   the file no longer imported XCTest, so it did not compile.
 /// - **The output does not contain the finding the gate would report next.** A converted
 ///   `XCTAssertEqual` on `Double` is `#expect(a == b)`, which `exact-double-equality`
 ///   rejects. The gate's own detector is run over the output, and each site it flags becomes
 ///   `a.isEqual(to: b)`: the exact claim `XCTAssertEqual` made, now named, never loosened.
-///
-/// What needs judgement (an `XCTSkip`, an expectation, a `measure` block) is left in place
-/// and reported in ``Outcome/residue``.
+///   `TestQualityAuditor.fix` then runs every other test-quality rule over the result and
+///   declines a file that would gain a finding.
 enum XCTestMigration {
 
     /// One file's conversion.
     struct Outcome: Sendable {
         /// The converted source.
         let output: String
-        /// What was left for a person, one finding per site, at its line in the input.
-        let residue: [Diagnostic]
+        /// Why the file cannot be converted, one finding per construct, at its line in the
+        /// input. Empty when it can.
+        let declines: [Diagnostic]
         /// `func test*()` methods in `XCTestCase` subclasses, before.
         let testsBefore: Int
         /// `@Test` functions the conversion added.
@@ -40,11 +45,11 @@ enum XCTestMigration {
         /// Whether the output parses without errors.
         let parses: Bool
 
-        /// The orphan check and the parse check together.
-        var isSafeToWrite: Bool { parses && testsAfter == testsBefore }
+        /// The orphan check, the parse check, and nothing declined.
+        var isSafeToWrite: Bool { parses && testsAfter == testsBefore && declines.isEmpty }
     }
 
-    /// Converts `source`, reporting residue against `fileName`.
+    /// Converts `source`, reporting what stops it against `fileName`.
     static func migrate(source: String, fileName: String) -> Outcome {
         let tree = Parser.parse(source: source)
         let analysis = MigrationAnalysis(tree: tree, fileName: fileName)
@@ -54,7 +59,9 @@ enum XCTestMigration {
         let outputTree = Parser.parse(source: named)
         return Outcome(
             output: named,
-            residue: analysis.residue,
+            declines: analysis.declines.sorted {
+                ($0.lineNumber ?? 0, $0.columnNumber ?? 0) < ($1.lineNumber ?? 0, $1.columnNumber ?? 0)
+            },
             testsBefore: analysis.testMethodCount,
             testsAfter: testAttributeCount(outputTree) - testAttributeCount(tree),
             parses: !outputTree.hasError)

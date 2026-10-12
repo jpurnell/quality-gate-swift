@@ -148,8 +148,10 @@ struct XCTestMigrationTests {
         """))
     }
 
-    @Test("Truth and nil assertions")
+    @Test("Truth and nil assertions; a not-nil check is a #require, and the test gains throws")
     func truthAndNil() {
+        // `#expect(x != nil)` is what this gate's weak-assertion rule reports. A fixer that
+        // wrote it handed back 84 new warnings on BusinessMathExcel.
         let source = file("""
             func testTruth() {
                 XCTAssert(flag)
@@ -161,13 +163,13 @@ struct XCTestMigrationTests {
             }
         """)
         #expect(output(source) == expected("""
-            @Test func truth() {
+            @Test func truth() throws {
                 #expect(flag)
                 #expect(flag)
                 #expect(!flag)
                 #expect(!(a == b))
                 #expect(x == nil)
-                #expect(x != nil)
+                _ = try #require(x)
             }
         """))
     }
@@ -382,8 +384,8 @@ struct XCTestMigrationTests {
                 root = nil
             }
 
-            @Test func rootIsSet() {
-                #expect(root != nil)
+            @Test func rootIsSet() throws {
+                _ = try #require(root)
             }
         }
 
@@ -445,23 +447,137 @@ struct XCTestMigrationTests {
         #expect(result.contains("#expect((model?.weights)?.elementsEqual([0.25], by: { $0.isEqual(to: $1) }) == true)"))
     }
 
-    // MARK: - Residue
+    // MARK: - Bindings
 
-    @Test("XCTSkip is residue: left in place and reported, because choosing for it is judgement")
-    func skipIsResidue() {
+    @Test("A bound value's name is unique in its test, and starts again in the next one (SummerJams: ReviewQueueTests)")
+    func boundNamesAreScopedToTheFunction() {
+        let source = file("""
+            func testFirst() {
+                var q = Queue()
+                XCTAssertTrue(q.next())
+                XCTAssertFalse(q.next())
+            }
+            func testSecond() {
+                var q = Queue()
+                XCTAssertTrue(q.next())
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func first() {
+                var q = Queue()
+                let next = q.next()
+                #expect(next)
+                let next2 = q.next()
+                #expect(!next2)
+            }
+            @Test func second() {
+                var q = Queue()
+                let next = q.next()
+                #expect(next)
+            }
+        """))
+    }
+
+    @Test("A name the file already uses is not taken for a binding")
+    func boundNamesAvoidNamesInUse() {
+        let source = file("""
+            func testCursor() {
+                var q = Queue()
+                let next = 1
+                XCTAssertTrue(q.next())
+                XCTAssertEqual(next, 1)
+            }
+        """)
+        #expect(output(source).contains("let next2 = q.next()\n        #expect(next2)"))
+    }
+
+    @Test("A method call on a let is left inside the assertion: it cannot be mutating")
+    func callsOnConstantsAreNotBound() {
+        let source = file("""
+            func testReads() {
+                let q = Queue()
+                XCTAssertTrue(q.peek())
+            }
+        """)
+        #expect(output(source).contains("#expect(q.peek())"))
+    }
+
+    @Test("Calls left of a mutating one are bound too, so they still run first")
+    func earlierCallsAreBoundInOrder() {
+        // `snapshot2`, not `snapshot`: a local cannot be initialised from a function it shadows.
+        let source = file("""
+            func testOrder() {
+                var q = Queue()
+                XCTAssertEqual(snapshot(), q.pop())
+            }
+        """)
+        #expect(output(source).contains("""
+                let snapshot2 = snapshot()
+                let pop = q.pop()
+                #expect(snapshot2 == pop)
+        """))
+    }
+
+    @Test("A bare reference is bound as xValue, since x is taken by x")
+    func bareReferencesAreBoundWithASuffix() {
+        let source = file("""
+            func testNames() throws {
+                let row = try XCTUnwrap(rows[XCTUnwrap(key)])
+                XCTAssertEqual(try XCTUnwrap(x).count, 3)
+                XCTAssertTrue((name ?? "").isEmpty)
+            }
+        """)
+        #expect(output(source) == expected("""
+            @Test func names() throws {
+                let keyValue = try #require(key)
+                let row = try #require(rows[keyValue])
+                let xValue = try #require(x)
+                #expect(xValue.count == 3)
+                let nameValue = try #require(name)
+                #expect(nameValue.isEmpty)
+            }
+        """))
+    }
+
+    @Test("An unwrap under try? stays where it is: bound ahead, a nil would stop the test")
+    func unwrapUnderOptionalTryIsNotBound() {
+        let source = file("""
+            func testMaybe() {
+                XCTAssertEqual(try? XCTUnwrap(x), 3)
+            }
+        """)
+        #expect(output(source).contains("#expect(try? #require(x) == 3)"))
+    }
+
+    @Test("A try that covered only the unwrap goes with it; one that covers another call stays")
+    func tryIsKeptOnlyWhereSomethingStillThrows() {
+        let source = file("""
+            func testCounts() throws {
+                XCTAssertEqual(try XCTUnwrap(x).count, try count())
+            }
+        """)
+        #expect(output(source).contains("""
+                let xValue = try #require(x)
+                #expect(try xValue.count == count())
+        """))
+    }
+
+    // MARK: - What stops a file
+
+    @Test("An XCTSkip that is not a leading condition declines the file: choosing for it is judgement")
+    func skipDeclinesTheFile() {
         let outcome = migrate(file("""
             func testSkipped() throws {
                 throw XCTSkip("not here")
             }
         """))
-        #expect(outcome.output.contains(#"throw XCTSkip("not here")"#))
-        #expect(outcome.residue.count == 1)
-        #expect(outcome.residue.first?.lineNumber == 5)
-        #expect(outcome.residue.first?.message.contains("XCTSkip") == true)
+        #expect(outcome.declines.map(\.lineNumber) == [5])
+        #expect(outcome.declines.first?.message.hasPrefix("XCTSkip: only a skip that is the first statement of a test") == true)
+        #expect(!outcome.isSafeToWrite)
     }
 
-    @Test("A nil check on a value declared non-optional is residue: it can never fail (SwiftExcelFunctions: compiler crash)")
-    func vacuousNilCheckIsResidue() {
+    @Test("A nil check on a value declared non-optional declines the file: it can never fail (SwiftExcelFunctions: compiler crash)")
+    func vacuousNilCheckDeclinesTheFile() {
         // `#expect(x != nil)` on a non-optional is a compiler warning at best, and on an
         // existential (`any Sendable`) it crashed swift-frontend 6.4 in SILGen. XCTest took
         // `Any?`, which is why the original compiled and why it never tested anything.
@@ -475,12 +591,12 @@ struct XCTestMigrationTests {
         """))
         #expect(outcome.output.contains("XCTAssertNotNil(error)"))
         #expect(outcome.output.contains("#expect(maybe == nil)"))
-        #expect(outcome.residue.count == 1)
-        #expect(outcome.residue.first?.message.contains("never fail") == true)
+        #expect(outcome.declines.map(\.lineNumber) == [6])
+        #expect(outcome.declines.first?.message.hasPrefix("XCTAssertNotNil(error): `error` is not optional, so this can never fail.") == true)
     }
 
-    @Test("Expectations and measure are residue; async setUp is not, Swift Testing has async init")
-    func otherResidue() {
+    @Test("Expectations and measure decline the file; async setUp does not, Swift Testing has async init")
+    func otherConstructsDeclineTheFile() {
         let outcome = migrate(file("""
             override func setUp() async throws {}
             func testWaits() {
@@ -489,7 +605,8 @@ struct XCTestMigrationTests {
                 measure { _ = 1 }
             }
         """))
-        #expect(outcome.residue.count == 3, "\(outcome.residue.map(\.message))")
+        #expect(outcome.declines.map(\.lineNumber) == [6, 7, 8])
+        #expect(outcome.declines.map { String($0.message.prefix(while: { $0 != ":" })) } == ["expectation", "wait(for", "measure"])
         #expect(outcome.output.contains("init() async throws {}"))
     }
 
@@ -504,6 +621,7 @@ struct XCTestMigrationTests {
         """))
         #expect(outcome.testsBefore == 3)
         #expect(outcome.testsAfter == 3)
+        #expect(outcome.declines.isEmpty)
         #expect(outcome.isSafeToWrite)
     }
 

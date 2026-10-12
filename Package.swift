@@ -240,7 +240,7 @@ let package = Package(
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.7.0"),
         .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.9.0"),
         .package(url: "https://github.com/jpurnell/SwiftDeterminism.git", from: "1.3.0"),
-        .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.0.0"),
+        .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.1.0"),
         // HTTPS, not git@ — CI authenticates private dependencies by rewriting
         // `https://github.com/` through a token (`url.insteadOf`), which cannot
         // touch an SSH remote. With the SSH form this dependency failed on any

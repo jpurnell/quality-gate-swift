@@ -2083,6 +2083,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Per-checker configuration for XcodeBuildChecker.
     public var xcodeBuild: XcodeBuildCheckerConfig
 
+    /// Time budgets for the checkers that launch a build tool — see ``CheckerBudgetsConfig``.
+    public var budgets: CheckerBudgetsConfig
+
     /// Per-checker configuration for ConsistencyChecker (IJS).
     public var consistency: ConsistencyCheckerConfig
 
@@ -2187,6 +2190,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         appIntentsReadiness: AppIntentsReadinessConfig = .default,
         build: BuildCheckerConfig = .default,
         xcodeBuild: XcodeBuildCheckerConfig = .default,
+        budgets: CheckerBudgetsConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
         ijs: IJSConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
@@ -2242,6 +2246,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.appIntentsReadiness = appIntentsReadiness
         self.build = build
         self.xcodeBuild = xcodeBuild
+        self.budgets = budgets
         self.consistency = consistency
         self.ijs = ijs
         self.complexity = complexity
@@ -2281,14 +2286,37 @@ public struct Configuration: Sendable, Codable, Equatable {
     ///
     /// - Parameter yaml: The YAML content.
     /// - Returns: The parsed configuration.
-    /// - Throws: `QualityGateError.configurationError` if parsing fails.
+    /// - Throws: `QualityGateError.configurationError` if parsing fails;
+    ///   ``CheckerBudgetsConfig/Invalid`` if a `budgets:` entry is not a budget.
     public static func from(yaml: String) throws -> Configuration {
         do {
             let decoder = YAMLDecoder()
             return try decoder.decode(Configuration.self, from: yaml)
         } catch {
+            // A refused `budgets:` entry is thrown as itself, not folded into "Invalid YAML".
+            // The decoder wraps what a nested `init(from:)` throws, and the wrapper's
+            // description is "the data couldn't be read" — and the command line treats an
+            // unreadable configuration as a reason to run with defaults. A budget that was
+            // written down and then quietly replaced by a default is the silence the key
+            // exists to end, so this one error keeps its type and stops the run.
+            if let refusal = Self.budgetRefusal(in: error) { throw refusal }
             throw QualityGateError.configurationError("Invalid YAML: \(error.localizedDescription)")
         }
+    }
+
+    /// The refused `budgets:` entry behind a decoding failure, if that is what it was.
+    private static func budgetRefusal(in error: any Error) -> CheckerBudgetsConfig.Invalid? {
+        if let refusal = error as? CheckerBudgetsConfig.Invalid { return refusal }
+        guard let decoding = error as? DecodingError else { return nil }
+        let context: DecodingError.Context
+        switch decoding {
+        case .dataCorrupted(let found): context = found
+        case .typeMismatch(_, let found): context = found
+        case .valueNotFound(_, let found): context = found
+        case .keyNotFound(_, let found): context = found
+        @unknown default: return nil
+        }
+        return context.underlyingError as? CheckerBudgetsConfig.Invalid
     }
 
     /// Loads configuration from a file path.
@@ -2309,6 +2337,8 @@ public struct Configuration: Sendable, Codable, Equatable {
             return try from(yaml: contents)
         } catch let error as QualityGateError {
             throw error
+        } catch let refusal as CheckerBudgetsConfig.Invalid {
+            throw refusal
         } catch {
             throw QualityGateError.configurationError("Failed to read config: \(error.localizedDescription)")
         }
@@ -2356,6 +2386,7 @@ extension Configuration {
         case appIntentsReadiness
         case build
         case xcodeBuild
+        case budgets
         case consistency
         case ijs
         case complexity
@@ -2444,6 +2475,7 @@ extension Configuration {
         appIntentsReadiness = try container.decodeIfPresent(AppIntentsReadinessConfig.self, forKey: .appIntentsReadiness) ?? .default
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
+        budgets = try container.decodeIfPresent(CheckerBudgetsConfig.self, forKey: .budgets) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         ijs = try container.decodeIfPresent(IJSConfig.self, forKey: .ijs) ?? .default
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default

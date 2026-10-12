@@ -69,6 +69,11 @@ QualityGateCore defines the contract that all quality checkers implement, along 
 ### Launching Tools
 
 - ``ChildProcessEnvironment``
+- ``ToolLauncher``
+- ``ToolRun``
+- ``MachineLoad``
+- ``CheckerBudget``
+- ``CheckerBudgetsConfig``
 
 ### Guides
 

@@ -60,6 +60,33 @@ public protocol FixableChecker: QualityChecker {
         diagnostics: [Diagnostic],
         configuration: Configuration
     ) async throws -> FixResult
+
+    /// What `fix` would do with the same arguments, without writing anything.
+    ///
+    /// `--fix --dry-run` calls this. A checker that can work out its fix without applying it
+    /// returns the result `fix` would return: the files it would change, and for each file it
+    /// would leave alone, why. The default returns `nil`, and the CLI then has only the
+    /// rule's general advice to print.
+    ///
+    /// - Parameters:
+    ///   - diagnostics: The diagnostics `fix` would be given.
+    ///   - configuration: Project-specific configuration.
+    /// - Returns: The would-be result, or `nil` if this checker cannot preview.
+    /// - Throws: `QualityGateError` if the preview cannot be computed.
+    func previewFix(
+        diagnostics: [Diagnostic],
+        configuration: Configuration
+    ) async throws -> FixResult?
+}
+
+extension FixableChecker {
+    /// No preview: the checker's fix cannot be computed without being applied.
+    public func previewFix(
+        diagnostics: [Diagnostic],
+        configuration: Configuration
+    ) async throws -> FixResult? {
+        nil
+    }
 }
 
 /// The result of applying auto-fixes.

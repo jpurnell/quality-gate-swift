@@ -100,6 +100,120 @@
   found nothing returns, so it held either way. Scoped to a fixture built to score badly, it
   asserts findings *and* a passing status. `MemoryLifecycleGuard` had the same shape, including an
   unfalsifiable `.passed || .warning`. Suite: 1028s to 453s.
+- **`xctest-import --fix` writes code that builds, and that this gate accepts.** Used on two
+  real suites (SummerJams, 16 files and 72 tests; BusinessMathExcel, 50 files and 572), its
+  output did not compile in four ways, traded 50 `xctest-import` errors for 84
+  `weak-assertion` warnings, and declined 12 files with "12 diagnostic(s) require manual
+  intervention" and nothing else. Run again from the pre-migration commits with this change:
+  SummerJams converts 16 of 16, builds, passes its 72 tests and passes `test-quality` with no
+  hand edit; BusinessMathExcel converts 41 of 50, builds, and runs 495 Swift Testing tests
+  beside the 77 XCTest ones in the 9 files it declines, each with its reason.
+  - **A file is converted whole or not at all.** An `XCTSkip`, an expectation or a `measure`
+    block used to be left in place while the rest of the file was rewritten. That file no
+    longer imported XCTest, so it did not compile. Such a file is now left exactly as it was,
+    and each construct is reported at its line with the reason.
+  - **The converted text is audited before it is written.** Every per-file `test-quality`
+    rule runs over it. A finding the original did not have stops the file, and is the reason
+    given: `Converted, this file would be reported as missing-assertion: Test function
+    'doesNotThrow' has no #expect or #require assertions. …` A finding the original already
+    had is not the conversion's, and does not stop it.
+  - **`XCTAssertNotNil(x)` is `_ = try #require(x)`**, not `#expect(x != nil)`, and the test
+    gains `throws`. In a closure or a helper, where `throws` cannot be added without changing
+    callers, the file is declined.
+  - **A mutating call is bound first.** `XCTAssertTrue(q.next())` on a `var` became
+    `#expect(q.next())`, which is "cannot use mutating member on immutable value". It is now
+    `let next = q.next()` and `#expect(next)`; calls to its left are bound too, in order.
+  - **An unwrap inside an assertion is bound first.** `XCTUnwrap(rows[XCTUnwrap(key)])` became
+    `#require` inside `#require`, "recursive expansion of macro".
+  - **A fallback is unwrapped, not asserted on.** `XCTAssertTrue((name ?? "").isEmpty)` became
+    an `#expect` that `coalesced-assertion` reports. It is now `try #require(name)` bound
+    first; a `Bool?` is written `as Bool?`, which is how `#require` asks to be told which of
+    its two forms was meant.
+  - **A closure's result is bound before a property is read off it.**
+    `XCTUnwrap(cells.compactMap { sheet.cell(at: $0)?.formula }.first)` did not compile as a
+    `#require`: the macro takes the `?` in the closure for an optional chain.
+  - **`XCTAssertThrowsError` keeps its handler wherever it was written.** A closure passed as
+    the last argument, not trailing, was dropped with every assertion in it. A `return` in a
+    handler that is not the test's last statement now declines the file, because in the `if`
+    body the handler becomes it would leave the test.
+  - **`do { try f(); XCTFail(…) } catch is E { }` is `#expect(throws: E.self) { try f() }`.**
+    Statement by statement it became a test with no `#expect` at all.
+  - **A leading skip is a trait.** `try XCTSkipUnless(c, why)`, `try XCTSkipIf(c, why)` and
+    `guard c else { throw XCTSkip(why) }` as a test's first statement become
+    `@Test(.enabled(if: c, why))`. Any other `XCTSkip` declines the file.
+  - **A suite marked `@available` is declined.** Swift Testing refuses `@Suite` on it.
+  - **A message built across lines no longer breaks the file.** This is what declined all 12
+    files: `"first half " + "second half"` over two lines was interpolated into a one-line
+    string literal, which cannot hold a newline, and the result did not parse. It is now
+    `Comment(rawValue: …)`. A file that still fails to parse is reported with the line that
+    does not.
+  - **An expectation is reported once**, at the call that makes it, not at every mention of a
+    local that happens to be named `expectation`.
+- **`--fix` says which files it left alone, and why.** `FixReport` (`QualityGateCore`) prints
+  one line per changed file, then each unchanged file with its reasons under it. Findings the
+  fixer was handed and never attempts are counted, not listed.
+- **`--fix --dry-run` previews the fix.** It printed each finding's general advice, which for
+  `xctest-import` is the same sentence fifty times. `FixableChecker.previewFix` lets a checker
+  run its fix without writing; `test-quality` implements it, and the preview lists the files
+  it would change and, for the rest, what stops each. The default returns `nil` and the CLI
+  prints what it printed before.
+
+- **A checker stopped at its time budget says so, and so does a tool that fails without
+  explaining itself.** Under a load average of 150–290 the hook's `build`, `test` and `doc-lint`
+  ran out of time and reported something else: `swift build` at exit 124 was
+  `build-unparsed-failure` over twenty lines of whatever the compiler had been doing; a stopped
+  DocC build was `✗ [doc-lint] FAILED` with no diagnostic at all; a stopped `xcodebuild -list`
+  "exited 124 … so there is no scheme to build"; and `swift test` that failed without a test
+  failure — a target that would not compile, a package that would not resolve — was `✗ FAILED`
+  over nothing. `test-timeout` (#33) named the cut-off and not the budget, the elapsed time, the
+  load, or what to do.
+  - **One record, four checkers.** `ToolLauncher` (`QualityGateCore`) starts the tool under a
+    budget and returns a `ToolRun`: the command, the budget and where it came from, the elapsed
+    time, the machine's 1-minute load average and core count when the run ended, and the output.
+    `build`, `test`, `doc-lint` and `xcode-build` all launch through it and all report from it.
+  - **A stopped run is `<checker>-timeout`, an error, and nothing else.** `build-timeout`,
+    `doc-lint-timeout` and `xcode-build-timeout` are new; `test-timeout` gains the same message.
+    Each states the checker, the budget (`900s — three times the last successful run (212s), and
+    never less than 900s`), the elapsed time, the load (`1-minute load average 187.4 on 10 cores
+    (18.7 per core)`), the last twenty lines the tool printed, and the remedy: rerun that checker
+    alone when the load is lower, or raise `budgets.<checker>`. It is asked before anything that
+    could excuse a non-zero exit, and compiler errors or test failures already printed are kept
+    beside it.
+  - **A failure nothing could parse carries the same facts** and a sentence saying the budget was
+    not the cause. `test-unparsed-failure` and `doc-lint-unparsed-failure` are new;
+    `build-unparsed-failure` is reworded. The tool's own `error:` lines are quoted wherever they
+    fell, with the indented line that continues them: SwiftPM reports a failed checkout once and
+    then prints a screen of progress, so the last twenty lines of a fresh worktree's first build
+    inside a hook were twenty lines of `Fetching`, and `error: 'swift-numerics': Couldn’t check
+    out revision …: fatal: unable to read tree` had scrolled away. (That failure's cause was the
+    hook's `GIT_DIR` reaching SwiftPM's git, fixed in #40; this is what makes the next one
+    legible.)
+  - **`build` has a budget of its own.** It ran under the process runner's 600 seconds, a default
+    chosen for `git rev-parse`. It now follows its last successful build like `test` and
+    `doc-lint`: three times that, never less than 900 seconds, 3,600 for a tree with no record.
+  - **`budgets:` sets the figure.** `budgets: { test: 1800 }` in `.quality-gate.yml` replaces the
+    derived budget for `build`, `test`, `doc-lint` or `xcode-build`, exactly as written. A key
+    naming no budgeted checker, or a figure that is not a positive finite number of seconds,
+    stops the run at startup; neither is silently ignored.
+  - **Budgets do not follow the load.** Considered and declined: a budget that stretches itself
+    under contention is a number nobody chose and nobody can read off the configuration, and it
+    turns "stopped without saying so" into "took an hour without saying why". The derived budget
+    already follows the work. The load is in the message instead.
+  - **A stopped run is never replayed from the cache.** The runner refused to store a failure,
+    judged on the status the checker wrote — before reconciliation raises `.passed` carrying an
+    error to `.failed`. So a result reported as passed over an error was stored, and every later
+    run of the same tree replayed it, reconciled it to a failure, and never evicted it; and the
+    stopped `swift test` that #33 found reported as a signing warning had been stored and served
+    as a dated, labelled pass. The guard now reads the reconciled verdict, and a result carrying
+    a `-timeout` finding is not stored under any status and is evicted if found.
+  - **Around the edges of `test`.** A stress run no longer overwrites the suite's recorded
+    duration with the few seconds its filtered tests took, a stress run that was stopped
+    contributes no roster, and a stopped run does not update the flip detector's stored roster —
+    the tests it never reached would have read as tests that changed outcome.
+  - **A duration record that is not a duration is no record.** `inf` in
+    `.build/quality-gate-duration-*` parsed, and three times infinity is a budget the process
+    kernel refuses — and, before 1.1.0, obeyed as no deadline at all. `swift-process-kernel` is
+    now required at 1.1.0, which refuses a non-finite timeout before anything is started.
 
 - **A dependency's warning is not this package's, under `xcode-build` as under `build`.** The
   gate decided this on 2026-07-04 (`d91124a`): a warning in a dependency checkout does not count
@@ -150,6 +264,36 @@
 - **The `consistency` echo goes with its cause.** That run also carried *"Rule 'xcode-compiler'
   matched ViolationCluster with 61 occurrences"*, derived from the 20 findings above. Nothing in
   `consistency` changed; with no `xcode-compiler` finding in the run there is nothing to match.
+- **`weak-assertion` reads XCTest's spelling of the same claim.** `#expect(x != nil)` was
+  reported and `XCTAssertNotNil(x)` was not, so a suite still on XCTest reported no weak
+  assertions at all. BusinessMathExcel reported 0 before its migration and 84 after: the
+  conversion wrote the same 84 claims in the one spelling the rule could read. The rule looked
+  only inside `#expect` and `#require` (`TestQualityVisitor.visit(_: MacroExpansionExprSyntax)`).
+  - **An XCTest call is reported exactly when the `#expect` it converts to is.** The table is
+    `AssertionMapping`'s, so `--fix` neither adds nor removes a finding. Reported:
+    `XCTAssertNotNil(x)`; `XCTAssertNotEqual(a, b)` when either operand is the literal `0` or
+    `nil`; and `XCTAssert(c)` / `XCTAssertTrue(c)`, once per `!= 0` or `!= nil` at the top level
+    of `c`. Same id, same severity (`warning`), same `// TEST-QUALITY:` marker.
+  - **Not reported, because the Swift Testing form is not:** `XCTAssertNil(x)` (`== nil`),
+    `XCTAssertGreaterThan(x.count, 0)` and `XCTAssert(x.count > 0)` (`> 0`),
+    `XCTAssertFalse(x != nil)` (`!(x != nil)`), and `XCTAssertNotEqual(x, 0, accuracy: e)` (a
+    tolerance). `x.count > 0` says as little as `x.count != 0`; whether the rule should read it
+    is a question about both frameworks, and this change does not answer it for one of them.
+  - **`XCTAssertNotNil` on a non-optional value is reported like any other.** The rule reads
+    syntax and cannot tell that the check is vacuous, only that it is weak.
+  - **Reported alongside `xctest-import`, not instead of it.** One says which framework the
+    file uses and is repaired by converting it. The other says what one assertion claims and
+    survives the conversion. `skipped-test-inventory` already reads `throw XCTSkip(…)` in the
+    same files on the same reasoning.
+  - **No other assertion rule reads `XCTAssert*`.** `coalesced-assertion`,
+    `assertion-on-constant`, `non-strict-improvement`, `self-referential-expectation`,
+    `tolerance-without-magnitude`, `exact-double-equality` and `missing-assertion` still read
+    only Swift Testing. A suite on XCTest remains under-reported for those.
+  - Measured read-only on the 22 trees under the development directory whose `Tests/` still
+    imports XCTest (third-party clones excluded): 255 new findings in 5 of them, every one an
+    `XCTAssertNotNil` — FinancialAnalysis 205, BusinessMath-Persistence 40, FinancialReportKit
+    6, ModelSimulator 2, Botany 2. All five already fail on `xctest-import`, so no passing
+    tree starts failing.
 
 ### Added
 

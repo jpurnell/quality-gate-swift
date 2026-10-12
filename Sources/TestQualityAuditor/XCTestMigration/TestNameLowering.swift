@@ -20,7 +20,7 @@ enum TestNameLowering {
 
     /// Lowers the leading capital, or a leading acronym as one word: `URLParses` → `urlParses`,
     /// `AThing` → `aThing`.
-    private static func lowerLeadingWord(_ text: String) -> String {
+    static func lowerLeadingWord(_ text: String) -> String {
         let characters = Array(text)
         var capitals = 0
         while capitals < characters.count, characters[capitals].isUppercase { capitals += 1 }

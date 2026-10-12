@@ -14,6 +14,8 @@ struct SuiteInventory {
     let suiteNames: Set<String>
     /// Every member name declared in each suite, across the class and its extensions.
     let memberNames: [String: Set<String>]
+    /// The subset of ``memberNames`` that needs an instance: everything not `static` or `class`.
+    let instanceMemberNames: [String: Set<String>]
     /// Parameterless `func test*` methods in *any* class or extension in the file.
     ///
     /// Deliberately wider than what the conversion handles. A test method in a class this
@@ -27,6 +29,7 @@ struct SuiteInventory {
         collector.walk(tree)
         suiteNames = collector.suiteNames
         memberNames = collector.memberNames.filter { collector.suiteNames.contains($0.key) }
+        instanceMemberNames = collector.instanceMemberNames.filter { collector.suiteNames.contains($0.key) }
         independentTestCount = collector.testMethods
     }
 
@@ -53,9 +56,19 @@ struct SuiteInventory {
         return []
     }
 
+    /// Whether `member` is declared `static` or `class`.
+    static func isTypeLevel(_ member: DeclSyntax) -> Bool {
+        let modifiers = member.as(FunctionDeclSyntax.self)?.modifiers
+            ?? member.as(VariableDeclSyntax.self)?.modifiers
+        return modifiers?.contains {
+            $0.name.tokenKind == .keyword(.static) || $0.name.tokenKind == .keyword(.class)
+        } ?? false
+    }
+
     private final class Collector: SyntaxVisitor {
         var suiteNames: Set<String> = []
         var memberNames: [String: Set<String>] = [:]
+        var instanceMemberNames: [String: Set<String>] = [:]
         var testMethods = 0
 
         override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -71,7 +84,11 @@ struct SuiteInventory {
 
         private func record(_ typeName: String, _ block: MemberBlockSyntax) {
             for member in block.members.map(\.decl) {
-                memberNames[typeName, default: []].formUnion(SuiteInventory.declaredNames(member))
+                let names = SuiteInventory.declaredNames(member)
+                memberNames[typeName, default: []].formUnion(names)
+                if !SuiteInventory.isTypeLevel(member) {
+                    instanceMemberNames[typeName, default: []].formUnion(names)
+                }
                 if let function = member.as(FunctionDeclSyntax.self), SuiteInventory.isTestMethod(function) {
                     testMethods += 1
                 }
