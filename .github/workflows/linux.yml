@@ -55,7 +55,13 @@ jobs:
     container:
       image: swift:${{ matrix.swift }}
     steps:
-      - uses: actions/checkout@v4
+      # Pinned by commit, as `quality-gate-reusable.yml` already pins it — a moving tag is a
+      # dependency whose resolved version nobody chose, which is what SonarCloud's S7694 says
+      # and what this repository tells other people's projects. Same SHA, so the two workflows
+      # trust one artifact; it also ends the Node 20 deprecation notice `@v4` printed on every
+      # run. The container image above is deliberately *not* pinned: this job exists to find out
+      # when the official Swift image moves, and a digest would hide exactly that.
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
 
       - name: Toolchain identity
         run: |
