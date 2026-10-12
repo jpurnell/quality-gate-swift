@@ -143,12 +143,12 @@ public struct CompileUnitIndex: Sendable, Equatable {
         var namedRecords: Set<String> = []
         for map in maps.live {
             guard let data = FileManager.default.contents(atPath: map),
-                  let parsed = compileUnits(fromOutputFileMap: data) else {
+                  let parsed = parsing(outputFileMap: data) else {
                 unreadable.append(map)
                 continue
             }
-            units.append(contentsOf: parsed)
-            namedRecords.formUnion(recordsNamed(byOutputFileMap: data))
+            units.append(contentsOf: parsed.units)
+            namedRecords.formUnion(parsed.namedRecords)
         }
         units = resolvingWholeModuleRecords(units, namedRecords: namedRecords)
         var orphanedMaps: [String] = []
@@ -230,7 +230,11 @@ public struct CompileUnitIndex: Sendable, Equatable {
     /// so a set built from units alone would offer that orphan as the module record — which it
     /// did, and an existing test said so. The module record is the one the map is silent about.
     static func unclaimedRecord(in directory: String, named: Set<String>) -> String? {
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
+        let entries: [String]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(atPath: directory)
+        } catch {
+            logger.debug("Unreadable record directory \(directory, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
         let namedHere = Set(named.map { ($0 as NSString).lastPathComponent })
@@ -239,22 +243,6 @@ public struct CompileUnitIndex: Sendable, Equatable {
             .sorted()
         guard candidates.count == 1, let only = candidates.first else { return nil }
         return (directory as NSString).appendingPathComponent(only)
-    }
-
-    /// Every serialized-diagnostics path an output file map names, whatever became of its source.
-    ///
-    /// Pure, like ``compileUnits(fromOutputFileMap:)``: it reports what the map says and consults
-    /// nothing on disk.
-    static func recordsNamed(byOutputFileMap data: Data) -> Set<String> {
-        guard let object = try? JSONSerialization.jsonObject(with: data),
-              let entries = object as? [String: [String: Any]] else { return [] }
-        var records: Set<String> = []
-        for (_, entry) in entries {
-            for key in ["diagnostics", "emit-module-diagnostics"] {
-                if let path = entry[key] as? String { records.insert(path) }
-            }
-        }
-        return records
     }
 
     /// Splits the maps on disk into those the latest build names and those it does not.
@@ -339,6 +327,20 @@ public struct CompileUnitIndex: Sendable, Equatable {
     /// - Parameter data: The map's JSON.
     /// - Returns: The units, or `nil` when `data` is not an output file map.
     static func compileUnits(fromOutputFileMap data: Data) -> [CompileUnit]? {
+        parsing(outputFileMap: data)?.units
+    }
+
+    /// The units an output file map describes, and every record it names.
+    ///
+    /// Both answers come from one parse. They were briefly computed by two functions that each
+    /// deserialised the same `Data` — a second traversal of a document that reaches tens of
+    /// megabytes in a 120-target package, for a question the first traversal was already holding
+    /// the answer to.
+    ///
+    /// - Parameter data: The map's JSON.
+    /// - Returns: The live first-party units and the records the map names, whatever became of
+    ///   their sources, or `nil` when `data` is not an output file map.
+    static func parsing(outputFileMap data: Data) -> (units: [CompileUnit], namedRecords: Set<String>)? {
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data)
@@ -347,6 +349,17 @@ public struct CompileUnitIndex: Sendable, Equatable {
             return nil
         }
         guard let map = object as? [String: Any] else { return nil }
+
+        // Every record the map names, live source or not: a deleted file leaves its record on
+        // disk while its entry yields no unit, and a set built from units alone would offer that
+        // orphan as a module record.
+        var namedRecords: Set<String> = []
+        for entry in map.values {
+            guard let entry = entry as? [String: Any] else { continue }
+            for key in ["diagnostics", "emit-module-diagnostics"] {
+                if let path = entry[key] as? String { namedRecords.insert(path) }
+            }
+        }
 
         var perFile: [CompileUnit] = []
         var liveSources: [String] = []
@@ -358,7 +371,7 @@ public struct CompileUnitIndex: Sendable, Equatable {
         }
         // A module none of whose sources is live and first-party — a dependency, or a target
         // whose files are gone — contributes nothing, module-level record included.
-        guard !liveSources.isEmpty else { return [] }
+        guard !liveSources.isEmpty else { return ([], namedRecords) }
 
         var units = perFile
         if let module = map[""] as? [String: Any] {
@@ -367,7 +380,7 @@ public struct CompileUnitIndex: Sendable, Equatable {
                 units.append(CompileUnit(source: nil, diagnosticsPath: record, siblings: liveSources))
             }
         }
-        return units
+        return (units, namedRecords)
     }
 
     /// Whether `source` exists and is not inside a build directory.
