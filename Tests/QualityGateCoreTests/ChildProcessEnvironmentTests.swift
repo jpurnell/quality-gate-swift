@@ -230,8 +230,17 @@ struct ChildProcessEnvironmentTests {
             ["-C", checkout.path, "checkout", "-q", "-f", fixture.auditedHead],
             in: fixture.root, environment: fixture.hookEnvironment)
 
-        // 128 is git's `fatal:`; the message is the one SwiftPM and xcodebuild relayed.
+        // 128 is git's `fatal:`. The wording after it is git's own and differs by platform:
+        // macOS's git says `unable to read tree (<sha>)`, the Linux containers' says
+        // `reference is not a tree: <sha>`. Pinning Darwin's phrasing made this a Darwin-only
+        // test that read as portable, and it became the Linux failure filed as "environmental"
+        // — the environment was innocent; we had asserted someone else's error message.
+        //
+        // What the control must establish is that git consulted the wrong object store and
+        // said so about this exact revision. Both phrasings do, so both are accepted, and the
+        // revision is still named in full rather than weakened to a non-zero exit.
         #expect(pinned.exitCode == 128)
-        #expect(pinned.stderr.contains("unable to read tree (\(fixture.auditedHead))"))
+        #expect(pinned.stderr.contains(fixture.auditedHead))
+        #expect(pinned.stderr.contains("tree"))
     }
 }

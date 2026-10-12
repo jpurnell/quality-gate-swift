@@ -39,12 +39,17 @@ final class IdiomSyntaxVisitor: SyntaxVisitor {
         fix: String? = nil
     ) {
         let location = converter.location(for: node.positionAfterSkippingLeadingTrivia)
+        // The flagged node knows where it ends, so every syntactic rule reports its region from
+        // one place rather than each rule computing one. Trailing trivia is excluded: the
+        // comment and newline after a declaration are not part of what the rule objects to.
+        let end = converter.location(for: node.endPositionBeforeTrailingTrivia)
         findings.append(IdiomFinding(
             ruleId: ruleId,
             message: message,
             lineNumber: location.line,
             columnNumber: location.column,
-            suggestedFix: fix
+            suggestedFix: fix,
+            endLine: max(location.line, end.line)
         ))
     }
 

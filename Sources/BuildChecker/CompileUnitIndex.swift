@@ -140,14 +140,17 @@ public struct CompileUnitIndex: Sendable, Equatable {
         )
         var units: [CompileUnit] = []
         var unreadable: [String] = []
+        var namedRecords: Set<String> = []
         for map in maps.live {
             guard let data = FileManager.default.contents(atPath: map),
-                  let parsed = compileUnits(fromOutputFileMap: data) else {
+                  let parsed = parsing(outputFileMap: data) else {
                 unreadable.append(map)
                 continue
             }
-            units.append(contentsOf: parsed)
+            units.append(contentsOf: parsed.units)
+            namedRecords.formUnion(parsed.namedRecords)
         }
+        units = resolvingWholeModuleRecords(units, namedRecords: namedRecords)
         var orphanedMaps: [String] = []
         var orphanedUnitCount = 0
         for map in maps.orphaned {
@@ -165,6 +168,81 @@ public struct CompileUnitIndex: Sendable, Equatable {
             orphanedMaps: orphanedMaps,
             orphanedUnitCount: orphanedUnitCount
         )
+    }
+
+    /// Substitutes the module-level record for per-file units whose records were never written.
+    ///
+    /// The native build system's output file map has the same shape in both compilation modes:
+    /// every source carries a `diagnostics` entry and the `""` key carries none. Under
+    /// whole-module — any release build, and what Swift 6.2 runs on Linux — those per-file
+    /// records are not written. The compiler writes one `<Module>.dia` that the map never names.
+    ///
+    /// So ``compileUnits(fromOutputFileMap:)`` cannot tell the modes apart, and its documented
+    /// claim that it can was true only of `swiftbuild`'s maps. The question is answered here
+    /// instead, where the filesystem is already being read, leaving that function a pure function
+    /// of the map.
+    ///
+    /// A group of per-file units sharing a record directory is replaced by a single module-level
+    /// unit when **none** of their records exist and exactly one unclaimed `.dia` sits in that
+    /// directory. Both halves matter: one existing per-file record means the build was per-file,
+    /// and more than one unclaimed record means the answer is not obvious — in which case nothing
+    /// is substituted and the units are reported unverified, as before. Absence stays absence.
+    ///
+    /// Attribution does not depend on which unit found the record: a `.dia` names the absolute
+    /// source path of every diagnostic it holds.
+    ///
+    /// See `quality-gate-swift-project/plans/proposals/TheMapCannotTellYouWhichModeRan.md`.
+    static func resolvingWholeModuleRecords(
+        _ units: [CompileUnit], namedRecords: Set<String>
+    ) -> [CompileUnit] {
+        let byDirectory = Dictionary(grouping: units.filter { $0.source != nil }) {
+            ($0.diagnosticsPath as NSString).deletingLastPathComponent
+        }
+        var substitute: [String: CompileUnit] = [:]
+        for (directory, group) in byDirectory {
+            guard !group.contains(where: { FileManager.default.fileExists(atPath: $0.diagnosticsPath) }),
+                  let record = unclaimedRecord(in: directory, named: namedRecords) else { continue }
+            substitute[directory] = CompileUnit(
+                source: nil,
+                diagnosticsPath: record,
+                siblings: group.compactMap(\.source).sorted()
+            )
+        }
+        guard !substitute.isEmpty else { return units }
+
+        // Rebuilt in map order, each substitution standing where its group's first unit stood.
+        var result: [CompileUnit] = []
+        var emitted: Set<String> = []
+        for unit in units {
+            guard unit.source != nil else { result.append(unit); continue }
+            let directory = (unit.diagnosticsPath as NSString).deletingLastPathComponent
+            guard let replacement = substitute[directory] else { result.append(unit); continue }
+            if emitted.insert(directory).inserted { result.append(replacement) }
+        }
+        return result
+    }
+
+    /// The single `.dia` in `directory` that no output file map names, or `nil` if there is not
+    /// exactly one.
+    ///
+    /// The exclusion is every record the maps name, not merely those of the units that survived
+    /// filtering. A deleted source leaves its record on disk while its map entry yields no unit,
+    /// so a set built from units alone would offer that orphan as the module record — which it
+    /// did, and an existing test said so. The module record is the one the map is silent about.
+    static func unclaimedRecord(in directory: String, named: Set<String>) -> String? {
+        let entries: [String]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(atPath: directory)
+        } catch {
+            logger.debug("Unreadable record directory \(directory, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        let namedHere = Set(named.map { ($0 as NSString).lastPathComponent })
+        let candidates = entries
+            .filter { $0.hasSuffix(".dia") && !namedHere.contains($0) }
+            .sorted()
+        guard candidates.count == 1, let only = candidates.first else { return nil }
+        return (directory as NSString).appendingPathComponent(only)
     }
 
     /// Splits the maps on disk into those the latest build names and those it does not.
@@ -211,10 +289,29 @@ public struct CompileUnitIndex: Sendable, Equatable {
                 continue
             }
             guard name.hasSuffix("OutputFileMap.json") || name == "output-file-map.json" else { continue }
-            guard components.dropLast().contains(where: { $0.lowercased() == wanted }) else { continue }
+            guard components.dropLast().contains(where: { belongs($0.lowercased(), to: wanted) }) else { continue }
             maps.append((buildDirectory as NSString).appendingPathComponent(relative))
         }
         return maps.sorted()
+    }
+
+    /// Whether a lower-cased path component names `configuration`.
+    ///
+    /// Exact equality is not enough. `swiftbuild` names its configuration directory
+    /// `<Configuration>` on Darwin but `<Configuration>-<platform>-<arch>` elsewhere — a
+    /// Swift 6.4 Linux build writes `Release-linux-x86_64`. Requiring equality found all 98
+    /// maps such a build produces and then discarded every one of them, so `mapCount` reached
+    /// zero and `build` reported "No output file map was found in the build directory". That
+    /// was accurate about what it could see and wrong about what was there: eleven
+    /// `WarmBuildTests` failures on 6.4 and none on 6.2, which still uses the native build
+    /// system and does have a literal `release` component.
+    ///
+    /// The prefix must be followed by `-`, so `release` does not match `released` or a
+    /// directory merely starting with the word. A different configuration is still excluded
+    /// however its platform suffix is spelled, which is the property the paired test pins —
+    /// widening this must not make the configuration filter decorative.
+    static func belongs(_ component: String, to configuration: String) -> Bool {
+        component == configuration || component.hasPrefix(configuration + "-")
     }
 
     /// Parses one output file map into its live, first-party compile units.
@@ -230,6 +327,20 @@ public struct CompileUnitIndex: Sendable, Equatable {
     /// - Parameter data: The map's JSON.
     /// - Returns: The units, or `nil` when `data` is not an output file map.
     static func compileUnits(fromOutputFileMap data: Data) -> [CompileUnit]? {
+        parsing(outputFileMap: data)?.units
+    }
+
+    /// The units an output file map describes, and every record it names.
+    ///
+    /// Both answers come from one parse. They were briefly computed by two functions that each
+    /// deserialised the same `Data` — a second traversal of a document that reaches tens of
+    /// megabytes in a 120-target package, for a question the first traversal was already holding
+    /// the answer to.
+    ///
+    /// - Parameter data: The map's JSON.
+    /// - Returns: The live first-party units and the records the map names, whatever became of
+    ///   their sources, or `nil` when `data` is not an output file map.
+    static func parsing(outputFileMap data: Data) -> (units: [CompileUnit], namedRecords: Set<String>)? {
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data)
@@ -238,6 +349,17 @@ public struct CompileUnitIndex: Sendable, Equatable {
             return nil
         }
         guard let map = object as? [String: Any] else { return nil }
+
+        // Every record the map names, live source or not: a deleted file leaves its record on
+        // disk while its entry yields no unit, and a set built from units alone would offer that
+        // orphan as a module record.
+        var namedRecords: Set<String> = []
+        for entry in map.values {
+            guard let entry = entry as? [String: Any] else { continue }
+            for key in ["diagnostics", "emit-module-diagnostics"] {
+                if let path = entry[key] as? String { namedRecords.insert(path) }
+            }
+        }
 
         var perFile: [CompileUnit] = []
         var liveSources: [String] = []
@@ -249,7 +371,7 @@ public struct CompileUnitIndex: Sendable, Equatable {
         }
         // A module none of whose sources is live and first-party — a dependency, or a target
         // whose files are gone — contributes nothing, module-level record included.
-        guard !liveSources.isEmpty else { return [] }
+        guard !liveSources.isEmpty else { return ([], namedRecords) }
 
         var units = perFile
         if let module = map[""] as? [String: Any] {
@@ -258,7 +380,7 @@ public struct CompileUnitIndex: Sendable, Equatable {
                 units.append(CompileUnit(source: nil, diagnosticsPath: record, siblings: liveSources))
             }
         }
-        return units
+        return (units, namedRecords)
     }
 
     /// Whether `source` exists and is not inside a build directory.

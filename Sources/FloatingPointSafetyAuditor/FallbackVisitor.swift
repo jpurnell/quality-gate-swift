@@ -497,7 +497,7 @@ final class FallbackVisitor: SyntaxVisitor {
         var keys: Set<String> = [key]
         for scope in scopes {
             guard let facts = scope.facts else { continue }
-            keys.formUnion(facts.equivalents(of: key))
+            keys.formUnion(facts.equivalents(of: key, at: offset))
         }
 
         var found: Set<FallbackGuardFacts.Kind> = []

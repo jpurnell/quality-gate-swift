@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-12
+
 ### Fixed
 
 - **Four rules stop reporting what they were not written about, `// TIMING:` does what its
@@ -92,6 +94,157 @@
     set, and the first build of this command rewrote three scratch ledgers on a "dry run"
     before an acceptance test was written for it.
 
+- **`fp-division-unguarded` reads a divisor that is not a plain name, and stops asking for a
+  guard on one that cannot be zero.** A survey of the portfolio on 2026-10-09 found 103
+  suppressed findings of this rule, in seven repositories, where the divisor was provably
+  nonzero and the rule could not see it. With every `fp-safety:disable` marker removed from
+  copies of those repositories, 99 of the 103 are no longer reported (BusinessMath 44 of 46,
+  BusinessMath-UI 27 of 27, IconquerApp 12 of 12, BusinessMathPro 6 of 6, sicp-swift-companion
+  5 of 5, BioFeedbackKit 4 of 6, HRVKit 1 of 1), and all 46 findings the survey classified as
+  real defects are still reported.
+  - **A named constant is the literal it names.** A local `let`, a stored `let` with an
+    initializer, a `static let` (by bare name, `Self.name` or `Type.name`, for a type declared
+    in the file) and a file-scope `let` used outside any type. `var` and `static var` are not
+    read, and a nearer declaration of the same name shadows a constant whatever it holds.
+  - **Literal arithmetic is folded**, including `/` and shifts: `(365.25 / 12.0 * 86_400.0)`,
+    `Double(UInt64(1) << 32)`. It has to be nonzero both as integers and as floating-point, so
+    `(1 / 2)` and `(2.0 - 2.0)` are still reported.
+  - **`.pi`, the integer maxima, `.greatestFiniteMagnitude` and `.ulpOfOne`** are nonzero.
+  - **`max(x, 1)` through a `let`, and `Swift.max`.** `max(x, 0)` is still reported.
+  - **Arithmetic on a value a guard dominates:** `n - 1` under `guard n > 1`, `count + 1`,
+    `1.0 + exp(x)`, a loop index plus one, the bound of `for _ in 0..<n` inside the loop, and a
+    product one of whose factors is at least one in magnitude (`6 * area`, `Double(n) * rate`).
+  - **Guard shapes it did not read:** `if abs(x) < 1e-10 { throw … }` and its `else`,
+    `guard !(abs(x) < eps)`, a threshold of `Swift.max(1, k)` or of a named constant,
+    `guard !xs.isEmpty` reaching `let ys = xs.map { … }`, and `guard bond.isSchedulable` where
+    the predicate is declared in the file on the type `bond` is written as.
+  - **These shapes are held to dominance, not order.** The older guards count when the
+    question was asked anywhere before the division. A bound that arithmetic is then done on
+    has to hold where the division is, and nothing may have assigned, redeclared, passed
+    `inout` or called an unknown method on the value in between.
+- **`max(x, .leastNonzeroMagnitude)` is still reported, and is now tested as such.** So is
+  `.leastNormalMagnitude`. The divisor is not zero and the quotient is infinite: the floor
+  changes the spelling of the defect. Eighteen of the 103 sites carried one; they are cleared
+  because the value under the `max` was already at least one, which makes the floor dead code.
+  `max(x, .ulpOfOne)` is accepted — it is the epsilon this rule has always read as a threshold.
+- **Four of the 103 are left reported on purpose.** Two divide by `Double(1 << 53)` in a package
+  that declares `.watchOS(.v10)`. `Int` is 32 bits on arm64_32, the shift is zero there, and
+  `swiftc -target arm64_32-apple-watchos10.0 -O` folds the divisor to `0.0` with no diagnostic.
+  An untyped shift is therefore read at 32 bits; `Double(UInt64(1) << 53)` is accepted. Two
+  divide by a computed property of another value (`frequency.periodsPerYear`) whose every
+  `return` is a nonzero literal: the property is found by name, and a name does not say which
+  type's it is.
+- **A product of two guarded floating-point values is still reported.** `guard a > 0, b > 0`
+  does not make `a * b` nonzero: `1e-200 * 1e-200` underflows to zero.
+- **A division is reported on the line of its operator.** It was reported at the first line of
+  the expression it belongs to, so two divisions in one multi-line expression shared a line, and
+  one marker silenced both. In BusinessMath's `SABRModel.swift` a marker reading "divisor is the
+  literal 24" was silencing a division by `Double.pow(fk, oneBeta)` on the line below, while
+  that line's own marker did nothing. **A `// fp-safety:disable` marker or a baseline entry on
+  the first line of a multi-line expression has to move to the operator's line** when the
+  operator is on a later one. Across the 69 portfolio repositories that is one marker
+  (`SABRModel.swift:127`, which belongs on 128) and no baseline entry. A single-line division
+  keeps its line and its marker; the reported column is now the operator's.
+- **An alias is the declaration before the use** (`FallbackGuardFacts`, shared by
+  `fp-division-unguarded` and `fallback.*`). `let n = xs.count` was kept in one dictionary per
+  function body, last write wins. A second `let n = ys.count` in a closure of the same body
+  replaced the first: a guard on `xs.count` stopped reaching `Double(n)`, and — the other way
+  round — a guard on the later `n`'s value cleared a division by the earlier one's.
+
+- **Ten values that were true where they were written.** Each was a few lines once found, and
+  each hid behind a symptom pointing somewhere else. They are grouped together because they are
+  one mistake, not ten — but the axis they varied along was not always the operating system, and
+  guessing which axis it was cost more than any individual fix. Six vary by OS, one by the
+  distribution's `git`, and three by the *build system*, which is not a platform at all — the
+  last of those reproduces on macOS under `--build-system native -c release`, measured, so
+  calling it a Linux limitation would have left it in place for every macOS user who passes that
+  flag.
+  - `doc-code` invoked a hardcoded `/usr/bin/xcrun` as the compiler. `Toolchain` resolved `swiftc`
+    from `PATH` for the *flags* while the invocation still went through `xcrun`, so off Darwin
+    every documentation checker failed before compiling anything — reported against the article,
+    at line 1, as though the documentation were at fault.
+  - `libIndexStore` was sought only as `.dylib`, in two separate resolvers.
+    `UnreachableCodeAuditor` kept its own copy, so correcting the shared one fixed every
+    index-backed checker except the one whose tests were failing.
+  - `appendingPathComponent(_:)` is not a pure function off Darwin: corelibs-foundation stats the
+    path and appends a trailing slash for an existing directory, so the same call returned a
+    different URL before and after a `mkdir`.
+  - `Logger` was used outside the `#if canImport(os)` guard that protected its import.
+  - `CrossModuleFixture` imported `SwiftUI` and `Combine` and used `@objc` unguarded, so the
+    fixture the checker builds could not compile — which presented as the index store being
+    unavailable rather than as a fixture problem.
+  - The compiler's diagnostic group arrives as an OSC 8 hyperlink on Darwin and a bare slug
+    elsewhere, so `[#NoUsage]` and `[#no-usage]` are one finding. Both the printed and recorded
+    paths canonicalise it now; normalising one of two values that exist to be compared broke the
+    deduplication they were for.
+  - A test asserted macOS `git`'s wording of a failure — `unable to read tree (<sha>)` — where
+    Linux `git` says `reference is not a tree: <sha>` for the identical condition. It had been
+    filed separately as an environmental fault for days. The environment was innocent: a
+    third-party tool's prose had been pinned, which makes a Darwin-only test read as portable. It
+    asserts exit 128 and the full revision now, which both gits satisfy.
+  - `swiftbuild` names its configuration directory `Release-linux-x86_64` where Darwin says
+    `Release`, and the output-file-map finder accepted a path component only when it *equalled*
+    the configuration name. All 98 maps a Swift 6.4 Linux build writes were found by the walk and
+    then discarded by the filter, so the checker reported "No output file map was found in the
+    build directory" — accurate about what it could see, wrong about what was there. Eleven
+    `WarmBuildTests` failures on 6.4 and none on 6.2, which uses the native build system.
+  - The documented install was broken on Swift 6.4, in two different ways and corrected twice:
+    the directory (`--show-bin-path`, because swiftbuild writes to `.build/out` and on Linux no
+    `.build/release` symlink exists to hide it) and the bundle suffix, which follows the *build
+    system* rather than the platform — native writes `.resources`, swiftbuild writes `.bundle`,
+    on Linux as on macOS. An instruction naming either suffix is wrong on one of the two
+    supported toolchains. The README's *GitHub Actions* example carried the same literal and
+    would have failed the same way inside a user's workflow.
+  - The native build system writes one `<Module>.dia` under whole-module compilation while its
+    output file map goes on naming per-file records that are never created — and never names the
+    record it wrote. Units pointed at absent files and a warning present on the cold run was
+    reported as unverified on the warm one. The map cannot be used to tell the modes apart: the
+    debug and release maps are the same shape and only the filesystem differs, so the premise
+    that the choice could be made "from the map, rather than by looking for whichever file
+    exists" was true of swiftbuild's maps and never of native's.
+
+- **The scripts that put the tool on a machine were installing it wrong.** `deploy-local.sh`
+  copied `quality-gate-swift_*.bundle` — this package's own bundles and nothing else, 40 of 45.
+  The five it skipped belong to CorpusKit, VigilKit, Crypto, BusinessMath and SwiftDeterminism,
+  which is the wrong five: a prefix filter cannot distinguish "not ours" from "not needed", and a
+  dependency's bundle is precisely the one whose absence crashes code the user did not write. It
+  copies every bundle now and compares installed against built, refusing a partial install.
+  `install-hooks.sh` composed `<toplevel>/.git/hooks`, which in a worktree is a *file* — so it
+  died in every worktree, which is where all the work happens, and the installed hook stayed at a
+  version predating both the `QG_BIN` override and the cache warming. A hook that honours an
+  override only where nobody stands does not honour it.
+
+- **A released artifact that crashed on any checker reading its resources.** `scripts/release.sh`
+  packaged `quality-gate` alone, and SwiftPM resolves bundles relative to the executable, so the
+  published tarball died with `Fatal error: unable to find bundle named
+  quality-gate-swift_ControlMapping`. `--check safety` works without them, which is how it
+  survived. The script packages every bundle now, then unpacks the result elsewhere and runs a
+  resource-reading checker before publishing.
+
+- **The README's install steps, executed for the first time.** They worked, and copied 40 of 44
+  resource bundles — on both platforms. The four left behind are not needed by the command the
+  README gives, so the shortfall passed as success. The smoke test asserts the counts match now
+  rather than printing them.
+
+- **`release.sh` reconciles the tag prefix and refuses a stale version literal.** Tags carry a
+  `v` and CHANGELOG sections do not, so its own precondition could not pass whichever form was
+  given. It compares the literal in `QualityGateCLI.swift` to the release being built, because
+  `release-readiness` checks CHANGELOG-against-tag parity without ever reading it — which is how
+  the binary reported 3.4.0 through a day of deploys past that tag.
+
+- **The git hooks warm the build and test caches before invoking the gate**, so a budget bounds
+  how long a check runs rather than how long 120 targets take to compile. They resolve
+  `quality-gate` through `PATH` too: anywhere other than one machine the hook found nothing at
+  its hardcoded path, printed "skipping" and exited 0 — so a repository with hooks installed was
+  not gated, and said so only in a line nobody reads.
+
+- **One test was 65% of the suite and asserted a tautology.** `ComplexityAnalyzer`'s advisory
+  test built a bare `Configuration()`, whose root falls back to the working directory, so it ran
+  the analyzer over all 659 files here — 667 seconds — to assert that an advisory checker is
+  advisory. Over a tree that may hold nothing complex, `.passed` is also what an analyzer that
+  found nothing returns, so it held either way. Scoped to a fixture built to score badly, it
+  asserts findings *and* a passing status. `MemoryLifecycleGuard` had the same shape, including an
+  unfalsifiable `.passed || .warning`. Suite: 1028s to 453s.
 - **`xctest-import --fix` writes code that builds, and that this gate accepts.** Used on two
   real suites (SummerJams, 16 files and 72 tests; BusinessMathExcel, 50 files and 572), its
   output did not compile in four ways, traded 50 `xctest-import` errors for 84
@@ -288,6 +441,43 @@
     tree starts failing.
 
 ### Added
+
+- **Linux is a supported platform, and the job that says so runs on every pull request.** The
+  README said "macOS only, today — Linux is not supported and not tested", on the grounds that
+  `indexstore-db` includes `<dispatch/dispatch.h>` with no platform guard. The premise was true
+  and the conclusion was not: the toolchain ships the header, just not on the default include
+  path, so the build needs `-Xcxx -I/usr/lib/swift -Xcxx -I/usr/lib/swift/Block` rather than a
+  port of a C++ dependency. 130 failures to 13.
+  - **Both toolchains, deliberately.** 6.2 is the manifest's `swift-tools-version` and what the
+    README promises; 6.4 is what development runs. Neither is redundant — `ambiguous use of
+    'reversed()'` is legal in 6.4 and an error in 6.2, so a 6.4-only job would have reported the
+    same green the macOS gate did.
+  - **Pull requests, not just pushes.** The job began as `workflow_dispatch` only, reasoning that
+    a red X on a public repository about code quality trains readers to ignore the tick. Right
+    about the cost, wrong about the risk: nothing dispatched it, and `main` sat unbuildable on
+    Linux through fourteen merged pull requests, each with a green pre-push gate, because that
+    gate runs the local toolchain and the local toolchain compiled the line CI could not.
+
+- **`brew tap jpurnell/tap && brew install quality-gate`.** `packaging/homebrew/quality-gate.rb`
+  installs the artifacts `scripts/release.sh` publishes. `write_exec_script` rather than
+  `install_symlink`, because SwiftPM resolves a resource bundle relative to the running executable
+  and a symlink in `bin` leaves the executable path where the bundles are not. Its test compares
+  `--version` against the formula's own version, which makes it the only place a hand-written
+  version literal is checked against the tag that ships it.
+
+- **A committed Xcode scheme, and `scripts/install-xcode-phase.sh`.** Opening `Package.swift`
+  generated a scheme per contributor, none in the repository; the committed one builds the
+  executable alone rather than all 120 targets. The script adds a Run Script phase so findings
+  reach the issue navigator, through the `xcodeproj` gem and refusing without it — a malformed
+  project file is worse than an absent build phase. `development-guidelines`' `bootstrap.sh`
+  installs it for a new project, so nobody has to remember.
+
+- **`CheckerBudget`: a wall-clock budget derived from what the work last took.**
+  `ProcessRunner.run` defaults to 600s, which suits `git rev-parse` and was inherited by callers
+  running a whole test suite or a DocC build across 34 targets. The suite outgrew it — measured at
+  1028s — and every commit and push then failed at exactly 600.0s having produced no finding,
+  which reads as a hung tool rather than a budget. `test` and `doc-lint` size themselves from
+  their own history now. `StoreLocator` and `XcodeBuildChecker` still inherit the default.
 
 - **`dependency-advisory`: a pinned version with a published advisory is a finding.** Fourteen
   repositories in the portfolio pinned a version with a published advisory — `swift-nio` before
@@ -1719,6 +1909,15 @@
   `unasserted-optional-unwrap`, `hig.secure-field`. The registry exists so a mapping cannot cite
   a rule that does not exist; a registry that does not list a rule that *does* makes that rule
   unmappable, and nothing reported it because nothing had tried.
+
+### Known
+
+- **`build`'s warm-run verification is weaker on Linux.** Eleven `WarmBuildTests` cases fail
+  there, in the path that reads recorded diagnostics for units a build did not recompile. Three
+  explanations were tested and discarded: no output file map (225 are named in the manifest, 450
+  exist on disk), the paths not being double-quoted in llbuild's YAML (all 225 are), and the build
+  configuration not being threaded through (it is). The cause is not known, and is recorded as
+  unknown rather than given a label that would read as understanding.
 
 ## [3.4.0] - 2026-09-30
 
@@ -4093,7 +4292,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.0...v3.2.1

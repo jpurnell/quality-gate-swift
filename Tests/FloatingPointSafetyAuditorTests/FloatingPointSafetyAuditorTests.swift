@@ -262,7 +262,7 @@ struct FPDivisionTests {
     @Test("Flags unguarded division by float literal")
     func flagsUnguardedDivision() {
         let code = """
-        let divisor = 2.5
+        let divisor: Double = makeDivisor()
         let result = value / divisor
         """
         let results = diagnose(code)
@@ -273,7 +273,7 @@ struct FPDivisionTests {
     func flagsCompoundDivisionAssignment() {
         let code = """
         var x = 10.0
-        let d = 2.5
+        let d: Double = makeDivisor()
         x /= d
         """
         let results = diagnose(code)
