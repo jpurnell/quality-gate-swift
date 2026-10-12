@@ -79,7 +79,7 @@ jobs:
       # rather than wrong.
       - name: Build
         run: |
-          swift build -c release \
+          swift build -c release --disable-automatic-resolution \
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
@@ -107,7 +107,7 @@ jobs:
           # every step after it, so this break also skipped the suite — the job reported
           # zero failing tests because zero tests ran, which reads exactly like a pass
           # if you count failures instead of checking that the tests happened.
-          BIN="$(swift build -c release --show-bin-path \
+          BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution \
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block)"
           echo "--- products are at: $BIN"
