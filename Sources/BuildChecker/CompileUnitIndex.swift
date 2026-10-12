@@ -211,10 +211,29 @@ public struct CompileUnitIndex: Sendable, Equatable {
                 continue
             }
             guard name.hasSuffix("OutputFileMap.json") || name == "output-file-map.json" else { continue }
-            guard components.dropLast().contains(where: { $0.lowercased() == wanted }) else { continue }
+            guard components.dropLast().contains(where: { belongs($0.lowercased(), to: wanted) }) else { continue }
             maps.append((buildDirectory as NSString).appendingPathComponent(relative))
         }
         return maps.sorted()
+    }
+
+    /// Whether a lower-cased path component names `configuration`.
+    ///
+    /// Exact equality is not enough. `swiftbuild` names its configuration directory
+    /// `<Configuration>` on Darwin but `<Configuration>-<platform>-<arch>` elsewhere — a
+    /// Swift 6.4 Linux build writes `Release-linux-x86_64`. Requiring equality found all 98
+    /// maps such a build produces and then discarded every one of them, so `mapCount` reached
+    /// zero and `build` reported "No output file map was found in the build directory". That
+    /// was accurate about what it could see and wrong about what was there: eleven
+    /// `WarmBuildTests` failures on 6.4 and none on 6.2, which still uses the native build
+    /// system and does have a literal `release` component.
+    ///
+    /// The prefix must be followed by `-`, so `release` does not match `released` or a
+    /// directory merely starting with the word. A different configuration is still excluded
+    /// however its platform suffix is spelled, which is the property the paired test pins —
+    /// widening this must not make the configuration filter decorative.
+    static func belongs(_ component: String, to configuration: String) -> Bool {
+        component == configuration || component.hasPrefix(configuration + "-")
     }
 
     /// Parses one output file map into its live, first-party compile units.

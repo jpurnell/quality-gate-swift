@@ -65,6 +65,59 @@ struct CompileUnitIndexTests {
     static let swiftbuildReleaseObjects = ".build/out/Intermediates.noindex/Fixture.build/Release/Fixture-t.build/Objects-normal/arm64"
     static let nativeObjects = ".build/arm64-apple-macosx/debug/Fixture.build"
 
+    /// swiftbuild on Linux, copied from a 6.4 container rather than imagined.
+    ///
+    /// The configuration component is `Release-linux-x86_64`, not `Release`. Every other
+    /// fixture here names a Darwin configuration directory, which is why none of them could
+    /// fail the way the Linux legs did.
+    static let swiftbuildLinuxReleaseObjects =
+        ".build/out/Intermediates.noindex/Fixture.build/Release-linux-x86_64/Fixture-t.build/Objects-normal/x86_64"
+
+    // MARK: - swiftbuild on Linux
+
+    /// Swift 6.4 builds with `swiftbuild` on Linux, where the configuration directory carries
+    /// the platform and architecture: `Release-linux-x86_64`, not `Release`. The map finder
+    /// accepted a path component only when it *equalled* the configuration name, so all 98
+    /// maps a 6.4 Linux build writes were found by the walk and then discarded by the filter.
+    /// `mapCount` reached zero and the checker reported, accurately for what it could see,
+    /// "No output file map was found in the build directory" — eleven `WarmBuildTests`
+    /// failures on that leg and none on 6.2, which still builds with the native system and
+    /// does have a literal `release` component.
+    ///
+    /// Taken from the job log of run 38188976850, not composed from the documentation.
+    @Test("A Linux configuration directory carries platform and arch, and its maps still count")
+    func swiftbuildLinuxConfigurationDirectory() throws {
+        let tree = try Tree()
+        defer { tree.remove() }
+        let warns = try tree.write("Sources/Fixture/Warns.swift")
+        let objects = Self.swiftbuildLinuxReleaseObjects
+        try tree.writeMap("\(objects)/Fixture-OutputFileMap.json", [
+            warns: ["diagnostics": tree.path("\(objects)/Warns.dia"), "object": tree.path("\(objects)/Warns.o")],
+        ])
+
+        let index = CompileUnitIndex.scan(buildDirectory: tree.buildDirectory.path, configuration: "release")
+
+        #expect(index.mapCount == 1)
+        #expect(index.units.count == 1)
+    }
+
+    /// The widened match must not make the configuration meaningless: a debug build's maps are
+    /// still not release's, however the platform suffix is spelled.
+    @Test("A different configuration's platform-suffixed directory is still excluded")
+    func otherConfigurationWithPlatformSuffixIsExcluded() throws {
+        let tree = try Tree()
+        defer { tree.remove() }
+        let warns = try tree.write("Sources/Fixture/Warns.swift")
+        let objects = ".build/out/Intermediates.noindex/Fixture.build/Debug-linux-x86_64/Fixture-t.build/Objects-normal/x86_64"
+        try tree.writeMap("\(objects)/Fixture-OutputFileMap.json", [
+            warns: ["diagnostics": tree.path("\(objects)/Warns.dia")],
+        ])
+
+        let index = CompileUnitIndex.scan(buildDirectory: tree.buildDirectory.path, configuration: "release")
+
+        #expect(index.mapCount == 0)
+    }
+
     // MARK: - 12. swiftbuild layout
 
     @Test("swiftbuild layout: per-file diagnostics and the \"\"-keyed emit-module record are found")
