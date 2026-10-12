@@ -184,6 +184,10 @@ struct HIGAuditorTests {
 
     // MARK: - Tier 1: Navigation Pattern
 
+    // These fixtures were `NavigationStack { List { Text("Item") } }` — a stack that pushes
+    // nothing. The rule now asks whether the stack hosts navigation (`NavigationHostTests`),
+    // so each one that is meant to be reported has a `NavigationLink` to report.
+
     @Test("Flags NavigationStack on macOS")
     func navigationStackFlaggedOnMacOS() {
         let source = """
@@ -191,14 +195,14 @@ struct HIGAuditorTests {
         struct ContentView: View {
             var body: some View {
                 NavigationStack {
-                    List { Text("Item") }
+                    List { NavigationLink("Item") { Text("Detail") } }
                 }
             }
         }
         """
         let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
         let navDiag = result.diagnostics.filter { $0.ruleId == "hig.navigation-pattern" }
-        #expect(!navDiag.isEmpty, "Should flag NavigationStack on macOS")
+        #expect(navDiag.map(\.lineNumber) == [4], "Should flag NavigationStack on macOS")
     }
 
     @Test("Does not flag NavigationStack on iOS")
@@ -208,7 +212,7 @@ struct HIGAuditorTests {
         struct ContentView: View {
             var body: some View {
                 NavigationStack {
-                    List { Text("Item") }
+                    List { NavigationLink("Item") { Text("Detail") } }
                 }
             }
         }
@@ -247,7 +251,7 @@ struct HIGAuditorTests {
             }
             private var createRoomSheet: some View {
                 NavigationStack {
-                    Form { Text("Room settings") }
+                    Form { NavigationLink("Room settings") { Text("Settings") } }
                 }
             }
         }
@@ -267,7 +271,7 @@ struct HIGAuditorTests {
                 Group {
                     if showSetup {
                         NavigationStack {
-                            Text("Setup")
+                            NavigationLink("Setup") { Text("Step 2") }
                         }
                     } else {
                         Text("Game")
@@ -288,14 +292,14 @@ struct HIGAuditorTests {
         struct ContentView: View {
             var body: some View {
                 NavigationStack {
-                    List { Text("Item") }
+                    List { NavigationLink("Item") { Text("Detail") } }
                 }
             }
         }
         """
         let result = auditor.auditSource(source, fileName: "ContentView.swift", activePlatforms: .macOS)
         let navDiag = result.diagnostics.filter { $0.ruleId == "hig.navigation-pattern" }
-        #expect(!navDiag.isEmpty, "NavigationStack as sole body content should still be flagged")
+        #expect(navDiag.map(\.lineNumber) == [4], "NavigationStack as sole body content should still be flagged")
     }
 
     // MARK: - Exemptions
@@ -308,7 +312,7 @@ struct HIGAuditorTests {
             var body: some View {
                 // HIG-EXEMPT: single-purpose utility
                 NavigationStack {
-                    Text("Simple tool")
+                    NavigationLink("Simple tool") { Text("Detail") }
                 }
             }
         }

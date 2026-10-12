@@ -81,7 +81,14 @@ public enum HIGRules {
         isAutoFixable: true
     )
 
-    /// Suggests NavigationSplitView over NavigationStack on large-screen platforms.
+    /// Suggests NavigationSplitView over a NavigationStack that hosts navigation, on
+    /// large-screen platforms.
+    ///
+    /// *Hosts navigation* means the stack is driven by a `path:`, or its expression names
+    /// `NavigationLink` or `navigationDestination`, or names a type or helper member that does
+    /// — found project-wide by `NavigationHostIndex`. A stack that pushes nothing is title
+    /// and toolbar chrome, which is what a sheet uses one for, and has no hierarchy for a
+    /// sidebar to organise.
     public static let navigationPattern = HIGRuleDefinition(
         id: "hig.navigation-pattern",
         message: "NavigationStack used — consider NavigationSplitView for sidebar-based navigation on larger displays.",

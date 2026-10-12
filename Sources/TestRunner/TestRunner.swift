@@ -243,6 +243,9 @@ public struct TestRunner: QualityChecker, Sendable {
     }
 
     /// Unions the `// TIMING:`-tagged test names across every `.swift` file under `Tests/`.
+    ///
+    /// A test is tagged by the marker above its declaration or by the marker on one of its
+    /// assertions; either way it is listed once.
     static func timingTests(projectRoot: String, marker: String) -> [String] {
         let testsDir = (projectRoot as NSString).appendingPathComponent("Tests")
         guard let enumerator = FileManager.default.enumerator(atPath: testsDir) else { return [] }
@@ -252,7 +255,12 @@ public struct TestRunner: QualityChecker, Sendable {
             guard rel.hasSuffix(".swift") else { continue }
             let path = (testsDir as NSString).appendingPathComponent(rel)
             guard let source = SourceFileReader.read(path, checker: "test") else { continue }
-            for name in TimingTestScanner.timingTests(in: source, marker: marker) where !seen.contains(name) {
+            // Two places the marker can be written, and both enrol: above the test function
+            // (`TimingTestScanner`), and on a wall-clock assertion inside it, which is where
+            // the temporal rule asks for it (`AssertionTimingScanner`).
+            let tagged = TimingTestScanner.timingTests(in: source, marker: marker)
+                + AssertionTimingScanner.timingTests(in: source, marker: marker)
+            for name in tagged where !seen.contains(name) {
                 seen.insert(name)
                 names.append(name)
             }

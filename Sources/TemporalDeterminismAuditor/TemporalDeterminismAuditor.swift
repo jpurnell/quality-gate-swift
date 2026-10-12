@@ -11,6 +11,15 @@ import QualityGateCore
 /// `QualityChecker` protocol and the gate's `Configuration`.
 ///
 /// Rules and suppression markers are documented on `TemporalScan`.
+///
+/// One of those sentences needed code on this side to be true. `TemporalScan` says a
+/// `// TIMING:` marker "exempts the assertion rule — and enrolls the test in vigil's stress
+/// runs". The exemption is the engine's and always held. The enrolment did not: the scanner
+/// behind stress mode (`TimingTestScanner`) reads the comment above a test *function*, and the
+/// exemption is honoured on the *assertion's* line or the one above it, so the marker written
+/// where this checker asks for it enrolled nothing. `TestRunner` now reads that position too
+/// (`AssertionTimingScanner`), which makes the sentence true of `quality-gate --check test`.
+/// It is still not true of `vigil stress`, whose scanner is VigilKit's own.
 public struct TemporalDeterminismAuditor: QualityChecker, Sendable {
     /// Unique identifier for this checker.
     public let id = "temporal-determinism"

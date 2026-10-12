@@ -68,7 +68,9 @@ import Testing
 }
 ```
 
-When `stress.runs > 1`, TestRunner scans `Tests/` for those markers (via `TimingTestScanner`, AST-based so a `// TIMING:` inside a string or a trailing body comment does **not** tag anything), re-runs *only* the tagged tests that many times — optionally under a background CPU-contention harness sized to `cores − 1` — and reports any test that was **not unanimous across the identical runs** (`stressFlips(rosters:)`). Because every run shares the same commit and source, a non-unanimous outcome is a *definitive* race, a stronger signal than a cross-commit flip. The `test.stress-flip` diagnostic names the pass/fail tally.
+The marker enrols a test from either of two places: above the test function, as here, or on a wall-clock assertion inside it — the assertion's own line or the line directly above, which is where `temporal-determinism` asks for the marker and the only place it exempts `temporal-wall-clock-assertion`. One marker, two effects: the threshold is declared intentional, and the test that carries it gets provoked. Until 2026-10-09 only the first position enrolled, so a marker written for the temporal rule silenced the warning and stressed nothing.
+
+When `stress.runs > 1`, TestRunner scans `Tests/` for those markers (via `TimingTestScanner` for the function-level form and `AssertionTimingScanner` for the assertion-level one — both AST-based, so a `// TIMING:` inside a string, on a statement that is not an assertion, or in a function that is not a test does **not** tag anything), re-runs *only* the tagged tests that many times — optionally under a background CPU-contention harness sized to `cores − 1` — and reports any test that was **not unanimous across the identical runs** (`stressFlips(rosters:)`). Because every run shares the same commit and source, a non-unanimous outcome is a *definitive* race, a stronger signal than a cross-commit flip. The `test.stress-flip` diagnostic names the pass/fail tally.
 
 This is meant for **per-release / nightly** cadence, not per-commit — `runs: 1` (the default) is a no-op with zero overhead. No tagged tests are found → a single `.note`, no extra runs.
 

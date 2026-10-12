@@ -264,3 +264,148 @@ struct PathTraversalPrecisionTests {
     }
 }
 
+
+/// A generated identifier inside a file-name literal is still nobody's choice.
+///
+/// `isChosenSegment` exempted a bare `UUID().uuidString` segment, and `isLiteralSegment`
+/// rejected every literal carrying an interpolation — so the commonest spelling of a unique
+/// temporary file, `"prefix-\(UUID().uuidString).sqlite"`, fell between the two and was
+/// reported as a segment somebody else chose. Three sites in one test file of swift-oauth.
+@Suite("Path traversal — generated identifiers in a literal")
+struct PathTraversalGeneratedSegmentTests {
+
+    private func traversal(_ code: String) async throws -> [Diagnostic] {
+        let result = try await SafetyAuditor().auditSource(
+            code, fileName: "test.swift", configuration: Configuration())
+        return result.diagnostics.filter { $0.ruleId == "security.path-traversal" }
+    }
+
+    /// swift-oauth `Tests/SwiftOAuthProviderTests/AudienceBindingTests.swift:71-73`.
+    @Test("A temp file named with UUID() inside a literal is not a chosen segment")
+    func uuidInsideLiteralIsNotReported() async throws {
+        let findings = try await traversal(#"""
+            import Foundation
+            func existingDatabaseIsMigrated() async throws {
+                let path = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("oauth-migration-\(UUID().uuidString).sqlite").path
+                defer { try? FileManager.default.removeItem(atPath: path) }
+            }
+            """#)
+        #expect(findings.count == 0)
+    }
+
+    @Test("Every generated identifier the bare-segment carve-out knows is honoured in a literal", arguments: [
+        #""run-\(UUID()).log""#,
+        #""run-\(UUID().uuidString)""#,
+        #""\(ProcessInfo.processInfo.globallyUniqueString).tmp""#,
+        #""pid-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).lock""#,
+    ])
+    func generatedIdentifiersAreNotReported(segment: String) async throws {
+        let findings = try await traversal("""
+            import Foundation
+            func run(base: URL) throws {
+                let target = base.appendingPathComponent(\(segment))
+                try FileManager.default.removeItem(atPath: target.path)
+            }
+            """)
+        #expect(findings.count == 0, "\(segment)")
+    }
+
+    // MARK: - Near misses: a value this site did not construct
+
+    @Test("A literal interpolating a parameter is still reported")
+    func parameterInsideLiteralIsReported() async throws {
+        let findings = try await traversal(#"""
+            import Foundation
+            func remove(name: String) throws {
+                let path = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("oauth-migration-\(name).sqlite").path
+                try FileManager.default.removeItem(atPath: path)
+            }
+            """#)
+        #expect(findings.count == 1)
+        #expect(findings.first?.lineNumber == 5)
+    }
+
+    @Test("A literal interpolating a stored property is still reported")
+    func storedPropertyInsideLiteralIsReported() async throws {
+        let findings = try await traversal(#"""
+            import Foundation
+            struct Store {
+                let identifier: String
+                func remove(base: URL) throws {
+                    let target = base.appendingPathComponent("store-\(self.identifier).sqlite")
+                    try FileManager.default.removeItem(atPath: target.path)
+                }
+            }
+            """#)
+        #expect(findings.count == 1)
+        #expect(findings.first?.lineNumber == 6)
+    }
+
+    @Test("A UUID parsed from input is the input's, not this site's")
+    func uuidParsedFromInputIsReported() async throws {
+        let findings = try await traversal(#"""
+            import Foundation
+            func remove(base: URL, input: String) throws {
+                let target = base.appendingPathComponent("item-\(UUID(uuidString: input)).json")
+                try FileManager.default.removeItem(atPath: target.path)
+            }
+            """#)
+        #expect(findings.count == 1)
+        #expect(findings.first?.lineNumber == 4)
+    }
+
+    @Test("One generated hole does not excuse a chosen one beside it")
+    func mixedHolesAreReported() async throws {
+        let findings = try await traversal(#"""
+            import Foundation
+            func remove(base: URL, name: String) throws {
+                let target = base.appendingPathComponent("\(UUID().uuidString)-\(name)")
+                try FileManager.default.removeItem(atPath: target.path)
+            }
+            """#)
+        #expect(findings.count == 1)
+        #expect(findings.first?.lineNumber == 4)
+    }
+
+    /// The carve-out read `text.hasPrefix("UUID()")`, so anything that merely *began* with a
+    /// generated identifier was one — `UUID().uuidString + name` included, as a bare segment
+    /// before this change and inside a literal after it.
+    @Test("An expression that only begins with UUID() is not a generated identifier", arguments: [
+        #"UUID().uuidString + name"#,
+        #""item-\(UUID().uuidString + name).json""#,
+        #"UUID().uuidString.appending(name)"#,
+        #""\(ProcessInfo.processInfo.processIdentifier)" + name"#,
+    ])
+    func generatedPrefixDoesNotExcuseTheRest(segment: String) async throws {
+        let findings = try await traversal("""
+            import Foundation
+            func remove(base: URL, name: String) throws {
+                let target = base.appendingPathComponent(\(segment))
+                try FileManager.default.removeItem(atPath: target.path)
+            }
+            """)
+        #expect(findings.count == 1, "\(segment)")
+        #expect(findings.first?.lineNumber == 4, "\(segment)")
+    }
+
+    @Test("What is read off a generated identifier is still generated", arguments: [
+        #"UUID().uuidString.lowercased()"#,
+        #""tmp-\(UUID().uuidString.prefix(8))""#,
+        #""tmp-\(String(UUID().uuidString.prefix(8))).db""#,
+        #""\(Foundation.UUID().uuidString)""#,
+        #"ProcessInfo.processInfo.globallyUniqueString"#,
+        #""lock-\(ProcessInfo.processInfo.processIdentifier.description)""#,
+    ])
+    func chainsOffAGeneratedIdentifier(segment: String) async throws {
+        let findings = try await traversal("""
+            import Foundation
+            func run(base: URL) throws {
+                let target = base.appendingPathComponent(\(segment))
+                try FileManager.default.removeItem(atPath: target.path)
+            }
+            """)
+        #expect(findings.count == 0, "\(segment)")
+    }
+}

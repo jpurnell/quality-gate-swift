@@ -17,6 +17,36 @@ Test files (paths containing `Tests`) and paths matching `excludePatterns` in th
 | `logging.print-statement` | error | `print()` or `debugPrint()` calls in production code |
 | `logging.silent-try` | warning | `try?` without adjacent error logging or suppression comment |
 | `logging.no-os-logger-import` | warning | File uses `print()`/`NSLog()` but does not `import os` |
+| `logging.catch-without-logging` | warning | A `catch` whose error disappears: not logged, not rethrown, not handed on |
+
+### What a `catch` may do with its error
+
+`logging.catch-without-logging` is about an error that vanishes. A `catch` is accepted when
+its body does any one of these:
+
+- **throws** — the error, or another in its place;
+- **logs** — a call on a logger (`logger.error(…)`, `Self.fixLogger.warning(…)`), `NSLog` or
+  `os_log`;
+- **translates** the error into a configured domain value on every exit
+  (`logging.errorValueTypes`);
+- **surfaces** the caught error, which is decided by following the error's own name:
+  - it is written to stderr — `FileHandle.standardError.write(Data("…\(error)".utf8))`,
+    `fputs("…\(error)", stderr)`, `print(error, to: &standardError)`;
+  - it is passed to a call and the body's last statement does not return —
+    `print("failed: \(error)")` then `exit(1)`, or `fatalError("\(error)")`;
+  - every exit from the body returns a value that mentions it —
+    `return "Invalid pattern: \(error.localizedDescription)"`, `return .failure(error)`.
+
+The name followed is the one the clause binds: the implicit `error`, or `failure` in
+`catch let failure as DecodingError`. `catch is CancellationError` binds nothing, so nothing in
+its body counts. A case or method merely *called* `error` — `.error(.value)` — is not the
+caught error.
+
+Still reported, on purpose: `catch { exit(1) }`, which ends the process without saying why; a
+fixed string written to stderr; the error printed to stdout by code that then carries on; a
+body where one exit of several returns a value without the error, falls off the end, or leaves
+by `break` or `continue`; and an error copied into a local before being written out, which is
+not followed.
 
 ### Configuration
 
@@ -62,7 +92,8 @@ The comment must be a line comment (`//`), not a block comment. Blank lines betw
 - Cross-module logging analysis (would require IndexStore)
 - Detecting misuse of `os.Logger` subsystem/category naming
 - Flagging `NSLog` as an error (it is only tracked for the `no-os-logger-import` rule)
-- Validating that `do/catch` blocks actually log the caught error
+- Following a caught error through a local variable or into a closure
+  (`logging.catch-without-logging` reads the body's own statements)
 
 ## Topics
 

@@ -292,6 +292,11 @@ final class LoggingVisitor: SyntaxVisitor {
     /// logger call, or — when the project has configured it — an error **translated** into a
     /// domain value that the caller receives. See ``LoggingAuditorConfig/errorValueTypes`` for
     /// why the third is not a blanket exemption.
+    ///
+    /// A fourth needs no configuration, because it is read off the caught error itself rather
+    /// than off a type name: the error is **surfaced** — written to stderr, handed to a call
+    /// before the process ends, or carried by every value the body returns. See
+    /// ``CaughtErrorSurface``.
     override func visit(_ node: CatchClauseSyntax) -> SyntaxVisitorContinueKind {
         let scan = CatchBodyScanner(
             loggerNames: loggerNames,
@@ -304,6 +309,10 @@ final class LoggingVisitor: SyntaxVisitor {
         }
 
         if translatesTheError(node.body) {
+            return .visitChildren
+        }
+
+        if CaughtErrorSurface.surfaces(node) {
             return .visitChildren
         }
 

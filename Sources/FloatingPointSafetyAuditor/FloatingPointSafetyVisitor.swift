@@ -186,6 +186,10 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     /// which holds top-level and type-member bindings.
     private var scopes: [DeclarationScope] = [DeclarationScope()]
 
+    /// Reads divisors that are not plain references: a named constant,
+    /// literal arithmetic, `n - 1` under `guard n > 1`. Built once per file.
+    private var divisorFacts: DivisorFactEvaluator?
+
     /// Creates a new floating-point safety visitor.
     /// - Parameters:
     ///   - filePath: Absolute path used in diagnostic output.
@@ -288,12 +292,12 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         guard let key = FallbackSubjectKey.key(of: divisor, genericNames: fpTypeNames) else {
             return false
         }
+        let offset = divisor.positionAfterSkippingLeadingTrivia.utf8Offset
         var keys: Set<String> = [key]
         for scope in scopes {
             guard let facts = scope.facts else { continue }
-            keys.formUnion(facts.equivalents(of: key))
+            keys.formUnion(facts.equivalents(of: key, at: offset))
         }
-        let offset = divisor.positionAfterSkippingLeadingTrivia.utf8Offset
         return scopes.contains { scope in
             scope.facts?.kinds(for: keys, before: offset).contains(.nonZero) ?? false
         }
@@ -330,6 +334,10 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
     override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
         guard !isTestFile, checkDivisionGuards else { return .visitChildren }
         scopes[0].facts = FallbackGuardFactCollector.collectTopLevel(from: node, genericNames: fpTypeNames)
+        divisorFacts = DivisorFactEvaluator(
+            index: DivisorFactCollector.collect(from: node, conversions: fpTypeNames),
+            conversions: fpTypeNames
+        )
         return .visitChildren
     }
 
@@ -580,7 +588,7 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         if opText == "==" || opText == "!=" {
             checkInfixEquality(lhs: node.leftOperand, rhs: node.rightOperand, opText: opText, node: Syntax(node))
         } else if (opText == "/" || opText == "/=") && checkDivisionGuards {
-            checkInfixDivision(divisor: node.rightOperand, node: Syntax(node))
+            checkInfixDivision(divisor: node.rightOperand, node: Syntax(node.operator))
         }
 
         return .visitChildren
@@ -662,13 +670,25 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
 
         guard divisorIsFP || lhsIsFP else { return }
 
+        reportUnlessSafe(divisor: divisor, at: Syntax(elements[operatorIndex]))
+    }
+
+    /// Reports a division unless its divisor is known not to be zero.
+    ///
+    /// - Parameters:
+    ///   - divisor: The right-hand side of the division.
+    ///   - operatorNode: The `/` or `/=` itself. The finding is placed there,
+    ///     not at the start of the expression: an expression spread over several
+    ///     lines can hold several divisions, and a marker has to be able to name one.
+    private func reportUnlessSafe(divisor: ExprSyntax, at operatorNode: Syntax) {
         if NumericLiteralFacts.isNonZero(divisor) { return }
         if isCheckedBeforeUse(divisor) { return }
+        if divisorFacts?.provesNonZero(divisor) == true { return }
 
         emitDiagnostic(
             ruleId: "fp-division-unguarded",
             message: "Floating-point division without visible zero guard on divisor",
-            node: node,
+            node: operatorNode,
             suggestedFix: "Add a guard checking the divisor is not zero before dividing"
         )
     }
@@ -680,16 +700,7 @@ final class FloatingPointSafetyVisitor: SyntaxVisitor {
         node: Syntax
     ) {
         guard divisionDeclarationDepth == 0, isEvidencedDivisor(divisor) else { return }
-
-        if NumericLiteralFacts.isNonZero(divisor) { return }
-        if isCheckedBeforeUse(divisor) { return }
-
-        emitDiagnostic(
-            ruleId: "fp-division-unguarded",
-            message: "Floating-point division without visible zero guard on divisor",
-            node: node,
-            suggestedFix: "Add a guard checking the divisor is not zero before dividing"
-        )
+        reportUnlessSafe(divisor: divisor, at: node)
     }
 
     // MARK: - FP Detection Heuristics

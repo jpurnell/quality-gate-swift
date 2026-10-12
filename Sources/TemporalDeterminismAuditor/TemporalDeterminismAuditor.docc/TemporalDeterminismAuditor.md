@@ -73,8 +73,12 @@ to dismiss a true finding.
 ## Exemptions
 
 - Per-line `// temporal:exempt` annotation (both rules)
-- `// TIMING:` on an assertion line — declares an intentional wall-clock
-  performance test (exempts `temporal-wall-clock-assertion`)
+- `// TIMING:` on an assertion line, or the line directly above it — declares an
+  intentional wall-clock performance test (exempts `temporal-wall-clock-assertion`)
+  and enrols the test in `test`'s stress runs (`stress.runs > 1`), so a declared
+  timing assumption is also a provoked one. The enrolment is `TestRunner`'s
+  (`AssertionTimingScanner`); `vigil stress`, which reads only a marker above the
+  test function, does not see this position.
 - Types that are not simulation/synthetic/mock-named (a real hardware device may
   legitimately stamp `.now`)
 - Configured `exemptTypes`, `exemptFunctions`, `exemptFiles`

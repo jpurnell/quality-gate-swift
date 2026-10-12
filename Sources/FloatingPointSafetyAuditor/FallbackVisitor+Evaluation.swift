@@ -195,6 +195,11 @@ extension FallbackVisitor {
             return evaluate(base, depth: depth)
         }
 
+        // `pageSize.width`, where `pageSize` is a constant built from literals.
+        if literalBuiltMember(member) != nil {
+            return .finite
+        }
+
         guard !Self.standardLibraryMembers.contains(name) else { return .unknown }
 
         switch declarations.memberKinds[name] {
@@ -206,6 +211,41 @@ extension FallbackVisitor {
         case .floatingPointCollection, .other, nil:
             return .unknown
         }
+    }
+
+    /// Whether the literal behind `constant.label` is nonzero, when `constant` is a
+    /// member the file declares only as a `let` built from numeric literals, or nil
+    /// when `member` is not such an access.
+    ///
+    /// The constant may be written bare, through `self` or `Self`, or through a type
+    /// name. A bare name that a parameter or a local also binds is that binding, not
+    /// the member, and is left alone.
+    func literalBuiltMember(_ member: MemberAccessExprSyntax) -> Bool? {
+        guard let base = member.base else { return nil }
+        let constant: String
+        if let reference = base.as(DeclReferenceExprSyntax.self) {
+            constant = reference.baseName.text
+            guard !isBoundLocally(constant) else { return nil }
+        } else if let qualified = base.as(MemberAccessExprSyntax.self),
+                  qualified.base?.is(DeclReferenceExprSyntax.self) == true {
+            constant = qualified.declName.baseName.text
+        } else {
+            return nil
+        }
+        return declarations.literalBuiltConstants[constant]?[member.declName.baseName.text]
+    }
+
+    /// True for a divisor that is a constant the file declares as a nonzero literal:
+    /// `Config.pollInterval`, `Self.gap`, `pageSize.width`.
+    private func isNonZeroConstant(_ divisor: ExprSyntax) -> Bool {
+        guard let member = divisor.as(MemberAccessExprSyntax.self),
+              member.base?.is(DeclReferenceExprSyntax.self) == true
+                || member.base?.is(MemberAccessExprSyntax.self) == true else {
+            return false
+        }
+        if literalBuiltMember(member) == true { return true }
+        guard member.base?.is(DeclReferenceExprSyntax.self) == true else { return false }
+        return declarations.nonZeroConstants.contains(member.declName.baseName.text)
     }
 
     private func evaluate(call: FunctionCallExprSyntax, depth: Int) -> FallbackValue {
@@ -239,6 +279,12 @@ extension FallbackVisitor {
             return .unknown
         }
         let name = callee.declName.baseName.text
+
+        // `Swift.min(a, b)`, `Foundation.floor(x)`: the bare function, spelled with
+        // its module. Read as the member of an unknown base, it was nothing at all.
+        if FallbackTypes.freeFunctionName(of: call.calledExpression) != nil {
+            return Self.passthroughFunctions.contains(name) ? Self.combine(arguments) : .unknown
+        }
 
         // `values.reduce(0.0, +)`: floating-point because its seed is, and a sum
         // over data is as clean as the data.
@@ -316,6 +362,7 @@ extension FallbackVisitor {
             guard divisorIndex < elements.count else { return true }
             let divisor = elements[divisorIndex]
             if NumericLiteralFacts.isNonZero(divisor) { continue }
+            if isNonZeroConstant(divisor) { continue }
             if let key = FallbackSubjectKey.key(of: divisor, genericNames: genericNames),
                checks(on: Subject(key: key, display: key), before: offset).contains(.nonZero) {
                 continue
