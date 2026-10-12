@@ -4,6 +4,94 @@
 
 ### Fixed
 
+- **Four rules stop reporting what they were not written about, `// TIMING:` does what its
+  documentation says, and the baseline ledger stops publishing where its author keeps their
+  checkouts.** Eleven surveyed false positives across
+  four repositories, each carrying a marker or a config override to say the finding was wrong;
+  with the marker removed, the deployed gate reports all eleven and this one reports none.
+  Across 67 portfolio repositories the same three checkers (`safety`, `logging`,
+  `hig-auditor`) differ from the deployed binary in these four rules and nowhere else, and
+  nothing new is reported.
+  - **`security.path-traversal`: a generated identifier inside a file-name literal is nobody's
+    choice.** `"oauth-migration-\(UUID().uuidString).sqlite"` was a chosen segment, because the
+    carve-out for `UUID().uuidString` covered it only as the whole segment and any literal
+    with an interpolation was "not a literal". Every hole must be generated — `UUID()` and what
+    is read off it, `globallyUniqueString`, `processIdentifier`. A parameter or a stored
+    property in the literal is reported as before, alone or beside a `UUID()`, and so is
+    `UUID(uuidString: input)`. 3 sites, swift-oauth. The carve-out itself is also narrower
+    than it was: it read `text.hasPrefix("UUID()")`, so `UUID().uuidString + name` and
+    `UUID().uuidString.appending(name)` passed as generated and took the name with them. It
+    is decided on the expression's shape now — a chain read off `UUID()`,
+    `globallyUniqueString` or `processIdentifier`, through properties and methods given
+    nothing but literals, optionally inside `String(…)` — and those two are reported. No
+    portfolio repository had one.
+  - **`security.hardcoded-secret`: a literal has to contain something.** `var bearerToken = ""`
+    is the absence of a credential; `"\(client.clientId):\(clientSecret)"` is two values from
+    elsewhere and a colon. Neither is reported. The second shape is narrow: every character
+    outside the interpolations must be punctuation, a symbol or whitespace. One letter or
+    digit of static text and the literal is reported as before — `"Bearer \(value)"` included —
+    and a literal with no interpolation is reported unless it is empty. 2 surveyed sites
+    (SwiftMCPClient, swift-oauth); 12 more disappear in `narbis/reference/ShipSwift`, all
+    `@State private var password = ""` form fields.
+  - **`hig.navigation-pattern`: only a `NavigationStack` that hosts navigation.** It reported
+    every stack in a `body` outside an `if`/`switch`. A sheet uses one for a title bar and a
+    toolbar and pushes nothing. A stack is now reported when it takes a `path:`, when its
+    expression (modifiers included) names `NavigationLink` or `navigationDestination`, or when
+    it names a type or a helper member that does — found across the project and followed to a
+    fixed point (`NavigationHostIndex`), so the stack wrapping `TastingPreviewRow` is still
+    reported for the link inside the row, in whichever file the row or the extension lives.
+    Matching is by identifier and errs towards reporting. **What it cannot see** is a view
+    from another package that pushes: a stack whose only content is one is read as chrome.
+    3 surveyed sites, WineTaster 4, whose four stacks that do push are reported as before.
+    61 more disappear in `narbis/reference/ShipSwift`: 24 `#Preview` wrappers, 4 tab roots
+    holding a placeholder, 33 demo and control panels; none names a link, a destination, a
+    path, or a type that does. Five existing fixtures were `NavigationStack { List { Text } }`
+    and now carry a `NavigationLink`, since a stack that pushes nothing is no longer the case
+    they test.
+  - **`logging.catch-without-logging`: an error handed to whoever is waiting is not swallowed.**
+    Accepted, by following the caught error's own name: written to stderr
+    (`FileHandle.standardError.write(Data("…\(error)".utf8))`, `fputs(…, stderr)`,
+    `print(…, to: &standardError)`); passed to a call when the body's last statement does not
+    return (`print("failed: \(error)")` then `exit(1)`); or carried by **every** exit
+    (`return "Invalid pattern: \(error.localizedDescription)"`, `return .failure(error)`).
+    Still reported: `catch { exit(1) }`; a fixed string to stderr; the error printed to stdout
+    by code that carries on; a default returned without the error; one exit of several that
+    drops it, a body that can fall off its end, a `break` or `continue`; a pattern that binds
+    nothing (`catch is CancellationError`); and `.error(.value)`, where `error` is somebody's
+    case name. 3 surveyed sites, SwiftCLIKit, hidden there by a repo-wide severity override;
+    1 more in endoscope (`err("stream error: \(error.localizedDescription)")`, `exit(1)`).
+    One existing fixture changed: `return Result.failure(error)` was asserted *reported*, to
+    show `.failure(` is no logger; it carries the error and is accepted now, so that test
+    returns `Result.failure(ParseError.unreadable)` instead and makes the same point.
+  - **`// TIMING:` on an assertion enrols the test in stress runs, as documented.**
+    `TemporalScan` says the marker "exempts the assertion rule — and enrolls the test in
+    vigil's stress runs". Only the first was true: the temporal rule honours the marker on
+    the assertion's line or the line above, and the scanner behind stress mode read only the
+    comment above the test *function*. So the marker written where the rule asks for it
+    silenced the warning and stressed nothing — which is every use of it in the portfolio
+    outside swift-vigil's own tests and two in SwiftIdentity: about 51 assertion-level markers
+    in 8 repositories, HRVKit's teardown-liveness bounds among them. `TestRunner` now reads
+    that position too (`AssertionTimingScanner`), exactly as wide as the exemption: a comment
+    on an `#expect`, `#require` or `XCTAssert…` line, or the line directly above, in a test
+    function. The same text on any other statement, in a string, or in a helper enrols
+    nothing — the shape swift-vigil pins as untagged stays untagged. No effect unless
+    `stress.runs > 1`. `vigil stress` uses VigilKit's scanner and still does not see it.
+  - **`adopt` writes repo-relative paths; `quality-gate relativize-baseline` rewrites a ledger
+    that has absolute ones.** The ledger is committed, and every record carried
+    `/Users/<name>/…`. The path was never part of a match — the key is the rule and a hash of
+    the rule and the flagged line's text — so nothing that decides coverage changes: an
+    absolute-path ledger matches exactly as it did, from any checkout, and so does a relative
+    one. `relativize-baseline` resolves each absolute path against this root, then by the
+    longest trailing run of components that names a file here (which also reveals the root
+    the ledger was recorded at, for files since deleted), and leaves what neither accounts for
+    absolute, listed, with exit 1. Run on copies of three real ledgers: SwiftCLIKit 20
+    records, BusinessMath 61, SwiftExcelFunctions 80 — every path rewritten, no `/Users/` left,
+    every other line of each file byte-identical, and the `fallback` checker's baselined
+    findings 22, 68 and 92 before and after. `--preview` reports without writing, and
+    `--dry-run` does too: the root command owns that flag, a subcommand's copy of it is never
+    set, and the first build of this command rewrote three scratch ledgers on a "dry run"
+    before an acceptance test was written for it.
+
 - **`xctest-import --fix` writes code that builds, and that this gate accepts.** Used on two
   real suites (SummerJams, 16 files and 72 tests; BusinessMathExcel, 50 files and 572), its
   output did not compile in four ways, traded 50 `xctest-import` errors for 84

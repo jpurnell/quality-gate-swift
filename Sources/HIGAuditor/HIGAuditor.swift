@@ -202,6 +202,22 @@ public struct HIGAuditor: FixableChecker, Sendable {
         fileName: String,
         activePlatforms: HIGPlatform
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        auditSource(source, fileName: fileName, activePlatforms: activePlatforms, navigation: NavigationHostIndex())
+    }
+
+    /// Audits one source string, knowing which of the project's other types host navigation.
+    ///
+    /// `hig.navigation-pattern` asks whether a `NavigationStack` hosts navigation, and the
+    /// answer is often in another file: the stack's content is `LibraryList()`, and the
+    /// `NavigationLink` is in `LibraryList`. `navigation` is that knowledge — see
+    /// ``NavigationHostIndex``. The single-source overload passes an empty one, so it answers
+    /// from the file alone.
+    func auditSource(
+        _ source: String,
+        fileName: String,
+        activePlatforms: HIGPlatform,
+        navigation: NavigationHostIndex
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         guard source.contains("import SwiftUI") else {
             return ([], [])
         }
@@ -236,7 +252,8 @@ public struct HIGAuditor: FixableChecker, Sendable {
                 fileName: fileName,
                 converter: converter,
                 sourceLines: sourceLines,
-                activePlatforms: activePlatforms
+                activePlatforms: activePlatforms,
+                navigation: navigation.merging(NavigationHostIndex.build(trees: [tree], seededWith: navigation))
             )
             navVisitor.walk(tree)
             diagnostics.append(contentsOf: navVisitor.diagnostics)
@@ -267,16 +284,25 @@ public struct HIGAuditor: FixableChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
 
+        // Read once, used twice: every SwiftUI file is asked first which of its types host
+        // navigation, because the stack that wraps `LibraryList()` and the link inside
+        // `LibraryList` are usually in different files.
+        var sources: [(path: String, source: String)] = []
         for fullPath in paths {
             do {
-                let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let result = auditSource(source, fileName: fullPath, activePlatforms: activePlatforms)
-                diagnostics.append(contentsOf: result.diagnostics)
-                overrides.append(contentsOf: result.overrides)
+                sources.append((fullPath, try String(contentsOfFile: fullPath, encoding: .utf8)))
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
+        }
+        let navigation = NavigationHostIndex.build(sources: sources.map(\.source))
+
+        for entry in sources {
+            let result = auditSource(
+                entry.source, fileName: entry.path, activePlatforms: activePlatforms, navigation: navigation)
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
         }
 
         return (diagnostics, overrides)
