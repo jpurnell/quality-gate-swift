@@ -197,7 +197,7 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **122 targets** — 61 source, 61 test
+- **124 targets** — 62 source, 62 test
 - **49 registered checkers**
 <!-- /generated:scale -->
 

@@ -50,6 +50,14 @@ public struct FunctionComplexityRecord: Sendable, Codable, Equatable {
 
     /// Deterministic cognitive complexity score.
     public let cognitiveComplexity: Int
+    /// McCabe cyclomatic complexity: one, plus one per decision point.
+    ///
+    /// Kept alongside ``cognitiveComplexity`` rather than replacing it. The two disagree in an
+    /// informative way — cognitive charges for nesting and cyclomatic does not — so a wide gap
+    /// between them marks deeply nested rather than merely branchy code. Cyclomatic is here
+    /// because the erosion metric is defined over the conventional `CC > 10` threshold, which
+    /// has a literature behind it that a locally-invented cognitive threshold would not.
+    public let cyclomaticComplexity: Int
     /// Breakdown of each increment contributing to the score.
     public let cognitiveBreakdown: [CognitiveIncrement]
 
@@ -78,6 +86,7 @@ public struct FunctionComplexityRecord: Sendable, Codable, Equatable {
         endLine: Int,
         cognitiveComplexity: Int,
         cognitiveBreakdown: [CognitiveIncrement],
+        cyclomaticComplexity: Int = 1,
         estimatedTimeComplexity: String = "O(1)",
         complexityBasis: [ComplexityBasis] = [],
         confidence: EstimationConfidence = .high,
@@ -92,6 +101,7 @@ public struct FunctionComplexityRecord: Sendable, Codable, Equatable {
         self.endLine = endLine
         self.cognitiveComplexity = cognitiveComplexity
         self.cognitiveBreakdown = cognitiveBreakdown
+        self.cyclomaticComplexity = cyclomaticComplexity
         self.estimatedTimeComplexity = estimatedTimeComplexity
         self.complexityBasis = complexityBasis
         self.confidence = confidence
