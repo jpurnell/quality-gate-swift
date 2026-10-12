@@ -183,6 +183,8 @@ quality-gate adopt --decay-days 180
 
 Green gate on day one. New findings gate immediately. Every recorded debt comes due on a date, and `quality-gate re-verify` works the queue of what has expired — re-affirm consciously, or retire.
 
+The ledger (`.quality-gate-baseline.json`) is meant to be committed, so each record's path is written relative to the repository root. A ledger adopted before 2026-10-09 holds absolute paths — `/Users/<name>/…` on every record — and `quality-gate relativize-baseline` rewrites them in place (`--preview` to see what it would do). It changes paths and nothing else: a record matches by rule and by a hash of the flagged line's text, never by path, so the same debts stay covered from any checkout.
+
 ### 3. Checkers report their own precision
 
 ```bash

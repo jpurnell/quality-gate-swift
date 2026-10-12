@@ -137,6 +137,9 @@ final class SecurityVisitor: SyntaxVisitor {
                   let literal = initializer.value.as(StringLiteralExprSyntax.self) else {
                 continue
             }
+            // An empty literal is the absence of a credential, and a literal made of holes and
+            // punctuation holds nothing this source wrote down.
+            guard Self.carriesStaticText(literal) else { continue }
             // A PEM private key is key material: `hardcoded-key` reports the literal itself.
             if keyRulesApply, isRuleEnabled("security.hardcoded-key"), Self.isPEMPrivateKey(literal) { continue }
 
@@ -155,6 +158,27 @@ final class SecurityVisitor: SyntaxVisitor {
         }
 
         return .visitChildren
+    }
+
+    /// Whether a string literal contains text a secret could be made of.
+    ///
+    /// Two shapes do not. `""` — a form field's initial value, a sentinel — is no credential at
+    /// all. And `"\(clientId):\(clientSecret)"` is assembled entirely from values that came
+    /// from somewhere else; the literal contributes a separator. *Hardcoded* is a claim about
+    /// the text in the source, so the rule needs some.
+    ///
+    /// The second shape is narrow on purpose: every character outside the holes must be
+    /// punctuation, a symbol or whitespace. One letter or digit of static text and the literal
+    /// is reported as before — `"Bearer \(value)"` included, which is a word and not a secret,
+    /// because telling those apart is a judgement this rule has never made. A literal with no
+    /// hole is reported whatever it contains, unless it is empty.
+    static func carriesStaticText(_ literal: StringLiteralExprSyntax) -> Bool {
+        let hasHole = literal.segments.contains { $0.is(ExpressionSegmentSyntax.self) }
+        let text = literal.segments
+            .compactMap { $0.as(StringSegmentSyntax.self)?.content.text }
+            .joined()
+        guard hasHole else { return !text.isEmpty }
+        return text.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
     }
 
     /// Reports the `hardcoded-secret` findings that `hardcoded-key` did not claim.
@@ -857,12 +881,19 @@ final class SecurityVisitor: SyntaxVisitor {
     /// from a directory — `contentsOfDirectory` never returns a name with `/` in it, or `..`.
     static func isChosenSegment(_ expression: ExprSyntax, at node: some SyntaxProtocol) -> Bool {
         if isLiteralSegment(expression) { return false }
-        // A generated identifier — `UUID().uuidString`, a process's unique string — contains no
-        // separator and nobody outside this code chose it.
-        let text = expression.trimmedDescription
-        if text.hasPrefix("UUID()") || text.hasSuffix(".globallyUniqueString")
-            || text.hasSuffix(".processIdentifier") {
-            return false
+        if isGeneratedIdentifier(expression) { return false }
+        // The same identifier inside a file name — `"oauth-\(UUID().uuidString).sqlite"`. The
+        // static text is this code's own and every hole is generated, so nobody else chose any
+        // of it. One hole that is not generated and the literal is a chosen segment again.
+        if let literal = expression.as(StringLiteralExprSyntax.self) {
+            let holes = literal.segments.compactMap { $0.as(ExpressionSegmentSyntax.self) }
+            let generated = holes.allSatisfy { hole in
+                guard hole.expressions.count == 1, let value = hole.expressions.first?.expression else {
+                    return false
+                }
+                return isGeneratedIdentifier(value)
+            }
+            if generated { return false }
         }
         guard let name = expression.as(DeclReferenceExprSyntax.self)?.baseName.text else { return true }
         var current = node.parent
@@ -883,6 +914,53 @@ final class SecurityVisitor: SyntaxVisitor {
             current = candidate.parent
         }
         return true
+    }
+
+    /// A generated identifier — `UUID()`, `UUID().uuidString`, a process's unique string or its
+    /// pid. It contains no separator and nobody outside this code chose it.
+    ///
+    /// Decided on the shape of the expression, not on how its text begins. This was
+    /// `text.hasPrefix("UUID()")`, which made `UUID().uuidString + name` a generated identifier
+    /// and waved the name through with it. What counts now is a chain *read off* one:
+    ///
+    /// - `UUID()` — no argument. `UUID(uuidString: input)` yields the input's value;
+    /// - a member named `globallyUniqueString` or `processIdentifier`;
+    /// - any property of those, and any method called on them with no argument or only
+    ///   literal ones — `.uuidString`, `.lowercased()`, `.prefix(8)`, `.description`;
+    /// - `String(…)` around one.
+    ///
+    /// A method given anything else — `.appending(name)` — brings that value in with it, and an
+    /// operator expression is not a chain at all.
+    static func isGeneratedIdentifier(_ expression: ExprSyntax) -> Bool {
+        var current = expression
+        // Bounded: nobody writes a longer accessor chain off a UUID than this.
+        for _ in 0..<8 {
+            if let member = current.as(MemberAccessExprSyntax.self) {
+                let name = member.declName.baseName.text
+                if name == "globallyUniqueString" || name == "processIdentifier" { return true }
+                guard let base = member.base else { return false }
+                current = base
+                continue
+            }
+            guard let call = current.as(FunctionCallExprSyntax.self),
+                  call.trailingClosure == nil else { return false }
+            if let callee = call.calledExpression.as(DeclReferenceExprSyntax.self) {
+                if callee.baseName.text == "UUID" { return call.arguments.isEmpty }
+                guard callee.baseName.text == "String", call.arguments.count == 1,
+                      let wrapped = call.arguments.first, wrapped.label == nil else { return false }
+                current = wrapped.expression
+                continue
+            }
+            guard let method = call.calledExpression.as(MemberAccessExprSyntax.self),
+                  call.arguments.allSatisfy({ isLiteralSegment($0.expression) }) else { return false }
+            // `Foundation.UUID()` is the constructor spelled through its module.
+            if method.declName.baseName.text == "UUID", method.base?.is(DeclReferenceExprSyntax.self) == true {
+                return call.arguments.isEmpty
+            }
+            guard let base = method.base else { return false }
+            current = base
+        }
+        return false
     }
 
     /// Whether a `for` pattern binds `name` — directly or inside a tuple.

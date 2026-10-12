@@ -72,8 +72,11 @@ struct Adopt: AsyncParsableCommand {
 
         let findings = outcome.results.flatMap(\.diagnostics).filter { $0.severity != .note }
         let recordedAt = Date()
+        // Paths go in repo-relative: the ledger is committed, and an absolute path says where
+        // this machine keeps its checkouts. The hash is taken before the path is shortened.
         let ledger = BaselineLedger.adopt(
-            findings: findings, recordedAt: recordedAt, decayDays: decayDays)
+            findings: findings, recordedAt: recordedAt, decayDays: decayDays,
+            projectRoot: configuration.resolvedProjectRoot)
 
         let path = ".quality-gate-baseline.json"
         try ledger.save(to: path)

@@ -26,7 +26,7 @@ The same pass runs the `security.*` rules. Their CWE lists and OWASP columns liv
 
 | Rule ID | Severity | CWE | What it detects |
 |---------|----------|-----|-----------------|
-| `security.hardcoded-secret` | warning | 798 | Secret-named variable assigned a string literal |
+| `security.hardcoded-secret` | warning | 798 | Secret-named variable assigned a string literal that carries text |
 | `security.command-injection` | error | 78 | A shell run with `-c` and a command string assembled at runtime |
 | `security.weak-crypto` | warning | 328 | MD5 / SHA-1 hashing |
 | `security.insecure-transport` | warning | 319 | `http://` URLs other than local hosts |
@@ -96,6 +96,20 @@ of those. The `let` is found lexically, so a parameter that shadows a literal co
 the constant. A key copied into a buffer and the buffer passed is not seen.
 
 `hardcoded-secret` (CWE-798) reads a name: a secret-named binding assigned a string literal.
+The literal has to carry text a secret could be made of. `""` is the absence of a credential —
+a form field's initial value — and is not reported. Nor is a literal assembled entirely from
+other values, `"\(clientId):\(clientSecret)"`: outside its interpolations it holds only
+punctuation, symbols or whitespace, so nothing in it was written down here. One letter or digit
+of static text beside an interpolation and it is reported as before, `"Bearer \(value)"`
+included; a literal with no interpolation is reported unless it is empty.
+
+`path-traversal` (CWE-22) reports a segment somebody else chose. A generated identifier is
+nobody's choice — `UUID()` and what is read off it, `ProcessInfo.processInfo.globallyUniqueString`,
+a `processIdentifier` — whether it is the whole segment or sits inside a file-name literal,
+`"oauth-\(UUID().uuidString).sqlite"`. Every interpolation in the literal must be one: a
+parameter or a stored property beside it makes the segment chosen again, and
+`UUID(uuidString: input)` is the input's value, not a generated one.
+
 `hardcoded-key` (CWE-321, a child of 798) reads a use: literal bytes where a key belongs. When a
 secret-named literal is that key — `let apiSecret = "…"` passed to `SymmetricKey(data:)`, or a
 PEM private key — only `hardcoded-key` reports it, so one literal is one finding. With

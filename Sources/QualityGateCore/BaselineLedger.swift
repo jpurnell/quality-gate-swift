@@ -109,12 +109,21 @@ public struct BaselineLedger: Sendable, Equatable {
 
     /// Records every gate-relevant finding (errors and warnings) as debt.
     ///
+    /// With a `projectRoot`, each record's path is written relative to it. The ledger is
+    /// committed, and an absolute path publishes where its author keeps their checkouts —
+    /// `/Users/<name>/…` on every record of a public repository. The path is informational:
+    /// the hash is computed from the file as the checker reported it, before the path is
+    /// shortened, and is the same either way.
+    ///
     /// - Parameters:
     ///   - findings: The current findings (notes are ignored — they never gated).
     ///   - recordedAt: Adoption timestamp.
     ///   - decayDays: Days until each debt comes due.
+    ///   - projectRoot: The root to record paths relative to. `nil` records them as reported.
     /// - Returns: The ledger, de-duplicated by match key.
-    public static func adopt(findings: [Diagnostic], recordedAt: Date, decayDays: Int) -> BaselineLedger {
+    public static func adopt(
+        findings: [Diagnostic], recordedAt: Date, decayDays: Int, projectRoot: URL? = nil
+    ) -> BaselineLedger {
         var seen: Set<String> = []
         var records: [BaselineRecord] = []
         for finding in findings where finding.severity != .note {
@@ -125,11 +134,146 @@ public struct BaselineLedger: Sendable, Equatable {
             records.append(BaselineRecord(
                 ruleId: finding.ruleId ?? "",
                 contentHash: hash,
-                filePath: finding.filePath,
+                filePath: recordedPath(finding.filePath, projectRoot: projectRoot),
                 recordedAt: recordedAt,
                 expiresAt: recordedAt.addingTimeInterval(Double(decayDays) * 86_400)))
         }
         return BaselineLedger(records: records)
+    }
+
+    /// The path a record carries for a finding reported at `path`.
+    ///
+    /// Relative to the root when there is one and the file is inside it. A file outside the
+    /// root keeps the path it was reported with: there is no shorter name for it that is true.
+    private static func recordedPath(_ path: String?, projectRoot: URL?) -> String? {
+        guard let path, let projectRoot else { return path }
+        return repoRelativePath(path, projectRoot: projectRoot) ?? path
+    }
+
+    // MARK: - Repo-relative paths
+
+    /// `path` relative to `projectRoot`, or `nil` when it is not inside it.
+    ///
+    /// A path already relative is returned as it is. An absolute one is tried against the root
+    /// as given, standardised, and with symlinks resolved — a checker may report
+    /// `/private/tmp/…` for a project the shell calls `/tmp/…` — and compared by whole
+    /// components, so a sibling directory whose name merely begins with the root's is outside.
+    ///
+    /// - Parameters:
+    ///   - path: The path a checker reported.
+    ///   - projectRoot: The root the ledger sits in.
+    /// - Returns: The repo-relative path, or `nil` if `path` is absolute and outside the root.
+    public static func repoRelativePath(_ path: String, projectRoot: URL) -> String? {
+        guard path.hasPrefix("/") else { return path }
+        let file = URL(fileURLWithPath: path)
+        let candidates: [(file: URL, root: URL)] = [
+            (file, projectRoot),
+            (file.standardizedFileURL, projectRoot.standardizedFileURL),
+            (file.resolvingSymlinksInPath(), projectRoot.resolvingSymlinksInPath()),
+        ]
+        for candidate in candidates {
+            let rootComponents = candidate.root.pathComponents
+            let fileComponents = candidate.file.pathComponents
+            guard fileComponents.count > rootComponents.count,
+                  fileComponents.starts(with: rootComponents) else { continue }
+            return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
+        }
+        return nil
+    }
+
+    /// The outcome of ``relativized(projectRoot:)``.
+    public struct Relativization: Sendable, Equatable {
+        /// The ledger with every path that could be made repo-relative rewritten.
+        public let ledger: BaselineLedger
+        /// How many records had their path rewritten.
+        public let rewritten: Int
+        /// Absolute paths that nothing in this checkout accounts for, left as they were.
+        public let unresolved: [String]
+    }
+
+    /// The same ledger with each record's path made relative to the project root.
+    ///
+    /// **Nothing that decides a match is touched.** The match key is (rule, content hash), and
+    /// the hash is of the rule and the flagged line's text — the path was never an input to
+    /// it. So a rewritten ledger absorbs exactly the findings the original did, and every
+    /// `contentHash`, `recordedAt`, `expiresAt` and `reAffirmedBy` comes through as it was.
+    ///
+    /// An existing ledger may have been recorded somewhere else — another machine, another
+    /// clone — so its paths need not begin with this root. Each absolute path is resolved by
+    /// the first of these that applies:
+    ///
+    /// 1. it is inside `projectRoot`;
+    /// 2. its longest trailing run of components names a file that exists under
+    ///    `projectRoot` — which also reveals the root the ledger was recorded at;
+    /// 3. it begins with a root revealed by (2), for a file that has since been deleted.
+    ///
+    /// A path none of them accounts for is left absolute and reported in
+    /// ``Relativization/unresolved``, not guessed at.
+    ///
+    /// - Parameter projectRoot: The root the ledger sits in.
+    /// - Returns: The rewritten ledger, the number of records changed, and what was left.
+    public func relativized(projectRoot: URL) -> Relativization {
+        var resolved: [Int: String] = [:]
+        var recordedRoots: Set<[String]> = []
+        var pending: [Int] = []
+
+        for (index, record) in records.enumerated() {
+            guard let path = record.filePath, path.hasPrefix("/") else { continue }
+            if let relative = Self.repoRelativePath(path, projectRoot: projectRoot) {
+                resolved[index] = relative
+            } else if let found = Self.existingSuffix(of: path, under: projectRoot) {
+                resolved[index] = found.relative
+                recordedRoots.insert(found.recordedRoot)
+            } else {
+                pending.append(index)
+            }
+        }
+
+        var unresolved: [String] = []
+        // Longest first, so a root nested inside another revealed root wins.
+        let roots = recordedRoots.sorted { $0.count > $1.count }
+        for index in pending {
+            guard let path = records[index].filePath else { continue }
+            let components = URL(fileURLWithPath: path).pathComponents
+            if let root = roots.first(where: { components.count > $0.count && components.starts(with: $0) }) {
+                resolved[index] = components.dropFirst(root.count).joined(separator: "/")
+            } else {
+                unresolved.append(path)
+            }
+        }
+
+        let rewritten = records.enumerated().map { index, record -> BaselineRecord in
+            guard let relative = resolved[index] else { return record }
+            return BaselineRecord(
+                ruleId: record.ruleId,
+                contentHash: record.contentHash,
+                filePath: relative,
+                recordedAt: record.recordedAt,
+                expiresAt: record.expiresAt,
+                reAffirmedBy: record.reAffirmedBy)
+        }
+        return Relativization(
+            ledger: BaselineLedger(records: rewritten), rewritten: resolved.count, unresolved: unresolved)
+    }
+
+    /// The longest trailing run of `path`'s components that names an existing file under `root`.
+    ///
+    /// Longest first: `Sources/Kit/Alpha.swift` is tried before `Kit/Alpha.swift` and
+    /// `Alpha.swift`, so a file of the same name nearer the root is not mistaken for it.
+    private static func existingSuffix(
+        of path: String, under root: URL
+    ) -> (relative: String, recordedRoot: [String])? {
+        let components = URL(fileURLWithPath: path).pathComponents
+        guard components.count > 1 else { return nil }
+        for dropped in 1..<components.count {
+            let relative = components.dropFirst(dropped).joined(separator: "/")
+            let candidate = root.appendingPathComponent(relative).path
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory), !isDirectory.boolValue {
+                return (relative, Array(components.prefix(dropped)))
+            }
+        }
+        return nil
     }
 
     // MARK: - Matching

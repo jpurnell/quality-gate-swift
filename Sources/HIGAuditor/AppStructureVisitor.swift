@@ -179,11 +179,17 @@ final class AppStructureVisitor: SyntaxVisitor {
 }
 
 /// Walks any View-conforming struct to detect navigation pattern issues.
+///
+/// Reports a `NavigationStack` in a `body`, outside an `if`/`switch`, **that hosts
+/// navigation** — see `hostsNavigation(_:)`. Before 2026-10-09 it reported every such
+/// reference, including the stack a sheet uses for its title bar.
 final class NavigationPatternVisitor: SyntaxVisitor {
     let fileName: String
     let converter: SourceLocationConverter
     let sourceLines: [String]
     let activePlatforms: HIGPlatform
+    /// Which types, and which of each type's members, host navigation — across the project.
+    let navigation: NavigationHostIndex
 
     private(set) var diagnostics: [Diagnostic] = []
     private(set) var overrides: [DiagnosticOverride] = []
@@ -192,12 +198,14 @@ final class NavigationPatternVisitor: SyntaxVisitor {
         fileName: String,
         converter: SourceLocationConverter,
         sourceLines: [String],
-        activePlatforms: HIGPlatform
+        activePlatforms: HIGPlatform,
+        navigation: NavigationHostIndex = NavigationHostIndex()
     ) {
         self.fileName = fileName
         self.converter = converter
         self.sourceLines = sourceLines
         self.activePlatforms = activePlatforms
+        self.navigation = navigation
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -206,6 +214,10 @@ final class NavigationPatternVisitor: SyntaxVisitor {
         guard !activePlatforms.isDisjoint(with: HIGRules.navigationPattern.platforms) else {
             return .visitChildren
         }
+
+        // A stack that pushes nothing has no hierarchy for a sidebar to organise: it is there
+        // for a title bar and a toolbar, which is how a sheet gets either.
+        guard hostsNavigation(node) else { return .visitChildren }
 
         // Skip NavigationStack in non-body computed properties (e.g., sheet helpers)
         // and inside conditional branches where it serves as one of several possible views.
@@ -231,6 +243,74 @@ final class NavigationPatternVisitor: SyntaxVisitor {
         }
 
         return .visitChildren
+    }
+
+    // MARK: - Does the stack host navigation?
+
+    /// Whether the `NavigationStack` referenced at `node` hosts navigation.
+    ///
+    /// Three signs, any one of which is enough:
+    ///
+    /// - the stack is driven by a path — `NavigationStack(path: $path)`;
+    /// - the stack's expression, modifiers included, names `NavigationLink` or
+    ///   `navigationDestination`;
+    /// - it names something known to host navigation: a type anywhere in the project whose
+    ///   declaration does (``NavigationHostIndex/types``), or a member of the enclosing type
+    ///   that does (``NavigationHostIndex/membersByType``) — the `rows` helper, wherever its
+    ///   extension lives.
+    ///
+    /// Names are matched as identifiers and nothing is resolved, so the answer errs towards
+    /// *hosts*: an argument label that happens to spell a hosting type's name counts. What it
+    /// cannot see is a view from another **package** that pushes; a stack whose only content
+    /// is one of those is read as chrome.
+    private func hostsNavigation(_ node: DeclReferenceExprSyntax) -> Bool {
+        if let call = node.parent?.as(FunctionCallExprSyntax.self),
+           call.calledExpression.id == node.id,
+           call.arguments.contains(where: { $0.label?.text == "path" }) {
+            return true
+        }
+
+        var names = NavigationHostIndex.markers.union(navigation.types)
+        if let owner = Self.enclosingTypeName(of: node), let members = navigation.membersByType[owner] {
+            names.formUnion(members)
+        }
+
+        for token in Self.wholeExpression(around: node).tokens(viewMode: .sourceAccurate) {
+            if case .identifier(let text) = token.tokenKind, names.contains(text) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The stack together with everything chained onto it — `NavigationStack { … }.sheet(…)`.
+    ///
+    /// Climbs while the node is the thing being called, the base of a member access, or the
+    /// base of a `#if`-wrapped modifier, and stops at the first parent that is none of those.
+    private static func wholeExpression(around node: DeclReferenceExprSyntax) -> Syntax {
+        var top = Syntax(node)
+        while let parent = top.parent {
+            if let call = parent.as(FunctionCallExprSyntax.self), call.calledExpression.id == top.id {
+                top = parent
+            } else if let member = parent.as(MemberAccessExprSyntax.self), member.base?.id == top.id {
+                top = parent
+            } else if let conditional = parent.as(PostfixIfConfigExprSyntax.self), conditional.base?.id == top.id {
+                top = parent
+            } else {
+                break
+            }
+        }
+        return top
+    }
+
+    /// The name of the type whose declaration or extension `node` sits in.
+    private static func enclosingTypeName(of node: some SyntaxProtocol) -> String? {
+        var current = node.parent
+        while let candidate = current {
+            if let name = NavigationHostIndex.declaredTypeName(candidate) { return name }
+            current = candidate.parent
+        }
+        return nil
     }
 
     // MARK: - Context Detection
