@@ -156,8 +156,14 @@ struct SuppressionReportingAcceptanceTests {
         // The claim is that a replay reports what the run that filled the cache reported, so
         // the two are compared with each other rather than with a literal that assumes
         // `recursion` found an index store.
-        #expect(replay["suppressed"] as? Int == first["suppressed"] as? Int)
-        #expect((first["suppressed"] as? Int ?? 0) >= 1)
+        // `#require`, not `as? Int ?? 0`: the coalescing asserted a missing value as if it were
+        // present, which `test-quality`'s `coalesced-assertion` rule said about this very line
+        // minutes after it was written. Comparing two optionals would also have passed had both
+        // been nil — the absence-reported-as-success shape, in a test about reporting.
+        let firstCount = try #require(first["suppressed"] as? Int)
+        let replayCount = try #require(replay["suppressed"] as? Int)
+        #expect(replayCount == firstCount)
+        #expect(firstCount >= 1)
         #expect(replay["suppressedByForm"] as? [String: Int] == first["suppressedByForm"] as? [String: Int])
         #expect(replay["acknowledged"] as? Int == first["acknowledged"] as? Int)
     }
