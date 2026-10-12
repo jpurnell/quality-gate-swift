@@ -73,6 +73,83 @@ struct CompileUnitIndexTests {
     static let swiftbuildLinuxReleaseObjects =
         ".build/out/Intermediates.noindex/Fixture.build/Release-linux-x86_64/Fixture-t.build/Objects-normal/x86_64"
 
+    // MARK: - native whole-module
+
+    /// The native build system's output file map is the same shape in both modes.
+    ///
+    /// Under whole-module (any release build, and what Linux 6.2 runs) the map still gives every
+    /// source a `diagnostics` entry, and those records are never written: the compiler writes one
+    /// `<Module>.dia` that the map does not name at all. Measured on macOS 6.4 with
+    /// `--build-system native -c release`, where the only record on disk was `Fixture.dia`, 812
+    /// bytes, naming `Warns.swift`. Reading the mode off the map is therefore impossible — the
+    /// debug map differs only in that its per-file records exist.
+    ///
+    /// See `quality-gate-swift-project/plans/proposals/TheMapCannotTellYouWhichModeRan.md`.
+    static let nativeReleaseObjects = ".build/arm64-apple-macosx/release/Fixture.build"
+
+    @Test("Whole-module native: the unnamed module record is used when the named ones are absent")
+    func nativeWholeModuleRecordIsFound() throws {
+        let tree = try Tree()
+        defer { tree.remove() }
+        let warns = try tree.write("Sources/Fixture/Warns.swift")
+        let clean = try tree.write("Sources/Fixture/Clean.swift")
+        let objects = Self.nativeReleaseObjects
+        // The map names per-file records, exactly as the native release map does…
+        try tree.writeMap("\(objects)/output-file-map.json", [
+            warns: ["diagnostics": tree.path("\(objects)/Warns.dia")],
+            clean: ["diagnostics": tree.path("\(objects)/Clean.dia")],
+        ])
+        // …none of which the whole-module build writes. This is the one it does write.
+        try tree.write("\(objects)/Fixture.dia", "record")
+
+        let index = CompileUnitIndex.scan(buildDirectory: tree.buildDirectory.path, configuration: "release")
+
+        #expect(index.units.count == 1)
+        #expect(index.units.first?.source == nil)
+        #expect(index.units.first?.diagnosticsPath.hasSuffix("Fixture.dia") == true)
+        #expect(index.units.first?.siblings.sorted() == [clean, warns].sorted())
+    }
+
+    @Test("Per-file native: records that exist are used, and no module record is substituted")
+    func nativePerFileRecordsAreLeftAlone() throws {
+        let tree = try Tree()
+        defer { tree.remove() }
+        let warns = try tree.write("Sources/Fixture/Warns.swift")
+        let clean = try tree.write("Sources/Fixture/Clean.swift")
+        let objects = Self.nativeReleaseObjects
+        try tree.writeMap("\(objects)/output-file-map.json", [
+            warns: ["diagnostics": tree.path("\(objects)/Warns.dia")],
+            clean: ["diagnostics": tree.path("\(objects)/Clean.dia")],
+        ])
+        try tree.write("\(objects)/Warns.dia", "record")
+        try tree.write("\(objects)/Clean.dia", "record")
+        // Present, and must be ignored: the named records exist, so the build was per-file.
+        try tree.write("\(objects)/Fixture.dia", "record")
+
+        let index = CompileUnitIndex.scan(buildDirectory: tree.buildDirectory.path, configuration: "release")
+
+        #expect(index.units.count == 2)
+        #expect(index.units.allSatisfy { $0.source != nil })
+    }
+
+    /// The property that must not regress. Absence is reported as absence — the whole point of
+    /// reading records at all was that a warm build must never report clean by default.
+    @Test("No record of any kind leaves the units per-file, so the run reports them unverified")
+    func noRecordAtAllStaysUnverified() throws {
+        let tree = try Tree()
+        defer { tree.remove() }
+        let warns = try tree.write("Sources/Fixture/Warns.swift")
+        let objects = Self.nativeReleaseObjects
+        try tree.writeMap("\(objects)/output-file-map.json", [
+            warns: ["diagnostics": tree.path("\(objects)/Warns.dia")],
+        ])
+
+        let index = CompileUnitIndex.scan(buildDirectory: tree.buildDirectory.path, configuration: "release")
+
+        #expect(index.units.count == 1)
+        #expect(index.units.first?.source == warns)
+    }
+
     // MARK: - swiftbuild on Linux
 
     /// Swift 6.4 builds with `swiftbuild` on Linux, where the configuration directory carries

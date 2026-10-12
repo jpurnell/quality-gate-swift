@@ -140,6 +140,7 @@ public struct CompileUnitIndex: Sendable, Equatable {
         )
         var units: [CompileUnit] = []
         var unreadable: [String] = []
+        var namedRecords: Set<String> = []
         for map in maps.live {
             guard let data = FileManager.default.contents(atPath: map),
                   let parsed = compileUnits(fromOutputFileMap: data) else {
@@ -147,7 +148,9 @@ public struct CompileUnitIndex: Sendable, Equatable {
                 continue
             }
             units.append(contentsOf: parsed)
+            namedRecords.formUnion(recordsNamed(byOutputFileMap: data))
         }
+        units = resolvingWholeModuleRecords(units, namedRecords: namedRecords)
         var orphanedMaps: [String] = []
         var orphanedUnitCount = 0
         for map in maps.orphaned {
@@ -165,6 +168,93 @@ public struct CompileUnitIndex: Sendable, Equatable {
             orphanedMaps: orphanedMaps,
             orphanedUnitCount: orphanedUnitCount
         )
+    }
+
+    /// Substitutes the module-level record for per-file units whose records were never written.
+    ///
+    /// The native build system's output file map has the same shape in both compilation modes:
+    /// every source carries a `diagnostics` entry and the `""` key carries none. Under
+    /// whole-module — any release build, and what Swift 6.2 runs on Linux — those per-file
+    /// records are not written. The compiler writes one `<Module>.dia` that the map never names.
+    ///
+    /// So ``compileUnits(fromOutputFileMap:)`` cannot tell the modes apart, and its documented
+    /// claim that it can was true only of `swiftbuild`'s maps. The question is answered here
+    /// instead, where the filesystem is already being read, leaving that function a pure function
+    /// of the map.
+    ///
+    /// A group of per-file units sharing a record directory is replaced by a single module-level
+    /// unit when **none** of their records exist and exactly one unclaimed `.dia` sits in that
+    /// directory. Both halves matter: one existing per-file record means the build was per-file,
+    /// and more than one unclaimed record means the answer is not obvious — in which case nothing
+    /// is substituted and the units are reported unverified, as before. Absence stays absence.
+    ///
+    /// Attribution does not depend on which unit found the record: a `.dia` names the absolute
+    /// source path of every diagnostic it holds.
+    ///
+    /// See `quality-gate-swift-project/plans/proposals/TheMapCannotTellYouWhichModeRan.md`.
+    static func resolvingWholeModuleRecords(
+        _ units: [CompileUnit], namedRecords: Set<String>
+    ) -> [CompileUnit] {
+        let byDirectory = Dictionary(grouping: units.filter { $0.source != nil }) {
+            ($0.diagnosticsPath as NSString).deletingLastPathComponent
+        }
+        var substitute: [String: CompileUnit] = [:]
+        for (directory, group) in byDirectory {
+            guard !group.contains(where: { FileManager.default.fileExists(atPath: $0.diagnosticsPath) }),
+                  let record = unclaimedRecord(in: directory, named: namedRecords) else { continue }
+            substitute[directory] = CompileUnit(
+                source: nil,
+                diagnosticsPath: record,
+                siblings: group.compactMap(\.source).sorted()
+            )
+        }
+        guard !substitute.isEmpty else { return units }
+
+        // Rebuilt in map order, each substitution standing where its group's first unit stood.
+        var result: [CompileUnit] = []
+        var emitted: Set<String> = []
+        for unit in units {
+            guard unit.source != nil else { result.append(unit); continue }
+            let directory = (unit.diagnosticsPath as NSString).deletingLastPathComponent
+            guard let replacement = substitute[directory] else { result.append(unit); continue }
+            if emitted.insert(directory).inserted { result.append(replacement) }
+        }
+        return result
+    }
+
+    /// The single `.dia` in `directory` that no output file map names, or `nil` if there is not
+    /// exactly one.
+    ///
+    /// The exclusion is every record the maps name, not merely those of the units that survived
+    /// filtering. A deleted source leaves its record on disk while its map entry yields no unit,
+    /// so a set built from units alone would offer that orphan as the module record — which it
+    /// did, and an existing test said so. The module record is the one the map is silent about.
+    static func unclaimedRecord(in directory: String, named: Set<String>) -> String? {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
+            return nil
+        }
+        let namedHere = Set(named.map { ($0 as NSString).lastPathComponent })
+        let candidates = entries
+            .filter { $0.hasSuffix(".dia") && !namedHere.contains($0) }
+            .sorted()
+        guard candidates.count == 1, let only = candidates.first else { return nil }
+        return (directory as NSString).appendingPathComponent(only)
+    }
+
+    /// Every serialized-diagnostics path an output file map names, whatever became of its source.
+    ///
+    /// Pure, like ``compileUnits(fromOutputFileMap:)``: it reports what the map says and consults
+    /// nothing on disk.
+    static func recordsNamed(byOutputFileMap data: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let entries = object as? [String: [String: Any]] else { return [] }
+        var records: Set<String> = []
+        for (_, entry) in entries {
+            for key in ["diagnostics", "emit-module-diagnostics"] {
+                if let path = entry[key] as? String { records.insert(path) }
+            }
+        }
+        return records
     }
 
     /// Splits the maps on disk into those the latest build names and those it does not.
