@@ -86,6 +86,57 @@ func yearOfExact(tenor: Double) -> Int? {
 
 The check may be on an alias of the value. `let sizable = Double(budget)` followed by a guard on `sizable` covers a later `Int(budget)`.
 
+**Membership of a constant range, asserted by a `guard`.** `(1.0..<1e10).contains(x)` has always counted. So does the same test against a name, when the name is a `let` whose value is a range between two numeric literals — in this file, or as `Type.member` anywhere in the project:
+
+```swift
+enum DegreesOfFreedom {
+    static let allowed: Range<Double> = 1..<1e10
+}
+
+func wholeDegrees(_ df: Double) -> Int? {
+    guard DegreesOfFreedom.allowed.contains(df) else { return nil }
+    return Int(df.rounded(.towardZero))
+}
+```
+
+A `var`, a range with an open or infinite end, a range computed from anything but literals, and a name that is also declared as something else anywhere it could be confused with — a parameter called `allowed`, a `Set` called `allowed` in another type — are not accepted. `allowed.contains(x)` on a set bounds nothing.
+
+A *local* constant — `let allowed = -90.0...90.0` inside a function — bounds a value tested against it in that function, after it is declared, and nowhere else. A member called `allowed` used bare in another function is not that local.
+
+### A bound carried through a local
+
+A value is usually checked under one name and converted under another. The conversion is accepted when the arithmetic between the two keeps the value a number inside a range:
+
+```swift
+func lowerRank(of k: Double, among count: Int) -> Int? {
+    guard k >= 0, k <= 1 else { return nil }
+    let rank = k * Double(count - 1)
+    return Int(rank.rounded(.down))
+}
+
+func clampedRank(of p: Double, among count: Int) -> Int? {
+    guard !p.isNaN else { return nil }
+    let clamped = Swift.min(Swift.max(p, 0), 1)
+    return Int(clamped * Double(count - 1))
+}
+```
+
+What is followed is a `let` declared once in the body. What keeps a bound:
+
+- **A sum, a difference or a product** whose every operand is bounded — a guarded value, a literal, an integer converted upward.
+- **Division by a literal** other than zero. Any other quotient is a new source of NaN, and keeps nothing.
+- **Rounding, `abs` and `magnitude`.**
+- **`min` and `max`**, read with the fact that makes them treacherous: each returns its *first* argument when either is a NaN. So `min(x, 1)` has an upper bound whatever `x` is, and is a number only if `x` is. `max(0, min(100, x))` is bounded even for a NaN — it answers `100`, which is the clamp rule's finding, not this one's.
+- **A remainder by a literal**, `x.truncatingRemainder(dividingBy: 100)`, when `x` was tested with `isFinite`. The remainder of an infinity is a NaN.
+
+A bound learned this way joins an `isFinite` learned from a guard. `min(span / scale, 1.0)` is at most one and, with `span` and `scale` both guarded above zero, at least zero — if it is a number at all, which a quotient may not be. `guard fraction.isFinite` on the local it is bound to supplies the rest.
+
+`min(x, .infinity)` and `min(x, .greatestFiniteMagnitude)` bound nothing an `Int` can hold. A `var` is not followed: it is something else by the time it is read.
+
+### A bound asserted by the arm the conversion sits in
+
+`position >= 0 && position < 4_096 ? Int(position) : 0` converts only when the comparison held, and so does the body of `if position >= 0, position < 4_096 { … }`. The condition speaks for its own arm: in the `else`, and in the third operand of a ternary, the comparison was false, which is what every comparison with a NaN is. It does not speak across a closure, which may run later, or for a value the arm writes to before converting it — `if x < limit { x = raw; return Int(x) }` is reported.
+
 ### What does not count
 
 **`isFinite` alone.** `1e300` is finite, and `Int(1e300)` traps.
@@ -96,7 +147,9 @@ The check may be on an alias of the value. `let sizable = Double(budget)` follow
 
 **A check after the conversion, or in another function.**
 
-**A filter upstream.** `rates.filter { $0.tenor.isFinite }` followed by a loop that converts `entry.tenor` is invisible to a syntactic check. The rule asks for the check in the function that converts, where a reader of the conversion can see it.
+**A filter upstream on a member.** `rates.filter { $0.tenor.isFinite }` followed by a loop that converts `entry.tenor` is invisible to a syntactic check. The rule asks for the check in the function that converts, where a reader of the conversion can see it. (A collection of plain values tested whole *is* read — see *A collection tested whole*, below — but `isFinite` on every element is still only `isFinite`, and a conversion needs a bound.)
+
+**A check in a function that is called.** A private helper that returns only bounded values, or an initialiser that refuses an unbounded one, is not followed. The rule reads one body at a time.
 
 ## A clamp
 
@@ -124,6 +177,25 @@ func concordanceChecked(w: Double) -> Double {
 
 An `isNaN` or `isFinite` test before the clamp answers it, in either sense. So does any comparison that a `guard` asserts.
 
+So does a guard on a value *computed from* the operand by arithmetic. A NaN in either bound makes the span a NaN, and the guard that let the span through has refused both:
+
+```swift
+func coordinate(of parameter: Double, lower: Double, upper: Double) -> Double {
+    let span = upper - lower
+    guard span > 0 else { return 0 }
+    let clamped = Swift.min(Swift.max(parameter, lower), upper)
+    return (clamped - lower) / span
+}
+```
+
+That holds only while the arithmetic carries a NaN: sums, differences, products, quotients, negation and rounding do. A local built with `min`, `max`, a ternary or `??` may have swallowed one, and a guard on it proves nothing about what went in. `guard span != 0` proves nothing either — a NaN is unequal to everything.
+
+### A collection tested whole
+
+`guard values.allSatisfy({ $0.isFinite })` — or `{ !$0.isNaN }`, or `\.isFinite` — answers for every element read afterwards by `for value in values`, by `values.enumerated()` or by subscript. So does a filtered copy, `let clean = values.filter { $0.isFinite }`. The test has to be asserted by a `guard`, on the collection that is then read, before it is read.
+
+It answers for the collection that was tested, and for as long as that is what the name holds. A collection in a local `var` is not covered — it may have been appended to or replaced since — and a loop's element is covered inside that loop's body only: a later `for value in others` reusing the name is a loop over something nothing tested.
+
 **A quotient is its own source.** `0 / 0` is a NaN and both operands were finite, so a check on the operands of a division says nothing about its result. A quotient written inside a clamp is reported until it is bound to a local and that local is tested. Dividing by a literal other than zero, or by a value already tested against zero, is not a new source.
 
 ## A classification
@@ -148,6 +220,26 @@ func presentValues(of cashFlows: [Double]) -> (inflows: Double, outflows: Double
 ```
 
 An arm that tests `isNaN` or `isFinite` answers it, as does a test above the chain. One comparison with an `else` is a test and not a classification, and is not reported. Nor is a chain whose arms test different values.
+
+Two shapes are accepted because nothing in them answers *for* the NaN.
+
+**A trailing `else` that hands the value on.** If the `else` is one statement that returns or assigns the value itself, or arithmetic on it, a NaN that lands there leaves as a NaN:
+
+```swift
+func unitInterval(_ p: Double) -> Double {
+    if p < 0 {
+        return 0
+    } else if p > 1 {
+        return 1
+    } else {
+        return p
+    }
+}
+```
+
+`else { return 0.5 }` answers for it and is reported. So is `else { return min(1, p) }`, which can swallow it, any chain with no `else` at all, and an `else` of more than one statement — with anything before the last, the name may no longer be the value that was classified.
+
+**A chain inside `if x.isInfinite { … }`.** There the value is one of two infinities, and both compare. The `else` of that `if` is not the same place: a NaN is not infinite, and arrives there.
 
 ## A guard that answers
 
@@ -202,6 +294,8 @@ SwiftSyntax gives syntax and not types, so the checker reads what is written, in
 - an **element** of a floating-point collection, read by subscript, by `for … in`, or out of `enumerated()`
 - a **sum** from `reduce` with a floating-point seed
 
+A call written with its module — `Swift.min(a, b)`, `Swift.abs(x)`, `Foundation.floor(x)` — is the bare call, and carries a NaN exactly as it does.
+
 A name with no declaration in reach is skipped. So is a member declared in another file, and a member name declared with two different types in this one. A member name the standard library owns — `count`, `startIndex` — is never read from the file's own declarations: a type that declares `count: Double` has said nothing about `values.count`.
 
 ### Floating-point is not the same as able to be NaN
@@ -211,10 +305,31 @@ A name with no declaration in reach is skipped. So is a member declared in anoth
 - **A literal**, and a `let` initialised from one. `static let deadline: TimeInterval = 30` is thirty at every call.
 - **An integer converted upward**, and sums and products of those. `Int(Double(count) * 0.95)` cannot be NaN.
 - **A `let` computed from values like that**, through as many steps as it takes.
+- **A constant built from literals.** `static let pageSize = CGSize(width: 612, height: 792)` makes `pageSize.width` a number, and dividing by `Config.pollInterval` is not a new source of NaN when every declaration of `pollInterval` in the file is a `let` holding a literal other than zero.
 
 A `var` is only what it is declared to be, because it is something else by the time it is read. And once one operand of an expression is known to be floating-point, an operand nothing is known about is a floating-point value of unknown origin — which is reported, because unknown origin is not the same as a number.
 
 Test code is not audited. A test that feeds a NaN to a conversion to watch it trap is doing its job.
+
+## Which files are read
+
+In a package, only files a target may compile. A reference script under `project/`, an example kept beside the documentation, a Markdown code fence saved with a `.swift` extension: none is built, and a finding in one can only be answered by moving the file. They are counted, and the coverage note says how many:
+
+```
+… 0 justified · 11 .swift files outside any SwiftPM target not audited
+```
+
+The scope errs towards reading. A file is left out only when `Package.swift` positively shows no target can own it:
+
+- **No `Package.swift`** — an Xcode project, a directory of scripts — and every file is read, as before.
+- **`Sources`, `Source`, `src`, `srcs`, `Tests` and `Plugins`** are read whole, whatever targets the manifest names inside them.
+- **A target's explicit `path:`** is read wherever it points.
+- **A directory holding an `.xcodeproj` or `.xcworkspace`** is read whole: its files may belong to an Xcode target the manifest knows nothing about.
+- **A manifest that cannot be read to a list of directories** — a target whose `path:` is computed, or one rooted at the package directory or outside it — and every file is read. The note then says `target paths in Package.swift could not be read, so every file was audited`, so that a package whose scripts are still being reported knows why.
+
+The manifest is parsed as text. Nothing is resolved and nothing is run. Every target declaration in it is read, wherever it is written, so a manifest that builds its `targets` in a variable and appends to it is read as well as one that passes an array literal.
+
+This is `fallback`'s scope alone. The other checkers read what they read before.
 
 ## Reading a clean result
 
