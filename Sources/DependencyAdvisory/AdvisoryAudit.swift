@@ -249,12 +249,12 @@ extension AdvisoryAudit {
 
             if case .accepted(let entry) = decision {
                 tally.acknowledged += 1
-                overrides.append(DiagnosticOverride(
-                    ruleId: ruleId,
-                    justification: "\(finding.candidate.advisory.id) on \(finding.context.identity), acknowledged until "
+                overrides.append(.configuration(
+                    form: "dependencyAudit.acknowledgedAdvisories", ruleId: ruleId,
+                    filePath: finding.context.lockfile, findingLine: finding.context.pin.line,
+                    entry: "\(finding.candidate.advisory.id) on \(finding.context.identity), acknowledged until "
                         + "\(entry.until): \(entry.reason.trimmingCharacters(in: .whitespacesAndNewlines))",
-                    filePath: finding.context.lockfile,
-                    lineNumber: finding.context.pin.line))
+                    validatedBy: "advisory-acknowledgement"))
                 return
             }
 

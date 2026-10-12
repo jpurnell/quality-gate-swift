@@ -155,6 +155,8 @@ final class UnseededSeedCallVisitor: SyntaxVisitor {
 
     /// Accumulated diagnostics from the walk.
     private(set) var diagnostics: [Diagnostic] = []
+    /// Calls whose `// Justification:` was accepted.
+    private(set) var overrides: [DiagnosticOverride] = []
 
     /// Creates a visitor for the omitted-seed rule.
     /// - Parameters:
@@ -230,8 +232,23 @@ final class UnseededSeedCallVisitor: SyntaxVisitor {
                 suggestedFix: "Pass `seed:` at this call site, or say in the `// \(justificationKeyword)` comment what this test is checking that a seed would defeat."
             ))
         case .accepted:
-            break
+            overrides.append(.inlineMarker(
+                form: "// \(justificationKeyword)", ruleId: Self.ruleId, filePath: filePath,
+                findingLine: line, markerLine: markerLine(atLine: line),
+                comment: InlineMarker.reason(in: markerText(atLine: line) ?? "", after: justificationKeyword),
+                validatedBy: SuppressionRecord.enforcedValidator, reportOnly: true))
         }
+    }
+
+    /// The line the opt-out marker for a call is written on.
+    private func markerLine(atLine line: Int) -> Int? {
+        let index = line - 1
+        if index >= 0, index < sourceLines.count,
+           let range = sourceLines[index].range(of: "//"),
+           sourceLines[index][range.upperBound...].contains(justificationKeyword) {
+            return line
+        }
+        return markerText(atLine: line) == nil ? nil : line - 1
     }
 
     // MARK: - Opt-out

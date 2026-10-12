@@ -118,6 +118,7 @@
     "fp-division-unguarded",
     "fp-equality",
     "gate.status-without-finding",
+    "gate.unvalidated-suppression",
     "gpu.dead-shader-file",
     "gpu.rounded-dispatch",
     "gpu.unbounded-thread-id",

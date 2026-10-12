@@ -70,7 +70,8 @@ public struct ContextAuditor: QualityChecker, Sendable {
         let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
 
         var allDiagnostics: [Diagnostic] = []
-        allDiagnostics = try await auditFiles(scan.files, configuration: configuration)
+        let audited = try await auditFiles(scan.files, configuration: configuration)
+        allDiagnostics = audited.diagnostics
 
         // Emitted pass or fail — examined-nothing must not look like found-nothing.
         let plural = scan.files.count == 1 ? "" : "s"
@@ -88,6 +89,7 @@ public struct ContextAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: audited.overrides,
             duration: duration
         )
     }
@@ -106,7 +108,8 @@ public struct ContextAuditor: QualityChecker, Sendable {
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
 
-        let diagnostics = auditSourceCode(source, fileName: fileName)
+        let audited = auditSourceCode(source, fileName: fileName)
+        let diagnostics = audited.diagnostics
 
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = diagnostics.isEmpty ? .passed : .warning
@@ -115,6 +118,7 @@ public struct ContextAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: diagnostics,
+            overrides: audited.overrides,
             duration: duration
         )
     }
@@ -129,27 +133,32 @@ public struct ContextAuditor: QualityChecker, Sendable {
     private func auditFiles(
         _ paths: [String],
         configuration: Configuration
-    ) async throws -> [Diagnostic] {
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
 
         for fullPath in paths {
             if isTestFile(fullPath) { continue }
 
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                diagnostics.append(contentsOf: auditSourceCode(source, fileName: fullPath))
+                let audited = auditSourceCode(source, fileName: fullPath)
+                diagnostics.append(contentsOf: audited.diagnostics)
+                overrides.append(contentsOf: audited.overrides)
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
 
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
-    private func auditSourceCode(_ source: String, fileName: String) -> [Diagnostic] {
+    private func auditSourceCode(
+        _ source: String, fileName: String
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         if isTestFile(fileName) {
-            return []
+            return ([], [])
         }
 
         let sourceFile = Parser.parse(source: source)
@@ -157,7 +166,7 @@ public struct ContextAuditor: QualityChecker, Sendable {
         let visitor = ContextVisitor(fileName: fileName, source: source, converter: converter)
         visitor.walk(sourceFile)
 
-        return visitor.diagnostics
+        return (visitor.diagnostics, visitor.overrides)
     }
 
     private func isTestFile(_ path: String) -> Bool {

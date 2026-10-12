@@ -67,7 +67,7 @@ Checkers that conform to `FixableChecker` can repair issues automatically with `
 
 - **Defects caught before they ship.** The rules target the class of bug that survives code review and TDD — the ones that only appear under load, under cancellation, or on the one edge case nobody tested.
 - **A gate, not a suggestion.** Because false positives are rare, the tool can enforce. Bad code doesn't merge. There is no backlog of ignored warnings.
-- **No override culture.** Exemptions exist (`// SAFETY:`, `// Justification:`), but every one is a single inline comment that states *why* — recorded, not silent. You can see every place the rules were consciously relaxed.
+- **No override culture.** Exemptions exist (`// SAFETY:`, `// Justification:`), and every one is recorded — and classified. A marker whose reason the gate validated is an *acknowledgement*; one with no reason, a token reason or a pasted one is a *suppression*; and the summary counts the two separately, per checker and by form, beside the baseline. You can see every place the rules were relaxed, and which of those places said why.
 - **It travels with the code.** Pre-commit hook, pre-push hook, CI via SARIF, Xcode build phase — the same canonical run path in every environment, so "passes on my machine" and "passes in CI" mean the same thing.
 - **It dogfoods itself.** quality-gate-swift runs its own checkers on every push. The tool is subject to its own gate.
 

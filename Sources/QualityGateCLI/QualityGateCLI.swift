@@ -295,21 +295,31 @@ struct QualityGateCLI: AsyncParsableCommand {
                 print(resolution.provenance.renderTable())
             }
         } catch let refusal as CheckerBudgetsConfig.Invalid {
-            // Not "using defaults", which is what any other unreadable configuration gets
-            // below. A budget is the remedy a timeout message tells its reader to apply; if
-            // a mistyped one were dropped, the next run would be stopped at the old figure
-            // with the new one sitting in the file, and nothing would say why.
+            // A budget is the remedy a timeout message tells its reader to apply; if a
+            // mistyped one were dropped, the next run would be stopped at the old figure
+            // with the new one sitting in the file, and nothing would say why. It keeps its
+            // own branch for the message, which names the key rather than the file.
             Self.logger.error("refused budgets entry in \(self.config, privacy: .public): \(refusal.localizedDescription, privacy: .public)")
             FileHandle.standardError.write(Data(
                 ("❌ configuration: " + refusal.localizedDescription
                  + "\n   Nothing was run. Correct `budgets:` in \(config) and run again.\n").utf8))
             throw ExitCode(1)
         } catch {
-            Self.logger.warning("Failed to load configuration from \(self.config, privacy: .public): \(error.localizedDescription, privacy: .public). Using defaults.")
-            configuration = Configuration()
-            if verbose {
-                print("Warning: failed to load \(config): \(error). Using defaults.")
-            }
+            // A configuration that cannot be read stops the run. It used to become
+            // `Configuration()` with a log line nobody saw unless they passed `--verbose`:
+            // every `excludedCheckers`, every `enabledRules`, every threshold in the file was
+            // replaced by a default, and the run printed PASSED over a policy the repository
+            // had not chosen. That is the same silence as a refused `budgets:` entry and a
+            // rejected path value, and it now gets the same answer.
+            //
+            // An *unknown key* is not this: the file decoded, the key was merely not applied,
+            // and that is reported below as a warning that names it.
+            let reason = Self.describe(configurationFailure: error)
+            Self.logger.error("configuration unreadable at \(self.config, privacy: .public): \(reason, privacy: .public)")
+            FileHandle.standardError.write(Data(
+                ("❌ configuration: \(config) could not be read: \(reason)"
+                 + "\n   Nothing was run. Correct \(config) and run again.\n").utf8))
+            throw ExitCode(1)
         }
         // CLI flag overrides config (v5).
         // CLI flags override config through one testable seam (Phase 0.2):
@@ -465,6 +475,21 @@ struct QualityGateCLI: AsyncParsableCommand {
         }
         let effectiveCheckers = selection.ids
 
+        // What the configuration excludes from this run, for the summary. The walk is the
+        // same one the checkers make, so the file count is the number they did not read; it
+        // is skipped when no pattern is set, which is the ordinary case.
+        let filesExcludedByPattern = configuration.excludePatterns.isEmpty
+            ? nil
+            : SourceWalker.walk(
+                under: configuration.resolvedProjectRoot,
+                excludePatterns: configuration.excludePatterns).excludedByPattern
+        let activeExclusions = ConfigurationExclusions.active(
+            in: configuration,
+            filesExcludedByPattern: filesExcludedByPattern,
+            // `enabledCheckers` selects only when neither `--check` nor `--profile` did.
+            registeredCheckers: (check.isEmpty && profile == nil) ? allCheckers.map(\.id) : [])
+        let suppressionPolicy = configuration.suppressions
+
         // `consistency` alone is a legitimate invocation — it is not in `checkersToRun`, so
         // an empty sweep with it selected is a consistency-only run, not an empty one.
         let consistencySelected = effectiveCheckers.contains(ConsistencyChecker().id)
@@ -551,8 +576,13 @@ struct QualityGateCLI: AsyncParsableCommand {
             // run for it.
             transform: { result in
                 let afterOverrides = overrideProcessor.apply(to: result)
-                guard let ledger = baselineLedger else { return afterOverrides }
-                return ledger.applying(to: afterOverrides, now: baselineNow)
+                let afterBaseline = baselineLedger.map {
+                    $0.applying(to: afterOverrides, now: baselineNow)
+                } ?? afterOverrides
+                // Last, so the baseline cannot absorb it and `overrides:` cannot switch it
+                // off: a finding raised *about* a suppression is not itself suppressible by
+                // the two mechanisms it reports on. A no-op under the default policy.
+                return SuppressionRatchet.apply(to: afterBaseline, policy: suppressionPolicy)
             },
             onError: { checkerID, error in
                 Self.logger.error("Checker '\(checkerID, privacy: .public)' threw an error: \(error.localizedDescription, privacy: .public)")
@@ -568,7 +598,9 @@ struct QualityGateCLI: AsyncParsableCommand {
             for: outputFormat,
             rosterSize: Self.checkerRegistry(configuration: configuration).count,
             truncation: runOutcome.truncation,
-            strict: strict)
+            strict: strict,
+            exclusions: activeExclusions,
+            suppressionPolicy: suppressionPolicy)
 
         // The post-run stage. `consistency` audits the results above rather than the newest
         // telemetry on disk, which is the previous run — appended before the reporter and
@@ -587,7 +619,9 @@ struct QualityGateCLI: AsyncParsableCommand {
                 // Reconciled like every result the runner returns: this stage is the one
                 // other place a result enters the run, so it is the one other place the
                 // status is made to agree with the diagnostics.
-                allResults.append(overrideProcessor.apply(to: consistencyResult).reconciled())
+                allResults.append(SuppressionRatchet.apply(
+                    to: overrideProcessor.apply(to: consistencyResult),
+                    policy: suppressionPolicy).reconciled())
             } catch {
                 // Loud, never silent: a corpus that cannot be read is a fact about the run.
                 Self.logger.error("Consistency audit failed: \(error.localizedDescription, privacy: .public)")
@@ -736,8 +770,12 @@ struct QualityGateCLI: AsyncParsableCommand {
         // Machine-readable artifacts alongside the primary format (Phase 2:
         // `quality-gate ci` turns these on; any caller may). Best-effort —
         // an artifact write failure is logged, never fails the gate itself.
-        writeArtifactReport(format: .sarif, to: sarifOutput, results: allResults)
-        writeArtifactReport(format: .json, to: summaryOutput, results: allResults)
+        writeArtifactReport(
+            format: .sarif, to: sarifOutput, results: allResults,
+            exclusions: activeExclusions, suppressionPolicy: suppressionPolicy)
+        writeArtifactReport(
+            format: .json, to: summaryOutput, results: allResults,
+            exclusions: activeExclusions, suppressionPolicy: suppressionPolicy)
 
         // One post-run telemetry step for every configured invocation (0.1):
         // full runs and --check subsets both record, tagged with their scope
@@ -829,15 +867,30 @@ struct QualityGateCLI: AsyncParsableCommand {
         }
     }
 
+    /// What was wrong with a configuration that could not be read, without the generic
+    /// prefix `QualityGateError` puts in front of every configuration failure.
+    static func describe(configurationFailure error: any Error) -> String {
+        if case .configurationError(let description) = error as? QualityGateError {
+            return description
+        }
+        return error.localizedDescription
+    }
+
     /// Renders results in `format` and writes them to `path`, creating parent
     /// directories. Best-effort: a failure is logged and printed, never
     /// thrown — a missing artifact must not change the gate's verdict.
-    private func writeArtifactReport(format: OutputFormat, to path: String?, results: [CheckResult]) {
+    private func writeArtifactReport(
+        format: OutputFormat, to path: String?, results: [CheckResult],
+        exclusions: [ActiveExclusion], suppressionPolicy: SuppressionPolicy
+    ) {
         guard let path else { return }
         var rendered = ""
         do {
             try WriteGuard.validate(path: path)
-            try ReporterFactory.create(for: format, strict: strict).report(results, to: &rendered)
+            try ReporterFactory.create(
+                for: format, strict: strict, exclusions: exclusions,
+                suppressionPolicy: suppressionPolicy
+            ).report(results, to: &rendered)
             let url = URL(fileURLWithPath: path)
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true) // SAFETY: caller-requested artifact directory

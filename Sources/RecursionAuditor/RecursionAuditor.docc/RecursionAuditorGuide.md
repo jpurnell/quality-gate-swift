@@ -352,7 +352,9 @@ enum OverloadSafety {
 
 ## False positives and how to suppress them
 
-The auditor has no inline suppression comment (like `// RECURSION-SAFE:`). Instead, each rule has a structural escape hatch -- fixing the code shape that triggers the rule:
+The auditor honours one inline marker, `// recursion:safe`, on the declaration's own line. It silences the self-reference rules for that declaration (`unconditional-self-call`, `protocol-extension-default-self`, `convenience-init-self`, `computed-property-self`, `setter-self`, `subscript-self`, `subscript-setter-self`) and is recorded as an override when — and only when — it silenced one of them. It takes no reason by design, so a bare one is reported as a **suppression**; write a reason after it and the reason is judged like any other (see *Acknowledgements are not suppressions* in `GUIDE.md`). This page said until October 2026 that no such marker existed.
+
+The marker is the last resort. Each rule also has a structural escape hatch -- fixing the code shape that triggers the rule:
 
 - **convenience-init-self**: Delegate to an initializer with different argument labels.
 - **computed-property-self, setter-self**: Introduce a private backing storage property (`_name`) and reference that instead.

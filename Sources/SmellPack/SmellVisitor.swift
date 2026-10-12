@@ -333,11 +333,9 @@ final class SmellVisitor: SyntaxVisitor {
     /// ``DiagnosticOverride`` instead. Recorded, never silent.
     private func emit(ruleId: String, message: String, line: Int, column: Int) {
         if line >= 1, line <= lines.count, lines[line - 1].contains("// smell:exempt") {
-            overrides.append(DiagnosticOverride(
-                ruleId: ruleId,
-                justification: "// smell:exempt",
-                filePath: filePath,
-                lineNumber: line))
+            overrides.append(.inlineMarker(
+                form: "// smell:exempt", ruleId: ruleId, filePath: filePath,
+                findingLine: line, markerLine: line, comment: lines[line - 1]))
             return
         }
         findings.append(Diagnostic(

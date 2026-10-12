@@ -163,7 +163,7 @@ The auditor is intentionally conservative. Here are the known edge cases and how
 
 ### `print()` in CLI tools
 
-Command-line tools legitimately use `print()` for user-facing output. If your project is a CLI, set `projectType: "library"` in `.quality-gate.yml` to skip the auditor entirely, or add `// logging:` comments on intentional stdout output.
+Command-line tools legitimately use `print()` for user-facing output. If your project is a CLI, set `projectType: "cli"` in `.quality-gate.yml`: that skips `logging.print-statement` and `logging.no-os-logger-import` and leaves the other rules running. (`"library"` skips the auditor entirely, which is more than a CLI wants.) Or add `// logging: <reason>` comments on intentional stdout output.
 
 ```swift
 let files: [URL] = []

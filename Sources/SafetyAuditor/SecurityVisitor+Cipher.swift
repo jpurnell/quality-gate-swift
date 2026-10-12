@@ -161,11 +161,10 @@ extension SecurityVisitor {
             let text = String(sourceLines[line - 2][range.lowerBound...])
             switch justificationValidator.validate(text, keyword: Self.justificationMarker) {
             case .valid:
-                overrides.append(DiagnosticOverride(
-                    ruleId: ruleId,
-                    justification: text[range.upperBound...].trimmingCharacters(in: .whitespaces),
-                    filePath: fileName,
-                    lineNumber: line))
+                overrides.append(.inlineMarker(
+                    form: Self.justificationMarker, ruleId: ruleId, filePath: fileName,
+                    findingLine: line, markerLine: line - 1, comment: text,
+                    validatedBy: SuppressionRecord.enforcedValidator))
             case .tooShort(let wordCount):
                 report(Self.appending(
                     " (The `// Justification:` on line \(line - 1) was not accepted: \(wordCount) "

@@ -348,7 +348,7 @@ struct RandomnessRulesTests {
         #expect(!result.diagnostics.contains { $0.ruleId == Self.uuid })
         let override = try #require(result.overrides.first { $0.ruleId == Self.uuid })
         #expect(override.lineNumber == 2)
-        #expect(override.justification == "the session id is a routing key; the bearer token authorises")
+        #expect(SuppressionRecord(override).reason == "the session id is a routing key; the bearer token authorises")
     }
 
     @Test("24. Under justified, no reason leaves the warning standing")

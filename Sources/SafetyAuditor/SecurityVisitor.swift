@@ -1197,11 +1197,10 @@ final class SecurityVisitor: SyntaxVisitor {
                 diagnostics.append(Self.rejecting(diagnostic, markerLine: marker.line, because: unmet))
                 return
             }
-            overrides.append(DiagnosticOverride(
-                ruleId: ruleId,
-                justification: Self.payload(of: marker.text),
-                filePath: fileName,
-                lineNumber: line))
+            overrides.append(.inlineMarker(
+                form: Self.marker, ruleId: ruleId, filePath: fileName, findingLine: line,
+                markerLine: marker.line, comment: marker.text,
+                validatedBy: SuppressionRecord.enforcedValidator))
         case .tooShort(let wordCount):
             diagnostics.append(Self.rejecting(
                 diagnostic, markerLine: marker.line,

@@ -113,10 +113,12 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         let config = configuration.stochasticDeterminism
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
         var seedableSignatures: Set<SeedableSignature> = []
         if fileManager.fileExists(atPath: sourcesPath) { // SAFETY: CLI tool reads local project sources
             let result = auditDirectory(at: sourcesPath, config: config, seedableSignatures: &seedableSignatures)
-            allDiagnostics.append(contentsOf: result)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
         if config.auditTests, fileManager.fileExists(atPath: testsPath) { // SAFETY: CLI tool reads local project tests
             var ignored: Set<SeedableSignature> = []
@@ -126,7 +128,8 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
                 seedableSignatures: &ignored,
                 checkAgainst: config.flagUnseededTestCalls ? seedableSignatures : []
             )
-            allDiagnostics.append(contentsOf: result)
+            allDiagnostics.append(contentsOf: result.diagnostics)
+            allOverrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - startTime
@@ -135,6 +138,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: allDiagnostics,
+            overrides: allOverrides,
             duration: duration
         )
     }
@@ -154,17 +158,19 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         configuration: Configuration
     ) async throws -> CheckResult {
         let startTime = ContinuousClock.now
-        let diags = auditSourceCode(
+        let audit = auditSourceCode(
             source,
             fileName: fileName,
             config: configuration.stochasticDeterminism
-        ).diagnostics
+        )
+        let diags = audit.diagnostics
         let duration = ContinuousClock.now - startTime
         let status: CheckResult.Status = diags.isEmpty ? .passed : .warning
         return CheckResult(
             checkerId: id,
             status: status,
             diagnostics: diags,
+            overrides: audit.overrides,
             duration: duration
         )
     }
@@ -186,10 +192,11 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         config: StochasticDeterminismConfig,
         seedableSignatures: inout Set<SeedableSignature>,
         checkAgainst: Set<SeedableSignature> = []
-    ) -> [Diagnostic] {
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return [] }
+        var overrides: [DiagnosticOverride] = []
+        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
 
         while let relativePath = enumerator.nextObject() as? String {
             guard relativePath.hasSuffix(".swift") else { continue }
@@ -209,13 +216,14 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
                     checkAgainst: checkAgainst
                 )
                 diagnostics.append(contentsOf: result.diagnostics)
+                overrides.append(contentsOf: result.overrides)
                 seedableSignatures.formUnion(result.seedableSignatures)
             } catch {
                 Self.logger.warning("Skipping unreadable source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
         }
-        return diagnostics
+        return (diagnostics, overrides)
     }
 
     private func auditSourceCode(
@@ -223,7 +231,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         fileName: String,
         config: StochasticDeterminismConfig,
         checkAgainst: Set<SeedableSignature> = []
-    ) -> (diagnostics: [Diagnostic], seedableSignatures: Set<SeedableSignature>) {
+    ) -> (diagnostics: [Diagnostic], seedableSignatures: Set<SeedableSignature>, overrides: [DiagnosticOverride]) {
         let sourceLines = source.lines
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
@@ -237,6 +245,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         )
         visitor.walk(tree)
         var diagnostics = visitor.diagnostics
+        var overrides = visitor.overrides
 
         let harvester = SeedableAPIHarvester(viewMode: .sourceAccurate)
         harvester.walk(tree)
@@ -250,8 +259,9 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
             )
             callVisitor.walk(tree)
             diagnostics.append(contentsOf: callVisitor.diagnostics)
+            overrides.append(contentsOf: callVisitor.overrides)
         }
 
-        return (diagnostics, harvester.seedableSignatures)
+        return (diagnostics, harvester.seedableSignatures, overrides)
     }
 }

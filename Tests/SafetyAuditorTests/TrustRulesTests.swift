@@ -448,7 +448,7 @@ struct TrustRulesTests {
         #expect(!result.diagnostics.contains { $0.ruleId == rule })
         let override = try #require(result.overrides.first { $0.ruleId == rule })
         #expect(override.lineNumber == 2)
-        #expect(override.justification.hasPrefix("loopback only"))
+        #expect(SuppressionRecord(override).reason.hasPrefix("loopback only"))
     }
 
     @Test("36. A bare // SECURITY: leaves the finding standing", arguments: ruleIds)

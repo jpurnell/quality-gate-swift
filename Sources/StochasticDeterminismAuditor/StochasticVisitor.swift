@@ -46,6 +46,8 @@ final class StochasticVisitor: SyntaxVisitor {
 
     /// Accumulated diagnostics from the walk.
     private(set) var diagnostics: [Diagnostic] = []
+    /// Findings a reasoned `stochastic:exempt` silenced.
+    private(set) var overrides: [DiagnosticOverride] = []
 
     /// The per-line suppression marker this visitor honours.
     ///
@@ -407,6 +409,14 @@ final class StochasticVisitor: SyntaxVisitor {
                     suggestedFix: "Say why the unseeded randomness is intentional, e.g. "
                         + "`// \(Self.exemptKeyword) — the documented unseeded path; pass "
                         + "`seed:` for reproducibility`."))
+            }
+            // A bare marker has just been reported in its own right, so nothing about it is
+            // silent. One that states a reason silences this finding without a word, and
+            // nothing checks the reason — so it is recorded, and judged like any other.
+            if marker.hasJustification {
+                overrides.append(.inlineMarker(
+                    form: Self.exemptKeyword, ruleId: ruleId, filePath: filePath, findingLine: line,
+                    markerLine: line, comment: sourceLines[lineIndex], reportOnly: true))
             }
             return
         }

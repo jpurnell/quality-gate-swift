@@ -30,7 +30,7 @@ logging:
   customLoggerNames: ["HarborLog", "WatchLog"]
 ```
 
-**`projectType`** (`String`, default: `"application"`) -- Set to `"library"` to skip the auditor entirely. Any other value enables all rules.
+**`projectType`** (`String`, default: `"application"`) -- `"application"` enables every rule. `"cli"` skips `logging.print-statement` and `logging.no-os-logger-import`, because a command-line tool's output *is* `print()`; the other rules still run. `"library"` skips the auditor entirely. Any other value is treated as `"library"` and the auditor reports `skipped`. A `cli` or `library` setting is listed under *Exclusions in force* in the run summary.
 
 **`silentTryKeyword`** (`String`, default: `"silent:"`) -- The comment keyword that suppresses `logging.silent-try` warnings. The comment must appear on the same line as the `try?` expression or on the immediately preceding line.
 
@@ -42,8 +42,18 @@ logging:
 
 Each rule has its own suppression mechanism:
 
-- **`logging.print-statement`**: Add `// logging:` on the same line or the line above. This records a `DiagnosticOverride` instead of a diagnostic.
-- **`logging.silent-try`**: Add `// silent:` (or your configured `silentTryKeyword`) on the same line or the line above.
+- **`logging.print-statement`**, **`logging.missing-privacy`**, **`logging.bare-logger-init`**, **`logging.catch-without-logging`**, **`logging.no-os-logger-import`**: Add `// logging: <reason>` on the same line or the line above (line 1 of the file for `no-os-logger-import`).
+- **`logging.silent-try`**: Add `// silent: <reason>` (or your configured `silentTryKeyword`) on the same line or the line above.
+
+Both markers record an override for every finding they silence — and only for a finding
+they silence: a marker beside a `try?` that is on the allow-list, or beside a logger call
+that is already annotated, records nothing. Neither marker's reason is enforced, so it is
+judged when the run is reported: eight words or more, not a stock phrase and not repeated in
+the file is an **acknowledgement**; anything less is a **suppression**. See *Acknowledgements
+are not suppressions* in `GUIDE.md`.
+
+(Between June and October 2026 these two markers silenced without recording anything, while
+this page said they recorded a `DiagnosticOverride`.)
 
 The comment must be a line comment (`//`), not a block comment. Blank lines between the comment and the flagged expression break adjacency.
 

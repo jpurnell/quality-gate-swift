@@ -70,11 +70,14 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
         let files = scan.files
 
         var allDiagnostics: [Diagnostic] = []
+        var allOverrides: [DiagnosticOverride] = []
         for path in files {
             guard let source = SourceFileReader.read(path, checker: "process-safety") else {
                 continue
             }
-            allDiagnostics.append(contentsOf: auditSource(source, fileName: path))
+            let audit = auditSourceRecordingMarkers(source, fileName: path)
+            allDiagnostics.append(contentsOf: audit.diagnostics)
+            allOverrides.append(contentsOf: audit.overrides)
         }
 
         // Emitted pass or fail. This checker's silence was once read as "subprocesses here cannot
@@ -93,7 +96,9 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
         // which is precisely what happened when the coverage note was first added here, and it
         // silently downgraded six real findings the widened walk had just uncovered.
         let failed = allDiagnostics.contains { $0.severity != .note }
-        return CheckResult(checkerId: id, status: failed ? .failed : .passed, diagnostics: allDiagnostics, duration: duration)
+        return CheckResult(
+            checkerId: id, status: failed ? .failed : .passed, diagnostics: allDiagnostics,
+            overrides: allOverrides, duration: duration)
     }
 
     /// Audits a single source file for pipe deadlock patterns.
@@ -102,6 +107,18 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
     ///   - fileName: File path for diagnostics.
     /// - Returns: Diagnostics for any deadlock patterns found.
     public func auditSource(_ source: String, fileName: String) -> [Diagnostic] {
+        auditSourceRecordingMarkers(source, fileName: fileName).diagnostics
+    }
+
+    /// Audits a single source file, returning what a marker silenced beside what was found.
+    /// - Parameters:
+    ///   - source: Swift source code.
+    ///   - fileName: File path for diagnostics.
+    /// - Returns: The findings, and one override per finding a `// process-safety:disable`
+    ///   marker silenced.
+    public func auditSourceRecordingMarkers(
+        _ source: String, fileName: String
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         let sourceFile = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: sourceFile)
         let sourceLines = source.lines
@@ -111,6 +128,6 @@ public struct ProcessSafetyAuditor: QualityChecker, Sendable {
             sourceLines: sourceLines
         )
         visitor.walk(sourceFile)
-        return visitor.diagnostics
+        return (visitor.diagnostics, visitor.overrides)
     }
 }

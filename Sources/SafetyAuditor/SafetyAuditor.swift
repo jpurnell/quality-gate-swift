@@ -463,7 +463,7 @@ private final class SafetyVisitor: SyntaxVisitor {
         let location = node.startLocation(converter: converter)
         let line = location.line
 
-        if isExempted(line: line) {
+        if isExempted(line: line, ruleId: "force-unwrap") {
             return .visitChildren
         }
 
@@ -490,7 +490,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: converter)
             let line = location.line
 
-            if isExempted(line: line) {
+            if isExempted(line: line, ruleId: "force-cast") {
                 return .visitChildren
             }
 
@@ -516,7 +516,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: converter)
             let line = location.line
 
-            if isExempted(line: line) {
+            if isExempted(line: line, ruleId: "force-try") {
                 return .visitChildren
             }
 
@@ -542,7 +542,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: converter)
             let line = location.line
 
-            if !isExempted(line: line) {
+            if !isExempted(line: line, ruleId: "newline-split") {
                 diagnostics.append(Diagnostic(
                     severity: .error,
                     message: kind.message,
@@ -560,8 +560,8 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: converter)
             let line = location.line
 
-            if isExempted(line: line) {
-                // SAFETY comment suppresses without creating override
+            if isExempted(line: line, ruleId: "c-style-format-string") {
+                // Silenced, and recorded as silenced by `isExempted`.
             } else {
                 diagnostics.append(Diagnostic(
                     severity: .error,
@@ -610,7 +610,17 @@ private final class SafetyVisitor: SyntaxVisitor {
             return .visitChildren
         }
 
-        if isExempted(line: line) {
+        // The verdict is taken first so the marker is recorded only where it silenced
+        // something: a trap the policy merely counts was never going to be a finding.
+        let trapVerdict = trapPolicy.verdict(targetType: targetType, message: Self.messageLiteral(of: node))
+        if let marker = exemptionMarker(near: line) {
+            let wouldReport: Bool
+            switch trapVerdict {
+            case .count: wouldReport = false
+            case .requireJustification: wouldReport = justification(above: line) == nil
+            case .report: wouldReport = true
+            }
+            if wouldReport { record(marker, silencing: ruleId, at: line) }
             return .visitChildren
         }
 
@@ -618,14 +628,21 @@ private final class SafetyVisitor: SyntaxVisitor {
         // is an end user who cannot act on a crash; in a library, test or plugin the caller is
         // a programmer with a stack trace, and trapping on misuse is the language's documented
         // mechanism for a logic failure. A trap naming unfinished work reports either way.
-        let trapMessage = Self.messageLiteral(of: node)
-        switch trapPolicy.verdict(targetType: targetType, message: trapMessage) {
+        switch trapVerdict {
         case .count:
             countedTraps[ruleId, default: 0] += 1
             return .visitChildren
 
         case .requireJustification:
-            guard !hasJustification(line: line) else { return .visitChildren }
+            if let justified = justification(above: line) {
+                // The reason is whatever follows the keyword; nothing here checks it, so it
+                // is judged like any other unvalidated form.
+                overrides.append(.inlineMarker(
+                    form: Self.justificationForm, ruleId: ruleId, filePath: fileName,
+                    findingLine: line, markerLine: justified.line, comment: justified.text,
+                    reportOnly: true))
+                return .visitChildren
+            }
             diagnostics.append(Diagnostic(
                 severity: .warning,
                 message: message + " Add a `// Justification:` comment stating why this trap is correct here.",
@@ -667,10 +684,14 @@ private final class SafetyVisitor: SyntaxVisitor {
         return nil
     }
 
-    /// Whether the line above carries a `// Justification:` comment.
-    func hasJustification(line: Int) -> Bool {
-        guard line >= 2, line - 2 < sourceLines.count else { return false }
-        return sourceLines[line - 2].contains("// Justification:")
+    /// The comment form that answers a trap the policy asks to be justified.
+    static let justificationForm = "// Justification:"
+
+    /// The `// Justification:` comment on the line above, if there is one.
+    func justification(above line: Int) -> InlineMarker.Location? {
+        guard line >= 2, line - 2 < sourceLines.count,
+              sourceLines[line - 2].contains(Self.justificationForm) else { return nil }
+        return InlineMarker.Location(line: line - 1, text: sourceLines[line - 2])
     }
 
     // MARK: - Unowned Detection
@@ -681,7 +702,7 @@ private final class SafetyVisitor: SyntaxVisitor {
                 let location = modifier.startLocation(converter: converter)
                 let line = location.line
 
-                if isExempted(line: line) {
+                if isExempted(line: line, ruleId: "unowned") {
                     return .visitChildren
                 }
 
@@ -710,7 +731,7 @@ private final class SafetyVisitor: SyntaxVisitor {
             let location = node.startLocation(converter: converter)
             let line = location.line
 
-            if isExempted(line: line) {
+            if isExempted(line: line, ruleId: "infinite-loop") {
                 return .visitChildren
             }
 
@@ -827,18 +848,42 @@ private final class SafetyVisitor: SyntaxVisitor {
 
     // MARK: - Exemption Checking
 
-    private func isExempted(line: Int) -> Bool {
+    /// The first configured exemption marker on the finding's line or the line above.
+    ///
+    /// The line above is examined first, as it always has been, so which marker is credited
+    /// when both lines carry one does not change.
+    private func exemptionMarker(near line: Int) -> (form: String, location: InlineMarker.Location)? {
         let linesToCheck = [line - 1, line]
             .filter { $0 >= 1 && $0 <= sourceLines.count }
         for lineNum in linesToCheck {
             let lineContent = sourceLines[lineNum - 1]
-            for pattern in exemptionPatterns {
-                if lineContent.contains(pattern) {
-                    return true
-                }
+            for pattern in exemptionPatterns where lineContent.contains(pattern) {
+                return (pattern, InlineMarker.Location(line: lineNum, text: lineContent))
             }
         }
-        return false
+        return nil
+    }
+
+    private func record(
+        _ marker: (form: String, location: InlineMarker.Location), silencing ruleId: String, at line: Int
+    ) {
+        overrides.append(.inlineMarker(
+            form: marker.form, ruleId: ruleId, filePath: fileName, findingLine: line,
+            markerLine: marker.location.line, comment: marker.location.text, reportOnly: true))
+    }
+
+    /// Whether a marker silences the finding at `line` — and, when one does, records that it
+    /// did.
+    ///
+    /// `// SAFETY:` is the most-written marker in the portfolio and was the pattern the
+    /// others were made to copy when override records were removed: it returned a bare
+    /// `Bool`, and a comment reading "suppresses without creating override" sat at one of its
+    /// call sites. Call this only where the finding would otherwise be raised, so a marker
+    /// that silences nothing leaves no record — which is how a decorative one is found.
+    private func isExempted(line: Int, ruleId: String) -> Bool {
+        guard let marker = exemptionMarker(near: line) else { return false }
+        record(marker, silencing: ruleId, at: line)
+        return true
     }
 }
 

@@ -72,7 +72,9 @@ enum TelemetryEmission {
 
         let isCI = ProcessInfo.processInfo.environment["CI"] != nil
         let author = configuration.ijs.resolvedOwner()
-        let allOverrides = results.flatMap(\.overrides)
+        // Not `results.flatMap(\.overrides)`: the corpus is sent what it was sent before every
+        // form began recording, as plain overrides. See `SuppressionRecord.forwardedToCorpus`.
+        let allOverrides = SuppressionLedger.corpusOverrides(from: results)
         let complianceCount = results.map(\.complianceRecords.count).reduce(0, +)
         let overrideRecords = allOverrides.map { override in
             OverrideRecord(

@@ -229,7 +229,7 @@ struct CipherArgumentTests {
         #expect(cryptoFindings(result).isEmpty)
         let override = try #require(result.overrides.first { $0.ruleId == "security.ecb-mode" })
         #expect(override.lineNumber == 2)
-        #expect(override.justification == "the iTunes library format is AES-128-ECB and we must write it back")
+        #expect(SuppressionRecord(override).reason == "the iTunes library format is AES-128-ECB and we must write it back")
         #expect(result.overrides.filter { $0.ruleId == "security.ecb-mode" }.count == 1)
     }
 

@@ -203,7 +203,8 @@ struct XCTestWeakAssertionTests {
         #expect(result.diagnostics.filter { $0.ruleId == "weak-assertion" }.isEmpty)
         let overrides = result.overrides.filter { $0.ruleId == "weak-assertion" }
         #expect(overrides.map(\.lineNumber) == [6])
-        #expect(overrides.map(\.justification) == ["// TEST-QUALITY: the contract is only that an id is issued"])
+        #expect(overrides.map { SuppressionRecord($0).form } == ["// TEST-QUALITY:"])
+        #expect(overrides.map { SuppressionRecord($0).reason } == ["the contract is only that an id is issued"])
     }
 
     @Test("The import and the weak assertion are two findings about two things")

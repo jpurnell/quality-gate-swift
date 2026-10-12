@@ -338,12 +338,9 @@ final class CLIAccessibilityVisitor: SyntaxVisitor {
         for lineNum in linesToCheck {
             let lineContent = sourceLines[lineNum - 1]
             for pattern in exemptionPatterns where lineContent.contains(pattern) {
-                return DiagnosticOverride(
-                    ruleId: ruleId,
-                    justification: lineContent.trimmingCharacters(in: .whitespaces),
-                    filePath: fileName,
-                    lineNumber: line
-                )
+                return .inlineMarker(
+                    form: pattern, ruleId: ruleId, filePath: fileName, findingLine: line,
+                    markerLine: lineNum, comment: lineContent)
             }
         }
         return nil

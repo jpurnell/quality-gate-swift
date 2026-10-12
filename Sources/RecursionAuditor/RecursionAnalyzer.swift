@@ -57,6 +57,12 @@ final class RecursionVisitor: SyntaxVisitor {
     /// resolves to *this* declaration or to a sibling overload depends on declarations
     /// that may not have been visited yet, so the decision cannot be made inline.
     private(set) var pendingSelfCalls: [(signature: Signature, confident: Diagnostic, unresolved: Diagnostic)] = []
+    /// Findings a `// recursion:safe` marker silenced outright.
+    private(set) var overrides: [DiagnosticOverride] = []
+    /// Self-call findings a marker would silence, held for the same census as
+    /// ``pendingSelfCalls``: when the signature turns out to be overloaded there was no
+    /// confident finding, so the marker silenced nothing and is not recorded.
+    private(set) var pendingSuppressions: [(signature: Signature, override: DiagnosticOverride)] = []
     /// How many *implementations* each signature has, which is what decides overloading.
     ///
     /// The distinct *functions* declared under each signature, project-wide.
@@ -94,6 +100,32 @@ final class RecursionVisitor: SyntaxVisitor {
         let index = line - 1
         guard index >= 0, index < sourceLines.count else { return false }
         return sourceLines[index].contains(Self.suppressionMarker)
+    }
+
+    /// The record of the marker on `line` silencing `ruleId`.
+    ///
+    /// `// recursion:safe` returned a bare `Bool` and nothing else: a declaration carrying it
+    /// was skipped and no output said so. The marker takes no reason by design, so a bare one
+    /// is recorded as a suppression — which is what it is.
+    private func suppressionRecord(atLine line: Int, silencing ruleId: String) -> DiagnosticOverride? {
+        guard isSuppressed(atLine: line) else { return nil }
+        return .inlineMarker(
+            form: Self.suppressionMarker, ruleId: ruleId, filePath: fileName, findingLine: line,
+            markerLine: line, comment: sourceLines[line - 1], reportOnly: true)
+    }
+
+    /// Whether the marker on `line` silences `ruleId` — recording that it did. For the rules
+    /// that report directly; call it only once the finding is known to exist.
+    private func isSuppressed(atLine line: Int, silencing ruleId: String) -> Bool {
+        guard let record = suppressionRecord(atLine: line, silencing: ruleId) else { return false }
+        overrides.append(record)
+        return true
+    }
+
+    /// Holds a marker's record for the overload census, for the rules that report through it.
+    private func deferSuppression(of signature: Signature, atLine line: Int, silencing ruleId: String) {
+        guard let record = suppressionRecord(atLine: line, silencing: ruleId) else { return }
+        pendingSuppressions.append((signature, record))
     }
 
     private var currentTypeContext: String { typeStack.joined(separator: ".") }
@@ -210,6 +242,16 @@ final class RecursionVisitor: SyntaxVisitor {
                     normalizeTypeSpelling($0.type.description)
                 }
             )
+            if !selfRefs.isEmpty, isSuppressed(atLine: location.line) {
+                if insideProtocolExtension {
+                    deferSuppression(
+                        of: signature, atLine: location.line,
+                        silencing: "recursion.protocol-extension-default-self")
+                } else if !selfBaseCase {
+                    deferSuppression(
+                        of: signature, atLine: location.line, silencing: "recursion.unconditional-self-call")
+                }
+            }
             if !selfRefs.isEmpty, !isSuppressed(atLine: location.line) {
                 let unresolved = Diagnostic(
                     severity: .note,
@@ -290,7 +332,7 @@ final class RecursionVisitor: SyntaxVisitor {
 
         let isConvenience = node.modifiers.contains { $0.name.tokenKind == .keyword(.convenience) }
 
-        if isConvenience, let body = node.body, !isSuppressed(atLine: location.line) {
+        if isConvenience, let body = node.body {
             // Find self.init(...) calls whose argument labels exactly match this init's labels.
             let selfInitCalls = collectSelfInitCalls(in: Syntax(body))
             for call in selfInitCalls where callMatchesDeclaration(
@@ -302,6 +344,13 @@ final class RecursionVisitor: SyntaxVisitor {
                     normalizeTypeSpelling($0.type.description)
                 }
             ) {
+                // Asked here rather than before the search, so the marker is recorded only
+                // when there is a forwarding call for it to silence.
+                if isSuppressed(atLine: location.line) {
+                    deferSuppression(
+                        of: signature, atLine: location.line, silencing: "recursion.convenience-init-self")
+                    break
+                }
                 // Routed through the project-wide census rather than reported directly.
                 // Initializers overload on parameter type at least as often as methods do —
                 // GRDB's `Row.init(_:)` takes `[AnyHashable: Any]` and delegates to the
@@ -372,7 +421,7 @@ final class RecursionVisitor: SyntaxVisitor {
             case .getter(let codeBlock):
                 // Shorthand getter: `var x: Int { ... }`
                 if containsIdentifierReference(in: Syntax(codeBlock), name: name, siblingFunctions: siblings),
-                   !isSuppressed(atLine: bindingLocation.line) {
+                   !isSuppressed(atLine: bindingLocation.line, silencing: "recursion.computed-property-self") {
                     diagnostics.append(Diagnostic(
                         severity: .error,
                         message: "computed property '\(name)' references itself in its getter",
@@ -389,7 +438,7 @@ final class RecursionVisitor: SyntaxVisitor {
                     guard let body = accessor.body else { continue }
                     if kind == "get" {
                         if containsIdentifierReference(in: Syntax(body), name: name, siblingFunctions: siblings),
-                           !isSuppressed(atLine: bindingLocation.line) {
+                           !isSuppressed(atLine: bindingLocation.line, silencing: "recursion.computed-property-self") {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
                                 message: "computed property '\(name)' references itself in its getter",
@@ -402,7 +451,7 @@ final class RecursionVisitor: SyntaxVisitor {
                         }
                     } else if kind == "set" {
                         if containsAssignmentTo(name: name, in: Syntax(body)),
-                           !isSuppressed(atLine: bindingLocation.line) {
+                           !isSuppressed(atLine: bindingLocation.line, silencing: "recursion.setter-self") {
                             diagnostics.append(Diagnostic(
                                 severity: .error,
                                 message: "computed property setter for '\(name)' assigns to itself",
@@ -459,7 +508,9 @@ final class RecursionVisitor: SyntaxVisitor {
             candidateBaseCases: subscriptGetterBody.map { candidateBaseCases(in: $0, converter: converter) } ?? []
         ))
 
-        guard !isSuppressed(atLine: location.line) else { return }
+        // Not returned from here: whether the marker silences anything depends on whether a
+        // self-subscript is found below, and it is recorded only if one is.
+        let suppressed = isSuppressed(atLine: location.line)
 
         let unresolved = Diagnostic(
             severity: .note,
@@ -472,6 +523,10 @@ final class RecursionVisitor: SyntaxVisitor {
         )
 
         func reportGetter() {
+            guard !suppressed else {
+                deferSuppression(of: signature, atLine: location.line, silencing: "recursion.subscript-self")
+                return
+            }
             pendingSelfCalls.append((signature, Diagnostic(
                 severity: .error,
                 message: "subscript getter calls 'self[…]' recursively",
@@ -484,6 +539,11 @@ final class RecursionVisitor: SyntaxVisitor {
         }
 
         func reportSetter() {
+            guard !suppressed else {
+                deferSuppression(
+                    of: signature, atLine: location.line, silencing: "recursion.subscript-setter-self")
+                return
+            }
             pendingSelfCalls.append((signature, Diagnostic(
                 severity: .error,
                 message: "subscript setter assigns to 'self[…]' recursively",
@@ -743,7 +803,9 @@ func analyzeSourceForTesting(_ source: String, fileName: String = "/test/Test.sw
         diagnostics: visitor.diagnostics,
         declarations: visitor.declarations,
         pendingSelfCalls: visitor.pendingSelfCalls,
-        signatureDiscriminators: visitor.signatureDiscriminators
+        signatureDiscriminators: visitor.signatureDiscriminators,
+        overrides: visitor.overrides,
+        pendingSuppressions: visitor.pendingSuppressions
     )
 }
 

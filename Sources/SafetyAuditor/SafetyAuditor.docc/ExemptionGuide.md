@@ -63,6 +63,22 @@ safety_exemptions:
 
 This allows migration from other tools' exemption formats.
 
+## What an exemption records
+
+An exemption that silences a finding is recorded as an override on the result — one per
+finding it silenced, with the finding's line, the comment's line, the pattern that matched
+and the reason written after it. A comment beside code that raises no finding records
+nothing, which is how a decorative one is found.
+
+Nothing enforces the reason after `// SAFETY:`, so it is judged when the run is reported.
+Eight words or more, not a stock phrase (`safe`, `needed`, `legacy`, …) and not the same
+sentence as another marker in the file: that is an **acknowledgement**. Anything less is a
+**suppression**. The summary counts the two separately, and `suppressions: warn` in
+`.quality-gate.yml` turns each suppression into a finding. The exemption silences the
+original finding either way.
+
+Until October 2026 a `// SAFETY:` exemption recorded nothing at all.
+
 ## Best Practices
 
 ### Do

@@ -107,11 +107,10 @@ enum ATSPolicy {
             if settings["NSExceptionAllowsInsecureHTTPLoads"] as? Bool == true {
                 let line = locator.line(of: "NSExceptionAllowsInsecureHTTPLoads", after: domain)
                 if configuration.atsAllowedInsecureDomains.contains(domain) {
-                    overrides.append(DiagnosticOverride(
-                        ruleId: ruleId,
-                        justification: "\(domain) is listed in security.atsAllowedInsecureDomains",
-                        filePath: path,
-                        lineNumber: line))
+                    overrides.append(.configuration(
+                        form: "security.atsAllowedInsecureDomains", ruleId: ruleId, filePath: path,
+                        findingLine: line,
+                        entry: "\(domain) is listed in security.atsAllowedInsecureDomains"))
                 } else {
                     diagnostics.append(finding(
                         .warning, path: path, line: line,

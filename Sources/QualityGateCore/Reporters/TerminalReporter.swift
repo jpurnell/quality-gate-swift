@@ -29,6 +29,16 @@ public struct TerminalReporter: Reporter, Sendable {
     /// status the checker that emitted the warning chose for itself.
     public let strict: Bool
 
+    /// Configured exclusions in force for the run.
+    ///
+    /// Printed under the totals, apart from them: a path left out of the walk hid an
+    /// unknown number of findings, and an unknown number does not belong in a sum.
+    public let exclusions: [ActiveExclusion]
+
+    /// The repository's `suppressions:` policy, so the summary can say whether the
+    /// suppressions it counts gate.
+    public let suppressionPolicy: SuppressionPolicy
+
     /// Creates a new TerminalReporter instance.
     ///
     /// - Parameters:
@@ -36,10 +46,20 @@ public struct TerminalReporter: Reporter, Sendable {
     ///     denominator. `nil` omits the line rather than guessing.
     ///   - truncation: How the run stopped early; `nil` for a complete run.
     ///   - strict: Whether a counted warning fails the run, as under `--strict`.
-    public init(rosterSize: Int? = nil, truncation: RunTruncation? = nil, strict: Bool = false) {
+    ///   - exclusions: Configured exclusions in force for the run.
+    ///   - suppressionPolicy: The repository's `suppressions:` policy.
+    public init(
+        rosterSize: Int? = nil,
+        truncation: RunTruncation? = nil,
+        strict: Bool = false,
+        exclusions: [ActiveExclusion] = [],
+        suppressionPolicy: SuppressionPolicy = .note
+    ) {
         self.rosterSize = rosterSize
         self.truncation = truncation
         self.strict = strict
+        self.exclusions = exclusions
+        self.suppressionPolicy = suppressionPolicy
     }
 
     /// Outputs results in a human-readable terminal format.
@@ -126,7 +146,66 @@ public struct TerminalReporter: Reporter, Sendable {
                 output.write("   → re-run with --continue-on-failure for the full picture\n")
             }
         }
+        writeSuppressions(SuppressionLedger(results: results, exclusions: exclusions), to: &output)
         output.write("==========================================\n\n")
+    }
+
+    /// Writes what the run was told not to raise.
+    ///
+    /// Nothing is printed for a run that silenced nothing: a block on every run stops being
+    /// read, and this one needs reading on the runs where it appears. When it does appear it
+    /// keeps three numbers apart that a single "overrides" count would merge — a reason the
+    /// gate validated, a marker it did not, and debt on the decaying ledger.
+    private func writeSuppressions(_ ledger: SuppressionLedger, to output: inout some TextOutputStream) {
+        let overall = ledger.overall
+        if !overall.isEmpty {
+            var parts = [
+                "\(overall.acknowledged) acknowledged (reason validated)",
+                "\(overall.suppressed) suppressed (not validated)",
+            ]
+            if overall.baselined > 0 { parts.append("\(overall.baselined) baselined") }
+            output.write("   Silenced findings: " + parts.joined(separator: " · ") + "\n")
+            if !overall.suppressedByForm.isEmpty {
+                output.write("     suppressed by form: \(Self.byForm(overall.suppressedByForm))\n")
+            }
+            if !overall.acknowledgedByForm.isEmpty {
+                output.write("     acknowledged by form: \(Self.byForm(overall.acknowledgedByForm))\n")
+            }
+            let perChecker = ledger.checkers.filter { !$0.totals.isEmpty }.map { entry -> String in
+                var counts: [String] = []
+                if entry.totals.acknowledged > 0 { counts.append("\(entry.totals.acknowledged) acknowledged") }
+                if entry.totals.suppressed > 0 { counts.append("\(entry.totals.suppressed) suppressed") }
+                if entry.totals.baselined > 0 { counts.append("\(entry.totals.baselined) baselined") }
+                return "\(entry.checkerId) " + counts.joined(separator: ", ")
+            }
+            output.write("     by checker: " + perChecker.joined(separator: " · ") + "\n")
+            if overall.suppressed > 0 {
+                switch suppressionPolicy {
+                case .note:
+                    output.write(
+                        "     ℹ️  note: \(overall.suppressed) suppressed finding(s) do not gate (suppressions: note). "
+                        + "Set `suppressions: warn` in .quality-gate.yml to gate on them; --format json lists each one.\n")
+                case .warn, .error:
+                    output.write(
+                        "     ℹ️  note: \(overall.suppressed) suppressed finding(s) are reported as "
+                        + "\(SuppressionRatchet.ruleID) (suppressions: \(suppressionPolicy.rawValue)).\n")
+                }
+            }
+        }
+        if !ledger.exclusions.isEmpty {
+            output.write("   Exclusions in force (what they hid is not measured):\n")
+            for exclusion in ledger.exclusions {
+                output.write("     \(exclusion.form) — \(exclusion.detail)\n")
+            }
+        }
+    }
+
+    /// Counts by form, largest first and then by name, so the line is the same on every run.
+    private static func byForm(_ counts: [String: Int]) -> String {
+        counts
+            .sorted { ($1.value, $0.key) < ($0.value, $1.key) }
+            .map { "\($0.key) \($0.value)" }
+            .joined(separator: " · ")
     }
 
     private func statusSymbol(for status: CheckResult.Status) -> String {

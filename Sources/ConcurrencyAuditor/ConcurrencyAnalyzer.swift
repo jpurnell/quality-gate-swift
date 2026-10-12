@@ -252,8 +252,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         // Rule: nonisolated(unsafe)
         if hasNonisolatedUnsafeModifier(node.modifiers) {
             let line = startLine(of: Syntax(node))
-            if isJustified(line: line) {
-                // Justification present — suppress without override record
+            if isJustified(line: line, ruleId: "concurrency.nonisolated-unsafe-no-justification") {
+                // Justified, and recorded as an acknowledgement by `isJustified`.
             } else {
                 diagnostics.append(Diagnostic(
                     severity: .error,
@@ -345,8 +345,8 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         for inherited in clause.inheritedTypes {
             let text = inherited.type.trimmedDescription
             if text.contains("@unchecked") && text.contains("Sendable") {
-                if isJustified(line: declStartLine) {
-                    // Justification present — suppress without override record
+                if isJustified(line: declStartLine, ruleId: "concurrency.unchecked-sendable-no-justification") {
+                    // Justified, and recorded as an acknowledgement by `isJustified`.
                 } else {
                     diagnostics.append(Diagnostic(
                         severity: .error,
@@ -524,7 +524,14 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         node.startLocation(converter: converter).line
     }
 
-    private func isJustified(line: Int) -> Bool {
+    /// Whether a justification comment answers the rule at `line` — and, when one that
+    /// passes validation does, records the acknowledgement.
+    ///
+    /// A justification that fails validation still answers the rule, but it raises a
+    /// `justification.*` finding of its own, so nothing has been silenced and nothing is
+    /// recorded. One that passes used to leave no trace at all: a comment at each call site
+    /// read "suppress without override record".
+    private func isJustified(line: Int, ruleId: String) -> Bool {
         let zeroIndexed = line - 1
         if zeroIndexed >= 0 && zeroIndexed < sourceLines.count {
             let lineText = sourceLines[zeroIndexed]
@@ -532,7 +539,9 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                 let commentText = String(lineText[commentRange.upperBound...])
                 if commentText.contains(justificationKeyword) {
                     let trimmed = commentText.trimmingCharacters(in: .whitespaces)
-                    emitQualityDiagnosticsIfNeeded(justificationText: trimmed, line: line)
+                    if emitQualityDiagnosticsIfNeeded(justificationText: trimmed, line: line) {
+                        recordAcknowledgement(ruleId: ruleId, line: line, markerLine: line, comment: trimmed)
+                    }
                     return true
                 }
             }
@@ -541,14 +550,27 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         if aboveIndex >= 0 && aboveIndex < sourceLines.count {
             let prev = sourceLines[aboveIndex].trimmingCharacters(in: .whitespaces)
             if prev.hasPrefix("//") && prev.contains(justificationKeyword) {
-                emitQualityDiagnosticsIfNeeded(justificationText: prev, line: line)
+                if emitQualityDiagnosticsIfNeeded(justificationText: prev, line: line) {
+                    recordAcknowledgement(ruleId: ruleId, line: line, markerLine: line - 1, comment: prev)
+                }
                 return true
             }
         }
         return false
     }
 
-    private func emitQualityDiagnosticsIfNeeded(justificationText: String, line: Int) {
+    private func recordAcknowledgement(ruleId: String, line: Int, markerLine: Int, comment: String) {
+        overrides.append(.inlineMarker(
+            form: "// \(justificationKeyword)", ruleId: ruleId, filePath: fileName,
+            findingLine: line, markerLine: markerLine,
+            comment: InlineMarker.reason(in: comment, after: justificationKeyword),
+            validatedBy: SuppressionRecord.enforcedValidator, reportOnly: true))
+    }
+
+    /// Validates a justification, raising a finding when it fails.
+    ///
+    /// - Returns: `true` when the justification passed.
+    private func emitQualityDiagnosticsIfNeeded(justificationText: String, line: Int) -> Bool {
         let result = justificationValidator.validateForDuplicates(
             justificationText,
             seen: &seenJustifications,
@@ -556,7 +578,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
         )
         switch result {
         case .valid:
-            break
+            return true
         case .tooShort(let wordCount):
             diagnostics.append(Diagnostic(
                 severity: .error,
@@ -588,6 +610,7 @@ final class ConcurrencyVisitor: SyntaxVisitor {
                 suggestedFix: "Write a justification specific to this particular usage site."
             ))
         }
+        return false
     }
 }
 

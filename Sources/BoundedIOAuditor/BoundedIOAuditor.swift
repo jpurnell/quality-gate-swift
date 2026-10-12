@@ -141,6 +141,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         var sites = 0
         var acknowledged = 0
+        var overrides: [DiagnosticOverride] = []
         for path in scan.files {
             guard let source = SourceFileReader.read(path, checker: "bounded-io") else { continue }
             let result = Self.scan(
@@ -148,6 +149,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
             diagnostics.append(contentsOf: result.diagnostics)
             sites += result.sitesExamined
             acknowledged += result.acknowledged
+            overrides.append(contentsOf: result.overrides)
         }
 
         // Printed pass or fail. A checker whose silence gets read as a guarantee is the failure
@@ -167,6 +169,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: failed ? .failed : .passed,
             diagnostics: diagnostics,
+            overrides: overrides,
             duration: ContinuousClock.now - started)
     }
 
@@ -193,6 +196,7 @@ public struct BoundedIOAuditor: QualityChecker, Sendable {
             diagnostics: visitor.diagnostics,
             sitesExamined: visitor.sitesExamined,
             acknowledged: visitor.acknowledged,
+            overrides: visitor.overrides,
             kernelName: kernelName(for: resolvedKernel))
     }
 }

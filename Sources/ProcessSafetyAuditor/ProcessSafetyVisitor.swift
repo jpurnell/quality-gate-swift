@@ -12,6 +12,8 @@ final class ProcessSafetyVisitor: SyntaxVisitor {
     let sourceLines: [String]
 
     private(set) var diagnostics: [Diagnostic] = []
+    /// Findings a `// process-safety:disable` marker silenced.
+    private(set) var overrides: [DiagnosticOverride] = []
 
     init(filePath: String, converter: SourceLocationConverter, sourceLines: [String]) {
         self.filePath = filePath
@@ -75,6 +77,10 @@ final class ProcessSafetyVisitor: SyntaxVisitor {
                     let lineIndex = line - 1
                     if lineIndex >= 0, lineIndex < sourceLines.count,
                        sourceLines[lineIndex].contains("// process-safety:disable") {
+                        overrides.append(.inlineMarker(
+                            form: "// process-safety:disable", ruleId: "process.wait-before-read",
+                            filePath: filePath, findingLine: line, markerLine: line,
+                            comment: sourceLines[lineIndex], reportOnly: true))
                         continue
                     }
 

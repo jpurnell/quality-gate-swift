@@ -109,6 +109,8 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
     public func audit(at root: URL, configuration: Configuration) async throws -> CheckResult {
         let start = ContinuousClock.now
         var diagnostics: [Diagnostic] = []
+        // `// LIVE:` declarations the cross-module pass made roots of the graph.
+        var liveMarkers: [DiagnosticOverride] = []
 
         let kind = ProjectKind.detect(at: root)
 
@@ -218,7 +220,9 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
                 libIndexStoreDylib: dylib,
                 targetTypeByModule: targetTypeByModule
             )
-            diagnostics.append(contentsOf: try await IndexStorePass.run(inputs: inputs))
+            let pass = try await IndexStorePass.runRecordingMarkers(inputs: inputs)
+            diagnostics.append(contentsOf: pass.diagnostics)
+            liveMarkers = pass.overrides
         } catch SkipMarker.skipped {
             Self.logger.info("Cross-module pass skipped: no index store available")
         } catch {
@@ -236,6 +240,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: hasError ? .failed : .passed,
             diagnostics: diagnostics,
+            overrides: liveMarkers,
             duration: duration
         )
     }

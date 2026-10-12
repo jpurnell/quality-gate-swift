@@ -153,12 +153,10 @@ public struct IdiomAuditor: QualityChecker, Sendable {
         for finding in findings {
             let lineIndex = finding.lineNumber - 1
             if lineIndex >= 0, lineIndex < lines.count, lines[lineIndex].contains("// idiom:exempt") {
-                overrides.append(DiagnosticOverride(
-                    ruleId: finding.ruleId,
-                    justification: "// idiom:exempt",
-                    filePath: filePath,
-                    lineNumber: finding.lineNumber
-                ))
+                overrides.append(.inlineMarker(
+                    form: "// idiom:exempt", ruleId: finding.ruleId, filePath: filePath,
+                    findingLine: finding.lineNumber, markerLine: lineIndex + 1,
+                    comment: lines[lineIndex]))
             } else {
                 diagnostics.append(Diagnostic(
                     severity: severity,

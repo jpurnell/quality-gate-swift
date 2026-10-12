@@ -266,7 +266,8 @@ struct FallbackGuardAdvisoryJustificationTests {
         #expect(result.overrides.count == 1)
         #expect(result.overrides.first?.ruleId == FallbackRuleID.guardReturnsAValue)
         #expect(result.overrides.first?.lineNumber == 3)
-        #expect(result.overrides.first?.justification == "a proportion of an empty total is zero")
+        #expect(result.overrides.first.map(SuppressionRecord.init)?.reason == "a proportion of an empty total is zero")
+        #expect(result.overrides.first.map(SuppressionRecord.init)?.form == "// fallback-justified:")
     }
 
     @Test("A justification with no reason is a finding, and justifies nothing")
