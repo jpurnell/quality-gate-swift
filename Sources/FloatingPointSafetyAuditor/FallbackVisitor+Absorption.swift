@@ -22,7 +22,120 @@ extension FallbackVisitor {
         // A guard that asserts `x != 0` has asserted nothing about a NaN, which
         // is unequal to everything.
         let asserted = checks(on: subject, before: offset, assertedOnly: true)
-        return asserted.contains { $0 != .nonZero }
+        if asserted.contains(where: { $0 != .nonZero }) { return true }
+        return excludedThroughDerivedLocal(subject, before: offset)
+    }
+
+    /// True if a guard asserts something of a local computed from `subject` by
+    /// arithmetic: `let span = upper - lower`, then `guard span > 0`.
+    ///
+    /// A NaN in `upper` or in `lower` makes `span` a NaN, and a NaN passes no
+    /// comparison — so the guard that let `span` through has refused both. That holds
+    /// only while the arithmetic carries a NaN; ``nanCarriedKeys(of:depth:)`` stops at
+    /// anything that might swallow one.
+    private func excludedThroughDerivedLocal(_ subject: Subject, before offset: Int) -> Bool {
+        guard let key = subject.key else { return false }
+        // The operand as the conversion sees it must be the operand the `let` saw: a
+        // closure parameter of the same name, bound deeper, is another value.
+        let bound = bindingDepth(ofRootOf: key) ?? 0
+        for binding in letBindings(before: offset)
+        where binding.depth >= bound
+            && Self.nanCarriedKeys(of: binding.value, genericNames: genericNames).contains(key) {
+            let local = Subject(key: binding.name, display: binding.name)
+            let asserted = checks(on: local, before: offset, assertedOnly: true)
+            if asserted.contains(where: { $0 != .nonZero }) { return true }
+        }
+        return false
+    }
+
+    /// Functions of one argument that return a NaN whenever they are given one.
+    /// `min`, `max` and `pow` are absent: each has an argument order or a value for
+    /// which a NaN goes in and a number comes out.
+    private static let nanCarryingFunctions: Set<String> = [
+        "floor", "ceil", "round", "trunc", "rint", "abs", "fabs", "sqrt", "log", "log2", "log10", "exp"
+    ]
+
+    /// The values whose NaN would make `expr` a NaN.
+    ///
+    /// Sums, differences, products and quotients carry a NaN from any operand, as do
+    /// negation, rounding and a conversion between floating-point types. Anything
+    /// else — a clamp, a ternary, a `??`, a comparison — yields no names, because a
+    /// NaN may not survive it.
+    ///
+    /// - Parameters:
+    ///   - expr: The expression to read.
+    ///   - genericNames: Generic parameters in scope that are floating-point.
+    ///   - depth: Recursion budget. Guarded so the walk terminates on any input.
+    static func nanCarriedKeys(of expr: ExprSyntax, genericNames: Set<String>, depth: Int = 0) -> Set<String> {
+        guard depth < 12 else { return [] }
+        let next = depth + 1
+
+        if let sequence = expr.as(SequenceExprSyntax.self) {
+            return nanCarriedKeys(ofRun: Array(sequence.elements), genericNames: genericNames, depth: next)
+        }
+        if let infix = expr.as(InfixOperatorExprSyntax.self) {
+            return nanCarriedKeys(
+                ofRun: [infix.leftOperand, infix.operator, infix.rightOperand],
+                genericNames: genericNames, depth: next)
+        }
+        if let prefix = expr.as(PrefixOperatorExprSyntax.self) {
+            guard prefix.operator.text == "-" || prefix.operator.text == "+" else { return [] }
+            return nanCarriedKeys(of: prefix.expression, genericNames: genericNames, depth: next)
+        }
+        if let tuple = expr.as(TupleExprSyntax.self),
+           tuple.elements.count == 1,
+           let only = tuple.elements.first,
+           only.label == nil {
+            return nanCarriedKeys(of: only.expression, genericNames: genericNames, depth: next)
+        }
+        if let call = expr.as(FunctionCallExprSyntax.self) {
+            if let name = FallbackTypes.freeFunctionName(of: call.calledExpression),
+               call.arguments.count == 1,
+               let only = call.arguments.first,
+               only.label == nil,
+               nanCarryingFunctions.contains(name)
+                || FallbackTypes.floatingPointTypeNames.contains(name)
+                || genericNames.contains(name) {
+                return nanCarriedKeys(of: only.expression, genericNames: genericNames, depth: next)
+            }
+            if let callee = call.calledExpression.as(MemberAccessExprSyntax.self),
+               callee.declName.baseName.text == "rounded" || callee.declName.baseName.text == "squareRoot",
+               let base = callee.base {
+                return nanCarriedKeys(of: base, genericNames: genericNames, depth: next)
+            }
+            return []
+        }
+        if let member = expr.as(MemberAccessExprSyntax.self),
+           member.declName.baseName.text == "magnitude",
+           let base = member.base {
+            return nanCarriedKeys(of: base, genericNames: genericNames, depth: next)
+        }
+        guard expr.is(DeclReferenceExprSyntax.self) || expr.is(MemberAccessExprSyntax.self)
+                || expr.is(SubscriptCallExprSyntax.self),
+              let key = FallbackSubjectKey.key(of: expr, genericNames: genericNames) else {
+            return []
+        }
+        return [key]
+    }
+
+    private static let nanCarryingOperators: Set<String> = ["+", "-", "*", "/"]
+
+    /// ``nanCarriedKeys(of:genericNames:depth:)`` for an unfolded run of operands and
+    /// operators. Any operator that is not arithmetic yields nothing.
+    static func nanCarriedKeys(ofRun elements: [ExprSyntax], genericNames: Set<String>, depth: Int) -> Set<String> {
+        guard depth < 12 else { return [] }
+        var keys: Set<String> = []
+        for (index, element) in elements.enumerated() {
+            if index % 2 == 1 {
+                guard let op = element.as(BinaryOperatorExprSyntax.self),
+                      nanCarryingOperators.contains(op.operator.text) else {
+                    return []
+                }
+                continue
+            }
+            keys.formUnion(nanCarriedKeys(of: element, genericNames: genericNames, depth: depth + 1))
+        }
+        return elements.count % 2 == 1 ? keys : []
     }
 
     /// How `expr` is named in a message if it can carry a NaN to `offset`, or
@@ -189,11 +302,10 @@ extension FallbackVisitor {
         return name == "isNaN" || name == "isFinite"
     }
 
-    /// `x` from `abs(x)` or `x.magnitude`.
+    /// `x` from `abs(x)`, `Swift.abs(x)` or `x.magnitude`.
     static func magnitudeArgument(of expr: ExprSyntax) -> ExprSyntax? {
         if let call = expr.as(FunctionCallExprSyntax.self),
-           let callee = call.calledExpression.as(DeclReferenceExprSyntax.self),
-           callee.baseName.text == "abs",
+           FallbackTypes.freeFunctionName(of: call.calledExpression) == "abs",
            call.arguments.count == 1,
            let only = call.arguments.first,
            only.label == nil {
@@ -221,6 +333,7 @@ extension FallbackVisitor {
         var comparisons: [Subject] = []
         var current: IfExprSyntax? = node
         var hasTrailingElse = false
+        var trailingElse: CodeBlockSyntax?
         var remaining = 64
 
         while let link = current, remaining > 0 {
@@ -236,8 +349,9 @@ extension FallbackVisitor {
             switch link.elseBody {
             case .ifExpr(let next):
                 current = next
-            case .codeBlock:
+            case .codeBlock(let block):
                 hasTrailingElse = true
+                trailingElse = block
                 current = nil
             case nil:
                 current = nil
@@ -253,6 +367,11 @@ extension FallbackVisitor {
 
         let offset = node.positionAfterSkippingLeadingTrivia.utf8Offset
         guard !excludesNaN(subject, before: offset) else { return }
+        // Inside `if x.isInfinite { … }` the value is an infinity, and both compare.
+        guard !isInsideInfiniteArm(node, of: subject) else { return }
+        // A NaN takes the trailing else, and the else hands it on: nothing is
+        // answered for it.
+        if let trailingElse, yields(subject, from: trailingElse) { return }
 
         let location = node.startLocation(converter: converter)
         let landing = hasTrailingElse
@@ -278,5 +397,87 @@ extension FallbackVisitor {
                 """
             )
         )
+    }
+
+    // MARK: - Where a NaN is not answered for
+
+    /// True if `block` is one statement that returns, assigns or evaluates to a value
+    /// that is a NaN whenever `subject` is.
+    ///
+    /// `else { clamped = p }` and `else { return -(spot - strike) }` pass a NaN on to
+    /// whoever reads the result. `else { return 0 }` answers for it, and so does
+    /// `else { return min(1, p) }`.
+    ///
+    /// One statement, and no more: with anything before it the name may have been
+    /// rebound — `let p = fallback; return p` — and the value yielded is then not the
+    /// value that was classified.
+    private func yields(_ subject: Subject, from block: CodeBlockSyntax) -> Bool {
+        guard let key = subject.key, block.statements.count == 1, let last = block.statements.last else {
+            return false
+        }
+
+        let yielded: Set<String>
+        switch last.item {
+        case .stmt(let statement):
+            guard let value = statement.as(ReturnStmtSyntax.self)?.expression else { return false }
+            yielded = Self.nanCarriedKeys(of: value, genericNames: genericNames)
+        case .expr(let expression):
+            // `name = value`: what is yielded is the value.
+            if let sequence = expression.as(SequenceExprSyntax.self) {
+                let elements = Array(sequence.elements)
+                if elements.count >= 3, elements[1].is(AssignmentExprSyntax.self) {
+                    yielded = Self.nanCarriedKeys(
+                        ofRun: Array(elements[2...]), genericNames: genericNames, depth: 0)
+                    break
+                }
+            }
+            if let infix = expression.as(InfixOperatorExprSyntax.self), infix.operator.is(AssignmentExprSyntax.self) {
+                yielded = Self.nanCarriedKeys(of: infix.rightOperand, genericNames: genericNames)
+                break
+            }
+            yielded = Self.nanCarriedKeys(of: expression, genericNames: genericNames)
+        case .decl:
+            return false
+        }
+        return yielded.contains(key)
+    }
+
+    /// True if `node` sits in the body of an enclosing `if` that asserts
+    /// `subject.isInfinite`. The `else` of such an `if` is not that body.
+    private func isInsideInfiniteArm(_ node: IfExprSyntax, of subject: Subject) -> Bool {
+        guard let key = subject.key else { return false }
+        var child = Syntax(node)
+        var remaining = 256
+        while let parent = child.parent, remaining > 0 {
+            remaining -= 1
+            if parent.is(FunctionDeclSyntax.self) || parent.is(InitializerDeclSyntax.self) {
+                return false
+            }
+            if let enclosing = parent.as(IfExprSyntax.self),
+               child.id == Syntax(enclosing.body).id,
+               assertsInfinite(enclosing.conditions, key: key) {
+                return true
+            }
+            child = parent
+        }
+        return false
+    }
+
+    /// True if one of `conditions` is `x.isInfinite` for the value `key` names, alone
+    /// or as one side of an `&&`.
+    private func assertsInfinite(_ conditions: ConditionElementListSyntax, key: String) -> Bool {
+        for condition in conditions {
+            guard case .expression(let expr) = condition.condition else { continue }
+            for conjunct in FallbackDerivedFactCollector.conjuncts(of: expr) where conjunct.count == 1 {
+                guard let member = conjunct[0].as(MemberAccessExprSyntax.self),
+                      member.declName.baseName.text == "isInfinite",
+                      let base = member.base,
+                      FallbackSubjectKey.key(of: base, genericNames: genericNames) == key else {
+                    continue
+                }
+                return true
+            }
+        }
+        return false
     }
 }

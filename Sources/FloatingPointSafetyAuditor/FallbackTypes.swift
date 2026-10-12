@@ -53,6 +53,31 @@ enum FallbackTypes {
         "UInt", "UInt8", "UInt16", "UInt32", "UInt64"
     ]
 
+    /// Modules whose free functions are written qualified often enough to matter:
+    /// `Swift.min`, `Swift.abs`, `Foundation.floor`, `Darwin.sqrt`.
+    static let functionModules: Set<String> = ["Swift", "Foundation", "Darwin", "Glibc", "Musl"]
+
+    /// The name of the free function a callee names, bare or module-qualified.
+    ///
+    /// `min` and `Swift.min` are one function. Reading only the bare spelling made the
+    /// qualified one evaluate to nothing known, so the local it was bound to took no
+    /// type and every conversion downstream of it went unexamined. A member call on any
+    /// other base — `layout.max(value)` — is a method, and nil.
+    ///
+    /// - Parameter callee: The called expression of a function call.
+    /// - Returns: The function's name, or nil when the callee is not a free function.
+    static func freeFunctionName(of callee: ExprSyntax) -> String? {
+        if let reference = callee.as(DeclReferenceExprSyntax.self) {
+            return reference.baseName.text
+        }
+        guard let member = callee.as(MemberAccessExprSyntax.self),
+              let module = member.base?.as(DeclReferenceExprSyntax.self),
+              functionModules.contains(module.baseName.text) else {
+            return nil
+        }
+        return member.declName.baseName.text
+    }
+
     /// Generic collection types read as "a collection of their argument".
     private static let collectionTypeNames = ["Array", "ArraySlice", "ContiguousArray"]
 
@@ -182,6 +207,45 @@ enum FallbackTypes {
         expr.is(FloatLiteralExprSyntax.self) || expr.is(IntegerLiteralExprSyntax.self)
     }
 
+    /// True for a numeric literal, bare or negated: `36`, `-90.0`.
+    static func isSignedNumericLiteral(_ expr: ExprSyntax) -> Bool {
+        if let negated = expr.as(PrefixOperatorExprSyntax.self), negated.operator.text == "-" {
+            return isNumericLiteral(negated.expression)
+        }
+        return isNumericLiteral(expr)
+    }
+
+    /// True for a numeric literal, bare or negated, that is not zero.
+    static func isNonZeroNumericLiteral(_ expr: ExprSyntax) -> Bool {
+        if let negated = expr.as(PrefixOperatorExprSyntax.self), negated.operator.text == "-" {
+            return isNumericLiteral(negated.expression) && NumericLiteralFacts.isNonZero(negated.expression)
+        }
+        return isNumericLiteral(expr) && NumericLiteralFacts.isNonZero(expr)
+    }
+
+    /// The labels of a value built from nothing but numeric literals, each mapped to
+    /// whether its literal is nonzero: `CGSize(width: 612, height: 792)`.
+    ///
+    /// - Parameter expr: An initialiser's value.
+    /// - Returns: The labels, or nil when the value is not a call whose every argument
+    ///   is a labelled numeric literal.
+    static func literalBuiltMembers(of expr: ExprSyntax) -> [String: Bool]? {
+        guard let call = expr.as(FunctionCallExprSyntax.self),
+              call.calledExpression.is(DeclReferenceExprSyntax.self),
+              !call.arguments.isEmpty,
+              call.trailingClosure == nil else {
+            return nil
+        }
+        var members: [String: Bool] = [:]
+        for argument in call.arguments {
+            guard let label = argument.label?.text, isSignedNumericLiteral(argument.expression) else {
+                return nil
+            }
+            members[label] = isNonZeroNumericLiteral(argument.expression)
+        }
+        return members
+    }
+
     /// True if a constraint spelling — `Real`, `Real & Sendable & Codable` —
     /// includes a floating-point protocol.
     static func namesFloatingPointProtocol(_ constraint: String) -> Bool {
@@ -245,6 +309,16 @@ struct FallbackDeclarations: Sendable {
 
     /// Floating-point generic parameters of the types the file declares, by type name.
     var typeGenerics: [String: Set<String>] = [:]
+
+    /// Member names whose every declaration in the file is a `let` holding a nonzero
+    /// numeric literal: `static let pollInterval: TimeInterval = 0.25`. Dividing by
+    /// one cannot produce a NaN.
+    var nonZeroConstants: Set<String> = []
+
+    /// Members whose every declaration in the file is a `let` built from nothing but
+    /// numeric literals — `static let pageSize = CGSize(width: 612, height: 792)` —
+    /// with each label mapped to whether its literal is nonzero.
+    var literalBuiltConstants: [String: [String: Bool]] = [:]
 }
 
 /// Collects ``FallbackDeclarations`` from one file.
@@ -267,6 +341,8 @@ final class FallbackDeclarationCollector: SyntaxVisitor {
     private var returnKinds: [String: FallbackTypeKind] = [:]
     private var ambiguousFunctions: Set<String> = []
     private var typeGenerics: [String: Set<String>] = [:]
+    private var nonZeroConstants: Set<String> = []
+    private var literalBuiltConstants: [String: [String: Bool]] = [:]
 
     /// Generic floating-point names in scope, innermost last. Each entry already
     /// includes everything enclosing it.
@@ -294,7 +370,9 @@ final class FallbackDeclarationCollector: SyntaxVisitor {
         FallbackDeclarations(
             memberKinds: memberKinds.filter { !ambiguousMembers.contains($0.key) },
             returnKinds: returnKinds.filter { !ambiguousFunctions.contains($0.key) },
-            typeGenerics: typeGenerics
+            typeGenerics: typeGenerics,
+            nonZeroConstants: nonZeroConstants.subtracting(variableMembers),
+            literalBuiltConstants: literalBuiltConstants.filter { !variableMembers.contains($0.key) }
         )
     }
 
@@ -314,6 +392,30 @@ final class FallbackDeclarationCollector: SyntaxVisitor {
             ambiguousMembers.insert(name)
         }
         memberKinds[name] = kind
+    }
+
+    /// Member names with a declaration that is not a constant built from literals. One
+    /// such declaration anywhere in the file withdraws the name: syntax cannot tell
+    /// which `pollInterval` a use refers to.
+    private var variableMembers: Set<String> = []
+
+    /// Records what a member's declaration says about its being a literal constant.
+    private func recordConstant(_ name: String, binding: PatternBindingSyntax, in declaration: VariableDeclSyntax) {
+        let isLet = declaration.bindingSpecifier.tokenKind == .keyword(.let)
+        guard isLet, let value = binding.initializer?.value else {
+            variableMembers.insert(name)
+            return
+        }
+        if FallbackTypes.isNonZeroNumericLiteral(value) {
+            nonZeroConstants.insert(name)
+        } else if let members = FallbackTypes.literalBuiltMembers(of: value) {
+            if let existing = literalBuiltConstants[name], existing != members {
+                variableMembers.insert(name)
+            }
+            literalBuiltConstants[name] = members
+        } else {
+            variableMembers.insert(name)
+        }
     }
 
     private func enterType(
@@ -404,6 +506,7 @@ final class FallbackDeclarationCollector: SyntaxVisitor {
         for binding in node.bindings {
             guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { continue }
             let name = pattern.identifier.text
+            recordConstant(name, binding: binding, in: node)
 
             if FallbackTypes.isLiteralConstant(binding, in: node) {
                 let annotated = binding.typeAnnotation.map {
@@ -431,6 +534,8 @@ final class FallbackDeclarationCollector: SyntaxVisitor {
         guard let label = node.firstName, label.text != "_" else { return .visitChildren }
         let kind = FallbackTypes.kind(ofTypeText: node.type.trimmedDescription, genericNames: genericNames)
         recordMember(label.text, kind: kind)
+        // A tuple label is a member no declaration initialises, so never a constant.
+        variableMembers.insert(label.text)
         return .visitChildren
     }
 }

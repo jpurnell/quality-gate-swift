@@ -21,6 +21,9 @@ final class FallbackVisitor: SyntaxVisitor {
     let converter: SourceLocationConverter
     let declarations: FallbackDeclarations
 
+    /// The constant ranges a `contains` test may be read against.
+    let ranges: FallbackRangeConstants
+
     /// Accumulated diagnostics from the walk.
     var diagnostics: [Diagnostic] = []
 
@@ -41,6 +44,10 @@ final class FallbackVisitor: SyntaxVisitor {
     /// Integer conversions of a floating-point value seen, guarded or not.
     private(set) var conversionsExamined = 0
 
+    /// What the conditions around the conversion being examined assert of each value
+    /// inside their own arm: `x > 0 ? Int(x) : 0`. Empty between conversions.
+    var enclosingArm: [String: Set<FallbackGuardFacts.Kind>] = [:]
+
     /// One lexical scope's worth of what the visitor has learned.
     private struct Scope {
         /// Names declared here, and what they hold.
@@ -49,8 +56,16 @@ final class FallbackVisitor: SyntaxVisitor {
         var genericNames: Set<String> = []
         /// The checks this body makes. Nil for a scope that is not a body.
         var facts: FallbackGuardFacts?
+        /// What this body's locals were computed from, and what it shows of whole
+        /// collections. Nil for a scope that is not a body.
+        var derived: FallbackDerivedFacts?
         /// What documents the value this scope returns.
         var documentation = FallbackDocumentation.inherited
+        /// Whether this is the body of a type, whose names are its members.
+        var isType = false
+        /// Names bound here with `var`: what was shown of one may not be true of it
+        /// by the time it is read.
+        var variables: Set<String> = []
     }
 
     /// The scope stack, innermost last. The first element is the file itself.
@@ -91,14 +106,17 @@ final class FallbackVisitor: SyntaxVisitor {
     ///   - filePath: Path used in diagnostic output.
     ///   - converter: Source location converter for line and column lookup.
     ///   - declarations: What the file declares about its members and functions.
+    ///   - ranges: The constant ranges a `contains` test may be read against.
     init(
         filePath: String,
         converter: SourceLocationConverter,
-        declarations: FallbackDeclarations
+        declarations: FallbackDeclarations,
+        ranges: FallbackRangeConstants = .none
     ) {
         self.filePath = filePath
         self.converter = converter
         self.declarations = declarations
+        self.ranges = ranges
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -118,10 +136,12 @@ final class FallbackVisitor: SyntaxVisitor {
         scope.genericNames = genericNames
         scope.documentation = documentation
         if let body {
-            scope.facts = FallbackGuardFactCollector.collect(
-                from: body,
-                genericNames: self.genericNames.union(genericNames)
-            )
+            let inScope = self.genericNames.union(genericNames)
+            var facts = FallbackGuardFactCollector.collect(from: body, genericNames: inScope)
+            let derived = FallbackDerivedFactCollector.collect(from: body, genericNames: inScope, ranges: ranges)
+            facts.facts.append(contentsOf: derived.facts)
+            scope.facts = facts
+            scope.derived = derived
         }
         scopes.append(scope)
     }
@@ -148,8 +168,111 @@ final class FallbackVisitor: SyntaxVisitor {
     /// reported as though it had not: every enclosing body's facts were read
     /// except the outermost one, which had none.
     override func visit(_ node: SourceFileSyntax) -> SyntaxVisitorContinueKind {
-        scopes[0].facts = FallbackGuardFactCollector.collectTopLevel(from: node, genericNames: genericNames)
+        var facts = FallbackGuardFactCollector.collectTopLevel(from: node, genericNames: genericNames)
+        let derived = FallbackDerivedFactCollector.collectTopLevel(
+            from: node, genericNames: genericNames, ranges: ranges)
+        facts.facts.append(contentsOf: derived.facts)
+        scopes[0].facts = facts
+        scopes[0].derived = derived
         return .visitChildren
+    }
+
+    // MARK: - Derived facts
+
+    /// What the local `name` was initialised from, if it is a `let` declared exactly
+    /// once in the body that binds it, before `offset`.
+    ///
+    /// Resolved through the scope stack, innermost first, so that a closure
+    /// parameter or an inner local of the same name shadows an outer `let` instead of
+    /// borrowing its initialiser.
+    func letInitializer(named name: String, before offset: Int) -> ExprSyntax? {
+        for scope in scopes.reversed() {
+            let binding = scope.derived?.lets[name]
+            guard binding != nil || scope.names[name] != nil else { continue }
+            guard let binding, binding.endOffset <= offset else { return nil }
+            return binding.value
+        }
+        return nil
+    }
+
+    /// Every once-declared `let` in an enclosing body that is complete before `offset`,
+    /// with how deep in the scope stack the body that declares it sits.
+    func letBindings(before offset: Int) -> [(name: String, value: ExprSyntax, depth: Int)] {
+        var found: [(name: String, value: ExprSyntax, depth: Int)] = []
+        for (depth, scope) in scopes.enumerated() {
+            guard let derived = scope.derived else { continue }
+            for (name, binding) in derived.lets where binding.endOffset <= offset {
+                found.append((name, binding.value, depth))
+            }
+        }
+        return found
+    }
+
+    /// How deep in the scope stack the innermost binding of `key`'s first name sits,
+    /// or nil when no scope binds it — a member, a global.
+    ///
+    /// A `let` computed from `upper` in a function says nothing about the `upper` a
+    /// closure inside that function takes as its own parameter.
+    func bindingDepth(ofRootOf key: String) -> Int? {
+        let root = Self.root(of: key)
+        return scopes.lastIndex { $0.names[root] != nil }
+    }
+
+    /// `values` from `values`, `values[i]` and `values.first`.
+    static func root(of key: String) -> String {
+        String(key.prefix { $0 != "." && $0 != "[" })
+    }
+
+    /// True if the innermost binding of `key`'s first name is a `var`.
+    private func isVariable(_ key: String) -> Bool {
+        let root = Self.root(of: key)
+        for scope in scopes.reversed() where scope.names[root] != nil {
+            return scope.variables.contains(root)
+        }
+        return false
+    }
+
+    /// True if an enclosing body writes to `key` at or after `start` and before `end`.
+    func isWritten(_ key: String, from start: Int, before end: Int) -> Bool {
+        scopes.contains { scope in
+            scope.derived?.assignments.contains { $0.key == key && $0.offset >= start && $0.offset < end } ?? false
+        }
+    }
+
+    /// True if a guard in an enclosing body asserts `key` is zero or more before `offset`.
+    func isAssertedNonNegative(_ key: String, before offset: Int) -> Bool {
+        scopes.contains { scope in
+            scope.derived?.nonNegative.contains { $0.key == key && $0.offset <= offset } ?? false
+        }
+    }
+
+    /// What was shown of every element of the collection `key` before `offset`.
+    ///
+    /// Nothing, for a collection held in a `var`: it may have been appended to, or
+    /// replaced, since it was tested.
+    private func elementChecks(ofCollection key: String, before offset: Int) -> Set<FallbackGuardFacts.Kind> {
+        guard !isVariable(key) else { return [] }
+        var found: Set<FallbackGuardFacts.Kind> = []
+        for scope in scopes {
+            guard let derived = scope.derived else { continue }
+            for proof in derived.collections where proof.key == key && proof.offset <= offset {
+                found.insert(proof.kind)
+            }
+        }
+        return found
+    }
+
+    /// What was shown of `name` as the element of a loop whose body holds `offset`.
+    private func loopElementChecks(on name: String, at offset: Int) -> Set<FallbackGuardFacts.Kind> {
+        var found: Set<FallbackGuardFacts.Kind> = []
+        for scope in scopes {
+            guard let derived = scope.derived else { continue }
+            for proof in derived.elements
+            where proof.name == name && proof.body.contains(offset) && !isVariable(proof.collection) {
+                found.insert(proof.kind)
+            }
+        }
+        return found
     }
 
     /// Leaves the innermost scope. The file scope is never popped.
@@ -171,6 +294,15 @@ final class FallbackVisitor: SyntaxVisitor {
         return nil
     }
 
+    /// True if the innermost binding of `name` is a parameter or a local, rather than
+    /// a member of an enclosing type.
+    func isBoundLocally(_ name: String) -> Bool {
+        for scope in scopes.reversed() where scope.names[name] != nil {
+            return !scope.isType
+        }
+        return false
+    }
+
     func kind(ofTypeText text: String) -> FallbackTypeKind {
         FallbackTypes.kind(ofTypeText: text, genericNames: genericNames)
     }
@@ -181,6 +313,7 @@ final class FallbackVisitor: SyntaxVisitor {
     /// is read — a method may sit above the property it uses.
     private func enterType(genericNames: Set<String>, members: MemberBlockSyntax) {
         pushScope(genericNames: genericNames)
+        scopes[scopes.count - 1].isType = true
         for member in members.members {
             guard let variable = member.decl.as(VariableDeclSyntax.self) else { continue }
             for binding in variable.bindings {
@@ -337,6 +470,11 @@ final class FallbackVisitor: SyntaxVisitor {
             // initialised from an integer literal, which evaluates to nothing.
             let constant = FallbackTypes.isLiteralConstant(binding, in: node) && bound == .floatingPoint
             bind(pattern.identifier.text, kind: constant ? .finiteFloatingPoint : bound)
+            if isLet {
+                scopes[scopes.count - 1].variables.remove(pattern.identifier.text)
+            } else {
+                scopes[scopes.count - 1].variables.insert(pattern.identifier.text)
+            }
         }
     }
 
@@ -463,6 +601,12 @@ final class FallbackVisitor: SyntaxVisitor {
         conversionsExamined += 1
 
         let offset = node.positionAfterSkippingLeadingTrivia.utf8Offset
+        // Bounded through what it was computed from: `Int(rank)` after
+        // `guard k >= 0, k <= 1` and `let rank = k * Double(n - 1)`.
+        enclosingArm = armAssertions(around: Syntax(node))
+        defer { enclosingArm = [:] }
+        guard !bounds(of: argument.expression, before: offset).isRepresentable else { return }
+
         let unguarded = converted.compactMap { subject -> Finding? in
             let written = checks(on: subject, before: offset)
             let asserted = checks(on: subject, before: offset, assertedOnly: true)
@@ -505,6 +649,12 @@ final class FallbackVisitor: SyntaxVisitor {
             guard let facts = scope.facts else { continue }
             found.formUnion(facts.kinds(for: keys, before: offset, assertedOnly: assertedOnly))
         }
+        // `values[i]`, where a guard tested every element of `values`.
+        if key.hasSuffix("]"), let bracket = key.firstIndex(of: "[") {
+            found.formUnion(elementChecks(ofCollection: String(key[..<bracket]), before: offset))
+        }
+        // `value`, inside `for value in values`.
+        found.formUnion(loopElementChecks(on: key, at: offset))
         return found
     }
 

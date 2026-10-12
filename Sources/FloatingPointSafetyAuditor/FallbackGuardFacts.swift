@@ -437,11 +437,10 @@ final class FallbackGuardFactCollector: SyntaxVisitor {
         }
     }
 
-    /// `x` from `abs(x)` or `x.magnitude`.
+    /// `x` from `abs(x)`, `Swift.abs(x)` or `x.magnitude`.
     private func magnitudeArgument(of expr: ExprSyntax) -> ExprSyntax? {
         if let call = expr.as(FunctionCallExprSyntax.self),
-           let callee = call.calledExpression.as(DeclReferenceExprSyntax.self),
-           callee.baseName.text == "abs",
+           FallbackTypes.freeFunctionName(of: call.calledExpression) == "abs",
            call.arguments.count == 1,
            let only = call.arguments.first,
            only.label == nil {
