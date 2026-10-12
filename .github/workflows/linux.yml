@@ -77,6 +77,39 @@ jobs:
             -Xcxx -I/usr/lib/swift \
             -Xcxx -I/usr/lib/swift/Block
 
+      # TEMPORARY probe — removed once the 6.4 warm-build cluster is understood.
+      #
+      # 6.2 passes the warm-build suite and 6.4 fails eleven of its tests with one message:
+      # "No output file map was found in the build directory". `descriptionPath` trusts
+      # `.build/.buildSystem_<config>` and does not fall back — if the marker names a build
+      # system whose description is not where we look, the answer is nil rather than the other
+      # description sitting beside it.
+      #
+      # Three hypotheses have already died: mapCount == 0 (225 maps named, 450 on disk),
+      # unquoted YAML paths (all 225 are complete quoted strings), and a moved llbuild
+      # manifest (6.4 native still writes .build/debug.yaml — verified locally on 6.4).
+      # So this prints the state instead of arguing about it, on both legs, for comparison.
+      - name: Probe — which build system does this toolchain record?
+        continue-on-error: true
+        run: |
+          echo "--- build-system markers"
+          for m in .build/.buildSystem_*; do
+            [ -e "$m" ] && printf '    %s = %s\n' "$m" "$(cat "$m")" || true
+          done
+          [ -e .build/.buildSystem_release ] || echo "    (no markers at all)"
+          echo "--- native descriptions (what nativeManifest requires)"
+          for y in .build/debug.yaml .build/release.yaml; do
+            [ -f "$y" ] && echo "    present: $y" || echo "    ABSENT:  $y"
+          done
+          echo "--- any llbuild manifest anywhere"
+          find .build -maxdepth 3 -name '*.yaml' -not -path '*/checkouts/*' 2>/dev/null | head -5 | sed 's/^/      /'
+          echo "--- swiftbuild description directory"
+          d=.build/out/Intermediates.noindex/XCBuildData
+          [ -d "$d" ] && echo "    present: $d" || echo "    ABSENT:  $d"
+          echo "--- output file maps on disk"
+          printf '    count: '; find .build \( -name 'output-file-map.json' -o -name '*OutputFileMap.json' \) 2>/dev/null | wc -l
+          find .build \( -name 'output-file-map.json' -o -name '*OutputFileMap.json' \) 2>/dev/null | head -3 | sed 's/^/      /'
+
       # The README's Linux install, executed rather than reasoned about.
       #
       # These four lines are the first thing a new user runs, and until now nobody had run
