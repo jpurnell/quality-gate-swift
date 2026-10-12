@@ -93,6 +93,83 @@
     `--dry-run` does too: the root command owns that flag, a subcommand's copy of it is never
     set, and the first build of this command rewrote three scratch ledgers on a "dry run"
     before an acceptance test was written for it.
+- **`fallback` reads a bound where it was written, a call however it is spelled, and only the
+  files a target compiles.** A survey of 67 repositories on 2026-10-09 classified every
+  `fallback` finding the portfolio carries. 35 were false positives of four kinds, and one
+  mechanism was hiding real ones. Measured over the same copies with the deployed binary and
+  this one, `--check fallback` alone: 242 findings before, 180 after — 65 cleared, 3 new — and
+  every one of the 114 surveyed real defects still reported.
+  - **A module-qualified call is the bare call.** `Swift.min(a, b)` evaluated to nothing known,
+    because only a bare `min` was read as carrying its arguments. The local it was bound to
+    took no type, and no conversion downstream of it was ever examined: SwiftCLIKit's
+    `ProgressBarLayout` computes `Swift.min(Swift.max(current / total, 0.0), 1.0)` and converts
+    `Int(ratio * 100)`, which traps on a NaN `current` and was never reported. It is now, as
+    are `Swift.abs`, `Foundation.floor` and the rest of the passthrough set. **This turns three
+    green repositories red by one finding each** — SwiftCLIKit (`ProgressBarLayout.swift:37`),
+    BusinessMath (`SimulatedAnnealing.swift:426`) and SwiftExcelFunctions
+    (`BuiltinDiscountSecurities.swift:262`, a clamp that answers `0` for a NaN instalment).
+  - **A bound is followed to the value computed from what it bounded.** `guard k >= 0, k <= 1`,
+    then `let rank = k * Double(n - 1)` and `Int(rank)`, was reported because `rank` was never
+    itself checked. A `let` declared once in the body is now read through sums, differences
+    and products of bounded operands, division by a nonzero literal, rounding, `abs`, a
+    remainder by a literal, and `min` / `max` — the last with the rule that makes them
+    treacherous, that each returns its first argument when either is a NaN. A lone quotient of
+    two values guarded at or above zero is at least zero, and `isFinite` on the local it is
+    bound to supplies the rest. A `var`, a name bound twice, `min(x, .infinity)` and
+    `min(x, .greatestFiniteMagnitude)` carry nothing.
+  - **`guard namedRange.contains(x)` bounds `x`** when the name is a `let` holding a range
+    between two numeric literals — in the same file, or as `Type.member` anywhere in the
+    project, provided no file declares that member name as anything else. A local constant
+    range bounds only within the body that declares it. Nine sites in
+    SwiftExcelFunctions test against `static let degreesOfFreedomRange: Range<Double> = 1..<1e10`,
+    five of them from another file.
+  - **`Swift.abs(x) < limit` is a magnitude bound**, as `abs(x) < limit` always was. This one
+    is in the fact collector `fp-division-unguarded` shares, so `guard Swift.abs(d) > 0` now
+    answers for a divisor too.
+  - **A constant built from literals is a number.** Dividing by `Config.pollInterval` is not a
+    new source of NaN when every declaration of `pollInterval` in the file is a `let` holding a
+    nonzero literal, and `pageSize.width` is finite when `pageSize` is
+    `CGSize(width: 612, height: 792)`.
+  - **A condition asserts its bound inside its own arm.** `cappedTail > 0 ? Int(cappedTail) : 0`
+    and `if x < limit { … Int(x) … }`. Not in the `else`, not across a closure, and not for a
+    value the arm writes to before it converts it.
+  - **A guard on a value computed from an operand excludes a NaN in the operand.**
+    `let span = upper - lower; guard span > 0` refuses a NaN in either, so the clamp below it
+    cannot be handed one. Only through arithmetic that carries a NaN: a local built with `min`,
+    `max`, a ternary or `??` proves nothing about what went in. And only for the operand the
+    `let` saw: a closure parameter of the same name is another value.
+  - **A collection tested whole answers for its elements.** `guard xs.allSatisfy({ !$0.isNaN })`
+    — or `{ $0.isFinite }`, or `\.isFinite`, or a filtered copy — covers `for x in xs`,
+    `xs.enumerated()` and `xs[i]`. `isFinite` on every element is still only `isFinite`: a
+    conversion of one needs a bound. The proof is of that collection and that loop: a
+    collection in a local `var` is not covered, and a loop's element is covered inside its own
+    body only, so a second `for x in others` reusing the name is still reported.
+  - **A trailing `else` that hands the value on is not answering for it.** A clamp ladder ending
+    `else { clamped = p }`, or a payoff ending `else { return -(spot - strike) }`, passes a NaN
+    to its caller as a NaN. `else { return 0 }` is still reported, as is any chain with no
+    `else`, and any `else` of more than one statement. A chain inside `if x.isInfinite { … }` is no longer reported either: both
+    infinities compare. In the `else` of that `if`, where a NaN arrives, it still is.
+  - **Only files a target may compile are audited.** BusinessMath keeps reference scripts under
+    `project/reference/`, one of them a Markdown code fence saved as `.swift`; eight findings in
+    them were baselined as though they shipped. With a `Package.swift`, a file outside
+    `Sources`, `Source`, `src`, `srcs`, `Tests`, `Plugins`, every target's explicit `path:` and
+    every directory holding an `.xcodeproj` or `.xcworkspace` is not audited, and the coverage
+    note counts them: `· 14 .swift files outside any SwiftPM target not audited`. **The scope
+    errs towards reading.** With no manifest — an Xcode-only project — every file is audited
+    as before; with a manifest whose target directories cannot all be read (a computed
+    `path:`, a target rooted at or outside the package directory) every file is audited and
+    the note says so. The manifest is parsed as text, never resolved or run, and every target
+    declaration in it is read wherever it is written, because BusinessMath's own manifest
+    builds `var targets` and appends to it. This is `fallback`'s scope alone; no other checker
+    reads fewer files than it did.
+  - **Not done, and still reported:** a bound established in a function that is called or an
+    initialiser that refuses (`ClassifierEvaluation.swift:198`,
+    `distributionDiscreteUniform.swift:99`); `x - Double(Int(x.rounded(.down)))` as a fraction
+    of one (`ExcelDateFormat.swift:77`); a `var` stepped only by literals; and a divisor that
+    comes from a computed property returning literals (Shelfmark `LabelSheetRenderer.swift:85`).
+    Conversions of a value whose type is declared in another file are still not examined at
+    all, which is most of what SwiftExcelFunctions leaves unreported; the coverage note's
+    `integer conversions` count is the number to read a clean result against.
 
 - **`fp-division-unguarded` reads a divisor that is not a plain name, and stops asking for a
   guard on one that cannot be zero.** A survey of the portfolio on 2026-10-09 found 103

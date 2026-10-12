@@ -28,9 +28,18 @@ import QualityGateCore
 ///
 /// The conversion is accepted when the enclosing function bounds the value's
 /// magnitude in the conditions of a `guard` — `guard abs(x) < limit`,
-/// `guard x >= 0, x < limit` — or bounds it anywhere and also tests `x.isFinite`.
-/// `isFinite` alone is not accepted: `1e300` is finite. `Int(exactly:)` is always
-/// accepted, because it returns `nil` instead of trapping.
+/// `guard x >= 0, x < limit`, `guard allowedRange.contains(x)` against a constant
+/// range — or bounds it anywhere and also tests `x.isFinite`. A bound is followed
+/// from the value that was checked to a `let` computed from it by arithmetic that
+/// keeps it bounded. `isFinite` alone is not accepted: `1e300` is finite.
+/// `Int(exactly:)` is always accepted, because it returns `nil` instead of trapping.
+///
+/// ## Which files it reads
+///
+/// In a package, files a target may compile; a `.swift` file outside every target
+/// is counted in the coverage note and not audited. With no `Package.swift`, or
+/// one whose target directories cannot be read, every file — see
+/// `FallbackTargetScope` for why it errs that way.
 ///
 /// ## What it cannot see
 ///
@@ -41,9 +50,10 @@ import QualityGateCore
 /// skipped rather than guessed. The coverage note says how many conversions were
 /// examined, which is the number to read a clean result against.
 ///
-/// A check applied upstream through a collection —
-/// `rates.filter { $0.tenor.isFinite }` — is not recognised. The rule asks for
-/// the check in the function that converts.
+/// A check applied upstream to a *member* through a collection —
+/// `rates.filter { $0.tenor.isFinite }` — is not recognised, and neither is one
+/// made in a function that is called. The rule asks for the check in the
+/// function that converts.
 public struct FallbackAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "FallbackAuditor")
 
@@ -81,7 +91,13 @@ public struct FallbackAuditor: QualityChecker, Sendable {
         )
     }
 
-    /// Audits every Swift file under the project root that is not test code.
+    /// Audits every Swift file under the project root that a target may compile and
+    /// that is not test code.
+    ///
+    /// In a package, a file outside every target — a reference script, an example
+    /// kept beside the documentation — is not audited, and the coverage note says how
+    /// many there were. With no `Package.swift`, or one whose target directories
+    /// cannot be read, every file is audited.
     ///
     /// - Parameter configuration: Project-specific configuration.
     /// - Returns: A `CheckResult` with status `.failed` if an unguarded
@@ -91,7 +107,11 @@ public struct FallbackAuditor: QualityChecker, Sendable {
         let startTime = ContinuousClock.now
         let root = configuration.resolvedProjectRoot
         let scan = SourceWalker.walk(under: root, excludePatterns: configuration.excludePatterns)
-        let rootPath = root.resolvingSymlinksInPath().path
+        // Both spellings of the root. A directory reached through a symlink is
+        // enumerated under one and resolved to the other, and a path that matched
+        // neither would be judged — for test code and for target membership alike —
+        // on its absolute spelling.
+        let rootPaths = Self.spellings(of: root)
 
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
@@ -101,29 +121,53 @@ public struct FallbackAuditor: QualityChecker, Sendable {
         var guardsExamined = 0
         var filesExamined = 0
 
+        let scope = FallbackTargetScope.resolve(projectRoot: root)
+        var xcode = FallbackXcodeClaims(root: root)
+        var outsideTargets = 0
+        var sources: [(path: String, text: String)] = []
+
         for fullPath in scan.files {
-            let relativePath = fullPath.hasPrefix(rootPath)
-                ? String(fullPath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                : fullPath
+            let relativePath = Self.relativePath(of: fullPath, under: rootPaths)
             // Judged on the repository-relative path: an absolute one carries the
             // checkout's own directory names, and a checkout under `…/Tests/…`
             // would otherwise exempt every file in it.
             guard !FallbackRules.isTestFile(relativePath) else { continue }
 
+            // Not in a target, and not beside an Xcode project that might own it:
+            // nothing compiles it. Counted, so the note can say what was left out.
+            // A path that could not be made relative is audited: nothing can be
+            // said about where it sits.
+            guard relativePath.hasPrefix("/") || scope.owns(relativePath) || xcode.claims(relativePath) else {
+                outsideTargets += 1
+                continue
+            }
+
             do {
-                let source = try String(contentsOfFile: fullPath, encoding: .utf8)
-                let result = FallbackRules.audit(source: source, fileName: fullPath, isTestFile: false)
-                diagnostics.append(contentsOf: result.diagnostics)
-                overrides.append(contentsOf: result.overrides)
-                conversionsExamined += result.conversionsExamined
-                clampsExamined += result.clampsExamined
-                classificationsExamined += result.classificationsExamined
-                guardsExamined += result.guardsExamined
-                filesExamined += 1
+                sources.append((fullPath, try String(contentsOfFile: fullPath, encoding: .utf8)))
             } catch {
                 Self.logger.warning("Failed to read source file \(fullPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
+        }
+
+        // Read once across the project, so a range constant declared in one file
+        // bounds a value tested against it in another.
+        let rangeConstants = FallbackProjectRanges.qualifiedConstants(in: sources.map(\.text))
+
+        for source in sources {
+            let result = FallbackRules.audit(
+                source: source.text,
+                fileName: source.path,
+                isTestFile: false,
+                projectRangeConstants: rangeConstants
+            )
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
+            conversionsExamined += result.conversionsExamined
+            clampsExamined += result.clampsExamined
+            classificationsExamined += result.classificationsExamined
+            guardsExamined += result.guardsExamined
+            filesExamined += 1
         }
 
         func found(_ ruleId: String) -> Int {
@@ -142,6 +186,7 @@ public struct FallbackAuditor: QualityChecker, Sendable {
                 + "\(Self.counted(guardsExamined, "guard")) answering with a value, "
                 + "\(found(FallbackRuleID.guardReturnsAValue)) undeclared, "
                 + "\(overrides.count) justified"
+                + Self.scopeClause(outsideTargets: outsideTargets, resolution: scope.resolution)
                 + (scan.exclusionClause.map { " · \($0)" } ?? ""),
             ruleId: FallbackRuleID.coverage))
 
@@ -186,6 +231,51 @@ public struct FallbackAuditor: QualityChecker, Sendable {
         if diagnostics.contains(where: { $0.severity == .error }) { return .failed }
         if diagnostics.contains(where: { $0.severity == .warning }) { return .warning }
         return .passed
+    }
+
+    /// The absolute paths `root` may be enumerated under: as given, with symlinks
+    /// resolved, and as the filesystem canonically names it.
+    ///
+    /// The third is not the second. `resolvingSymlinksInPath` drops a leading
+    /// `/private`, and a directory enumeration under `/var` reports `/private/var`.
+    private static func spellings(of root: URL) -> [String] {
+        var paths = [root.resolvingSymlinksInPath().path, root.standardizedFileURL.path, root.path]
+        do {
+            if let canonical = try root.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
+                paths.append(canonical)
+            }
+        } catch {
+            logger.debug("No canonical path for \(root.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+        return paths
+    }
+
+    /// `path` relative to whichever spelling of the root it sits under, or `path`
+    /// unchanged — still absolute — when it sits under none.
+    private static func relativePath(of path: String, under roots: [String]) -> String {
+        let file = path.split(separator: "/")
+        for root in roots {
+            let base = root.split(separator: "/")
+            guard file.count > base.count, file.starts(with: base) else { continue }
+            return file.dropFirst(base.count).joined(separator: "/")
+        }
+        return path
+    }
+
+    /// What the coverage note says about target scope, or nothing when every file
+    /// found was in a target.
+    ///
+    /// Absent in the ordinary case so that it is read in the others: when files were
+    /// left out, and when a manifest was present and could not be used to leave any
+    /// out — a package whose scripts are still being audited deserves to know why.
+    private static func scopeClause(outsideTargets: Int, resolution: FallbackTargetScope.Resolution) -> String {
+        if outsideTargets > 0 {
+            return " · \(outsideTargets) .swift file\(outsideTargets == 1 ? "" : "s") outside any SwiftPM target not audited"
+        }
+        if resolution == .unreadable {
+            return " · target paths in Package.swift could not be read, so every file was audited"
+        }
+        return ""
     }
 
     /// `1 file`, `2 files`.

@@ -86,12 +86,17 @@ public enum FallbackRules {
     ///     decides from `fileName`; a caller that knows the repository-relative
     ///     path should decide from that and say so.
     ///   - parsedTree: An already-parsed tree for `source`, to avoid a second parse.
+    ///   - projectRangeConstants: `Type.member` spellings of constant literal ranges
+    ///     declared in *other* files of the project, so that
+    ///     `guard Limits.allowed.contains(x)` bounds `x` wherever `allowed` lives.
+    ///     Empty reads this file alone.
     /// - Returns: What was found, and how much was examined to find it.
     public static func audit(
         source: String,
         fileName: String,
         isTestFile: Bool? = nil,
-        parsedTree: SourceFileSyntax? = nil
+        parsedTree: SourceFileSyntax? = nil,
+        projectRangeConstants: Set<String> = []
     ) -> FallbackAuditResult {
         // Production code only. A test that feeds a NaN to a conversion to see
         // it trap is doing its job.
@@ -100,10 +105,14 @@ public enum FallbackRules {
         let tree = parsedTree ?? Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
 
+        var ranges = FallbackRangeConstantCollector.collect(from: tree)
+        ranges.projectQualifiedNames = projectRangeConstants
+
         let visitor = FallbackVisitor(
             filePath: fileName,
             converter: converter,
-            declarations: FallbackDeclarationCollector.collect(from: tree)
+            declarations: FallbackDeclarationCollector.collect(from: tree),
+            ranges: ranges
         )
         visitor.walk(tree)
         return FallbackAuditResult(
