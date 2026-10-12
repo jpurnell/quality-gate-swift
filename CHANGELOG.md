@@ -2,12 +2,18 @@
 
 ## [Unreleased]
 
-## [3.5.0] - 2026-10-11
+## [3.5.0] - 2026-10-12
 
 ### Fixed
 
-- **Seven Darwin assumptions in code paths macOS always takes.** Each was a few lines once found,
-  and each hid behind a symptom pointing somewhere else.
+- **Ten values that were true where they were written.** Each was a few lines once found, and
+  each hid behind a symptom pointing somewhere else. They are grouped together because they are
+  one mistake, not ten — but the axis they varied along was not always the operating system, and
+  guessing which axis it was cost more than any individual fix. Six vary by OS, one by the
+  distribution's `git`, and three by the *build system*, which is not a platform at all — the
+  last of those reproduces on macOS under `--build-system native -c release`, measured, so
+  calling it a Linux limitation would have left it in place for every macOS user who passes that
+  flag.
   - `doc-code` invoked a hardcoded `/usr/bin/xcrun` as the compiler. `Toolchain` resolved `swiftc`
     from `PATH` for the *flags* while the invocation still went through `xcrun`, so off Darwin
     every documentation checker failed before compiling anything — reported against the article,
@@ -26,6 +32,42 @@
     elsewhere, so `[#NoUsage]` and `[#no-usage]` are one finding. Both the printed and recorded
     paths canonicalise it now; normalising one of two values that exist to be compared broke the
     deduplication they were for.
+  - A test asserted macOS `git`'s wording of a failure — `unable to read tree (<sha>)` — where
+    Linux `git` says `reference is not a tree: <sha>` for the identical condition. It had been
+    filed separately as an environmental fault for days. The environment was innocent: a
+    third-party tool's prose had been pinned, which makes a Darwin-only test read as portable. It
+    asserts exit 128 and the full revision now, which both gits satisfy.
+  - `swiftbuild` names its configuration directory `Release-linux-x86_64` where Darwin says
+    `Release`, and the output-file-map finder accepted a path component only when it *equalled*
+    the configuration name. All 98 maps a Swift 6.4 Linux build writes were found by the walk and
+    then discarded by the filter, so the checker reported "No output file map was found in the
+    build directory" — accurate about what it could see, wrong about what was there. Eleven
+    `WarmBuildTests` failures on 6.4 and none on 6.2, which uses the native build system.
+  - The documented install was broken on Swift 6.4, in two different ways and corrected twice:
+    the directory (`--show-bin-path`, because swiftbuild writes to `.build/out` and on Linux no
+    `.build/release` symlink exists to hide it) and the bundle suffix, which follows the *build
+    system* rather than the platform — native writes `.resources`, swiftbuild writes `.bundle`,
+    on Linux as on macOS. An instruction naming either suffix is wrong on one of the two
+    supported toolchains. The README's *GitHub Actions* example carried the same literal and
+    would have failed the same way inside a user's workflow.
+  - The native build system writes one `<Module>.dia` under whole-module compilation while its
+    output file map goes on naming per-file records that are never created — and never names the
+    record it wrote. Units pointed at absent files and a warning present on the cold run was
+    reported as unverified on the warm one. The map cannot be used to tell the modes apart: the
+    debug and release maps are the same shape and only the filesystem differs, so the premise
+    that the choice could be made "from the map, rather than by looking for whichever file
+    exists" was true of swiftbuild's maps and never of native's.
+
+- **The scripts that put the tool on a machine were installing it wrong.** `deploy-local.sh`
+  copied `quality-gate-swift_*.bundle` — this package's own bundles and nothing else, 40 of 45.
+  The five it skipped belong to CorpusKit, VigilKit, Crypto, BusinessMath and SwiftDeterminism,
+  which is the wrong five: a prefix filter cannot distinguish "not ours" from "not needed", and a
+  dependency's bundle is precisely the one whose absence crashes code the user did not write. It
+  copies every bundle now and compares installed against built, refusing a partial install.
+  `install-hooks.sh` composed `<toplevel>/.git/hooks`, which in a worktree is a *file* — so it
+  died in every worktree, which is where all the work happens, and the installed hook stayed at a
+  version predating both the `QG_BIN` override and the cache warming. A hook that honours an
+  override only where nobody stands does not honour it.
 
 - **A released artifact that crashed on any checker reading its resources.** `scripts/release.sh`
   packaged `quality-gate` alone, and SwiftPM resolves bundles relative to the executable, so the
