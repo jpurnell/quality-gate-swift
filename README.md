@@ -6,6 +6,27 @@
 
 > **Looking for testers.** If you try this and it misfires on your code, that is the most useful thing you can send — open an issue with the snippet. False positives are tracked and published per checker; see [Checkers report their own precision](#3-checkers-report-their-own-precision).
 
+## Quick start
+
+```bash
+brew install jpurnell/tap/quality-gate
+cd your-swift-package
+quality-gate
+```
+
+That runs the default checker set and prints a verdict. Three more worth knowing:
+
+```bash
+quality-gate --check all --strict     # every checker; warnings fail the run
+quality-gate --check safety           # one checker, by id
+quality-gate --fix --dry-run          # what the fixable checkers would change
+quality-gate --fix                    # apply it
+```
+
+Homebrew covers macOS 15+. On Linux, build from source — two `-Xcxx` flags are
+required, not optional, and [Install on Linux](#linux) explains why. Full install
+notes, including what to copy beside the binary, are under [Install](#install).
+
 ## Requirements
 
 - **macOS 15+** — the package declares `.macOS(.v15)`. On macOS 14 it builds and then fails at launch with a dyld error.
@@ -33,41 +54,40 @@
 
 ### macOS
 
+`brew install jpurnell/tap/quality-gate` is the short path. To build from source:
+
 ```bash
 git clone https://github.com/jpurnell/quality-gate-swift.git
 cd quality-gate-swift
-# `--disable-automatic-resolution` builds exactly the versions `Package.resolved` pins and
-# fails if that file is out of date, rather than quietly resolving something else. The
-# lockfile is committed, and a build that ignores it is not the build that was tested.
 swift build -c release --disable-automatic-resolution
 
-# The binary needs its resource bundles beside it: SwiftPM resolves them relative
-# to the executable, so copying the binary alone fails at runtime with
-# "couldn't find bundle named quality-gate-swift_ControlMapping".
-#
-# Every bundle, not just this package's: the build also writes BusinessMath_*,
-# SwiftDeterminism_*, swift-crypto_*, swift-vigil_* and quality-gate-corpus-kit_*. A
-# `quality-gate-swift_*` glob leaves those behind — 40 of 45 on this machine, 40 of 44 on
-# the Linux CI containers, the total differing with the dependency set — and the ones it
-# skips are a dependency's, which is the wrong set to skip: their absence surfaces as a
-# crash inside code the user did not write.
-# Ask SwiftPM where the products landed rather than assuming `.build/release`.
-# Swift 6.4 builds with the `swiftbuild` backend, which writes to `.build/out`;
-# on macOS `.build/release` survives as a symlink to it, on Linux it does not
-# exist at all. `--show-bin-path` is correct under either backend.
 BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
 sudo cp "$BIN/quality-gate" /usr/local/bin/
 sudo cp -R "$BIN"/*.bundle /usr/local/bin/
 ```
 
+Three details in those six lines, each of which has broken an install:
+
+- **Copy the bundles, all of them.** SwiftPM resolves a resource bundle relative to the
+  executable, so installing the binary alone fails at run time with `couldn't find bundle named
+  quality-gate-swift_ControlMapping`. A `quality-gate-swift_*` glob is not enough either: the
+  build also writes `BusinessMath_*`, `SwiftDeterminism_*`, `swift-crypto_*`, `swift-vigil_*`
+  and `quality-gate-corpus-kit_*`, and those are a dependency's — their absence surfaces as a
+  crash inside code you did not write.
+- **Ask where the products are.** Swift 6.4 builds with the `swiftbuild` backend and writes to
+  `.build/out`. On macOS `.build/release` survives as a symlink; on Linux it does not exist at
+  all, so `--show-bin-path` is the portable answer.
+- **`--disable-automatic-resolution`** builds exactly what `Package.resolved` pins and fails if
+  that file is stale, instead of quietly resolving something else. A build that ignores the
+  committed lockfile is not the build that was tested.
+
 ### Linux
 
 Tested in CI on the official `swift:6.2` and `swift:6.4` containers. Both `-Xcxx` flags are
-required, not optional:
-`indexstore-db`'s C++ sources include `<dispatch/dispatch.h>` and `Block.h` with no platform
-guard, and the Swift toolchain ships both headers — just not on the default include path.
-Without them the build fails in a C++ dependency, which is where the "macOS only" claim in
-this README came from for longer than it was true.
+required, not optional: `indexstore-db`'s C++ sources include `<dispatch/dispatch.h>` and
+`Block.h` with no platform guard, and the toolchain ships both headers — just not on the
+default include path. Without them the build fails inside a C++ dependency, which is where the
+"macOS only" claim in this README came from for longer than it was true.
 
 ```bash
 git clone https://github.com/jpurnell/quality-gate-swift.git
@@ -76,15 +96,6 @@ swift build -c release --disable-automatic-resolution \
   -Xcxx -I/usr/lib/swift \
   -Xcxx -I/usr/lib/swift/Block
 
-# Same requirement as macOS, different suffix: SwiftPM writes resource bundles as
-# `.resources` directories here, not `.bundle`. All of them, for the same reason.
-# Two things this line used to get wrong, both found by running it in CI rather
-# than reading it. `--show-bin-path`, because Swift 6.4 builds with the
-# `swiftbuild` backend and writes to `.build/out`, not `.build/release`. And
-# either bundle spelling, because the suffix follows the *build system*, not the
-# operating system: SwiftPM's native build writes `.resources` directories,
-# swiftbuild writes `.bundle` — on Linux too, which "Linux means .resources"
-# did not survive.
 BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution \
   -Xcxx -I/usr/lib/swift \
   -Xcxx -I/usr/lib/swift/Block)"
@@ -92,6 +103,12 @@ sudo cp "$BIN/quality-gate" /usr/local/bin/
 sudo find "$BIN" -maxdepth 1 \( -name '*.resources' -o -name '*.bundle' \) \
   -exec cp -R {} /usr/local/bin/ \;
 ```
+
+The bundle suffix follows the **build system**, not the operating system: SwiftPM's native
+build writes `.resources` directories, `swiftbuild` writes `.bundle` — on Linux as on macOS.
+Accepting either is why the line above uses `find` rather than a glob. CI runs these exact
+commands on both containers and asserts that the number of bundles installed equals the number
+built, because an earlier version copied 40 of 45 and read as correct.
 
 Run the same way on both:
 
@@ -542,28 +559,48 @@ Each checker is an independent module — depend on only what you need:
 
 ## Honest limits
 
-**Rung 3 has the least evidence here.** On another package `doc-claims` caught a bond documented at `$1,043.30` that prices at `$1,043.76` — the stale figure was exactly the annual-coupon price, so the documentation had preserved a payment-frequency bug the code had already fixed. But this repository has zero adoption of the claim convention (`// Result:` / `// Output:`), so `doc-claims` reports **0 claims across 0 articles** here. It is real code with a real find, measured elsewhere.
+What this tool does not do well, listed here rather than left for you to discover.
 
-**`doc-claims` will never support `--fix`.** Not deferred — prohibited. An autofixer that rewrites a documented number to match the program can never fail, and therefore never means anything. The pressure when this checker is red at 5pm is precisely to edit the comment until it goes green, and a tool that automates that pressure is worse than no tool.
+**It is slower than a linter.** Some checkers need a full build; `unreachable` needs an index
+store. A full `--check all` run on this repository takes minutes, not seconds.
 
-**It is slower than a linter.** Some checkers need a full build; `unreachable` needs an index store.
+**Some checkers need project context you may not have.** `status` reads a project plan from a
+configured path, and reports unavailable rather than passing when it cannot find one.
 
-**Some checkers need project context you may not have.** `status` reads a project plan from a configured path and reports unavailable rather than passing when it cannot find one.
+**A checker that cannot see its index store still reports `PASSED`.** It says in a note that
+it skipped the pass — `Pass 2 (USR-based cycle detection) skipped: index store not available`
+— but the verdict line does not distinguish "looked and found nothing" from "could not look".
+Read the notes, not just the ticks.
 
-**One checker is weaker on Linux than on macOS.** `unreachable`'s cross-module pass does not
-yet flag an unreferenced symbol in an *executable* target there: the same symbol is still
-caught by the intra-file rule, so it is not missed, but it arrives as a warning about one file
-rather than as "unreachable from any entry point". Library targets are unaffected. It is
-listed here rather than left for a reader to discover, because a checker that is quieter on
-one platform is exactly the kind of thing this tool exists to make visible.
+**The documentation checkers are three rungs, and the third has the least evidence here.**
+Rung 1 (`doc-code`) asks whether a documented example still compiles, rung 2 (`doc-run`)
+whether it runs, rung 3 (`doc-claims`) whether the figures it prints still match what the
+program computes. On another package `doc-claims` caught a bond documented at `$1,043.30` that
+prices at `$1,043.76` — the stale figure was exactly the annual-coupon price, so the
+documentation had preserved a payment-frequency bug the code had already fixed. But this
+repository has no adoption of the claim convention (`// Result:` / `// Output:`), so
+`doc-claims` reports **0 claims across 0 articles** here. Real code with a real find, measured
+elsewhere.
 
-**Linux is newer than the rest of this.** It builds, the suite runs, and the checkers work —
-but macOS has years of use behind it and Linux has days. The Linux job is
-[`linux.yml`](.github/workflows/linux.yml); if something misfires there specifically, say so
-in the issue, because the two platforms have already diverged in ways neither the compiler nor
-the test suite caught on its own: `appendingPathComponent(_:)` consults the filesystem on
-Linux and not on Darwin, and a checker that could not find its index store reported **passed**
-rather than reporting that it had not looked.
+**`doc-claims` will never support `--fix`.** Not deferred — prohibited. An autofixer that
+rewrites a documented number to match the program can never fail, and therefore never means
+anything. The pressure when this checker is red at 5pm is precisely to edit the comment until
+it goes green, and a tool that automates that pressure is worse than no tool.
+
+**`unreachable` is weaker on Linux than on macOS.** Its cross-module pass does not flag an
+unreferenced symbol in an *executable* target there. The symbol is still caught by the
+intra-file rule, so it is not missed, but it arrives as a warning about one file rather than
+as "unreachable from any entry point". Library targets are unaffected.
+
+**macOS has more history behind it than Linux.** Linux is gated in CI on Swift 6.2 and 6.4 on
+every pull request and push, and the suite passes on both — but macOS is the platform every
+release is cut against and has years of use behind it. The Linux job is
+[`linux.yml`](.github/workflows/linux.yml); if something misfires there specifically, say so in
+the issue, because the two platforms have already diverged in ways neither the compiler nor the
+test suite caught on its own. `appendingPathComponent(_:)` consults the filesystem on Linux and
+not on Darwin; a resource bundle's suffix follows the build system rather than the operating
+system; and a configuration directory named `Release-linux-x86_64` rather than `Release` was
+enough to make a checker report that it had found no compile units at all.
 
 ## License
 
