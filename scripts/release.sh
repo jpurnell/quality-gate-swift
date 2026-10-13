@@ -42,6 +42,17 @@ if gh release view "${TAG}" >/dev/null 2>&1; then
 fi
 
 echo "→ Stamping build identity"
+# Restored on the way out, however this script exits.
+#
+# `make build` stamps, builds and restores; this script called `make stamp` on its own and
+# left a real commit hash in the working tree. The next commit then tripped
+# `house.build-stamp-committed` — which exists because a hash has reached a commit twice
+# before, `d644d35` and `d0278e9`. A third was prevented by the rule rather than by this
+# script, which is the wrong way round: the script that dirties the tree should clean it.
+restore_build_stamp() {
+    git checkout -- Sources/QualityGateCLI/BuildStamp.swift 2>/dev/null || true
+}
+trap restore_build_stamp EXIT
 make stamp
 
 rm -rf "$DIST"

@@ -51,12 +51,12 @@ class QualityGate < Formula
   # appear below on purpose; getting one wrong is a 404 at install time.
   on_arm do
     url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-macos-arm64.tar.gz"
-    sha256 "REPLACE_WITH_ARM64_SHA256"
+    sha256 "577750edfc2d9964520514109c48222e21f24807be5f8a8d176af85bfe69f1dd"
   end
 
   on_intel do
     url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-macos-x86_64.tar.gz"
-    sha256 "REPLACE_WITH_X86_64_SHA256"
+    sha256 "923f063ef39d28725d3fba35ece92da1e7a87819f90a8ded3a1f1a157ec10efb"
   end
 
   def install
