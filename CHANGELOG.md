@@ -96,6 +96,14 @@
   `// recursion:safe` ("the auditor has no inline suppression comment"); `// silent:` and
   `// logging:` ("records a `DiagnosticOverride`" — they had not since June); `HIG-EXEMPT:`,
   which was not documented anywhere.
+- **The pre-push hook let a commit that changes no files through.** In jpurnell.github.io,
+  "Add ORCID references" (`5afd06c`) was pushed, passed the gate, and deployed while its edits
+  sat in a stash left by a stash-and-rebase, so the site did not change and the push looked like
+  it had failed. The hook now reads the ref list git hands it and refuses any non-merge commit
+  that touches no files. On a new branch it checks only commits no remote-tracking branch
+  already has, so older empty commits never block a push. It still drains stdin before deciding,
+  so the SIGPIPE fix stands. Covered by `scripts/test-install-hooks.sh`. Re-run
+  `scripts/install-hooks.sh` in each repo to pick it up.
 ## [3.5.0] - 2026-10-12
 
 ### Fixed
