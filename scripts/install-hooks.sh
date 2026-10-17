@@ -66,7 +66,37 @@ set -euo pipefail
 # Related but distinct: `git push … | tail` reports tail's exit code, so the
 # failure looks like a clean push. Verify by transfer — `git ls-remote origin
 # <branch>` — never by exit status.
-cat > /dev/null
+#
+# The list is read in full before anything is judged, so it still drains even when a check
+# below refuses the push.
+REFS="$(cat)"
+
+# Refuse commits that change no files.
+#
+# `git commit` will not make one by default, but a stash-and-rebase sequence can leave a commit
+# whose message describes work that sits in a stash instead. That happened in jpurnell.github.io:
+# "Add ORCID references" (5afd06c) pushed, passed the gate, deployed — and changed nothing,
+# because the edits were in stash@{0}. The site simply did not update, which looked like a
+# failed push. Merges are skipped (diff-tree prints nothing for them), and a new branch is
+# judged only on commits the remote does not already have, so history that predates this check
+# never blocks a push. An intentionally empty commit can still go with `--no-verify`.
+ZERO="0000000000000000000000000000000000000000"
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    [ -z "${local_sha:-}" ] && continue
+    [ "$local_sha" = "$ZERO" ] && continue
+    if [ "$remote_sha" = "$ZERO" ]; then
+        new_commits="$(git rev-list --no-merges "$local_sha" --not --remotes)"
+    else
+        new_commits="$(git rev-list --no-merges "$remote_sha..$local_sha")"
+    fi
+    for commit in $new_commits; do
+        if [ -z "$(git diff-tree --no-commit-id --name-only -r "$commit")" ]; then
+            echo "❌ $(git log -1 --format='%h %s' "$commit") changes no files — push blocked."
+            echo "   Its changes may be in a stash: run \`git stash list\`."
+            exit 1
+        fi
+    done
+done <<< "$REFS"
 
 # Run the gate, not a private copy of build+test.
 #
