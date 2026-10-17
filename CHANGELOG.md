@@ -81,6 +81,11 @@
 
 ### Fixed
 
+- **The memory builder's project profile named the wrong project** whenever `Package.swift`
+  declared a target above `Package(`. It took the first `name: "..."` in the file, so
+  swift-oauth — which binds its `CSQLite` system library to a `let` first — was profiled as
+  "CSQLite", and every regeneration restored the wrong name over a hand correction. The name is
+  now read from `Package(name:)`.
 - **`OverrideProcessor` kept only four of a diagnostic's fields when it changed a severity**,
   dropping `origin` and `endLine`, and dropped a result's `complianceRecords` altogether.
 - **The guide documented `overrides:` in a shape that never decoded** — a list of
