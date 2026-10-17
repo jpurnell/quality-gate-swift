@@ -61,9 +61,14 @@ public struct ProjectProfileExtractor: MemoryExtractor, Sendable {
     // MARK: - Parsing helpers
 
     /// Extracts the package name from `Package(name: "Foo"`.
+    ///
+    /// Anchored on `Package(`: a manifest can declare a target above it — a system library
+    /// bound to a `let` is the usual case — and the first bare `name:` in the file is then that
+    /// target's, not the package's.
     private func extractPackageName(from source: String) -> String? {
-        // Match: name: "ProjectName"
-        guard let range = source.range(of: #"name:\s*"([^"]+)""#, options: .regularExpression) else {
+        guard let range = source.range(
+            of: #"\bPackage\s*\(\s*name:\s*"[^"]+""#, options: .regularExpression
+        ) else {
             return nil
         }
         let match = source[range]

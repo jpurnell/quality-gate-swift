@@ -34,6 +34,45 @@ struct ProjectProfileExtractorTests {
         #expect(entries.first?.body.contains("MyAwesomeApp") == true)
     }
 
+    /// A manifest may declare a target before `Package(` — a system library bound to a `let`,
+    /// chosen per platform, is the common case. The project's name is the package's, not the
+    /// first `name:` in the file.
+    @Test("Takes the name from Package(, not from a target declared above it")
+    func nameComesFromPackageNotEarlierTarget() async throws {
+        let tmpDir = try createFixtureProject(
+            packageSwift: """
+            // swift-tools-version: 6.2
+            import PackageDescription
+            #if os(Linux)
+            let sqlite: Target = .systemLibrary(
+                name: "CSQLite",
+                pkgConfig: "sqlite3"
+            )
+            #else
+            let sqlite: Target = .systemLibrary(name: "CSQLite")
+            #endif
+            let package = Package(
+                name: "SwiftOAuth",
+                targets: [
+                    sqlite,
+                    .target(name: "SwiftOAuthCore")
+                ]
+            )
+            """
+        )
+        defer { try? FileManager.default.removeItem(atPath: tmpDir) }
+
+        let entries = try await extractor.extract(
+            projectRoot: tmpDir,
+            guidelinesPath: "development-guidelines",
+            globalClaudeMD: nil
+        )
+
+        let entry = try #require(entries.first)
+        #expect(entry.body.contains("**Project:** SwiftOAuth"))
+        #expect(entry.description == "SwiftOAuth — Swift package structure and dependencies")
+    }
+
     @Test("Extracts Swift tools version")
     func extractsToolsVersion() async throws {
         let tmpDir = try createFixtureProject(
