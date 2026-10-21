@@ -260,7 +260,7 @@ jobs:
           fi
           # `--show-bin-path`, not `.build/release`: the swiftbuild backend writes to `.build/out`
           # and the symlink that papers over it is not promised (see linux.yml).
-          BIN="$(swift build -c release --show-bin-path)"
+          BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
           INSTALL="$HOME/.quality-gate/bin"
           mkdir -p "$INSTALL"
           cp "$BIN/quality-gate" "$INSTALL/"
@@ -316,7 +316,7 @@ jobs:
             fi
             # Its own directory, with its bundles beside it: `$RUNNER_TEMP` is cleaned between
             # jobs, so a binary copied out alone would find its resources only until then.
-            BIN="$(swift build -c release --show-bin-path)"
+            BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
             INSTALL="$HOME/.local/lib/quality-gate"
             mkdir -p "$INSTALL"
             cp "$BIN/quality-gate" "$INSTALL/"
