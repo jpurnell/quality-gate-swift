@@ -81,6 +81,20 @@
 
 ### Fixed
 
+- **On Linux, checkers could pass a project whose `Sources/` they never read.** Foundation's
+  directory enumerator on Linux is built on glibc `fts` with `FTS_NOSTAT`, which counts a
+  directory's subdirectories from its link count when the walk opens and assumes the rest are
+  files. The gate creates `.build/quality-gate-cache` part-way through every run, while other
+  checkers are walking the same root, so a walk opened just before that lost `Sources/`: the
+  directory was yielded, never entered, and no error was raised. The visible symptom was
+  `SuppressionReportingAcceptanceTests` failing intermittently on Linux · Swift 6.4 because
+  `recursion` had not seen the file holding the finding. The cause was established in steps. A
+  probe that opens a walk, creates one directory and then iterates truncated 39 of 50 walks on
+  Swift 6.4 and 18 of 50 on 6.2, and 0 of 50 on macOS. The same Foundation calls under heavy
+  concurrent load, without that directory, truncated none of 76,800. Every recursive walk now
+  goes through `FileTreeWalker` in `QualityGateCore`. It lists each directory with
+  `contentsOfDirectory(atPath:)` (`readdir`) as it enters it and classifies each entry with
+  `lstat`. A directory it cannot open is recorded and logged rather than dropped.
 - **The reusable workflow reported success when the gate never ran.** Three faults, each hiding
   the other:
   - *The cache held the binary without its resource bundles.* `Bundle.module` falls back to
