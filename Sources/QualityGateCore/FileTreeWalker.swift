@@ -26,8 +26,9 @@ import QualityGateLogging
 ///
 /// - Symbolic links are yielded, never followed, as `FileManager`'s enumerator does.
 /// - Siblings are yielded in sorted order, so two walks of one tree agree.
-/// - A directory that cannot be opened is recorded in ``unreadableDirectories`` and logged,
-///   rather than vanishing: findings under it are unknown, not absent.
+/// - A directory that exists but cannot be opened is recorded in ``unreadableDirectories`` and
+///   logged, rather than vanishing: findings under it are unknown, not absent. One that does not
+///   exist — a root that was only probed, or a directory deleted mid-walk — is simply empty.
 public final class FileTreeWalker: Sequence, IteratorProtocol {
 
     private static let logger = Logger(subsystem: "com.quality-gate", category: "FileTreeWalker")
@@ -150,6 +151,10 @@ public final class FileTreeWalker: Sequence, IteratorProtocol {
         let names: [String]
         do {
             names = try FileManager.default.contentsOfDirectory(atPath: directory)
+        } catch where Self.isMissing(error) {
+            // Absent is empty, not unreadable: checkers probe `Sources`, `Source` and `src` in
+            // turn, and a directory removed mid-walk has nothing left to miss.
+            return []
         } catch {
             unreadableDirectories.append(directory)
             Self.logger.warning(
@@ -166,6 +171,14 @@ public final class FileTreeWalker: Sequence, IteratorProtocol {
                 let relative = relativePath.isEmpty ? name : relativePath + "/" + name
                 return Entry(relativePath: relative, path: path, kind: kind, level: level)
             }
+    }
+
+    /// Whether a listing failed because the directory does not exist.
+    private static func isMissing(_ error: Error) -> Bool {
+        if let cocoa = error as? CocoaError {
+            return cocoa.code == .fileReadNoSuchFile || cocoa.code == .fileNoSuchFile
+        }
+        return (error as? POSIXError)?.code == .ENOENT
     }
 
     /// The kind of the object at `path`, without following a final symbolic link, or `nil` when

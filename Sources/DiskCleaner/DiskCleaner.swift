@@ -171,25 +171,13 @@ public struct DiskCleaner: Sendable {
     }
 
     private func findDirectories(named name: String, in path: String) -> [String] {
-        let fileManager = FileManager.default
         var results: [String] = []
 
-        guard let enumerator = fileManager.enumerator(
-            at: URL(fileURLWithPath: path),
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return results
-        }
-
-        while let url = enumerator.nextObject() as? URL {
-            if url.lastPathComponent == name {
-                var isDirectory: ObjCBool = false
-                if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), // SAFETY: scans project tree for .docc-build dirs
-                   isDirectory.boolValue {
-                    results.append(url.path)
-                    enumerator.skipDescendants()
-                }
+        let walker = FileTreeWalker(root: path, options: [.skipsHiddenFiles]) // SAFETY: scans project tree for .docc-build dirs
+        while let entry = walker.next() {
+            if entry.name == name, entry.isDirectory {
+                results.append(entry.path)
+                walker.skipDescendants()
             }
         }
 
@@ -197,18 +185,10 @@ public struct DiskCleaner: Sendable {
     }
 
     private func directorySize(at path: String) -> Int64 {
-        let fileManager = FileManager.default
         var size: Int64 = 0
 
-        guard let enumerator = fileManager.enumerator(
-            at: URL(fileURLWithPath: path),
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: []
-        ) else {
-            return 0
-        }
-
-        while let url = enumerator.nextObject() as? URL {
+        for entry in FileTreeWalker(root: path) {
+            let url = entry.url
             do {
                 if let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
                     size += Int64(fileSize)

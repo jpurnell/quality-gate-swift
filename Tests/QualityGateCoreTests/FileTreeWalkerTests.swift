@@ -114,13 +114,26 @@ struct FileTreeWalkerTests {
         #expect(!entries.contains { $0.relativePath.hasPrefix("Link/") })
     }
 
-    @Test("A root that does not exist yields nothing and records it as unreadable")
+    /// Checkers probe `Sources`, `Source` and `src` in turn, and most projects have one of the
+    /// three. A missing root is an empty tree, not a hole in coverage — warning about it would
+    /// print two lines per checker on every run, and the old enumerators said nothing either.
+    @Test("A root that does not exist is an empty walk, not an unreadable one")
     func missingRoot() {
         let absent = FileManager.default.temporaryDirectory
             .appendingPathComponent("qg-tree-walker-absent-\(UUID().uuidString)").path
         let walker = FileTreeWalker(root: absent)
         #expect(Array(walker).isEmpty)
-        #expect(walker.unreadableDirectories == [absent])
+        #expect(walker.unreadableDirectories.isEmpty)
+    }
+
+    @Test("A root that is a file, not a directory, is recorded as unreadable")
+    func fileRoot() throws {
+        let root = try makeTree()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Package.swift").path
+        let walker = FileTreeWalker(root: file)
+        #expect(Array(walker).isEmpty)
+        #expect(walker.unreadableDirectories == [file])
     }
 
     @Test("A URL root walks the same tree as its path")

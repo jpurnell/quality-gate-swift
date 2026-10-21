@@ -159,3 +159,17 @@ customRules:
       - "Sources/QualityGateCLI/BuildStamp.swift"
     message: "BuildStamp.swift holds a real commit hash. It is generated at build time and restored afterwards; a hash here is a stamp that was committed, and it can never name the commit it sits in. Restore the placeholder: git checkout -- Sources/QualityGateCLI/BuildStamp.swift"
     severity: error
+
+  # On Linux, Foundation's recursive enumerator is glibc `fts` under `FTS_NOSTAT`, which counts
+  # subdirectories from a link count taken when the walk opens. The gate creates
+  # `.build/quality-gate-cache` mid-run, and a walk opened before that skipped `Sources/` with no
+  # error: 39 of 50 walks in a CI probe on Swift 6.4, never on macOS — so it cannot be caught
+  # locally. Every recursive walk goes through `FileTreeWalker`, which reads each directory as it
+  # enters it.
+  - id: house.raw-directory-enumerator
+    pattern: '\.enumerator\(|\bsubpaths\(atPath:|subpathsOfDirectory\(atPath:'
+    include:
+      - "Sources/"
+      - "Tests/"
+    message: "Use FileTreeWalker (QualityGateCore) for recursive directory walks. On Linux, FileManager's enumerator and subpaths silently skip a subtree when a directory is created during the walk, and the gate creates one mid-run."
+    severity: error

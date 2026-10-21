@@ -93,11 +93,9 @@ public struct IdiomAuditor: QualityChecker, Sendable {
         var filePaths: [String] = []
         for topLevel in ["Sources", "Tests"] {
             let directory = (rootPath as NSString).appendingPathComponent(topLevel)
-            guard fileManager.fileExists(atPath: directory), // SAFETY: CLI tool reads local project sources
-                  let enumerator = fileManager.enumerator(atPath: directory) else { continue }
-            while let relativePath = enumerator.nextObject() as? String {
-                guard relativePath.hasSuffix(".swift") else { continue }
-                filePaths.append((directory as NSString).appendingPathComponent(relativePath))
+            guard fileManager.fileExists(atPath: directory) else { continue } // SAFETY: CLI tool reads local project sources
+            for entry in FileTreeWalker(root: directory) where entry.relativePath.hasSuffix(".swift") {
+                filePaths.append(entry.path)
             }
         }
         filePaths.sort()

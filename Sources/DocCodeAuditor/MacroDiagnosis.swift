@@ -168,11 +168,10 @@ public struct MacroDiagnosis: Sendable, Equatable {
                 let directory = projectRoot
                     .appendingPathComponent(spelling, isDirectory: true)
                     .appendingPathComponent(name, isDirectory: true)
-                guard let walker = FileManager.default.enumerator(
-                    at: directory, includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]) else { continue }
-                for case let url as URL in walker where url.pathExtension == "swift" {
-                    guard let text = SourceFileReader.read(url, checker: "doc-code") else { continue }
+                // Most spellings are absent; probing them is not a failed walk worth a warning.
+                for entry in FileTreeWalker(root: directory, options: [.skipsHiddenFiles])
+                where entry.url.pathExtension == "swift" {
+                    guard let text = SourceFileReader.read(entry.url, checker: "doc-code") else { continue }
                     found.formUnion(registeredTypes(inPluginSource: text))
                 }
             }

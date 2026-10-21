@@ -122,10 +122,8 @@ public struct SmellPack: QualityChecker, Sendable {
         var files: [String] = []
         for dir in ["Sources", "Tests"] {
             let base = (root as NSString).appendingPathComponent(dir)
-            guard let enumerator = FileManager.default.enumerator(atPath: base) else { continue }
-            while let relative = enumerator.nextObject() as? String {
-                guard relative.hasSuffix(".swift") else { continue }
-                files.append((base as NSString).appendingPathComponent(relative))
+            for entry in FileTreeWalker(root: base) where entry.relativePath.hasSuffix(".swift") {
+                files.append(entry.path)
             }
         }
         return files.sorted()

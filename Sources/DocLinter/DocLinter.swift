@@ -250,10 +250,9 @@ public struct DocLinter: QualityChecker, Sendable {
         var diagnostics: [Diagnostic] = []
         for spelling in ["Sources", "Source", "src"] {
             let root = URL(fileURLWithPath: projectRoot).appendingPathComponent(spelling)
-            guard let walker = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            ) else { continue }
-            for case let url as URL in walker {
+            // Most spellings are absent; probing them is not a failed walk worth a warning.
+            for entry in FileTreeWalker(root: root, options: [.skipsHiddenFiles]) {
+                let url = entry.url
                 let isArticle = url.pathExtension == "md"
                 let isSwift = url.pathExtension == "swift"
                 guard isArticle || isSwift else { continue }
@@ -528,14 +527,12 @@ public struct DocLinter: QualityChecker, Sendable {
         guard path.hasPrefix("..") || !path.hasPrefix("/") else { return path }
         let root = FileManager.default.currentDirectoryPath
         let name = (path as NSString).lastPathComponent
-        let manager = FileManager.default
 
         var matches: [String] = []
         for spelling in ["Sources", "Source", "src", "Tests"] {
             let directory = (root as NSString).appendingPathComponent(spelling)
-            guard let walker = manager.enumerator(atPath: directory) else { continue }
-            for case let relative as String in walker where (relative as NSString).lastPathComponent == name {
-                matches.append((directory as NSString).appendingPathComponent(relative))
+            for entry in FileTreeWalker(root: directory) where entry.name == name {
+                matches.append(entry.path)
                 if matches.count > 1 { return path }
             }
         }
@@ -1050,16 +1047,10 @@ public struct DocLinter: QualityChecker, Sendable {
     private static let docFileExtensions: Set<String> = ["swift", "md"]
 
     private static func findSwiftSourceFiles(under directory: String) -> [String] {
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: URL(fileURLWithPath: directory),
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
         var files: [String] = []
-        for case let url as URL in enumerator where docFileExtensions.contains(url.pathExtension) {
-            files.append(url.path)
+        for entry in FileTreeWalker(root: directory, options: [.skipsHiddenFiles])
+        where docFileExtensions.contains(entry.url.pathExtension) {
+            files.append(entry.path)
         }
         return files.sorted()
     }

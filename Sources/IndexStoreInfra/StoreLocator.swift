@@ -617,15 +617,16 @@ public enum StoreLocator {
     /// Returns the most recent modification date among all `.swift` files under `root`.
     public static func newestSwiftMtime(under root: URL) -> Date? {
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(atPath: root.path) else { return nil } // SAFETY: CLI tool enumerates local source directory
+        let walker = FileTreeWalker(root: root.path) // SAFETY: CLI tool enumerates local source directory
         var newest: Date?
         // Skipped for the same reason `SourceWalker` skips them: `.build` holds the store's
         // own artifacts and every dependency's sources, so counting it would compare a store
         // against files no checker reads — and against itself.
         let skipped: Set<String> = [".build", ".git", ".swiftpm", ".bundle"]
-        while let rel = enumerator.nextObject() as? String {
+        while let entry = walker.next() {
+            let rel = entry.relativePath
             if let first = rel.split(separator: "/").first, skipped.contains(String(first)) {
-                enumerator.skipDescendants()
+                walker.skipDescendants()
                 continue
             }
             guard rel.hasSuffix(".swift") else { continue }

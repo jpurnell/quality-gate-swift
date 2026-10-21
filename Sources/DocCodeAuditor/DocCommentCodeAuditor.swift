@@ -125,20 +125,20 @@ public struct DocCommentCodeAuditor: QualityChecker, Sendable {
         let roots = SourceLayout.spellings.map {
             projectRoot.appendingPathComponent($0, isDirectory: true)
         }
-        guard let walker = roots.lazy.compactMap({ root in
-            FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-        }).first else {
-            return [:]
-        }
-
+        // Every spelling, not the first: the old test for an enumerator always picked `Sources`,
+        // since `FileManager` hands one back for a missing root, so a `src/` layout got nothing.
+        // A spelling that is absent walks as empty.
         var byModule: [String: [URL]] = [:]
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            guard !configuration.excludePatterns.contains(where: { url.path.contains($0) }) else {
-                continue
+        for root in roots {
+            for entry in FileTreeWalker(root: root, options: [.skipsHiddenFiles])
+            where entry.url.pathExtension == "swift" {
+                let url = entry.url
+                guard !configuration.excludePatterns.contains(where: { url.path.contains($0) }) else {
+                    continue
+                }
+                guard let module = owningModule(of: url, projectRoot: projectRoot) else { continue }
+                byModule[module, default: []].append(url)
             }
-            guard let module = owningModule(of: url, projectRoot: projectRoot) else { continue }
-            byModule[module, default: []].append(url)
         }
         return byModule.mapValues { $0.sorted { $0.path < $1.path } }
     }

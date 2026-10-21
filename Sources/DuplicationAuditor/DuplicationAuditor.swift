@@ -226,15 +226,11 @@ public struct DuplicationAuditor: QualityChecker, Sendable {
             let directoryPath = (rootPath as NSString).appendingPathComponent(directory)
             var isDirectory = ObjCBool(false)
             guard fileManager.fileExists(atPath: directoryPath, isDirectory: &isDirectory),
-                  isDirectory.boolValue,
-                  let enumerator = fileManager.enumerator(atPath: directoryPath) else { continue }
+                  isDirectory.boolValue else { continue }
 
-            var relativePaths: [String] = []
-            while let entry = enumerator.nextObject() as? String {
-                if entry.hasSuffix(".swift") {
-                    relativePaths.append(entry)
-                }
-            }
+            let relativePaths = FileTreeWalker(root: directoryPath)
+                .map(\.relativePath)
+                .filter { $0.hasSuffix(".swift") }
 
             for entry in relativePaths.sorted() {
                 let absolutePath = (directoryPath as NSString).appendingPathComponent(entry)

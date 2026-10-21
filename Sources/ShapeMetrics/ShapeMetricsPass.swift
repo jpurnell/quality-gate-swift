@@ -129,13 +129,10 @@ public enum ShapeMetricsPass {
     /// Every `.swift` file under `root`, sorted so a run's output does not depend on the order
     /// the file system happened to enumerate in.
     static func swiftFiles(under root: URL) -> [String] {
-        guard let enumerator = FileManager.default.enumerator(atPath: root.path) else { return [] }
-        var files: [String] = []
-        while let relative = enumerator.nextObject() as? String {
-            guard relative.hasSuffix(".swift") else { continue }
-            files.append(root.appendingPathComponent(relative).path)
-        }
-        return files.sorted()
+        FileTreeWalker(root: root)
+            .filter { $0.relativePath.hasSuffix(".swift") }
+            .map { root.appendingPathComponent($0.relativePath).path }
+            .sorted()
     }
 
     /// The module a file belongs to: the first path component under `Sources/`.

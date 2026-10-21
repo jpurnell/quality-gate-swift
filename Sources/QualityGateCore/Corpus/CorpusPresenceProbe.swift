@@ -45,17 +45,16 @@ public struct CorpusPresenceProbe: Sendable {
         // A directory is not emission. An interrupted or misconfigured run can leave the
         // tree behind with nothing in it, and counting that as registered would hide
         // exactly the failure this is looking for.
-        guard let walker = fm.enumerator(
-            at: projectDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
-        ) else {
-            return .absent
-        }
-
-        for case let fileURL as URL in walker {
-            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            guard values?.isRegularFile == true else { continue }
-            if let size = values?.fileSize, size > 0 { return .emitting }
+        for entry in FileTreeWalker(root: projectDirectory) where entry.isRegularFile {
+            do {
+                if let size = try entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 {
+                    return .emitting
+                }
+            } catch {
+                #if canImport(os)
+                logger.debug("could not read the size of \(entry.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                #endif
+            }
         }
 
         return .absent

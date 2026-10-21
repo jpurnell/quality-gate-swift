@@ -248,12 +248,11 @@ public struct TestRunner: QualityChecker, Sendable {
     /// assertions; either way it is listed once.
     static func timingTests(projectRoot: String, marker: String) -> [String] {
         let testsDir = (projectRoot as NSString).appendingPathComponent("Tests")
-        guard let enumerator = FileManager.default.enumerator(atPath: testsDir) else { return [] }
         var names: [String] = []
         var seen: Set<String> = []
-        while let rel = enumerator.nextObject() as? String {
-            guard rel.hasSuffix(".swift") else { continue }
-            let path = (testsDir as NSString).appendingPathComponent(rel)
+        for entry in FileTreeWalker(root: testsDir) {
+            guard entry.relativePath.hasSuffix(".swift") else { continue }
+            let path = entry.path
             guard let source = SourceFileReader.read(path, checker: "test") else { continue }
             // Two places the marker can be written, and both enrol: above the test function
             // (`TimingTestScanner`), and on a wall-clock assertion inside it, which is where
@@ -336,10 +335,8 @@ public struct TestRunner: QualityChecker, Sendable {
         var files: [String] = [root.appendingPathComponent("Package.swift")]
         for subdir in ["Sources", "Tests"] {
             let dir = root.appendingPathComponent(subdir)
-            guard let enumerator = FileManager.default.enumerator(atPath: dir) else { continue }
-            while let rel = enumerator.nextObject() as? String {
-                guard rel.hasSuffix(".swift") else { continue }
-                files.append((dir as NSString).appendingPathComponent(rel))
+            for entry in FileTreeWalker(root: dir) where entry.relativePath.hasSuffix(".swift") {
+                files.append(entry.path)
             }
         }
         return CheckerFingerprint.compute(

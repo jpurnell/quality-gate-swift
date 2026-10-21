@@ -88,16 +88,7 @@ public enum SourceWalker {
     /// Walks `root`, returning the `.swift` files found *and* an account of what was left out.
     public static func walk(under root: URL, excludePatterns: [String] = []) -> WalkResult {
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles],
-            errorHandler: nil
-        ) else {
-            return WalkResult(
-                files: [], excludedByPattern: 0, excludedByGitIgnore: 0,
-                gitIgnoredDirectories: 0, nestedPackageDirectories: 0, propertyLists: [])
-        }
+        let walker = FileTreeWalker(root: root, options: [.skipsHiddenFiles])
 
         let ignored = gitIgnoredPaths(under: root)
         var out: [String] = []
@@ -107,16 +98,10 @@ public enum SourceWalker {
         var ignoredDirectories = 0
         var nestedPackages = 0
 
-        for case let url as URL in enumerator {
-            let name = url.lastPathComponent
-            let isDirectory: Bool
-            do {
-                isDirectory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory ?? false
-            } catch {
-                logger.warning("Could not read resource values for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                isDirectory = false
-            }
-            if isDirectory {
+        for entry in walker {
+            let url = entry.url
+            let name = entry.name
+            if entry.isDirectory {
                 // The default skip list is tested *first*, and the order is load-bearing for the
                 // reported number. `.build` and `.swiftpm` are both default-skipped and
                 // git-ignored; charging them to git-ignore would give every repository a large
@@ -125,22 +110,22 @@ public enum SourceWalker {
                 if defaultSkipDirectories.contains(name)
                     || name.hasSuffix(".xcodeproj")
                     || name.hasSuffix(".xcworkspace") {
-                    enumerator.skipDescendants()
+                    walker.skipDescendants()
                 } else if ignored.contains(url.standardizedFileURL.path) {
                     ignoredDirectories += 1
-                    enumerator.skipDescendants()
+                    walker.skipDescendants()
                 } else if fm.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
                     // A different package. Only reachable for a *nested* directory — the
-                    // enumerator never yields `root` itself, so a package's own manifest can
+                    // walker never yields `root` itself, so a package's own manifest can
                     // never make it walk itself away and report a clean pass over zero files.
                     nestedPackages += 1
-                    enumerator.skipDescendants()
+                    walker.skipDescendants()
                 }
                 continue
             }
             let isSwift = url.pathExtension == "swift"
             guard isSwift || name.hasSuffix("Info.plist") else { continue }
-            let path = url.path
+            let path = entry.path
             if shouldExclude(path: path, patterns: excludePatterns) {
                 if isSwift { byPattern += 1 }
                 continue

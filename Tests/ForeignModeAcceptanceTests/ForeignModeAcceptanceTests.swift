@@ -156,22 +156,9 @@ struct ForeignModeAcceptanceTests {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Every file under a directory tree, relative paths, for content asserts.
-    /// Both sides resolve symlinks first — `temporaryDirectory` is `/var/…`
-    /// but enumerated URLs come back `/private/var/…`.
+    /// Every regular file under a directory tree, as paths relative to it, for content asserts.
     private func files(under root: URL) -> [String] {
-        let resolvedRoot = root.resolvingSymlinksInPath()
-        guard let enumerator = FileManager.default.enumerator(
-            at: resolvedRoot, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
-        var found: [String] = []
-        for case let url as URL in enumerator {
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey]) // silent: unreadable entries just don't count as files
-            if values?.isRegularFile == true {
-                let path = url.resolvingSymlinksInPath().path
-                found.append(path.replacingOccurrences(of: resolvedRoot.path + "/", with: ""))
-            }
-        }
-        return found.sorted()
+        FileTreeWalker(root: root).filter(\.isRegularFile).map(\.relativePath).sorted()
     }
 
     // MARK: - The acceptance criteria

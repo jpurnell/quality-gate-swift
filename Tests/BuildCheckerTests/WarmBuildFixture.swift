@@ -117,14 +117,7 @@ struct WarmBuildFixture {
     /// The paths of every file named `name` under the package's build directory.
     func buildProducts(named name: String) -> [String] {
         let buildDirectory = root.appendingPathComponent(".build").path
-        guard let walker = FileManager.default.enumerator(atPath: buildDirectory) else { return [] }
-        var found: [String] = []
-        while let relative = walker.nextObject() as? String {
-            if (relative as NSString).lastPathComponent == name {
-                found.append((buildDirectory as NSString).appendingPathComponent(relative))
-            }
-        }
-        return found
+        return FileTreeWalker(root: buildDirectory).filter { $0.name == name }.map(\.path)
     }
 }
 
