@@ -94,10 +94,13 @@ on:
       # produced a confident result about code that was never in the run. Both happened while
       # fixing the search-path bug in this release, and the wrong conclusion was drawn twice.
       fail-on-findings:
-        description: "Fail the job when the gate reports failures (exit 1). A gate that crashes or cannot run fails the job regardless."
+        description: "Fail the job when the gate reports failures (exit 1). On by default; set false only for an audit-only caller. A gate that crashes or cannot run fails the job regardless."
         type: boolean
         required: false
-        default: false
+        # On since 2026-10-21. It shipped off for one day so the crash fix would not turn the
+        # fleet red at the same moment; a gate whose failures leave the job green is the
+        # defect that fix was about, so off cannot be the default.
+        default: true
       gate-ref:
         description: "Branch, tag or SHA of quality-gate-swift to build the gate from. Defaults to main; set it to verify a gate change before merging."
         type: string
@@ -402,7 +405,7 @@ jobs:
                 echo "::error::quality gate reported failures."
                 exit 1
               fi
-              echo "::warning::quality gate reported failures (fail-on-findings is off, so the job stays green)."
+              echo "::warning::quality gate reported failures (fail-on-findings is false for this caller, so the job stays green)."
               ;;
             *)
               echo "::error::quality-gate did not complete (exit $STATUS). This is the tool failing, not a verdict on the project."
