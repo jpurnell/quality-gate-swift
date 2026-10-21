@@ -154,6 +154,7 @@ public final class FileTreeWalker: Sequence, IteratorProtocol {
         } catch where Self.isMissing(error) {
             // Absent is empty, not unreadable: checkers probe `Sources`, `Source` and `src` in
             // turn, and a directory removed mid-walk has nothing left to miss.
+            Self.logger.debug("\(directory, privacy: .public) does not exist; walked as empty")
             return []
         } catch {
             unreadableDirectories.append(directory)
