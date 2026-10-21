@@ -45,10 +45,10 @@ public enum DeclaredTypes {
         var result: [String: String] = [:]
         for spelling in ["Sources", "Source", "src"] {
             let root = URL(fileURLWithPath: projectRoot).appendingPathComponent(spelling)
-            guard let walker = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            ) else { continue }
-            for case let url as URL in walker where url.pathExtension == "swift" {
+            // Most spellings are absent; probing them is not a failed walk worth a warning.
+            for entry in FileTreeWalker(root: root, options: [.skipsHiddenFiles])
+            where entry.url.pathExtension == "swift" {
+                let url = entry.url
                 guard let text = SourceFileReader.read(url, checker: "doc-lint") else { continue }
                 let module = moduleName(of: url, spelling: spelling) ?? "Module"
                 for (name, path) in colliding(in: text, moduleName: module, names: names) {

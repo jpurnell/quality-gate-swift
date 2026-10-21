@@ -109,7 +109,6 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
     ///     still be unable to make this checker stop reading a directory.
     /// - Returns: Diagnostics and a coverage statement.
     public static func scan(root: String, excludePatterns: [String] = []) -> Scan {
-        let fileManager = FileManager.default
         // Erring toward checking everything is the safe direction, but a manifest that
         // exists and will not read produces exclusions silently ignored — findings in
         // files the author deliberately excluded.
@@ -121,13 +120,9 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
         var kernelCount = 0
         var deadFileCount = 0
 
-        guard let walker = fileManager.enumerator(atPath: root) else {
-            return Scan(
-                diagnostics: [],
-                coverageLine: "shaders: could not read \(root) — nothing examined")
-        }
-
-        for case let relative as String in walker {
+        let walker = FileTreeWalker(root: root)
+        for entry in walker {
+            let relative = entry.relativePath
             if relative.contains(".build/") || relative.contains(".git/") { continue }
             // A kernel inside a test file is an *input* to a test, not a shader the
             // program dispatches. This checker's own fixtures are deliberately
@@ -183,13 +178,22 @@ public struct GPUSafetyAuditor: QualityChecker, Sendable {
             }
         }
 
+        if walker.unreadableDirectories.first == root {
+            return Scan(
+                diagnostics: [],
+                coverageLine: "shaders: could not read \(root) — nothing examined")
+        }
         let sorted = diagnostics.sorted {
             ($0.filePath ?? "", $0.lineNumber ?? 0) < ($1.filePath ?? "", $1.lineNumber ?? 0)
         }
+        // A directory the walk could not open hides whatever shaders it holds; the count says
+        // the totals above are a floor, not a census.
+        let unreadable = walker.unreadableDirectories.count
         let coverage = "shaders: \(metalFileCount) .metal file(s)"
             + " · \(embeddedCount) embedded literal(s)"
             + " · \(kernelCount) kernel(s) examined"
             + (deadFileCount > 0 ? " · \(deadFileCount) excluded from every target" : "")
+            + (unreadable > 0 ? " · \(unreadable) unreadable director(ies) not examined" : "")
         return Scan(diagnostics: sorted, coverageLine: coverage)
     }
 

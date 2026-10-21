@@ -475,8 +475,8 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         for (packageRoot, excludePaths) in packageExcludes {
             for dir in ["Sources", "Tests"] {
                 let dirPath = (packageRoot as NSString).appendingPathComponent(dir)
-                guard let enumerator = fm.enumerator(atPath: dirPath) else { continue }
-                while let relativePath = enumerator.nextObject() as? String {
+                for entry in FileTreeWalker(root: dirPath) {
+                    let relativePath = entry.relativePath
                     guard relativePath.hasSuffix(".swift") else { continue }
 
                     let shouldExclude = excludePaths.contains { excludePath in
@@ -733,13 +733,12 @@ public struct DependencyAuditor: QualityChecker, Sendable {
 
     /// Discovers all `Package.swift` files recursively, skipping build artifacts.
     static func discoverPackageManifests(in root: String) -> [String] {
-        let fm = FileManager.default
         var results: [String] = []
 
         let skipDirs: Set<String> = [".build", "Packages", "checkouts", ".swiftpm", "DerivedData"]
 
-        guard let enumerator = fm.enumerator(atPath: root) else { return [] }
-        while let relativePath = enumerator.nextObject() as? String {
+        for entry in FileTreeWalker(root: root) {
+            let relativePath = entry.relativePath
             let lastComponent = (relativePath as NSString).lastPathComponent
 
             // Skip directories that contain build artifacts

@@ -278,10 +278,11 @@ public struct CompileUnitIndex: Sendable, Equatable {
     ///   - configuration: The build configuration name.
     /// - Returns: Absolute paths of the maps, sorted so the index is deterministic.
     static func outputFileMaps(under buildDirectory: String, configuration: String) -> [String] {
-        guard let walker = FileManager.default.enumerator(atPath: buildDirectory) else { return [] }
+        let walker = FileTreeWalker(root: buildDirectory)
         let wanted = configuration.lowercased()
         var maps: [String] = []
-        while let relative = walker.nextObject() as? String {
+        while let entry = walker.next() {
+            let relative = entry.relativePath
             let components = relative.split(separator: "/")
             guard let name = components.last else { continue }
             if prunedDirectoryNames.contains(String(name)) {

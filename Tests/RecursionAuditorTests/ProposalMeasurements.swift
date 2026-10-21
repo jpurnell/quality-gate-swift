@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import SwiftSyntax
 import SwiftParser
+import QualityGateCore
 @testable import RecursionAuditor
 
 /// Temporary measurement harness for `ANameIsNotAnIdentity.md` §15.
@@ -26,10 +27,10 @@ struct ProposalMeasurements {
 
     static func swiftFiles(in package: String) -> [URL] {
         let base = URL(fileURLWithPath: "\(root)/\(package)")
-        guard let e = FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil) else { return [] }
         var out: [URL] = []
-        for case let url as URL in e {
-            let p = url.path
+        for entry in FileTreeWalker(root: base) {
+            let url = entry.url
+            let p = entry.path
             if p.contains("/.build/") || p.contains("/.git/") { continue }
             if url.pathExtension == "swift" { out.append(url) }
         }

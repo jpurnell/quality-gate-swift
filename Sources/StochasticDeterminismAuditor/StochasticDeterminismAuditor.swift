@@ -193,12 +193,11 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
         seedableSignatures: inout Set<SeedableSignature>,
         checkAgainst: Set<SeedableSignature> = []
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return ([], []) }
 
-        while let relativePath = enumerator.nextObject() as? String {
+        for entry in FileTreeWalker(root: path) {
+            let relativePath = entry.relativePath
             guard relativePath.hasSuffix(".swift") else { continue }
 
             // Skip exempt files
@@ -206,7 +205,7 @@ public struct StochasticDeterminismAuditor: QualityChecker, Sendable {
                 continue
             }
 
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+            let fullPath = entry.path
             do {
                 let source = try String(contentsOfFile: fullPath, encoding: .utf8)
                 let result = auditSourceCode(

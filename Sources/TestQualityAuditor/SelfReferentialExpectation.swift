@@ -81,15 +81,13 @@ enum SelfReferentialExpectation {
     /// Indexes every single-expression function body under a package's source roots.
     static func buildIndex(projectRoot: String) -> ImplementationIndex {
         var index = ImplementationIndex()
-        let manager = FileManager.default
 
         for spelling in ["Sources", "Source", "src"] {
             let root = URL(fileURLWithPath: projectRoot).appendingPathComponent(spelling)
-            guard let walker = manager.enumerator(
-                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            ) else { continue }
 
-            for case let url as URL in walker where url.pathExtension == "swift" {
+            for entry in FileTreeWalker(root: root, options: [.skipsHiddenFiles])
+            where entry.url.pathExtension == "swift" {
+                let url = entry.url
                 guard !url.path.contains(".build/"), !url.path.contains(".docc/") else {
                     continue
                 }

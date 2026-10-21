@@ -186,15 +186,14 @@ public enum ReleasePreflight {
     /// - Returns: The declared version, or `nil` when the project states none.
     public static func declaredVersion(inProjectAt root: String) -> String? {
         let sources = (root as NSString).appendingPathComponent("Sources")
-        guard let enumerator = FileManager.default.enumerator(atPath: sources) else { return nil }
 
         // Keeps a pre-release identifier, as the CHANGELOG and README readers do — the three
         // must agree about what a version string is or they disagree about the same release.
         let pattern = #/version\s*[:=]\s*"(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?)"/#
 
-        while let relative = enumerator.nextObject() as? String {
-            guard relative.hasSuffix(".swift") else { continue }
-            let full = (sources as NSString).appendingPathComponent(relative)
+        for entry in FileTreeWalker(root: sources) {
+            guard entry.relativePath.hasSuffix(".swift") else { continue }
+            let full = entry.path
             let contents: String
             do {
                 contents = try String(contentsOfFile: full, encoding: .utf8)

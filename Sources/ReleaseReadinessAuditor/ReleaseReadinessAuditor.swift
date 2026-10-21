@@ -600,12 +600,10 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
         requireIssueReference: Bool,
         excludePatterns: [String]
     ) -> [Diagnostic] {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(atPath: path) else { return [] }
-
         var diagnostics: [Diagnostic] = []
 
-        while let relativePath = enumerator.nextObject() as? String {
+        for entry in FileTreeWalker(root: path) {
+            let relativePath = entry.relativePath
             guard relativePath.hasSuffix(".swift") else { continue }
 
             // Skip excluded patterns
@@ -617,7 +615,7 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
             }
             if excluded { continue }
 
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+            let fullPath = entry.path
             do {
                 let content = try String(contentsOfFile: fullPath, encoding: .utf8)
                 diagnostics.append(

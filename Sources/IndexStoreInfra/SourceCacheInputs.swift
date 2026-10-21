@@ -157,27 +157,18 @@ public enum SourceCacheInputs {
 
     /// The uncached enumeration behind `docCatalogueFiles`.
     private static func enumerateDocCatalogueFiles(under projectRoot: URL) -> [String] {
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: projectRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles],
-            errorHandler: nil
-        ) else { return [] }
-
+        let walker = FileTreeWalker(root: projectRoot, options: [.skipsHiddenFiles])
         var found: [String] = []
-        for case let url as URL in enumerator {
-            let name = url.lastPathComponent
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if isDirectory == true {
+        for entry in walker {
+            if entry.isDirectory {
                 // Descend into `.docc`; skip the build output that would otherwise dominate.
-                if SourceWalker.defaultSkipDirectories.contains(name) {
-                    enumerator.skipDescendants()
+                if SourceWalker.defaultSkipDirectories.contains(entry.name) {
+                    walker.skipDescendants()
                 }
                 continue
             }
-            if url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasSuffix(".docc") }) {
-                found.append(url.path)
+            if entry.url.deletingLastPathComponent().pathComponents.contains(where: { $0.hasSuffix(".docc") }) {
+                found.append(entry.path)
             }
         }
         return found.sorted()

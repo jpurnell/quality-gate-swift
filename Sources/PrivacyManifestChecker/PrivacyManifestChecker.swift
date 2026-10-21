@@ -250,18 +250,8 @@ public struct PrivacyManifestChecker: QualityChecker, Sendable {
     /// DerivedData live under dot-directories) so scans stay fast and don't pick
     /// up vendored Info.plists.
     static func collectFiles(under root: String) -> [URL] {
-        let rootURL = URL(fileURLWithPath: root)
-        guard let enumerator = FileManager.default.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        var files: [URL] = []
-        for case let url as URL in enumerator {
-            let isRegular = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
-            if isRegular { files.append(url) }
-        }
-        return files
+        FileTreeWalker(root: root, options: [.skipsHiddenFiles])
+            .filter(\.isRegularFile)
+            .map(\.url)
     }
 }

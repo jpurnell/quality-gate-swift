@@ -144,18 +144,13 @@ public enum ProjectStateCollector {
 
     /// Count Swift files and total lines in a directory.
     static func countSwiftFiles(at path: String) -> (fileCount: Int, lineCount: Int) {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return (0, 0)
-        }
-
         var fileCount = 0
         var lineCount = 0
 
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
+        for entry in FileTreeWalker(root: path) {
+            guard entry.relativePath.hasSuffix(".swift") else { continue }
 
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+            let fullPath = entry.path
             fileCount += 1
 
             do {
@@ -171,17 +166,12 @@ public enum ProjectStateCollector {
 
     /// Estimate test count by counting @Test and func test occurrences.
     static func countTestOccurrences(at path: String) -> Int {
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return 0
-        }
-
         var count = 0
 
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
+        for entry in FileTreeWalker(root: path) {
+            guard entry.relativePath.hasSuffix(".swift") else { continue }
 
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+            let fullPath = entry.path
             let content: String
             do {
                 content = try String(contentsOfFile: fullPath, encoding: .utf8)

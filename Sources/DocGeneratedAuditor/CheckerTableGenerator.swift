@@ -120,15 +120,10 @@ public struct CheckerTableGenerator: RegionGenerator {
     /// would otherwise re-read the tree hundreds of times for a table that fits on a screen.
     static func declarations(under projectRoot: URL) -> [String: Declaration] {
         let sources = projectRoot.appendingPathComponent("Sources", isDirectory: true)
-        let manager = FileManager.default
-        guard let walker = manager.enumerator(
-            at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else {
-            return [:]
-        }
-
         var found: [String: Declaration] = [:]
-        for case let file as URL in walker where file.pathExtension == "swift" {
+        for entry in FileTreeWalker(root: sources, options: [.skipsHiddenFiles])
+        where entry.url.pathExtension == "swift" {
+            let file = entry.url
             guard let source = SourceFileReader.read(file, checker: "doc-generated") else {
                 continue
             }

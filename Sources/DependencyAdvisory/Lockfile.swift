@@ -123,21 +123,15 @@ enum LockfileDiscovery {
 
     /// Relative paths of every `Package.resolved` under `root`, sorted, capped at ``maximumLockfiles``.
     static func lockfilePaths(under root: URL) -> [String] {
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: keys, options: [], errorHandler: nil) else { return [] }
-
-        let prefix = root.standardizedFileURL.path
+        let walker = FileTreeWalker(root: root)
         var found: [String] = []
-        while let url = enumerator.nextObject() as? URL {
-            let name = url.lastPathComponent
-            if skippedDirectories.contains(name) {
-                enumerator.skipDescendants()
+        while let entry = walker.next() {
+            if skippedDirectories.contains(entry.name) {
+                walker.skipDescendants()
                 continue
             }
-            guard name == "Package.resolved" else { continue }
-            let path = url.standardizedFileURL.path
-            found.append(path.hasPrefix(prefix + "/") ? String(path.dropFirst(prefix.count + 1)) : path)
+            guard entry.name == "Package.resolved" else { continue }
+            found.append(entry.relativePath)
             if found.count >= maximumLockfiles { break }
         }
         return found.sorted()

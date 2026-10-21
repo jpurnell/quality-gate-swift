@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import QualityGateLogging
 
 /// Whether an index store was built with the package's test targets in it.
@@ -66,12 +67,10 @@ public enum IndexTestCoverage {
         let manager = FileManager.default
         // SAFETY: read-only walk of the project's own test sources
         guard manager.fileExists(atPath: tests.path) else { return [] }
-        guard let walker = manager.enumerator(
-            at: tests, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
-
         var names: Set<String> = []
-        for case let url as URL in walker where url.pathExtension == "swift" {
-            names.insert(url.deletingPathExtension().lastPathComponent)
+        for entry in FileTreeWalker(root: tests, options: [.skipsHiddenFiles])
+        where (entry.name as NSString).pathExtension == "swift" {
+            names.insert((entry.name as NSString).deletingPathExtension)
         }
         return names
     }

@@ -326,19 +326,14 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         at path: String,
         configuration: Configuration
     ) async throws -> (diagnostics: [Diagnostic], total: Int, documented: Int) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var totalAPIs = 0
         var documentedAPIs = 0
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], 0, 0)
-        }
+        for entry in FileTreeWalker(root: path) {
+            guard entry.relativePath.hasSuffix(".swift") else { continue }
 
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+            let fullPath = entry.path
 
             // Check exclude patterns
             if shouldExclude(path: fullPath, patterns: configuration.excludePatterns) {

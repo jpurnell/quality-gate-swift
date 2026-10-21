@@ -227,18 +227,13 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
         configuration: Configuration,
         implementations: SelfReferentialExpectation.ImplementationIndex
     ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
-        let fileManager = FileManager.default
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
 
-        guard let enumerator = fileManager.enumerator(atPath: path) else {
-            return ([], [])
-        }
+        for entry in FileTreeWalker(root: path) {
+            guard entry.relativePath.hasSuffix(".swift") else { continue }
 
-        while let relativePath = enumerator.nextObject() as? String {
-            guard relativePath.hasSuffix(".swift") else { continue }
-
-            let fullPath = (path as NSString).appendingPathComponent(relativePath)
+            let fullPath = entry.path
 
             if shouldExclude(path: fullPath, patterns: configuration.excludePatterns) {
                 continue
@@ -337,16 +332,14 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
     /// - Parameter projectRoot: The package root.
     /// - Returns: One warning per uncovered candidate, ordered by file then line.
     static func propertyCoverageDiagnostics(projectRoot: String) -> [Diagnostic] {
-        let manager = FileManager.default
         var candidates: [PropertyCoverage.Candidate] = []
         var calls: [String: Set<String>] = [:]
 
         for spelling in ["Sources", "Source", "src"] {
             let root = URL(fileURLWithPath: projectRoot).appendingPathComponent(spelling)
-            guard let walker = manager.enumerator(
-                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            ) else { continue }
-            for case let url as URL in walker where url.pathExtension == "swift" {
+            for entry in FileTreeWalker(root: root, options: [.skipsHiddenFiles])
+            where entry.url.pathExtension == "swift" {
+                let url = entry.url
                 guard !url.path.contains(".build/"), !url.path.contains(".docc/") else { continue }
                 guard let text = SourceFileReader.read(url, checker: "test-quality") else { continue }
                 let found = PropertyCoverage.candidates(in: text, path: url.path)
@@ -360,13 +353,12 @@ public struct TestQualityAuditor: QualityChecker, Sendable {
 
         var covered: Set<String> = []
         let tests = URL(fileURLWithPath: projectRoot).appendingPathComponent("Tests")
-        if let walker = manager.enumerator(
-            at: tests, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            for case let url as URL in walker where url.pathExtension == "swift" {
-                guard !url.path.contains(".build/") else { continue }
-                guard let text = SourceFileReader.read(url, checker: "test-quality") else { continue }
-                covered.formUnion(PropertyCoverage.propertyCoveredSymbols(inTestSource: text))
-            }
+        for entry in FileTreeWalker(root: tests, options: [.skipsHiddenFiles])
+        where entry.url.pathExtension == "swift" {
+            let url = entry.url
+            guard !url.path.contains(".build/") else { continue }
+            guard let text = SourceFileReader.read(url, checker: "test-quality") else { continue }
+            covered.formUnion(PropertyCoverage.propertyCoveredSymbols(inTestSource: text))
         }
 
         return PropertyCoverage.findings(

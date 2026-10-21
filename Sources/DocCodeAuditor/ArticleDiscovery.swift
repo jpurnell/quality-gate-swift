@@ -36,13 +36,10 @@ public enum ArticleDiscovery {
         // failure mode this suite exists to prevent, shipped inside the suite.
         for spelling in SourceLayout.spellings {
             let sources = projectRoot.appendingPathComponent(spelling, isDirectory: true)
-            guard let walker = manager.enumerator(
-                at: sources, includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-            for case let url as URL in walker where url.pathExtension == "docc" {
+            // Most spellings are absent; probing them is not a failed walk worth a warning.
+            let walker = FileTreeWalker(root: sources, options: [.skipsHiddenFiles])
+            for entry in walker where entry.url.pathExtension == "docc" {
+                let url = entry.url
                 let module = url.deletingLastPathComponent().lastPathComponent
                 byModule[module, default: []] += markdown(under: url, excluding: configuration.excludePatterns)
                 walker.skipDescendants()
@@ -78,13 +75,8 @@ public enum ArticleDiscovery {
 
     /// Markdown files under a catalogue, excluding anything the configuration excludes.
     static func markdown(under catalogue: URL, excluding patterns: [String]) -> [URL] {
-        let manager = FileManager.default
-        guard let walker = manager.enumerator(
-            at: catalogue, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-        return walker.compactMap { $0 as? URL }
+        FileTreeWalker(root: catalogue, options: [.skipsHiddenFiles])
+            .map(\.url)
             .filter { $0.pathExtension.lowercased() == "md" }
             .filter { url in !patterns.contains { url.path.contains($0) } }
     }

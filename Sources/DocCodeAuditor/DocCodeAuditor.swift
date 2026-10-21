@@ -152,15 +152,12 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     /// into `.build/checkouts` — thousands of dependency files, and a fingerprint nobody
     /// would wait for. A dependency change reaches the fingerprint via `Package.resolved`.
     static func swiftSources(under projectRoot: URL, excluding patterns: [String]) -> [String] {
-        let manager = FileManager.default
         var files: [String] = []
         for subdirectory in SourceLayout.spellings + ["Tests"] {
             let directory = projectRoot.appendingPathComponent(subdirectory, isDirectory: true)
-            guard let walker = manager.enumerator(
-                at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            ) else { continue }
-            files += walker.compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" }
+            // Most spellings are absent; probing them is not a failed walk worth a warning.
+            files += FileTreeWalker(root: directory, options: [.skipsHiddenFiles])
+                .filter { $0.url.pathExtension == "swift" }
                 .map(\.path)
                 .filter { path in !patterns.contains { path.contains($0) } }
         }

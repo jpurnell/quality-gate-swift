@@ -75,13 +75,8 @@ public struct ErrorRegistryGenerator: RegionGenerator {
     /// shortened list.
     static func locate(enumName: String, under projectRoot: URL) -> Located? {
         let sources = projectRoot.appendingPathComponent("Sources", isDirectory: true)
-        let manager = FileManager.default
-        guard let walker = manager.enumerator(
-            at: sources, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
-        let files = walker.compactMap { $0 as? URL }
+        let files = FileTreeWalker(root: sources, options: [.skipsHiddenFiles])
+            .map(\.url)
             .filter { $0.pathExtension == "swift" }
             .sorted { $0.path < $1.path }
 

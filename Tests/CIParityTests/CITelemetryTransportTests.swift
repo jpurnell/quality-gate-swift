@@ -106,8 +106,7 @@ struct CITelemetryTransportTests {
         let verify = sandbox.appendingPathComponent("verify", isDirectory: true)
         try git(["clone", "-q", bare.path, verify.path], cwd: sandbox)
         let telemetryRoot = verify.appendingPathComponent("telemetry/transport-fixture", isDirectory: true)
-        let enumerator = FileManager.default.enumerator(atPath: telemetryRoot.path)
-        let metadataFiles = (enumerator?.allObjects as? [String] ?? [])
+        let metadataFiles = FileTreeWalker(root: telemetryRoot).map(\.relativePath)
             .filter { $0.hasSuffix("_metadata.json") }
         #expect(metadataFiles.count == 1)
         let content = try String(
