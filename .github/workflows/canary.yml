@@ -5,7 +5,14 @@ name: Canary — Reusable Workflow Smoke Test
 # build failures, missing permissions) before they propagate to the
 # 50+ consumer projects that reference @main.
 
+# `./` — the workflow as committed alongside this file, not `@main`. Calling `@main` meant a
+# change to the reusable workflow could only be canaried after it had already reached every
+# consumer, which is the opposite of a canary. On a pull request this now runs the PR's copy.
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/quality-gate-reusable.yml'
+      - '.github/workflows/canary.yml'
   push:
     branches: [main]
     paths:
@@ -20,12 +27,27 @@ permissions:
 
 jobs:
   canary:
-    uses: jpurnell/quality-gate-swift/.github/workflows/quality-gate-reusable.yml@main
+    uses: ./.github/workflows/quality-gate-reusable.yml
     with:
-      checks: "safety dependency-audit"
+      checks: "safety dependency-audit dependency-advisory"
       continue-on-failure: true
     secrets:
       # Not corpus access — this is the token that lets the "Build quality-gate
       # from latest main" step clone jpurnell/quality-gate-swift, which is
       # private. No corpus-repo is set here, so no corpus credential is needed.
+      dependency-token: ${{ secrets.SPM_PRIVATE_DEPS_TOKEN }}
+
+  # The same call again, after the first has saved its cache, so this one restores it.
+  #
+  # The cache-hit path is the one most consumer runs take and, until 2026-10-21, the one
+  # nothing exercised: the job above builds on a miss, so it always passed, while every hit
+  # restored a binary without its resource bundles and crashed on the first resource read.
+  # `dependency-advisory` is in the check list because it is the checker that crashed.
+  canary-cache-hit:
+    needs: canary
+    uses: ./.github/workflows/quality-gate-reusable.yml
+    with:
+      checks: "safety dependency-audit dependency-advisory"
+      continue-on-failure: true
+    secrets:
       dependency-token: ${{ secrets.SPM_PRIVATE_DEPS_TOKEN }}

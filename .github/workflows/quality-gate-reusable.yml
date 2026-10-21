@@ -93,6 +93,11 @@ on:
       # landed on `main` and reached every repo at once, and worse, an attempt to test one
       # produced a confident result about code that was never in the run. Both happened while
       # fixing the search-path bug in this release, and the wrong conclusion was drawn twice.
+      fail-on-findings:
+        description: "Fail the job when the gate reports failures (exit 1). A gate that crashes or cannot run fails the job regardless."
+        type: boolean
+        required: false
+        default: false
       gate-ref:
         description: "Branch, tag or SHA of quality-gate-swift to build the gate from. Defaults to main; set it to verify a gate change before merging."
         type: string
@@ -168,13 +173,23 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "gate source: $GATE_REF -> $SHA"
 
-      - name: Cache quality-gate binary
+      # The cache holds the whole install — the binary *and* the resource bundles beside it —
+      # and until 2026-10-21 it held the binary alone. `Bundle.module` looks next to the
+      # executable first and then at the absolute path it was built at, so on a cache miss the
+      # binary found its bundles in `/tmp/quality-gate-swift/.build` by accident, and on every
+      # cache hit that tree did not exist and the first checker to read a resource died:
+      #
+      #   DependencyAdvisory/resource_bundle_accessor.swift:12: Fatal error: could not load resource bundle
+      #
+      # The run step then swallowed the crash (below), so the job reported success. `v2` in the
+      # key keeps a binary-only entry from ever being restored again.
+      - name: Cache quality-gate install
         if: ${{ !inputs.self-hosted }}
         id: qg-cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: /usr/local/bin/quality-gate
-          key: quality-gate-${{ steps.qg-rev.outputs.sha }}-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+          path: ~/.quality-gate/bin
+          key: quality-gate-v2-${{ steps.qg-rev.outputs.sha }}-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
 
       - name: Configure git auth for private dependencies
         # Hosted only. This rewrites GLOBAL git config to inject a token; on a
@@ -227,8 +242,7 @@ jobs:
           echo "CORPUS_TRANSPORT=ssh" >> "$GITHUB_ENV"
 
       - name: Build quality-gate from ${{ inputs.gate-ref }}
-        # Installs to /usr/local/bin, which is why it is hosted-only: that path
-        # needs privileges a self-hosted runner should not be exercising.
+        # Hosted only: a self-hosted runner keeps its owner's install (below).
         if: ${{ !inputs.self-hosted && steps.qg-cache.outputs.cache-hit != 'true' }}
         timeout-minutes: 25
         env:
@@ -244,8 +258,34 @@ jobs:
             tail -50 /tmp/qg-build.log
             exit $BUILD_EXIT
           fi
-          cp .build/release/quality-gate /usr/local/bin/
-          echo "quality-gate built from $(git rev-parse --short HEAD)"
+          # `--show-bin-path`, not `.build/release`: the swiftbuild backend writes to `.build/out`
+          # and the symlink that papers over it is not promised (see linux.yml).
+          BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
+          INSTALL="$HOME/.quality-gate/bin"
+          mkdir -p "$INSTALL"
+          cp "$BIN/quality-gate" "$INSTALL/"
+          # Every bundle the build wrote, from every package — not `quality-gate-swift_*` alone.
+          # Either spelling: `.bundle` or `.resources` follows the build system, not the OS.
+          find "$BIN" -maxdepth 1 \( -name '*.bundle' -o -name '*.resources' \) -exec cp -R {} "$INSTALL/" \;
+          # The manifest is what "Verify the install" checks a restored cache against.
+          (cd "$INSTALL" && find . -maxdepth 1 \( -name '*.bundle' -o -name '*.resources' \) | sort > bundles.txt)
+          echo "quality-gate built from $(git rev-parse --short HEAD) with $(wc -l < "$INSTALL/bundles.txt" | tr -d ' ') resource bundles"
+
+      - name: Verify the install
+        # Runs on a cache hit as well as a miss, which is the point: the hit is the path that
+        # broke, and nothing exercised it. A bundle that is missing here is a crash later.
+        if: ${{ !inputs.self-hosted }}
+        run: |
+          INSTALL="$HOME/.quality-gate/bin"
+          [ -x "$INSTALL/quality-gate" ] || { echo "::error::no quality-gate binary at $INSTALL"; exit 1; }
+          [ -s "$INSTALL/bundles.txt" ] || { echo "::error::$INSTALL has no bundle manifest — the install predates bundle caching or the build wrote no bundles"; exit 1; }
+          missing=0
+          while read -r bundle; do
+            [ -d "$INSTALL/$bundle" ] || { echo "::error::resource bundle missing from the install: $bundle"; missing=1; }
+          done < "$INSTALL/bundles.txt"
+          [ "$missing" -eq 0 ] || exit 1
+          echo "$INSTALL" >> "$GITHUB_PATH"
+          echo "install verified: binary + $(wc -l < "$INSTALL/bundles.txt" | tr -d ' ') resource bundles (cache hit: ${{ steps.qg-cache.outputs.cache-hit == 'true' }})"
 
       - name: Ensure quality-gate (self-hosted)
         # Self-hosted path: prefer whatever the owner already installed, and only
@@ -274,9 +314,14 @@ jobs:
               tail -50 "$RUNNER_TEMP/qg-build.log"
               exit "$BUILD_EXIT"
             fi
-            mkdir -p "$HOME/.local/bin"
-            cp .build/release/quality-gate "$HOME/.local/bin/"
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            # Its own directory, with its bundles beside it: `$RUNNER_TEMP` is cleaned between
+            # jobs, so a binary copied out alone would find its resources only until then.
+            BIN="$(swift build -c release --show-bin-path --disable-automatic-resolution)"
+            INSTALL="$HOME/.local/lib/quality-gate"
+            mkdir -p "$INSTALL"
+            cp "$BIN/quality-gate" "$INSTALL/"
+            find "$BIN" -maxdepth 1 \( -name '*.bundle' -o -name '*.resources' \) -exec cp -R {} "$INSTALL/" \;
+            echo "$INSTALL" >> "$GITHUB_PATH"
             echo "quality-gate built from $(git rev-parse --short HEAD)"
           fi
 
@@ -337,7 +382,33 @@ jobs:
           fi
 
           echo "Running: quality-gate $ARGS"
-          quality-gate $ARGS || echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          # Until 2026-10-21 this line was `quality-gate $ARGS || echo "exit_code=$?" >> ...`,
+          # and nothing read `exit_code`. Every outcome — findings, a bad config, a crash —
+          # finished the step green. That is how a gate that died on its first resource read
+          # was reported as a passing run across the fleet.
+          #
+          # The gate exits 0 when it passes and 1 when it reports failures. Anything else is the
+          # gate not having run: a fatal error (SIGTRAP, 133), a signal, an argument error.
+          # That always fails the job; there is no verdict to continue past.
+          set +e
+          quality-gate $ARGS
+          STATUS=$?
+          set -e
+          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+          case "$STATUS" in
+            0) echo "quality gate passed." ;;
+            1)
+              if [ "${{ inputs.fail-on-findings }}" = "true" ]; then
+                echo "::error::quality gate reported failures."
+                exit 1
+              fi
+              echo "::warning::quality gate reported failures (fail-on-findings is off, so the job stays green)."
+              ;;
+            *)
+              echo "::error::quality-gate did not complete (exit $STATUS). This is the tool failing, not a verdict on the project."
+              exit "$STATUS"
+              ;;
+          esac
 
       - name: Push telemetry to corpus
         if: inputs.corpus-repo != '' && always()

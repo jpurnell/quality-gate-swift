@@ -81,6 +81,28 @@
 
 ### Fixed
 
+- **The reusable workflow reported success when the gate never ran.** Three faults, each hiding
+  the other:
+  - *The cache held the binary without its resource bundles.* `Bundle.module` falls back to
+    the absolute path the gate was built at, so a cache miss found its bundles in
+    `/tmp/quality-gate-swift/.build` by accident; every cache hit crashed on the first
+    resource read (`DependencyAdvisory/resource_bundle_accessor.swift:12: Fatal error: could
+    not load resource bundle`, exit 133). The install now lives in `~/.quality-gate/bin` with
+    every bundle the build wrote, the cache holds that directory under a `v2` key, and a new
+    *Verify the install* step checks a restored cache against the bundle manifest written at
+    build time. The self-hosted install copies its bundles too.
+  - *The run step discarded the exit status* (`quality-gate $ARGS || echo "exit_code=$?"`,
+    an output nothing read) from 2026-06-07 on, so findings, configuration errors and crashes
+    all finished green. An exit other than 0 or 1 — the gate not completing — now fails the
+    job unconditionally. Exit 1 (failures reported) raises a warning annotation, and fails
+    the job when the new `fail-on-findings` input is `true`; it defaults to `false` so
+    consumers that have been green on findings are not turned red without a decision.
+  - *The canary could not see either fault.* It called `@main`, so a workflow change was
+    canaried only after it reached every consumer, and it ran once per push, which is always
+    a cache miss. It now calls `./`, runs on pull requests that touch the workflow, and a
+    second job restores the first job's cache and runs `dependency-advisory`, the checker
+    that crashed.
+
 - **The memory builder's project profile named the wrong project** whenever `Package.swift`
   declared a target above `Package(`. It took the first `name: "..."` in the file, so
   swift-oauth — which binds its `CSQLite` system library to a `let` first — was profiled as
