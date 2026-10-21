@@ -57,6 +57,11 @@
 
 ### Changed
 
+- **`fail-on-findings` defaults to `true`.** A gate that reports failures now fails the job
+  unless the caller opts out. It shipped `false` for a day (PR #54) so the crash fix and a
+  fleet-wide change of verdict did not land together; the owner's decision on 2026-10-21 was
+  that a gate whose failures stay green is the defect being fixed, so off is not a default.
+  Audit-only callers can pass `fail-on-findings: false`.
 - **A `.quality-gate.yml` that cannot be read stops the run.** Exit 1, the file named, the
   decoder's complaint quoted with the key it is about, and `Nothing was run.` It used to be
   replaced by the built-in defaults with a log line visible only under `--verbose`, so every
@@ -95,8 +100,7 @@
     an output nothing read) from 2026-06-07 on, so findings, configuration errors and crashes
     all finished green. An exit other than 0 or 1 — the gate not completing — now fails the
     job unconditionally. Exit 1 (failures reported) raises a warning annotation, and fails
-    the job when the new `fail-on-findings` input is `true`; it defaults to `false` so
-    consumers that have been green on findings are not turned red without a decision.
+    the job when the new `fail-on-findings` input is `true` (the default since the next change).
   - *The canary could not see either fault.* It called `@main`, so a workflow change was
     canaried only after it reached every consumer, and it ran once per push, which is always
     a cache miss. It now calls `./`, runs on pull requests that touch the workflow, and a
