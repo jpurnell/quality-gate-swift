@@ -467,7 +467,16 @@ jobs:
             gh issue comment "$EXISTING" --body "$BODY"
             echo "Commented on existing issue #$EXISTING"
           else
-            gh issue create --title "$TITLE" --body "$BODY" --label "ci-failure"
+            # A fresh repo has no "ci-failure" label, and `gh issue create --label`
+            # fails outright on an unknown one — which lost the failure report itself.
+            # Ensure the label exists; if it cannot be created, open the issue unlabelled.
+            if gh label create "ci-failure" --color B60205 \
+                 --description "Opened automatically by a failed CI quality gate" --force >/dev/null 2>&1; then
+              gh issue create --title "$TITLE" --body "$BODY" --label "ci-failure"
+            else
+              echo "::warning::Could not create the ci-failure label; opening the issue without it."
+              gh issue create --title "$TITLE" --body "$BODY"
+            fi
             echo "Opened new failure issue"
           fi
 
