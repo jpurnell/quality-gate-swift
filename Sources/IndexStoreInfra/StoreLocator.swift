@@ -593,14 +593,57 @@ public enum StoreLocator {
         return store
     }
 
-    private static func needsRebuild(packageRoot: URL, store: URL) -> Bool {
+    static func needsRebuild(packageRoot: URL, store: URL) -> Bool {
         let fm = FileManager.default
         guard fm.fileExists(atPath: store.path) else { return true } // SAFETY: CLI tool checks local index store path
         guard let storeMtime = mtime(of: store) else { return true }
         // Same layout assumption as above, with a worse failure: the old `else { return false }`
         // meant "never rebuild" for any package that keeps its code outside `Sources/`.
         guard let newestSource = newestSwiftMtime(under: packageRoot) else { return false }
-        return newestSource > storeMtime
+        if newestSource > storeMtime { return true }
+        // Newer than the sources answers "is it current?", not "does it cover the tests?". A
+        // library-only store handed to `unreachable` made it refuse to run (BusinessMathExcel
+        // nightly, 2026-10-22). The attempt marker keeps a package whose tests never reach the
+        // index from being rebuilt on every run: once tried, the answer stands until a source
+        // changes, which makes the store stale and re-asks.
+        return storeMissesTestTargets(packageRoot: packageRoot, store: store)
+            && !testCoverageAttempted(packageRoot: packageRoot)
+    }
+
+    /// Where a test-inclusive index build leaves its "tried, and still no tests" record.
+    static func testCoverageMarker(packageRoot: URL) -> URL {
+        indexBuildDirectory(packageRoot: packageRoot).appendingPathComponentUnstatted(".test-coverage-attempted")
+    }
+
+    /// Whether a test-inclusive build has already been tried for the current store.
+    static func testCoverageAttempted(packageRoot: URL) -> Bool {
+        // SAFETY: read-only existence probe of the gate's own marker inside .build
+        FileManager.default.fileExists(atPath: testCoverageMarker(packageRoot: packageRoot).path)
+    }
+
+    /// Records that a test-inclusive build ran and the store still holds no test units.
+    ///
+    /// The reason is the file's content, so a reader of `.build` can tell a test target that
+    /// did not compile from one that compiled and was not indexed.
+    static func recordTestCoverageAttempt(packageRoot: URL, reason: String) {
+        let marker = testCoverageMarker(packageRoot: packageRoot)
+        do {
+            try FileManager.default.createDirectory(
+                at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(reason.utf8).write(to: marker)
+        } catch {
+            logger.warning("could not record the test-coverage attempt at \(marker.path, privacy: .public); the store will be rebuilt on the next run: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private static func clearTestCoverageAttempt(packageRoot: URL) {
+        let marker = testCoverageMarker(packageRoot: packageRoot)
+        guard testCoverageAttempted(packageRoot: packageRoot) else { return }
+        do {
+            try FileManager.default.removeItem(at: marker)
+        } catch {
+            logger.warning("could not clear the test-coverage marker at \(marker.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Returns the modification date of the file at `url`, or nil if unavailable.
@@ -713,6 +756,16 @@ public enum StoreLocator {
         // A package whose test target is broken must not lose its *entire* index over it —
         // that would trade partial coverage for none, which is strictly worse than the
         // behaviour this replaces.
+        clearTestCoverageAttempt(packageRoot: packageRoot)
+        defer {
+            // Whichever way the build went, if the store still cannot answer for tests, say
+            // so once so `needsRebuild` does not retry it forever.
+            if storeMissesTestTargets(packageRoot: packageRoot, store: store) {
+                recordTestCoverageAttempt(
+                    packageRoot: packageRoot,
+                    reason: lastTestBuildFailure.value ?? "the test-inclusive build produced no unit named *Tests*")
+            }
+        }
         do {
             try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: true)
             lastTestBuildFailure.clear()

@@ -251,4 +251,77 @@ struct StoreLocationTests {
         #expect(StoreLocator.freshSwiftbuildStore(packageRoot: root)?.path == store.path)
     }
 
+
+    // MARK: - Is a dedicated store that holds no tests still "fresh"?
+
+    /// A dedicated store (`.build/index-build/index-store`) whose units are exactly `units`,
+    /// dated *after* the one source file, so `needsRebuild` has no mtime reason to say yes.
+    private func makeFreshDedicatedStore(in root: URL, units: [String], withTestsDirectory: Bool) throws -> URL {
+        let fm = FileManager.default
+        let source = root.appendingPathComponent("Sources/Core/Thing.swift")
+        try fm.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("struct Thing {}".utf8).write(to: source)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: source.path)
+
+        if withTestsDirectory {
+            try fm.createDirectory(at: root.appendingPathComponent("Tests/CoreTests"), withIntermediateDirectories: true)
+        }
+
+        let store = StoreLocator.managedStore(packageRoot: root)
+        let unitsDirectory = StoreLocator.unitsDirectory(in: store)
+        try fm.createDirectory(at: unitsDirectory, withIntermediateDirectories: true)
+        for unit in units {
+            // SECURITY: a test fixture; unit names come from the calling test's own literal arguments
+            fm.createFile(atPath: unitsDirectory.appendingPathComponent(unit).path, contents: Data())
+        }
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 3_000_000)], ofItemAtPath: store.path)
+        return store
+    }
+
+    @Test("A store newer than the sources but holding no test units is rebuilt")
+    func freshStoreWithoutTestsNeedsRebuild() throws {
+        // The 2026-10-22 BusinessMathExcel nightly: a 573-unit library-only store, newer than
+        // every source, handed to `unreachable`, which then refused to run. Newer-than-sources
+        // answered "is it current?" and nobody asked "does it cover the tests?".
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try makeFreshDedicatedStore(in: root, units: ["Core-ABC.o", "Helpers-DEF.o"], withTestsDirectory: true)
+
+        #expect(StoreLocator.needsRebuild(packageRoot: root, store: store))
+    }
+
+    @Test("A fresh store that holds test units is left alone")
+    func freshStoreWithTestsIsNotRebuilt() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try makeFreshDedicatedStore(
+            in: root, units: ["Core-ABC.o", "CoreTests-DEF.o"], withTestsDirectory: true)
+
+        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store))
+    }
+
+    @Test("A package with no Tests directory is never rebuilt for want of tests")
+    func freshStoreWithoutTestsDirectoryIsNotRebuilt() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try makeFreshDedicatedStore(in: root, units: ["Core-ABC.o"], withTestsDirectory: false)
+
+        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store))
+    }
+
+    @Test("A test-less store is not rebuilt again once a test-inclusive build was attempted")
+    func attemptedStoreIsNotRebuiltForever() throws {
+        // The loop guard. A package whose test target does not compile, or is not named
+        // `...Tests`, comes out of a test-inclusive build still without test units. Without a
+        // record that the build was tried, `needsRebuild` would say yes on every run and an
+        // error would become a permanently slow gate. See FreshStoreWithoutTests.md section 3.1.
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try makeFreshDedicatedStore(in: root, units: ["Core-ABC.o"], withTestsDirectory: true)
+        #expect(StoreLocator.needsRebuild(packageRoot: root, store: store))
+
+        StoreLocator.recordTestCoverageAttempt(packageRoot: root, reason: "no unit named *Tests* was produced")
+
+        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store))
+    }
 }
