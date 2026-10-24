@@ -314,6 +314,31 @@ struct GeneratedModuleMapTests {
         #expect(maps.contains { $0.hasSuffix("DemoClassic.build/module.modulemap") })
     }
 
+    @Test("The classic layout is collected when .build/debug is a symlink, as SwiftPM leaves it")
+    func classicLayoutBehindASymlinkIsCollected() throws {
+        // SwiftPM's classic build puts the products in `.build/<triple>/debug` and leaves
+        // `.build/debug` as a symlink to it. `FileManager.contentsOfDirectory` refuses the
+        // symlink ("Not a directory"), the helper logged a warning and returned nothing, and
+        // every generated modulemap went missing: swift-cli-kit's nightly stopped at
+        // `missing required module 'CNIOAtomics'` on six fences, on the Swift 6.3.3 CI image,
+        // while the Swift Build layout on 6.4 passed. The fixture above makes `debug` a real
+        // directory, which is the one shape SwiftPM does not produce.
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("doc-code-symlink-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        let real = root.appendingPathComponent(".build/arm64-apple-macosx/debug", isDirectory: true)
+        let target = real.appendingPathComponent("DemoSymlinked.build", isDirectory: true)
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("module DemoSymlinked {}".utf8).write(to: target.appendingPathComponent("module.modulemap"))
+        try fm.createSymbolicLink(
+            atPath: root.appendingPathComponent(".build/debug").path,
+            withDestinationPath: "arm64-apple-macosx/debug")
+
+        let maps = DocCodeAuditor.generatedModuleMaps(projectRoot: root)
+        #expect(maps.contains { $0.hasSuffix("DemoSymlinked.build/module.modulemap") })
+    }
+
     @Test("A project with neither layout yields nothing, not an error")
     func neitherLayoutIsNotAnError() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
