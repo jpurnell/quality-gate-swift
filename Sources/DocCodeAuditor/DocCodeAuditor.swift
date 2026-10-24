@@ -51,6 +51,21 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
             return try manager.contentsOfDirectory(
                 at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         } catch {
+            // SwiftPM's classic build leaves `.build/debug` as a symlink to
+            // `.build/<triple>/debug`, and Foundation refuses to list through it ("Not a
+            // directory"). Following the link here is the difference between collecting every
+            // generated modulemap and none: swift-cli-kit's nightly stopped at
+            // `missing required module 'CNIOAtomics'` for exactly this reason.
+            let resolved = url.resolvingSymlinksInPath()
+            if resolved.path != url.path {
+                do {
+                    return try manager.contentsOfDirectory(
+                        at: resolved, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+                } catch {
+                    Self.logger.debug(
+                        "doc-code could not list \(resolved.path, privacy: .public) either: \(error.localizedDescription, privacy: .public)")
+                }
+            }
             Self.logger.warning(
                 "doc-code could not list \(url.path, privacy: .public), continuing without it: \(error.localizedDescription, privacy: .public)")
             return []
