@@ -86,6 +86,20 @@
 
 ### Fixed
 
+- **A fresh index store that holds no tests is no longer trusted.** On the dedicated-store
+  path (toolchains below 6.4, which is what hosted CI runs), `needsRebuild` judged a store
+  fresh by file time alone. A library-only store newer than the sources was therefore handed
+  to `unreachable`, which refuses to run on an index with no test units — BusinessMathExcel's
+  2026-10-22 nightly failed this way (573 units, 41 s, against 1437 units and 156 s on two
+  diagnostic runs of the same code). The swiftbuild path already checked test coverage; the
+  dedicated one now does too. A package whose tests never reach the index (they do not
+  compile, or are not named `…Tests`) is rebuilt once and then recorded in
+  `.build/index-build/.test-coverage-attempted`, so the check cannot become a rebuild on every
+  run; a source change makes the store stale and asks again. The producer of the test-less
+  store in the failing run is still unidentified. Proposal: `FreshStoreWithoutTests.md` in
+  the companion repository.
+
+
 - **On Linux, checkers could pass a project whose `Sources/` they never read.** Foundation's
   directory enumerator on Linux is built on glibc `fts` with `FTS_NOSTAT`, which counts a
   directory's subdirectories from its link count when the walk opens and assumes the rest are
