@@ -47,25 +47,21 @@ public struct DocCodeAuditor: QualityChecker, Sendable {
     /// directory that could not be read.
     private static func directoryContents(_ manager: FileManager, at url: URL) -> [URL] {
         guard manager.fileExists(atPath: url.path) else { return [] } // SAFETY: read-only probe of a build-layout path
+        // SwiftPM's classic build leaves `.build/debug` as a symlink to `.build/<triple>/debug`.
+        // Foundation does not treat a symlinked directory the same way on every platform:
+        // macOS throws "Not a directory", and Linux returned a listing that held none of the
+        // entries (the CI log carried no warning at all). Either way every generated modulemap
+        // went missing, and swift-cli-kit's nightly stopped at
+        // `missing required module 'CNIOAtomics'`. A fallback after a failure cannot cover the
+        // platform that does not fail, so the link is resolved up front and the real directory
+        // is what gets listed. Entries are mapped back under the path the caller passed, so
+        // nobody downstream sees a different spelling of the same location.
+        let resolved = url.resolvingSymlinksInPath()
         do {
-            return try manager.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            return try manager.contentsOfDirectory(atPath: resolved.path)
+                .filter { !$0.hasPrefix(".") }
+                .map { url.appendingPathComponent($0) }
         } catch {
-            // SwiftPM's classic build leaves `.build/debug` as a symlink to
-            // `.build/<triple>/debug`, and Foundation refuses to list through it ("Not a
-            // directory"). Following the link here is the difference between collecting every
-            // generated modulemap and none: swift-cli-kit's nightly stopped at
-            // `missing required module 'CNIOAtomics'` for exactly this reason.
-            let resolved = url.resolvingSymlinksInPath()
-            if resolved.path != url.path {
-                do {
-                    return try manager.contentsOfDirectory(
-                        at: resolved, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
-                } catch {
-                    Self.logger.debug(
-                        "doc-code could not list \(resolved.path, privacy: .public) either: \(error.localizedDescription, privacy: .public)")
-                }
-            }
             Self.logger.warning(
                 "doc-code could not list \(url.path, privacy: .public), continuing without it: \(error.localizedDescription, privacy: .public)")
             return []

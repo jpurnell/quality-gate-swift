@@ -88,13 +88,15 @@
 
 - **`doc-code` and `doc-comment-code` now find generated modulemaps behind SwiftPM's
   `.build/debug` symlink.** SwiftPM's classic build leaves `.build/debug` as a symlink to
-  `.build/<triple>/debug`, and `FileManager.contentsOfDirectory` refuses to list through it
-  ("Not a directory"). The helper logged a warning and returned nothing, so every generated
+  `.build/<triple>/debug`, and Foundation lists through it differently per platform: macOS
+  throws "Not a directory", Linux returns a listing without the entries and no error. The
+  helper got nothing either way, so every generated
   modulemap — `CNIOAtomics` among them — went missing, and each fence that imported a module
   depending on one stopped at `missing required module`. swift-cli-kit's nightly failed on
   six SSH fences this way on the Swift 6.3.3 CI image, while the Swift Build layout used by
   6.4 has no symlink and passed. Reproduced locally with `swift build --build-system native`.
-  The listing now falls back to the symlink-resolved path.
+  The link is now resolved before listing, so neither platform's behaviour matters. (The
+  first fix only caught macOS's throw; Linux CI failed its regression test after merge.)
 
 
 - **A fresh index store that holds no tests is no longer trusted.** On the dedicated-store
