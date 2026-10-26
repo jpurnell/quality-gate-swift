@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Removed
+
+- **`scripts/bundle-dashboard-app.sh`.** It built a product, the dashboard app, that this package no
+  longer has: the dashboard moved to
+  [`quality-gate-dashboard`](https://github.com/jpurnell/quality-gate-dashboard), whose
+  `scripts/bundle-app.sh` and `scripts/install-app.sh` now build and install `IJS Dashboard.app`
+  (same bundle id, name and icon). Nothing else referenced it.
+
 ## [3.6.0] - 2026-10-26
 
 ### Changed
