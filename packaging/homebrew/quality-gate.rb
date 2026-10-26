@@ -32,7 +32,7 @@ class QualityGate < Formula
   desc "Static analysis for Swift 6 on SwiftSyntax and the index store"
   homepage "https://github.com/jpurnell/quality-gate-swift"
   license "MIT"
-  version "3.5.0"
+  version "3.6.0"
 
   # The package declares `.macOS(.v15)`. On macOS 14 it builds and then dies at launch with a
   # dyld error, so the floor is stated here rather than discovered by a user.
@@ -50,13 +50,13 @@ class QualityGate < Formula
   # The tag carries a `v`, `version` does not, and the filename carries neither. All three
   # appear below on purpose; getting one wrong is a 404 at install time.
   on_arm do
-    url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-macos-arm64.tar.gz"
-    sha256 "577750edfc2d9964520514109c48222e21f24807be5f8a8d176af85bfe69f1dd"
+    url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.6.0/quality-gate-macos-arm64.tar.gz"
+    sha256 "8f70efb0e11a52c750f2787dcf1c57c9a0a1fd8829539a41c0010c7553177811"
   end
 
   on_intel do
-    url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.5.0/quality-gate-macos-x86_64.tar.gz"
-    sha256 "923f063ef39d28725d3fba35ece92da1e7a87819f90a8ded3a1f1a157ec10efb"
+    url "https://github.com/jpurnell/quality-gate-swift/releases/download/v3.6.0/quality-gate-macos-x86_64.tar.gz"
+    sha256 "663296441e2e632216aa48749cadd672db85486154179f75f8646bb53ae106ea"
   end
 
   def install
