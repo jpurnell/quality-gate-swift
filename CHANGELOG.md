@@ -1,59 +1,6 @@
-# Changelog
-
 ## [Unreleased]
 
-### Added
-
-- **Acknowledgements are not suppressions, and the gate now reports which is which.** A
-  survey of the portfolio on 2026-10-09 found that 18 code sites constructed an override
-  record, while roughly 771 live markers silenced a finding and left no trace in
-  `--format json`; that configuration `overrides:` set to `off` removed findings with a bare
-  `return nil`; and that the docs said markers were "recorded, not silent". In June a commit
-  titled *"Eliminate all override records"* had made the logging and concurrency checkers
-  "suppress silently … Overrides are now zero across all checkers" — the count was driven to
-  zero by no longer counting. This puts the count back, and makes it say something.
-  - **Every form that silences or lowers a finding records it**, with the rule, the finding's
-    file and line, the marker's line, the form, and the reason as written. Newly recording:
-    `// SAFETY:` (and any `safetyExemptions` pattern) in `safety`; `// Justification:` in
-    `concurrency`, on a trap under `trapPolicy`, and on `stochastic-unseeded-test-call`;
-    `// silent:` and `// logging:`; `// recursion:safe`; `// process-safety:disable`;
-    `// Unbounded:`; `lifecycle:exempt`; `stochastic:exempt`; `// LIVE:`; and the `context`
-    annotations `// CONSENT:`, `// ANALYTICS:`, `// REVIEWED:`, `// DISCLOSURE:`. The forms
-    that already recorded (`// SECURITY:`, `// fp-safety:disable`, `// fallback-justified:`,
-    `// TEST-QUALITY:`, `HIG-EXEMPT:`, `// idiom:exempt` and the rest) now say what they are.
-  - **A marker is recorded only where it silenced something.** One beside a `try?` on the
-    allow-list, a logger call that is already annotated, a guarded recursion or an overloaded
-    signature records nothing — so a marker missing from the list is a decorative one.
-  - **Each record is `acknowledged` or `suppressed`.** Acknowledged means the reason was
-    validated: at least eight words, not a stock phrase, not the sentence already written on
-    another marker in the same file. `// SECURITY:`, the validated `// Justification:` forms
-    and `dependencyAudit.acknowledgedAdvisories` are acknowledged by construction, because
-    their checkers refuse a reason that fails. Every other inline form has its reason judged
-    by the same rules, so `// silent: best effort` is a suppression and a `// silent:` that
-    says why is an acknowledgement. Configuration is always a suppression.
-  - **Configuration records too.** An `overrides:` entry that lowers or removes a finding
-    (`off`, `info`, `warning` on an error) and a `vendorPaths` demotion are recorded per
-    finding. `excludePatterns` (with the number of `.swift` files it matched),
-    `enabledCheckers` / `excludedCheckers`, `logging.projectType` and 27 per-checker allow and
-    exempt lists are listed as *Exclusions in force* — what they hid is not counted, because
-    it is not known without doing the work they skip. A test reflects over the schema so a
-    new exclusion-shaped key cannot be added without being reported or explicitly declined;
-    it caught three `temporalDeterminism` keys the hand-written list had missed.
-  - **The summaries carry the totals.** The terminal prints `Silenced findings: N
-    acknowledged (reason validated) · M suppressed (not validated) · K baselined`, by form and
-    by checker. `--format json` has the same under `summary.suppressions` and lists every
-    record under each result's `suppressions`. The published `overrides` array is still
-    emitted, with the record carried as a readable prefix on `justification`.
-  - **A cache replay reports the same totals.** `markReplayed` rebuilt a result from four of
-    its six fields; `overrides` and `complianceRecords` were the two it dropped, so the run
-    that filled the cache listed every marker and every replay of it listed none.
-- **`suppressions: note | warn | error`.** The default is `note`: suppressions are counted
-  and listed and **nothing new gates** — the portfolio held about a thousand unvalidated
-  markers on the day this was written, and turning every one into a warning on one deploy
-  would have reddened nearly every repository at once. A repository sets `warn` (each
-  suppression is a `gate.unvalidated-suppression` warning, gating under `--strict`) or
-  `error` once its suppressed count is zero, and a new bare marker is a finding from then
-  on. The ratchet runs after `overrides:` and the baseline, so neither can switch it off.
+## [3.6.0] - 2026-10-26
 
 ### Changed
 
@@ -62,27 +9,6 @@
   fleet-wide change of verdict did not land together; the owner's decision on 2026-10-21 was
   that a gate whose failures stay green is the defect being fixed, so off is not a default.
   Audit-only callers can pass `fail-on-findings: false`.
-- **A `.quality-gate.yml` that cannot be read stops the run.** Exit 1, the file named, the
-  decoder's complaint quoted with the key it is about, and `Nothing was run.` It used to be
-  replaced by the built-in defaults with a log line visible only under `--verbose`, so every
-  exclusion, allow-list and threshold in the file silently became a default and the run
-  printed PASSED over a policy the repository had not chosen. This is how a refused
-  `budgets:` entry and a rejected path value already behaved. **An unknown top-level key is
-  still a warning that names it**, not a stop: the file decoded and the key was merely not
-  applied. Checked against the 98 configuration files in the portfolio before this landed:
-  none stops; two (`Embedded/weather-station`, `Tools/SwiftITL`) warn, as they already did,
-  on `checkers` and `exclude`.
-- **What the judgement corpus is sent does not change in this release.** Every newly
-  recording form is marked report-only and is not forwarded; forms that recorded before are
-  forwarded as plain overrides, without the record's prefix. The corpus turns each override
-  into a calibration record and deducts from a repository's consistency score for a rule
-  carrying two or more, so forwarding a thousand newly visible markers would have moved
-  scores and filled review queues for a change in reporting. Whether to forward them is a
-  decision about the corpus, and one switch here when it is made
-  (`SuppressionRecord.forwardedToCorpus`).
-- **`hasAdjacentLogging` is asked before the `// silent:` marker.** No finding changes; a
-  marker beside a `try?` whose error is logged two lines away is simply not credited with
-  silencing it.
 
 ### Fixed
 
@@ -168,6 +94,105 @@
   swift-oauth — which binds its `CSQLite` system library to a `let` first — was profiled as
   "CSQLite", and every regeneration restored the wrong name over a hand correction. The name is
   now read from `Package(name:)`.
+- **The pre-push hook let a commit that changes no files through.** In jpurnell.github.io,
+  "Add ORCID references" (`5afd06c`) was pushed, passed the gate, and deployed while its edits
+  sat in a stash left by a stash-and-rebase, so the site did not change and the push looked like
+  it had failed. The hook now reads the ref list git hands it and refuses any non-merge commit
+  that touches no files. On a new branch it checks only commits no remote-tracking branch
+  already has, so older empty commits never block a push. It still drains stdin before deciding,
+  so the SIGPIPE fix stands. Covered by `scripts/test-install-hooks.sh`. Re-run
+  `scripts/install-hooks.sh` in each repo to pick it up.
+
+## [3.5.0] - 2026-10-12
+
+Eight entries below were written under `## [Unreleased]` and are moved here, because they
+shipped in 3.5.0 and its notes said otherwise for a fortnight. The cause was a CHANGELOG
+conflict resolved on 2026-10-12 by keeping both sides of the merge: the content landed above
+the `## [3.5.0]` heading instead of below it, and the resolution was reported as having put
+both sides under the same section. It had not. Recorded rather than silently reattributed,
+because a release whose notes omit its own headline feature is exactly the drift this
+project's `doc-generated` and `status` checkers exist to catch, and neither of them reads
+prose.
+
+### Added
+
+- **Acknowledgements are not suppressions, and the gate now reports which is which.** A
+  survey of the portfolio on 2026-10-09 found that 18 code sites constructed an override
+  record, while roughly 771 live markers silenced a finding and left no trace in
+  `--format json`; that configuration `overrides:` set to `off` removed findings with a bare
+  `return nil`; and that the docs said markers were "recorded, not silent". In June a commit
+  titled *"Eliminate all override records"* had made the logging and concurrency checkers
+  "suppress silently … Overrides are now zero across all checkers" — the count was driven to
+  zero by no longer counting. This puts the count back, and makes it say something.
+  - **Every form that silences or lowers a finding records it**, with the rule, the finding's
+    file and line, the marker's line, the form, and the reason as written. Newly recording:
+    `// SAFETY:` (and any `safetyExemptions` pattern) in `safety`; `// Justification:` in
+    `concurrency`, on a trap under `trapPolicy`, and on `stochastic-unseeded-test-call`;
+    `// silent:` and `// logging:`; `// recursion:safe`; `// process-safety:disable`;
+    `// Unbounded:`; `lifecycle:exempt`; `stochastic:exempt`; `// LIVE:`; and the `context`
+    annotations `// CONSENT:`, `// ANALYTICS:`, `// REVIEWED:`, `// DISCLOSURE:`. The forms
+    that already recorded (`// SECURITY:`, `// fp-safety:disable`, `// fallback-justified:`,
+    `// TEST-QUALITY:`, `HIG-EXEMPT:`, `// idiom:exempt` and the rest) now say what they are.
+  - **A marker is recorded only where it silenced something.** One beside a `try?` on the
+    allow-list, a logger call that is already annotated, a guarded recursion or an overloaded
+    signature records nothing — so a marker missing from the list is a decorative one.
+  - **Each record is `acknowledged` or `suppressed`.** Acknowledged means the reason was
+    validated: at least eight words, not a stock phrase, not the sentence already written on
+    another marker in the same file. `// SECURITY:`, the validated `// Justification:` forms
+    and `dependencyAudit.acknowledgedAdvisories` are acknowledged by construction, because
+    their checkers refuse a reason that fails. Every other inline form has its reason judged
+    by the same rules, so `// silent: best effort` is a suppression and a `// silent:` that
+    says why is an acknowledgement. Configuration is always a suppression.
+  - **Configuration records too.** An `overrides:` entry that lowers or removes a finding
+    (`off`, `info`, `warning` on an error) and a `vendorPaths` demotion are recorded per
+    finding. `excludePatterns` (with the number of `.swift` files it matched),
+    `enabledCheckers` / `excludedCheckers`, `logging.projectType` and 27 per-checker allow and
+    exempt lists are listed as *Exclusions in force* — what they hid is not counted, because
+    it is not known without doing the work they skip. A test reflects over the schema so a
+    new exclusion-shaped key cannot be added without being reported or explicitly declined;
+    it caught three `temporalDeterminism` keys the hand-written list had missed.
+  - **The summaries carry the totals.** The terminal prints `Silenced findings: N
+    acknowledged (reason validated) · M suppressed (not validated) · K baselined`, by form and
+    by checker. `--format json` has the same under `summary.suppressions` and lists every
+    record under each result's `suppressions`. The published `overrides` array is still
+    emitted, with the record carried as a readable prefix on `justification`.
+  - **A cache replay reports the same totals.** `markReplayed` rebuilt a result from four of
+    its six fields; `overrides` and `complianceRecords` were the two it dropped, so the run
+    that filled the cache listed every marker and every replay of it listed none.
+- **`suppressions: note | warn | error`.** The default is `note`: suppressions are counted
+  and listed and **nothing new gates** — the portfolio held about a thousand unvalidated
+  markers on the day this was written, and turning every one into a warning on one deploy
+  would have reddened nearly every repository at once. A repository sets `warn` (each
+  suppression is a `gate.unvalidated-suppression` warning, gating under `--strict`) or
+  `error` once its suppressed count is zero, and a new bare marker is a finding from then
+  on. The ratchet runs after `overrides:` and the baseline, so neither can switch it off.
+
+### Changed
+
+- **A `.quality-gate.yml` that cannot be read stops the run.** Exit 1, the file named, the
+  decoder's complaint quoted with the key it is about, and `Nothing was run.` It used to be
+  replaced by the built-in defaults with a log line visible only under `--verbose`, so every
+  exclusion, allow-list and threshold in the file silently became a default and the run
+  printed PASSED over a policy the repository had not chosen. This is how a refused
+  `budgets:` entry and a rejected path value already behaved. **An unknown top-level key is
+  still a warning that names it**, not a stop: the file decoded and the key was merely not
+  applied. Checked against the 98 configuration files in the portfolio before this landed:
+  none stops; two (`Embedded/weather-station`, `Tools/SwiftITL`) warn, as they already did,
+  on `checkers` and `exclude`.
+- **What the judgement corpus is sent does not change in this release.** Every newly
+  recording form is marked report-only and is not forwarded; forms that recorded before are
+  forwarded as plain overrides, without the record's prefix. The corpus turns each override
+  into a calibration record and deducts from a repository's consistency score for a rule
+  carrying two or more, so forwarding a thousand newly visible markers would have moved
+  scores and filled review queues for a change in reporting. Whether to forward them is a
+  decision about the corpus, and one switch here when it is made
+  (`SuppressionRecord.forwardedToCorpus`).
+- **`hasAdjacentLogging` is asked before the `// silent:` marker.** No finding changes; a
+  marker beside a `try?` whose error is logged two lines away is simply not credited with
+  silencing it.
+
+### Fixed
+
 - **`OverrideProcessor` kept only four of a diagnostic's fields when it changed a severity**,
   dropping `origin` and `endLine`, and dropped a result's `complianceRecords` altogether.
 - **The guide documented `overrides:` in a shape that never decoded** — a list of
@@ -178,17 +203,6 @@
   `// recursion:safe` ("the auditor has no inline suppression comment"); `// silent:` and
   `// logging:` ("records a `DiagnosticOverride`" — they had not since June); `HIG-EXEMPT:`,
   which was not documented anywhere.
-- **The pre-push hook let a commit that changes no files through.** In jpurnell.github.io,
-  "Add ORCID references" (`5afd06c`) was pushed, passed the gate, and deployed while its edits
-  sat in a stash left by a stash-and-rebase, so the site did not change and the push looked like
-  it had failed. The hook now reads the ref list git hands it and refuses any non-merge commit
-  that touches no files. On a new branch it checks only commits no remote-tracking branch
-  already has, so older empty commits never block a push. It still drains stdin before deciding,
-  so the SIGPIPE fix stands. Covered by `scripts/test-install-hooks.sh`. Re-run
-  `scripts/install-hooks.sh` in each repo to pick it up.
-## [3.5.0] - 2026-10-12
-
-### Fixed
 
 - **Four rules stop reporting what they were not written about, `// TIMING:` does what its
   documentation says, and the baseline ledger stops publishing where its author keeps their
@@ -4553,7 +4567,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.6.0...HEAD
+[3.6.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.2.1...v3.3.0
