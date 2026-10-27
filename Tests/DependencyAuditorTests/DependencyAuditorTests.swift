@@ -232,7 +232,7 @@ struct PackageSwiftParsingTests {
             targets: []
         )
         """
-        let urls = DependencyAuditor.extractPackageURLs(from: content)
+        let urls = ManifestParser.parse(source: content).packageURLs
         #expect(urls.count == 2)
         #expect(urls.contains("https://github.com/swiftlang/swift-syntax.git"))
         #expect(urls.contains("https://github.com/apple/swift-argument-parser.git"))
@@ -248,7 +248,7 @@ struct PackageSwiftParsingTests {
             targets: [.executableTarget(name: "Simple")]
         )
         """
-        let urls = DependencyAuditor.extractPackageURLs(from: content)
+        let urls = ManifestParser.parse(source: content).packageURLs
         #expect(urls.isEmpty)
     }
 
@@ -257,7 +257,7 @@ struct PackageSwiftParsingTests {
         let content = """
         .package(url: "https://github.com/example/one.git", from: "1.0.0"),
         """
-        let urls = DependencyAuditor.extractPackageURLs(from: content)
+        let urls = ManifestParser.parse(source: content).packageURLs
         #expect(urls.count == 1)
     }
 }
@@ -762,7 +762,7 @@ struct URLExtractionVariantsTests {
             ]
         )
         """
-        let urls = DependencyAuditor.extractPackageURLs(from: content)
+        let urls = ManifestParser.parse(source: content).packageURLs
         #expect(urls.count == 2)
         #expect(urls.contains("https://github.com/ReactiveX/RxSwift.git"))
         #expect(urls.contains("https://github.com/marmelroy/Zip.git"))

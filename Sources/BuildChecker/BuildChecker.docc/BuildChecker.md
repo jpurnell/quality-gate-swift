@@ -109,7 +109,7 @@ orphaned: the build that just ran does not name them.
 
 - **Warnings with no source location** — linker warnings, plugin output, SwiftPM's own. They were never matched in the build's output either.
 - **C-family compile units.** Output file maps list Swift sources; a warning in a `.c` or `.m` file is still reported only on the run that recompiles it. The coverage note counts Swift units and says so.
-- **Other configurations and platforms.** Code under `#if os(iOS)`, or compiled only in release, is not built by this run and has no current record.
+- **Other configurations and platforms.** Code under `#if os(iOS)`, or compiled only in release, is not built by this run and has no current record. Nor is code behind a package trait the configuration's `traits:` does not enable.
 - **A cross-file diagnostic about a file edited since.** Some diagnostics about `F.swift` are produced only while compiling `G.swift`. If `F` is then edited in a way that does not make the build recompile `G`, `G`'s record is older than `F` and what it says about `F` is discarded — even if it is still true. It returns when `G` is next compiled. The alternative was reporting diagnostics at lines that no longer hold the code, which is what this rule replaced; the coverage note counts what was discarded so the trade is visible.
 - **An edit that keeps an older modification date.** Staleness is a comparison of dates. A tool that restores a file's contents together with an earlier date (`cp -p`, `rsync -t`, an archive extraction) leaves a sibling's record looking newer than the file, and its diagnostics about that file are reported.
 - **A macro-expansion diagnostic with no note on disk.** With nothing to compare its record against, it is kept.
@@ -126,7 +126,11 @@ Configure via `.quality-gate.yml`:
 
 ```yaml
 buildConfiguration: release  # or debug (default)
+traits: [OAuth, CLIAuth]     # SwiftPM package traits; empty = the package's defaults
 ```
+
+`traits:` is passed as `--traits` to this build and to every other build the gate runs, so
+code behind a trait is compiled here and the checkers agree on what was built.
 
 The records read are those of the configuration that was built.
 

@@ -428,6 +428,11 @@ enabledCheckers: []
 # Build configuration for BuildChecker
 buildConfiguration: debug
 
+# SwiftPM package traits for every build the gate runs (build, test, index, DocC,
+# swift-version). Empty = the package's default traits. Naming traits replaces the
+# defaults; add `defaults` to keep them.
+traits: [OAuth, CLIAuth]
+
 # Test filter for TestRunner
 testFilter: ""
 

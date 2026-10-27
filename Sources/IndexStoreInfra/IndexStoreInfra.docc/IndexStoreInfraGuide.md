@@ -64,7 +64,7 @@ do {
 // located?.isStale -- true if sources are newer than the index
 ```
 
-For SwiftPM packages, `StoreLocator.ensureFresh(packageRoot:)` builds an isolated index store at `.build/index-build/index-store` with the flags `swift build -Xswiftc -index-store-path`. This is idempotent and incremental -- rebuilds only what changed.
+For SwiftPM packages, `StoreLocator.ensureFresh(packageRoot:traits:)` builds an isolated index store at `.build/index-build/index-store` with the flags `swift build -Xswiftc -index-store-path`, plus `--traits` when the configuration names any. This is idempotent and incremental -- rebuilds only what changed. A store is reused only if it was built with the same traits: the gate records them in `.build/index-build/.traits-<store>`, and no record means no traits.
 
 For Xcode projects, `StoreLocator.locateInDerivedData(projectName:projectPath:)` scans `~/Library/Developer/Xcode/DerivedData/` for matching entries, validates `info.plist` workspace paths, and picks the newest match by modification date.
 

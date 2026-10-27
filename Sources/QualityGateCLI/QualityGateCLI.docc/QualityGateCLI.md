@@ -88,6 +88,9 @@ enabledCheckers:
 # Build configuration: debug or release
 buildConfiguration: debug
 
+# SwiftPM package traits, passed as `--traits` to every build (empty = defaults)
+traits: [OAuth, CLIAuth]
+
 # Test filter pattern
 testFilter: "MyTests"
 

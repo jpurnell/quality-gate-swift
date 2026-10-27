@@ -447,6 +447,19 @@ where it came from, the elapsed time, the machine's load average and the tool's 
 it is never cached and never a pass. Budgets do not scale with load: see `GUIDE.md`, "Time
 budgets".
 
+A package whose code sits behind SwiftPM package traits names them under `traits:`, and every
+build the gate runs uses them — `build`, `test`, the index build, `doc-lint`'s DocC build and
+`swift-version`'s verification build — as `--traits OAuth,CLIAuth`:
+
+```yaml
+traits: [OAuth, CLIAuth]
+```
+
+Absent or empty, nothing is passed and the package's default traits apply, as before. Naming
+traits replaces the defaults, as it does on SwiftPM's command line; list `defaults` to keep them.
+`dependency-audit` counts only the dependencies those traits reach. There is no "all traits"
+form: an explicit list is what a reviewer can read.
+
 Per-checker configuration sections are available for `concurrency`, `pointerEscape`, `security`, `status`, `logging`, `dependencyAudit`, `releaseReadiness`, `fpSafety`, `stochasticDeterminism`, `memoryLifecycle`, `mcpReadiness`, `appIntentsReadiness`, `build`, `xcodeBuild`, `recursion`, `complexity`, `docCoverage`, `keychain-secrets`, `privacy-manifest`, and `consistency`.
 
 Severity overrides let you downgrade or upgrade any rule:

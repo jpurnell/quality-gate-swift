@@ -137,7 +137,13 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         if hasRootManifest {
             let resolvedPath = projectRoot + "/Package.resolved"
             let resolvedExists = FileManager.default.fileExists(atPath: resolvedPath) // SAFETY: reads local project file
-            let packageSwiftURLs = Self.extractPackageURLs(from: packageSwiftContent)
+            // The dependencies the configured build can reach, not every one the manifest
+            // names. SwiftPM does not resolve a dependency that only a disabled trait uses, so
+            // SwiftKeychain's committed Package.resolved correctly held two pins for three
+            // declared dependencies — and was reported "out of sync" for it.
+            let packageSwiftURLs = Self.reachableDependencyURLs(
+                in: ManifestParser.parse(source: packageSwiftContent),
+                configuredTraits: configuration.traits)
 
             var resolvedPinCount = 0
 
@@ -228,14 +234,52 @@ public struct DependencyAuditor: QualityChecker, Sendable {
         return try decoder.decode(PackageResolved.self, from: data)
     }
 
-    /// Extracts dependency URLs from `Package.swift` content via AST.
+    /// The dependency URLs a build with `configuredTraits` resolves.
     ///
-    /// Handles both `.package(url:` and `.package(name:, url:` formats.
+    /// A dependency is left out only when every target that uses it does so through
+    /// `.product(…, package:, condition: .when(traits:))` and none of those traits is enabled.
+    /// Anything else — an unconditional use, a use by bare product name, no use the parser can
+    /// see — keeps it counted, because a dependency wrongly left out hides a real
+    /// `Package.resolved` that is out of date, and one wrongly kept costs only this finding.
     ///
-    /// - Parameter content: The raw text of `Package.swift`.
-    /// - Returns: An array of dependency URL strings.
-    static func extractPackageURLs(from content: String) -> [String] {
-        ManifestParser.parse(source: content).packageURLs
+    /// Enabled traits follow SwiftPM: none configured means the package's defaults; named
+    /// traits replace the defaults unless `defaults` is among them; each enabled trait enables
+    /// the traits it lists in turn.
+    ///
+    /// - Parameters:
+    ///   - manifest: The parsed `Package.swift`.
+    ///   - configuredTraits: `Configuration.traits`.
+    /// - Returns: The URLs of the dependencies that are resolved, in manifest order.
+    static func reachableDependencyURLs(
+        in manifest: ManifestParser.ManifestInfo, configuredTraits: [String]
+    ) -> [String] {
+        var pending = configuredTraits.isEmpty
+            ? manifest.defaultTraits
+            : configuredTraits.filter { $0 != "defaults" }
+                + (configuredTraits.contains("defaults") ? manifest.defaultTraits : [])
+        var enabled = Set<String>()
+        while let trait = pending.popLast() {
+            guard enabled.insert(trait).inserted else { continue }
+            pending += manifest.traits[trait] ?? []
+        }
+
+        return manifest.dependencies.filter { dependency in
+            let identities = Set([identity(ofURL: dependency.url), dependency.name?.lowercased()].compactMap { $0 })
+            let uses = manifest.productReferences.filter { identities.contains($0.package.lowercased()) }
+            guard !uses.isEmpty else { return true }
+            return uses.contains { use in
+                guard let traits = use.traits else { return true }
+                return traits.contains { enabled.contains($0) }
+            }
+        }.map(\.url)
+    }
+
+    /// SwiftPM's identity for a URL dependency: its last path component, without `.git`,
+    /// lowercased.
+    private static func identity(ofURL url: String) -> String {
+        var last = url.split(separator: "/").last.map(String.init) ?? url
+        if last.hasSuffix(".git") { last.removeLast(4) }
+        return last.lowercased()
     }
 
     /// Extracts explicit package `name:` parameters from dependency declarations via AST.

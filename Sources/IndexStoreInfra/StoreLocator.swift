@@ -372,7 +372,7 @@ public enum StoreLocator {
 
     /// The store an index-backed checker would query right now, or `nil` if there is none.
     ///
-    /// Consults the same candidates as ``ensureFresh(packageRoot:)``, in the same order —
+    /// Consults the same candidates as ``ensureFresh(packageRoot:traits:)``, in the same order —
     /// swiftbuild's own store first, then the managed one — and **never compiles**. A
     /// diagnostic must be able to ask where the store is without a full index build
     /// happening as a side effect of the question.
