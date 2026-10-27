@@ -1992,6 +1992,21 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Build configuration to use (debug or release). Defaults to debug.
     public var buildConfiguration: String?
 
+    /// SwiftPM package traits to enable for every build the gate runs.
+    ///
+    /// Passed as `--traits A,B` to `build`, `test`, the index build, the DocC build and the
+    /// tools-version verification build — every one, so they all compile the same package.
+    /// Empty, the default, passes nothing: the package's default traits, exactly as before
+    /// this key existed.
+    ///
+    /// SwiftPM's semantics, not the gate's: naming traits *replaces* the package's defaults.
+    /// List `defaults` among them to keep those too. There is deliberately no "all traits"
+    /// form; ``PackageTraits`` says why.
+    ///
+    /// SwiftKeychain is why this exists: its adapters sit behind traits that are off by
+    /// default, so without a way to turn them on no checker ever compiled them.
+    public var traits: [String]
+
     /// Test filter pattern for running specific tests.
     public var testFilter: String?
 
@@ -2169,6 +2184,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         excludedCheckers: [String] = [],
         includedCheckers: [String] = [],
         buildConfiguration: String? = nil,
+        traits: [String] = [],
         testFilter: String? = nil,
         docTarget: String? = nil,
         docCoverageThreshold: Int? = nil,
@@ -2227,6 +2243,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.excludedCheckers = excludedCheckers
         self.includedCheckers = includedCheckers
         self.buildConfiguration = buildConfiguration
+        self.traits = traits
         self.testFilter = testFilter
         self.docTarget = docTarget
         self.docCoverageThreshold = docCoverageThreshold
@@ -2400,6 +2417,7 @@ extension Configuration {
         case excludedCheckers
         case includedCheckers
         case buildConfiguration
+        case traits
         case testFilter
         case docTarget
         case docCoverageThreshold
@@ -2488,6 +2506,15 @@ extension Configuration {
         excludedCheckers = try container.decodeIfPresent([String].self, forKey: .excludedCheckers) ?? []
         includedCheckers = try container.decodeIfPresent([String].self, forKey: .includedCheckers) ?? []
         buildConfiguration = try container.decodeIfPresent(String.self, forKey: .buildConfiguration)
+        traits = try container.decodeIfPresent([String].self, forKey: .traits) ?? []
+        // Refused rather than passed on. SwiftPM reads the list as one comma-separated value,
+        // so `"OAuth,CLIAuth"` would quietly become two traits and `""` a stray separator —
+        // a build of something other than what the file says, which is the gap this key closes.
+        if let unusable = PackageTraits.unusableName(in: traits) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .traits, in: container,
+                debugDescription: "trait name \"\(unusable)\" is empty or contains a comma or whitespace; list each trait as its own entry")
+        }
         testFilter = try container.decodeIfPresent(String.self, forKey: .testFilter)
         docTarget = try container.decodeIfPresent(String.self, forKey: .docTarget)
         docCoverageThreshold = try container.decodeIfPresent(Int.self, forKey: .docCoverageThreshold)
