@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+### Fixed
+
+- **Index checkers could read a store a peer was still building.** `StoreLocator.ensureFresh`
+  checked freshness before taking the index-build lock, and a store being written looks fresh
+  early: its directory is newer than the sources, and a `*Tests` unit appears with the first test
+  file. Checkers run concurrently and share one session per store, so the first to open it fixed
+  a partial census for all of them. SwiftCLIKit's scheduled CI (run 40495514023) read 455 source
+  units where the finished build had 500, and `unreachable` reported `KeyQueue.tryNext()`, whose
+  only caller was in `SwiftCLIKitSSH`, a module not yet indexed. The push run on the same commit
+  passed. The lock is now held for the whole decision, on the swiftbuild path too.
+  `--no-index-build` still takes no lock and writes nothing into the project.
+  - Not done: refusing when a project source has no unit at all. The census reports only sources
+    with a stale unit and no current one. A "no unit" barrier would also catch files that are
+    never indexed on purpose (`Package.swift`, a target's `exclude:` paths, and tests when the
+    index build falls back to sources only), and refusing to run there is worse than reading.
+
 ### Removed
 
 - **`scripts/bundle-dashboard-app.sh`.** It built a product, the dashboard app, that this package no
