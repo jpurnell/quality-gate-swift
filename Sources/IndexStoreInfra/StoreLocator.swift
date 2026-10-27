@@ -454,7 +454,29 @@ public enum StoreLocator {
     /// writes the index store at a time. Without this, two builds race to write the same
     /// store and a reader (or the builds themselves) can observe an empty/partial index —
     /// the flake that intermittently broke the cross-module index checkers.
+    ///
+    /// The lock is held for the whole decision, not only the build. A store a peer is still
+    /// writing looks fresh early (its directory is newer than the sources, and a `*Tests` unit
+    /// appears with the first test file), so an unlocked freshness check handed SwiftCLIKit's
+    /// CI a census of 455 units where the finished build had 500, and `unreachable` reported a
+    /// symbol whose only caller was in a module not yet indexed.
     public static func ensureFresh(packageRoot: URL) throws -> URL {
+        let buildPath = indexBuildDirectory(packageRoot: packageRoot)
+        // --no-index-build never builds and must not write into the project, not even a lock
+        // file: a portfolio sweep reads stores as it finds them.
+        if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
+            return try freshStore(packageRoot: packageRoot, buildPath: buildPath)
+        }
+        // SAFETY: CLI tool creates its local index-build directory to host the lock file
+        try FileManager.default.createDirectory(at: buildPath, withIntermediateDirectories: true)
+        return try withExclusiveLock(at: buildPath.appendingPathComponent(".index-build.lock")) {
+            try freshStore(packageRoot: packageRoot, buildPath: buildPath)
+        }
+    }
+
+    /// The body of ``ensureFresh(packageRoot:)``, run while its caller holds the index-build
+    /// lock, or under `--no-index-build`, which builds nothing.
+    private static func freshStore(packageRoot: URL, buildPath: URL) throws -> URL {
         // Fast path A — reuse swiftbuild's own index store. Swift 6.4+ SwiftPM (the
         // `swiftbuild`/XCBuild default) index-while-builds a queryable store to
         // `.build/out/v5` during the *normal* build, so when that store exists and is
@@ -504,10 +526,10 @@ public enum StoreLocator {
             Self.logger.info("the ordinary build produced no index store at \(swiftbuildStorePath(packageRoot: packageRoot).path, privacy: .public); falling back to a dedicated index build")
         }
 
-        let buildPath = indexBuildDirectory(packageRoot: packageRoot)
         let store = managedStore(packageRoot: packageRoot)
 
-        // Fast path: already fresh, no lock needed.
+        // Checked under the lock: a peer that held it first may have just produced a fresh
+        // store, in which case this caller skips a redundant build.
         guard needsRebuild(packageRoot: packageRoot, store: store) else { return store }
 
         // --no-index-build: a compile would be required here (no swiftbuild store, no fresh
@@ -517,17 +539,7 @@ public enum StoreLocator {
             throw Error.indexBuildSkipped
         }
 
-        // SAFETY: CLI tool creates its local index-build directory to host the lock file
-        try FileManager.default.createDirectory(at: buildPath, withIntermediateDirectories: true)
-        let lockURL = buildPath.appendingPathComponent(".index-build.lock")
-
-        try withExclusiveLock(at: lockURL) {
-            // Double-checked under the lock: a peer that held the lock first may have just
-            // produced a fresh store, in which case this caller skips a redundant, racy build.
-            if needsRebuild(packageRoot: packageRoot, store: store) {
-                try build(packageRoot: packageRoot, buildPath: buildPath, store: store)
-            }
-        }
+        try build(packageRoot: packageRoot, buildPath: buildPath, store: store)
         return store
     }
 
@@ -535,7 +547,7 @@ public enum StoreLocator {
     ///
     /// Uses `flock(2)`, so the lock is honored **across processes** — two `quality-gate`
     /// invocations in one checkout serialize their index builds instead of racing.
-    static func withExclusiveLock(at lockURL: URL, _ body: () throws -> Void) throws {
+    static func withExclusiveLock<Result>(at lockURL: URL, _ body: () throws -> Result) throws -> Result {
         // SAFETY: CLI tool opens its local lock file
         let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o644)
         guard descriptor >= 0 else {
@@ -546,7 +558,7 @@ public enum StoreLocator {
             throw Error.buildFailed("could not acquire index-build lock")
         }
         defer { _ = flock(descriptor, LOCK_UN) }
-        try body()
+        return try body()
     }
 
     // MARK: - Private helpers
