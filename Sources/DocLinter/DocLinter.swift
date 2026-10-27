@@ -100,8 +100,23 @@ public struct DocLinter: QualityChecker, Sendable {
             )
         }
 
-        // Build the command arguments
-        var arguments = ["package", "generate-documentation"]
+        // Build the command arguments.
+        //
+        // `--traits` is an option of `swift package`, so it goes before the plugin's verb.
+        // After it, SwiftPM hands it to the plugin as one of the plugin's own arguments and
+        // builds with the defaults — measured on Swift 6.4 with a trait-gated compile error,
+        // which the first spelling hit and the second did not.
+        //
+        // What it does not do, measured the same way: decide what DocC sees. On 6.4, under both
+        // build systems, the plugin's symbol-graph extraction compiled the package with *every*
+        // trait defined (`-D` for each), whatever `--traits` said and with no `--traits` at all.
+        // So DocC already documents trait-gated code, configured or not. The flag is passed so
+        // the plugin's own builds match every other build in the run, not because doc-lint's
+        // findings depend on it — and if a later SwiftPM honours it for symbol graphs, DocC will
+        // see exactly the configured package, which is the right answer.
+        var arguments = ["package"]
+            + PackageTraits.arguments(enabling: configuration.traits)
+            + ["generate-documentation"]
 
         let packageContent: String
         do {

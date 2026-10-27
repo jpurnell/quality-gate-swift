@@ -75,14 +75,17 @@ public enum StoreLocator {
     ///   - projectKind: The detected project layout.
     ///   - excludePatterns: Patterns whose files must not count toward the source timestamp,
     ///     so an excluded file cannot make an index look stale.
+    ///   - traits: The package traits the run builds with — `Configuration.traits`. A SwiftPM
+    ///     store is built with them and is not reused when it was built with others.
     /// - Returns: The located store, or nil when the layout has none.
     public static func locate(
         projectKind: ProjectKind,
-        excludePatterns: [String] = []
+        excludePatterns: [String] = [],
+        traits: [String] = []
     ) throws -> LocatedStore? {
         switch projectKind {
         case .swiftPM(let packageRoot):
-            let url = try ensureFresh(packageRoot: packageRoot)
+            let url = try ensureFresh(packageRoot: packageRoot, traits: traits)
             // Measured, not asserted. `ensureFresh` cannot guarantee what this claims:
             // `needsRebuild` stats the top-level store directory, whose mtime does not move
             // when a unit nested under `v5/units` is rewritten — on this repository that
@@ -428,22 +431,86 @@ public enum StoreLocator {
     ///
     /// Best-effort. A package whose tests do not compile keeps the store it had; losing a
     /// working source index because a test target is broken would be a bad trade.
-    private static func enrichSwiftbuildStore(packageRoot: URL) {
+    ///
+    /// - Returns: Whether the build succeeded, which is when the store can be said to have been
+    ///   built with `traits`.
+    @discardableResult
+    private static func enrichSwiftbuildStore(packageRoot: URL, traits: [String]) -> Bool {
         // Enrichment is opportunistic: any failure leaves the existing store in place,
         // which is exactly the previous behaviour.
         // Keeping the working store is right; being unable to find out why the index never
         // covers tests is not. Debug, because a package whose tests do not build is a
         // legitimate everyday state.
         do {
-            _ = try ProcessRunner.run(
+            let result = try ProcessRunner.run(
                 "/usr/bin/env",
-                arguments: ["swift", "build", "--build-tests", "--package-path", packageRoot.path],
+                arguments: enrichmentArguments(packageRoot: packageRoot, traits: traits),
                 // SwiftPM resolves packages with git; a hook's GIT_DIR must not reach it.
                 environment: ChildProcessEnvironment.forBuildTool,
                 mergeStderr: true)
+            return result.exitCode == 0
         } catch {
             Self.logger.debug(
                 "index enrichment could not build test targets; keeping the existing store: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// The ordinary, test-inclusive `swift build` that index-while-builds swiftbuild's store.
+    ///
+    /// With the run's traits: this build writes into the same `.build` as the `build` and
+    /// `test` checkers, so a different trait set here would undo theirs, and the store would
+    /// describe a package no other checker compiled.
+    ///
+    /// - Parameters:
+    ///   - packageRoot: The package to build.
+    ///   - traits: The configured package traits.
+    /// - Returns: Arguments for `/usr/bin/env`, `swift` first.
+    static func enrichmentArguments(packageRoot: URL, traits: [String]) -> [String] {
+        ["swift", "build", "--build-tests", "--package-path", packageRoot.path]
+            + PackageTraits.arguments(enabling: traits)
+    }
+
+    // MARK: - Which traits a store was built with
+
+    /// Where the gate records the traits a store was last built with.
+    ///
+    /// One record per store, named after it (`.traits-out`, `.traits-index-store`), in the
+    /// gate's own `.build/index-build`: swiftbuild's `.build/out` belongs to SwiftPM.
+    static func indexTraitsMarker(for store: URL, packageRoot: URL) -> URL {
+        indexBuildDirectory(packageRoot: packageRoot)
+            .appendingPathComponentUnstatted(".traits-\(store.lastPathComponent)")
+    }
+
+    /// Whether `store` was built with exactly `traits`.
+    ///
+    /// Modification times say whether a store is older than the sources, and nothing about
+    /// the build that wrote it. A store built without SwiftKeychain's `OAuth` stays newer than
+    /// every source after the gate starts building with it, and would be read as current.
+    ///
+    /// No record reads as "no traits", which is what every store the gate built before this
+    /// existed was built with — so a project that configures none sees no change at all.
+    static func indexTraitsMatch(_ traits: [String], for store: URL, packageRoot: URL) -> Bool {
+        let marker = indexTraitsMarker(for: store, packageRoot: packageRoot)
+        let recorded = FileManager.default.contents(atPath: marker.path) // SAFETY: read-only probe of the gate's own marker inside .build
+            .map { String(decoding: $0, as: UTF8.self) } ?? ""
+        return recorded == traits.joined(separator: ",")
+    }
+
+    /// Records that `store` has just been built with `traits`.
+    ///
+    /// A failure to write is logged and costs one rebuild on the next run, which finds no
+    /// matching record — the safe direction.
+    static func recordIndexTraits(_ traits: [String], for store: URL, packageRoot: URL) {
+        let marker = indexTraitsMarker(for: store, packageRoot: packageRoot)
+        // Nothing to say, and nothing written into a project that never configured traits.
+        if traits.isEmpty && !FileManager.default.fileExists(atPath: marker.path) { return } // SAFETY: read-only probe of the gate's own marker inside .build
+        do {
+            try FileManager.default.createDirectory(
+                at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(traits.joined(separator: ",").utf8).write(to: marker)
+        } catch {
+            logger.warning("could not record the traits of the index store at \(store.path, privacy: .public); it will be rebuilt on the next run: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -460,23 +527,35 @@ public enum StoreLocator {
     /// appears with the first test file), so an unlocked freshness check handed SwiftCLIKit's
     /// CI a census of 455 units where the finished build had 500, and `unreachable` reported a
     /// symbol whose only caller was in a module not yet indexed.
-    public static func ensureFresh(packageRoot: URL) throws -> URL {
+    ///
+    /// - Parameters:
+    ///   - packageRoot: The package whose store is wanted.
+    ///   - traits: The package traits the run builds with. Defaulted so a caller with no
+    ///     configuration keeps the behaviour it had; every checker passes its own.
+    public static func ensureFresh(packageRoot: URL, traits: [String] = []) throws -> URL {
         let buildPath = indexBuildDirectory(packageRoot: packageRoot)
         // --no-index-build never builds and must not write into the project, not even a lock
         // file: a portfolio sweep reads stores as it finds them.
         if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
-            return try freshStore(packageRoot: packageRoot, buildPath: buildPath)
+            return try freshStore(packageRoot: packageRoot, buildPath: buildPath, traits: traits, noIndexBuild: true)
         }
         // SAFETY: CLI tool creates its local index-build directory to host the lock file
         try FileManager.default.createDirectory(at: buildPath, withIntermediateDirectories: true)
         return try withExclusiveLock(at: buildPath.appendingPathComponent(".index-build.lock")) {
-            try freshStore(packageRoot: packageRoot, buildPath: buildPath)
+            try freshStore(packageRoot: packageRoot, buildPath: buildPath, traits: traits, noIndexBuild: false)
         }
     }
 
-    /// The body of ``ensureFresh(packageRoot:)``, run while its caller holds the index-build
-    /// lock, or under `--no-index-build`, which builds nothing.
-    private static func freshStore(packageRoot: URL, buildPath: URL) throws -> URL {
+    /// The body of ``ensureFresh(packageRoot:traits:)``, run while its caller holds the
+    /// index-build lock, or under `--no-index-build`, which builds nothing.
+    ///
+    /// `noIndexBuild` is read from the environment once, by the caller, and handed in. Read
+    /// here as well, it was a second lookup of a process-wide variable that a test in another
+    /// suite can be setting at that moment: `IndexBuildLockTests` then took the no-build path
+    /// and returned without waiting for the lock it exists to prove is waited for.
+    static func freshStore(
+        packageRoot: URL, buildPath: URL, traits: [String], noIndexBuild: Bool
+    ) throws -> URL {
         // Fast path A — reuse swiftbuild's own index store. Swift 6.4+ SwiftPM (the
         // `swiftbuild`/XCBuild default) index-while-builds a queryable store to
         // `.build/out/v5` during the *normal* build, so when that store exists and is
@@ -486,15 +565,28 @@ public enum StoreLocator {
         // index without `-index-store-path`, so `.build/out` is absent there and we fall
         // through to the dedicated, locked index build below.
         if let swiftbuildStore = freshSwiftbuildStore(packageRoot: packageRoot) {
-            // Fresh, but swiftbuild indexes only what an ordinary build compiles, which
-            // excludes tests. Completing it costs an incremental build of the test targets;
-            // leaving it costs every finding in every test file. Conditional, because running
-            // it against a store that already has them is wasted time.
-            if storeMissesTestTargets(packageRoot: packageRoot, store: swiftbuildStore) {
-                logger.info("index store lacks test targets; building tests to complete it")
-                enrichSwiftbuildStore(packageRoot: packageRoot)
+            if indexTraitsMatch(traits, for: swiftbuildStore, packageRoot: packageRoot) {
+                // Fresh, but swiftbuild indexes only what an ordinary build compiles, which
+                // excludes tests. Completing it costs an incremental build of the test targets;
+                // leaving it costs every finding in every test file. Conditional, because
+                // running it against a store that already has them is wasted time.
+                if storeMissesTestTargets(packageRoot: packageRoot, store: swiftbuildStore) {
+                    logger.info("index store lacks test targets; building tests to complete it")
+                    enrichSwiftbuildStore(packageRoot: packageRoot, traits: traits)
+                }
+                return swiftbuildStore
             }
-            return swiftbuildStore
+            // Current by its dates and built with other traits, so it indexes a different
+            // package. Usually the `build` checker has already rebuilt it with the run's traits
+            // and this costs a no-op build; the record is what lets the next run know that.
+            // Under --no-index-build nothing is built, and the store is not offered as current.
+            if !noIndexBuild {
+                logger.info("index store was built with other package traits; rebuilding it with the configured ones")
+                if enrichSwiftbuildStore(packageRoot: packageRoot, traits: traits) {
+                    recordIndexTraits(traits, for: swiftbuildStore, packageRoot: packageRoot)
+                }
+                return swiftbuildStore
+            }
         }
 
         // On a toolchain whose ordinary build indexes, an absent store means no build has
@@ -503,11 +595,12 @@ public enum StoreLocator {
         // the old design paid on every 6.4+ project.
         if let version = detectSwiftVersion(),
            toolchainIndexesDuringOrdinaryBuild(major: version.major, minor: version.minor) {
-            if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
+            if noIndexBuild {
                 throw Error.indexBuildSkipped
             }
-            enrichSwiftbuildStore(packageRoot: packageRoot)
+            let built = enrichSwiftbuildStore(packageRoot: packageRoot, traits: traits)
             if let produced = freshSwiftbuildStore(packageRoot: packageRoot) {
+                if built { recordIndexTraits(traits, for: produced, packageRoot: packageRoot) }
                 return produced
             }
             // Fall through to the dedicated build rather than giving up here.
@@ -530,16 +623,16 @@ public enum StoreLocator {
 
         // Checked under the lock: a peer that held it first may have just produced a fresh
         // store, in which case this caller skips a redundant build.
-        guard needsRebuild(packageRoot: packageRoot, store: store) else { return store }
+        guard needsRebuild(packageRoot: packageRoot, store: store, traits: traits) else { return store }
 
         // --no-index-build: a compile would be required here (no swiftbuild store, no fresh
         // dedicated store), but the caller forbade building — e.g. a portfolio sweep that must
         // not rebuild every project. Signal "unavailable"; index checkers degrade to AST-only.
-        if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
+        if noIndexBuild {
             throw Error.indexBuildSkipped
         }
 
-        try build(packageRoot: packageRoot, buildPath: buildPath, store: store)
+        try build(packageRoot: packageRoot, buildPath: buildPath, store: store, traits: traits)
         return store
     }
 
@@ -605,9 +698,12 @@ public enum StoreLocator {
         return store
     }
 
-    static func needsRebuild(packageRoot: URL, store: URL) -> Bool {
+    static func needsRebuild(packageRoot: URL, store: URL, traits: [String]) -> Bool {
         let fm = FileManager.default
         guard fm.fileExists(atPath: store.path) else { return true } // SAFETY: CLI tool checks local index store path
+        // Before any date: a store built with other traits is a store of another package, however
+        // recent. Checked first because the date checks below can answer "current" early.
+        guard indexTraitsMatch(traits, for: store, packageRoot: packageRoot) else { return true }
         guard let storeMtime = mtime(of: store) else { return true }
         // Same layout assumption as above, with a worse failure: the old `else { return false }`
         // meant "never rebuild" for any package that keeps its code outside `Sources/`.
@@ -705,7 +801,8 @@ public enum StoreLocator {
         packageRoot: URL,
         buildPath: URL,
         store: URL,
-        includeTests: Bool
+        includeTests: Bool,
+        traits: [String]
     ) -> [String] {
         // No `--build-system` flag. This dedicated build now runs only where the ordinary
         // build produces no index store — below 6.4 — and `native` is already the default
@@ -729,6 +826,9 @@ public enum StoreLocator {
             "-Xswiftc", "-index-store-path",
             "-Xswiftc", store.path,
         ]
+        // A separate build directory, so traits here cannot disturb `build`'s products — but
+        // the store must index the package the other checkers compiled, traits included.
+        arguments += PackageTraits.arguments(enabling: traits)
         return arguments
     }
 
@@ -763,7 +863,7 @@ public enum StoreLocator {
     /// The reason the last test-inclusive index build was abandoned, for checkers to report.
     public static let lastTestBuildFailure = TestBuildFailureBox()
 
-    private static func build(packageRoot: URL, buildPath: URL, store: URL) throws {
+    private static func build(packageRoot: URL, buildPath: URL, store: URL, traits: [String]) throws {
         // Index the tests when they compile; fall back to sources alone when they do not.
         // A package whose test target is broken must not lose its *entire* index over it —
         // that would trade partial coverage for none, which is strictly worse than the
@@ -779,7 +879,8 @@ public enum StoreLocator {
             }
         }
         do {
-            try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: true)
+            try runIndexBuild(
+                packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: true, traits: traits)
             lastTestBuildFailure.clear()
         } catch {
             // Recorded, not only logged. This fallback is the reason a symbol only a test calls
@@ -789,18 +890,23 @@ public enum StoreLocator {
             // indistinguishable from one that found nothing.
             logger.info("index build with --build-tests failed; retrying without test targets")
             lastTestBuildFailure.record(error.localizedDescription)
-            try runIndexBuild(packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: false)
+            try runIndexBuild(
+                packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: false, traits: traits)
         }
+        // Reached only when one of the builds succeeded, both with `traits`.
+        recordIndexTraits(traits, for: store, packageRoot: packageRoot)
     }
 
     private static func runIndexBuild(
         packageRoot: URL,
         buildPath: URL,
         store: URL,
-        includeTests: Bool
+        includeTests: Bool,
+        traits: [String]
     ) throws {
         let arguments = buildArguments(
-            packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: includeTests)
+            packageRoot: packageRoot, buildPath: buildPath, store: store, includeTests: includeTests,
+            traits: traits)
         let result = try ProcessRunner.run(
             "/usr/bin/env",
             arguments: arguments,

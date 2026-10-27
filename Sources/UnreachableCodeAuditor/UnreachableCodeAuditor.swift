@@ -137,7 +137,7 @@ public struct UnreachableCodeAuditor: QualityChecker, Sendable {
         // Cross-module pass.
         do {
             var located: StoreLocator.LocatedStore?
-            located = try StoreLocator.locate(projectKind: kind, excludePatterns: effectiveExcludes)
+            located = try StoreLocator.locate(projectKind: kind, excludePatterns: effectiveExcludes, traits: configuration.traits)
 
             // v5: optional auto-build for Xcode projects/workspaces.
             if (located == nil || located?.isStale == true)

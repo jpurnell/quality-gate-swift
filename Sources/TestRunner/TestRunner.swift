@@ -306,7 +306,7 @@ public struct TestRunner: QualityChecker, Sendable {
         let (flipDiagnostics, newRecord) = Self.flipDetection(
             roster: roster,
             previous: previous,
-            packageFingerprint: Self.packageFingerprint(projectRoot: projectRoot),
+            packageFingerprint: Self.packageFingerprint(projectRoot: projectRoot, traits: configuration.traits),
             commit: Self.currentCommit(projectRoot: projectRoot),
             loadProxy: configuration.parallelWorkers ?? ProcessInfo.processInfo.activeProcessorCount,
             strict: configuration.flipDetector.strict
@@ -330,7 +330,12 @@ public struct TestRunner: QualityChecker, Sendable {
 
     /// Digest of the package's `Sources`/`Tests` `.swift` files plus `Package.swift`.
     /// Two runs with an identical fingerprint are running byte-identical code under test.
-    private static func packageFingerprint(projectRoot: String) -> String {
+    ///
+    /// The traits are part of the package as built. A test compiled only under a trait changes
+    /// outcome when the trait does, with no source changed — and with the traits outside this
+    /// fingerprint that change was a "scheduler-dependent flip", an error under `strict`.
+    /// No traits salt nothing, so a fingerprint recorded before `traits:` existed still matches.
+    static func packageFingerprint(projectRoot: String, traits: [String]) -> String {
         let root = projectRoot as NSString
         var files: [String] = [root.appendingPathComponent("Package.swift")]
         for subdir in ["Sources", "Tests"] {
@@ -341,7 +346,7 @@ public struct TestRunner: QualityChecker, Sendable {
         }
         return CheckerFingerprint.compute(
             checkerId: "test-roster",
-            inputs: CacheInputs(files: files),
+            inputs: CacheInputs(files: files, salt: traits.isEmpty ? "" : "traits=" + traits.joined(separator: ",")),
             gateHash: ""
         )
     }
@@ -738,7 +743,11 @@ public struct TestRunner: QualityChecker, Sendable {
         let run = try launcher.run(ToolLauncher.Request(
             checkerId: id,
             executable: "/usr/bin/swift",
-            arguments: ["test"] + arguments,
+            // Here rather than in `testArguments`, because the stress re-runs build their own
+            // argument list and reach `swift test` only through this function. A stress run
+            // without the suite's traits would rebuild the package without them and re-run
+            // tests that were never in the suite it is checking.
+            arguments: ["test"] + arguments + PackageTraits.arguments(enabling: configuration.traits),
             directory: root,
             environment: Self.childEnvironment(from: ProcessInfo.processInfo.environment),
             budget: CheckerBudget.allowance(for: id, root: root, configuration: configuration)))

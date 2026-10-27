@@ -257,7 +257,7 @@ public struct ConcurrencyAuditor: QualityChecker, Sendable {
         let root = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: root)
 
-        guard let located = try StoreLocator.locate(projectKind: kind) else {
+        guard let located = try StoreLocator.locate(projectKind: kind, traits: configuration.traits) else {
             return [ConcurrencyIndexPass.unavailableNote()]
         }
 

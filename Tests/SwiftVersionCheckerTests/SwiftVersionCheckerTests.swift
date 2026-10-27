@@ -337,3 +337,17 @@ struct SwiftVersionCheckerTests {
         #expect(config.swiftVersion.checkCompiler == true)
     }
 }
+
+// The verification build answers "does this package still build at the older tools
+// version?". Without the configured traits it answered for a package with SwiftKeychain's
+// adapters compiled out — the half of the package most likely to use something new.
+@Suite("swift-version: the verification build uses the configured traits")
+struct SwiftVersionTraitsTests {
+
+    @Test("Configured traits reach the verification build; none leave it as plain swift build")
+    func verificationBuildCarriesTraits() {
+        #expect(SwiftVersionChecker.verificationBuildArguments(traits: ["OAuth"])
+            == ["build", "--traits", "OAuth"])
+        #expect(SwiftVersionChecker.verificationBuildArguments(traits: []) == ["build"])
+    }
+}

@@ -90,7 +90,7 @@ struct StoreLocationTests {
             packageRoot: URL(fileURLWithPath: "/tmp/pkg"),
             buildPath: URL(fileURLWithPath: "/tmp/pkg/.build/index-build"),
             store: URL(fileURLWithPath: "/tmp/pkg/.build/index-build/index-store"),
-            includeTests: true
+            includeTests: true, traits: []
         )
         #expect(arguments.contains("--build-tests"))
         #expect(arguments.contains("-index-store-path"))
@@ -104,7 +104,7 @@ struct StoreLocationTests {
             packageRoot: URL(fileURLWithPath: "/tmp/pkg"),
             buildPath: URL(fileURLWithPath: "/tmp/pkg/.build/index-build"),
             store: URL(fileURLWithPath: "/tmp/pkg/.build/index-build/index-store"),
-            includeTests: false
+            includeTests: false, traits: []
         )
         #expect(!arguments.contains("--build-tests"))
         #expect(arguments.contains("-index-store-path"))
@@ -117,7 +117,7 @@ struct StoreLocationTests {
         let build = StoreLocator.indexBuildDirectory(packageRoot: root)
         for includeTests in [true, false] {
             let arguments = StoreLocator.buildArguments(
-                packageRoot: root, buildPath: build, store: store, includeTests: includeTests)
+                packageRoot: root, buildPath: build, store: store, includeTests: includeTests, traits: [])
             #expect(arguments.contains(store.path))
             #expect(arguments.contains(root.path))
         }
@@ -287,7 +287,7 @@ struct StoreLocationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try makeFreshDedicatedStore(in: root, units: ["Core-ABC.o", "Helpers-DEF.o"], withTestsDirectory: true)
 
-        #expect(StoreLocator.needsRebuild(packageRoot: root, store: store))
+        #expect(StoreLocator.needsRebuild(packageRoot: root, store: store, traits: []))
     }
 
     @Test("A fresh store that holds test units is left alone")
@@ -297,7 +297,7 @@ struct StoreLocationTests {
         let store = try makeFreshDedicatedStore(
             in: root, units: ["Core-ABC.o", "CoreTests-DEF.o"], withTestsDirectory: true)
 
-        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store))
+        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store, traits: []))
     }
 
     @Test("A package with no Tests directory is never rebuilt for want of tests")
@@ -306,7 +306,7 @@ struct StoreLocationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try makeFreshDedicatedStore(in: root, units: ["Core-ABC.o"], withTestsDirectory: false)
 
-        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store))
+        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store, traits: []))
     }
 
     @Test("A test-less store is not rebuilt again once a test-inclusive build was attempted")
@@ -318,10 +318,10 @@ struct StoreLocationTests {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try makeFreshDedicatedStore(in: root, units: ["Core-ABC.o"], withTestsDirectory: true)
-        #expect(StoreLocator.needsRebuild(packageRoot: root, store: store))
+        #expect(StoreLocator.needsRebuild(packageRoot: root, store: store, traits: []))
 
         StoreLocator.recordTestCoverageAttempt(packageRoot: root, reason: "no unit named *Tests* was produced")
 
-        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store))
+        #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store, traits: []))
     }
 }

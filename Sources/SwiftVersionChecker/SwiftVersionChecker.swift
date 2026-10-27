@@ -100,7 +100,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
            Self.compareVersions(toolsVersion, minimumVersion) == .orderedAscending {
             verificationResult = try await runVerificationBuild(
                 packagePath: packagePath,
-                targetVersion: minimumVersion
+                targetVersion: minimumVersion,
+                traits: configuration.traits
             )
         }
 
@@ -150,7 +151,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
 
         // Verify build
         let (_, exitCode) = try await runSwiftBuild(
-            in: (packagePath as NSString).deletingLastPathComponent)
+            in: (packagePath as NSString).deletingLastPathComponent, traits: configuration.traits)
 
         if exitCode == 0 {
             // Build succeeded — keep the change
@@ -390,7 +391,8 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
     /// Run a verification build with a temporarily rewritten Package.swift.
     private func runVerificationBuild(
         packagePath: String,
-        targetVersion: String
+        targetVersion: String,
+        traits: [String]
     ) async throws -> VerificationResult {
         let original = try String(contentsOfFile: packagePath, encoding: .utf8)
 
@@ -417,7 +419,7 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         }
 
         let (output, exitCode) = try await runSwiftBuild(
-            in: (packagePath as NSString).deletingLastPathComponent)
+            in: (packagePath as NSString).deletingLastPathComponent, traits: traits)
 
         if exitCode == 0 {
             return .upgradeable
@@ -427,11 +429,23 @@ public struct SwiftVersionChecker: QualityChecker, FixableChecker, Sendable {
         }
     }
 
+    /// The arguments of the verification build.
+    ///
+    /// With the configured traits, because the question is whether *this* package still
+    /// builds at the older tools version, and code behind a trait is part of it — often the
+    /// newest part, and the most likely to need something the older version lacks.
+    ///
+    /// - Parameter traits: The configured package traits.
+    /// - Returns: `swift` arguments, `build` first.
+    static func verificationBuildArguments(traits: [String]) -> [String] {
+        ["build"] + PackageTraits.arguments(enabling: traits)
+    }
+
     /// Run `swift build` in the package's directory and return the combined output and exit code.
-    private func runSwiftBuild(in root: String) async throws -> (output: String, exitCode: Int32) {
+    private func runSwiftBuild(in root: String, traits: [String]) async throws -> (output: String, exitCode: Int32) {
         return try await runProcess(
             executable: "/usr/bin/swift",
-            arguments: ["build"],
+            arguments: Self.verificationBuildArguments(traits: traits),
             currentDirectory: root
         )
     }
