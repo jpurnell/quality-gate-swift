@@ -58,11 +58,20 @@ private func project(manifest: String, pins: [String]) throws -> URL {
 
 private func unresolved(manifest: String, pins: [String], traits: [String]) async throws -> [Diagnostic] {
     let root = try project(manifest: manifest, pins: pins)
-    defer { try? FileManager.default.removeItem(at: root) } // silent: best-effort cleanup of a temporary fixture
+    defer { removeFixture(root) }
     var configuration = Configuration(traits: traits)
     configuration.projectRoot = root
     let result = try await DependencyAuditor().check(configuration: configuration)
     return result.diagnostics.filter { $0.ruleId == "dep-unresolved" }
+}
+
+/// Removes a temporary fixture, recording a failure instead of discarding it.
+private func removeFixture(_ url: URL) {
+    do {
+        try FileManager.default.removeItem(at: url)
+    } catch {
+        Issue.record("could not remove the fixture at \(url.path): \(error)")
+    }
 }
 
 @Suite("dependency-audit: a dependency only a disabled trait reaches need not be resolved")

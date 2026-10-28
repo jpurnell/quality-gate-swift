@@ -7,6 +7,15 @@ import Testing
 // `OAuth` trait stays "fresh" after the gate starts building with it, and every index-backed
 // checker answers questions about code with the adapters compiled out.
 
+/// Removes a temporary fixture, recording a failure instead of discarding it.
+private func removeFixture(_ url: URL) {
+    do {
+        try FileManager.default.removeItem(at: url)
+    } catch {
+        Issue.record("could not remove the fixture at \(url.path): \(error)")
+    }
+}
+
 @Suite("StoreLocator: index builds use, and are judged by, the configured traits")
 struct IndexTraitsTests {
 
@@ -53,7 +62,7 @@ struct IndexTraitsTests {
     @Test("A current store built with no record of traits is current for a run with none")
     func unrecordedStoreServesTheDefaultBuild() throws {
         let root = try package()
-        defer { try? FileManager.default.removeItem(at: root) } // silent: best-effort cleanup of a temporary fixture
+        defer { removeFixture(root) }
         let store = try managedStore(in: root)
         #expect(!StoreLocator.needsRebuild(packageRoot: root, store: store, traits: []))
     }
@@ -61,7 +70,7 @@ struct IndexTraitsTests {
     @Test("A current store built with other traits is rebuilt, and once recorded is not")
     func traitChangeForcesRebuild() throws {
         let root = try package()
-        defer { try? FileManager.default.removeItem(at: root) } // silent: best-effort cleanup of a temporary fixture
+        defer { removeFixture(root) }
         let store = try managedStore(in: root)
 
         #expect(StoreLocator.needsRebuild(packageRoot: root, store: store, traits: ["OAuth"]))
@@ -77,7 +86,7 @@ struct IndexTraitsTests {
     @Test("Under --no-index-build, a swiftbuild store built with other traits is not reused")
     func storeWithOtherTraitsIsNotReused() throws {
         let root = try package()
-        defer { try? FileManager.default.removeItem(at: root) } // silent: best-effort cleanup of a temporary fixture
+        defer { removeFixture(root) }
         let store = StoreLocator.swiftbuildStorePath(packageRoot: root)
         let units = StoreLocator.unitsDirectory(in: store)
         try FileManager.default.createDirectory(at: units, withIntermediateDirectories: true)

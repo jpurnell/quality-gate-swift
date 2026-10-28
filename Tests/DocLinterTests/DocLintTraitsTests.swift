@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import DocLinter
 @testable import QualityGateCore
@@ -12,19 +13,26 @@ import Testing
 //
 // It must precede the subcommand.
 
-// Justification: `recorded` is only touched under `lock`; the class holds no other state.
-private final class Arguments: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recorded: [[String]] = []
+/// What the launcher was asked to run, in order. Checked `Sendable`: the one stored property
+/// is a `Mutex`.
+private final class Arguments: Sendable {
+    private let recorded = Mutex<[[String]]>([])
 
     func record(_ arguments: [String]) {
-        lock.lock(); defer { lock.unlock() }
-        recorded.append(arguments)
+        recorded.withLock { $0.append(arguments) }
     }
 
     var all: [[String]] {
-        lock.lock(); defer { lock.unlock() }
-        return recorded
+        recorded.withLock { $0 }
+    }
+}
+
+/// Removes a temporary fixture, recording a failure instead of discarding it.
+private func removeFixture(_ url: URL) {
+    do {
+        try FileManager.default.removeItem(at: url)
+    } catch {
+        Issue.record("could not remove the fixture at \(url.path): \(error)")
     }
 }
 
@@ -60,7 +68,7 @@ struct DocLintTraitsTests {
     @Test("Traits are package options, placed before the plugin's subcommand")
     func traitsPrecedeTheSubcommand() async throws {
         let root = try package()
-        defer { try? FileManager.default.removeItem(at: root) } // silent: best-effort cleanup of a temporary fixture
+        defer { removeFixture(root) }
         let seen = Arguments()
         var configuration = Configuration(traits: ["OAuth", "CLIAuth"])
         configuration.projectRoot = root
@@ -75,7 +83,7 @@ struct DocLintTraitsTests {
     @Test("No configured traits leave the command exactly as it was")
     func noTraitsNoArgument() async throws {
         let root = try package()
-        defer { try? FileManager.default.removeItem(at: root) } // silent: best-effort cleanup of a temporary fixture
+        defer { removeFixture(root) }
         let seen = Arguments()
         var configuration = Configuration()
         configuration.projectRoot = root
