@@ -341,7 +341,16 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
         let startTime = ContinuousClock.now
         let config = configuration.xcodeBuild
 
-        let projectArgs = try resolveProjectArguments(config, root: configuration.resolvedProjectRoot.path)
+        let containerArgs = try resolveProjectArguments(config, root: configuration.resolvedProjectRoot.path)
+        // A package with committed pins is built from them, by every launch: xcodebuild builds
+        // with default traits only, and otherwise rewrites Package.resolved without the pins
+        // other traits need, leaving `dependency-audit` to fail on the gate's own change.
+        let projectArgs = containerArgs.map { args in
+            args + Self.resolutionArguments(
+                projectArguments: args,
+                packageIsPinned: FileManager.default.fileExists(
+                    atPath: configuration.resolvedProjectRoot.appendingPathComponent("Package.resolved").path))
+        }
 
         // Nothing built is `.skipped`, never `.passed`. It used to pass: a plain package,
         // configured with a scheme and a watchOS destination, printed `✓ PASSED (0ms)`
@@ -551,6 +560,21 @@ public struct XcodeBuildChecker: QualityChecker, Sendable {
             return []
         }
         return nil
+    }
+
+    /// The arguments that stop `xcodebuild` re-resolving a package's dependencies.
+    ///
+    /// Only for a bare package (no container arguments) that has a `Package.resolved`: with no
+    /// file, the flag would refuse to resolve at all, and an Xcode project keeps its pins
+    /// inside the project, where traits don't arise.
+    ///
+    /// - Parameters:
+    ///   - projectArguments: What ``projectArguments(config:directoryContents:)`` chose.
+    ///   - packageIsPinned: Whether the project root has a `Package.resolved`.
+    /// - Returns: `-onlyUsePackageVersionsFromResolvedFile`, or nothing.
+    static func resolutionArguments(projectArguments: [String], packageIsPinned: Bool) -> [String] {
+        guard projectArguments.isEmpty, packageIsPinned else { return [] }
+        return ["-onlyUsePackageVersionsFromResolvedFile"]
     }
 
     private func discoverScheme(
