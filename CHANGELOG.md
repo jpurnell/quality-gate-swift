@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Fixed
+
+- **`xcode-build` no longer rewrites a package's `Package.resolved`.** `xcodebuild` builds with
+  default traits only, so for a package with traits it re-resolved and wrote back only the pins
+  the default build needs: SwiftKeychain's 29 pins became 2, and `dependency-audit` then failed
+  on a file the gate itself had changed. Earlier runs passed only because `dependency-audit`
+  replayed a cached result. For a bare package with a `Package.resolved`, every `xcodebuild`
+  launch (`-list`, `-showBuildSettings`, `build`) now passes
+  `-onlyUsePackageVersionsFromResolvedFile`. Without the file, or for an Xcode project or
+  workspace, nothing changes. `ResolvedFileTests` cover each case.
+
 ### Added
 
 - **`traits:` — the SwiftPM package traits every build runs with.** SwiftKeychain puts its
