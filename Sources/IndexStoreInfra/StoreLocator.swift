@@ -492,7 +492,7 @@ public enum StoreLocator {
     /// existed was built with — so a project that configures none sees no change at all.
     static func indexTraitsMatch(_ traits: [String], for store: URL, packageRoot: URL) -> Bool {
         let marker = indexTraitsMarker(for: store, packageRoot: packageRoot)
-        let recorded = FileManager.default.contents(atPath: marker.path) // SAFETY: read-only probe of the gate's own marker inside .build
+        let recorded = FileManager.default.contents(atPath: marker.path)
             .map { String(decoding: $0, as: UTF8.self) } ?? ""
         return recorded == traits.joined(separator: ",")
     }
@@ -504,7 +504,7 @@ public enum StoreLocator {
     static func recordIndexTraits(_ traits: [String], for store: URL, packageRoot: URL) {
         let marker = indexTraitsMarker(for: store, packageRoot: packageRoot)
         // Nothing to say, and nothing written into a project that never configured traits.
-        if traits.isEmpty && !FileManager.default.fileExists(atPath: marker.path) { return } // SAFETY: read-only probe of the gate's own marker inside .build
+        if traits.isEmpty && !FileManager.default.fileExists(atPath: marker.path) { return }
         do {
             try FileManager.default.createDirectory(
                 at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -533,10 +533,22 @@ public enum StoreLocator {
     ///   - traits: The package traits the run builds with. Defaulted so a caller with no
     ///     configuration keeps the behaviour it had; every checker passes its own.
     public static func ensureFresh(packageRoot: URL, traits: [String] = []) throws -> URL {
+        try ensureFresh(
+            packageRoot: packageRoot, traits: traits,
+            noIndexBuild: ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1")
+    }
+
+    /// ``ensureFresh(packageRoot:traits:)`` with `--no-index-build` decided by the caller.
+    ///
+    /// The environment is read in exactly one place, the public entry point. Its tests used to
+    /// `setenv("QG_NO_INDEX_BUILD")` to reach this path, and that variable is process-wide:
+    /// `IndexBuildLockTests`, running in parallel in another suite, then took the no-build path,
+    /// skipped the lock, and failed the gate's own `test` checker intermittently.
+    static func ensureFresh(packageRoot: URL, traits: [String], noIndexBuild: Bool) throws -> URL {
         let buildPath = indexBuildDirectory(packageRoot: packageRoot)
         // --no-index-build never builds and must not write into the project, not even a lock
         // file: a portfolio sweep reads stores as it finds them.
-        if ProcessInfo.processInfo.environment["QG_NO_INDEX_BUILD"] == "1" {
+        if noIndexBuild {
             return try freshStore(packageRoot: packageRoot, buildPath: buildPath, traits: traits, noIndexBuild: true)
         }
         // SAFETY: CLI tool creates its local index-build directory to host the lock file
@@ -549,10 +561,7 @@ public enum StoreLocator {
     /// The body of ``ensureFresh(packageRoot:traits:)``, run while its caller holds the
     /// index-build lock, or under `--no-index-build`, which builds nothing.
     ///
-    /// `noIndexBuild` is read from the environment once, by the caller, and handed in. Read
-    /// here as well, it was a second lookup of a process-wide variable that a test in another
-    /// suite can be setting at that moment: `IndexBuildLockTests` then took the no-build path
-    /// and returned without waiting for the lock it exists to prove is waited for.
+    /// `noIndexBuild` is decided once, by ``ensureFresh(packageRoot:traits:)``, and handed in.
     static func freshStore(
         packageRoot: URL, buildPath: URL, traits: [String], noIndexBuild: Bool
     ) throws -> URL {
