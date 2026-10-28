@@ -88,6 +88,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
             do {
                 let pass2Diagnostics = try await runIndexPass(
                     root: configuration.resolvedProjectRoot,
+                    traits: configuration.traits,
                     pass1Diagnostics: allDiagnostics,
                     taskProperties: allTaskInfos,
                     delegateProperties: allDelegateInfos,
@@ -131,6 +132,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
 
     private func runIndexPass(
         root: URL,
+        traits: [String],
         pass1Diagnostics: [Diagnostic],
         taskProperties: [LifecycleIndexPass.TaskPropertyInfo],
         delegateProperties: [LifecycleIndexPass.DelegatePropertyInfo],
@@ -138,7 +140,7 @@ public struct MemoryLifecycleGuard: QualityChecker, Sendable {
     ) async throws -> [Diagnostic] {
         let kind = ProjectKind.detect(at: root)
 
-        guard let located = try StoreLocator.locate(projectKind: kind) else {
+        guard let located = try StoreLocator.locate(projectKind: kind, traits: traits) else {
             return pass1Diagnostics + [LifecycleIndexPass.unavailableNote()]
         }
 

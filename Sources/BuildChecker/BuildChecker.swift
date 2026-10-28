@@ -480,6 +480,11 @@ public struct BuildChecker: QualityChecker, Sendable {
             ])
         }
 
+        // The same traits every other build in the run uses. A trait left off here is code
+        // this checker never compiles — SwiftKeychain's adapters were — and a trait set that
+        // differs from `test`'s makes the two rebuild each other's products in one `.build`.
+        args.append(contentsOf: PackageTraits.arguments(enabling: configuration.traits))
+
         return args
     }
 

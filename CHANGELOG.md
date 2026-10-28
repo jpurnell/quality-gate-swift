@@ -1,5 +1,45 @@
 ## [Unreleased]
 
+### Added
+
+- **`traits:` — the SwiftPM package traits every build runs with.** SwiftKeychain puts its
+  adapters behind traits that are off by default, and SwiftPM does not even resolve a
+  dependency only a disabled trait uses, so `build`, `test`, the index and DocC compiled the
+  package with those adapters missing and reported on what was left. `traits: [OAuth, CLIAuth]`
+  is now passed as `--traits OAuth,CLIAuth` to every SwiftPM invocation that builds the package:
+  `build`, `test` (the suite and stress re-runs), both index builds, `doc-lint`'s
+  `swift package generate-documentation`, and `swift-version`'s verification build. One trait set
+  for all of them, because SwiftPM keeps one build directory per configuration, not per trait set,
+  and two checkers asking for different traits rebuild each other's products. Absent or empty, no
+  flag is passed and nothing changes. Naming traits replaces the package's defaults, as on
+  SwiftPM's command line; `defaults` in the list keeps them. A name that is empty or contains a
+  comma or whitespace is refused, since SwiftPM would read it as something else.
+  - Caches: the result cache was already salted with the whole configuration, so `test`,
+    `doc-lint`, `doc-comment-code` and the index-backed checkers miss when the traits change.
+    `build` keeps no result cache. The index stores record which traits built them
+    (`.build/index-build/.traits-<store>`); a store current by its dates but built with other
+    traits is rebuilt, and under `--no-index-build` is not offered. The flip detector's package
+    fingerprint includes the traits, so a trait change is not a "scheduler-dependent flip".
+  - `doc-lint`: the flag goes before `generate-documentation`. After it, SwiftPM hands it to the
+    plugin as a plugin argument and builds with the defaults (measured on 6.4). Also measured: on
+    6.4 the plugin's symbol-graph extraction compiles every trait the package defines, whatever
+    `--traits` says, so DocC already saw trait-gated code; the flag keeps the plugin's own builds
+    in step with the rest.
+  - `dependency-audit` counts only the dependencies the configured traits reach. SwiftKeychain's
+    Package.resolved correctly held two pins for three declared dependencies and was reported
+    out of sync. A dependency is left out only when every use of it is a
+    `.product(…, condition: .when(traits:))` whose traits are all off.
+  - `doc-comment-code` needed no change of its own: it compiles fences against the modules
+    `build` leaves in `.build/debug`, and those now include the trait-gated code.
+  - Not added: an "all traits" form (`--enable-all-traits`). SwiftPM does not enforce that traits
+    are additive, so the union can be a build no consumer can ask for, and it would let a trait
+    added to `Package.swift` change every checker's build with no line in `.quality-gate.yml`.
+  - Left alone: `swift package describe` (`unreachable`) does not build, and its target list does
+    not depend on traits. `doc-code` and `doc-comment-code` call `swiftc` directly against built
+    modules. `xcode-build` runs `xcodebuild`, which has no `--traits`.
+  - Supported on SwiftPM 6.1 and later, which is when traits shipped; `--traits` is in
+    `swift build|test|package --help` on 6.3.3 and 6.4 here.
+
 ### Fixed
 
 - **Index checkers could read a store a peer was still building.** `StoreLocator.ensureFresh`

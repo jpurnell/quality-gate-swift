@@ -74,7 +74,7 @@ struct BuildSystemVersionTests {
             packageRoot: URL(fileURLWithPath: "/tmp/pkg"),
             buildPath: URL(fileURLWithPath: "/tmp/pkg/.build/index-build"),
             store: URL(fileURLWithPath: "/tmp/pkg/.build/index-build/index-store"),
-            includeTests: true
+            includeTests: true, traits: []
         )
         #expect(!arguments.contains("--build-system"))
         #expect(!arguments.contains("native"))

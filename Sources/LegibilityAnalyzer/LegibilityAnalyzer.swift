@@ -410,7 +410,7 @@ public struct LegibilityAnalyzer: QualityChecker, Sendable {
     private func resolveSemantics(configuration: Configuration, cwd: String) async -> SemanticResolution? {
         let kind = ProjectKind.detect(at: URL(fileURLWithPath: cwd))
         do {
-            guard let located = try StoreLocator.locate(projectKind: kind), !located.isStale else {
+            guard let located = try StoreLocator.locate(projectKind: kind, traits: configuration.traits), !located.isStale else {
                 return nil
             }
             guard let libPath = IndexStoreSession.findLibIndexStore() else { return nil }

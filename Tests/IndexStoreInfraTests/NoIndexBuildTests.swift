@@ -6,8 +6,9 @@ import Testing
 /// exists, `ensureFresh` throws `indexBuildSkipped` instead of compiling, so
 /// index-backed checkers degrade to AST-only rather than building the project.
 ///
-/// Serialized because it mutates a process-global environment variable.
-@Suite("StoreLocator --no-index-build", .serialized)
+/// The flag is passed as an argument rather than set with `setenv`: the variable is
+/// process-wide, and setting it made `IndexBuildLockTests` in another suite skip its lock.
+@Suite("StoreLocator --no-index-build")
 struct NoIndexBuildTests {
 
     private func makeEmptyPackage() throws -> URL {
@@ -23,11 +24,8 @@ struct NoIndexBuildTests {
         let root = try makeEmptyPackage()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        setenv("QG_NO_INDEX_BUILD", "1", 1)
-        defer { unsetenv("QG_NO_INDEX_BUILD") }
-
         #expect(throws: StoreLocator.Error.self) {
-            _ = try StoreLocator.ensureFresh(packageRoot: root)
+            _ = try StoreLocator.ensureFresh(packageRoot: root, traits: [], noIndexBuild: true)
         }
         // And it must NOT have started a build.
         #expect(!FileManager.default.fileExists(
@@ -44,10 +42,7 @@ struct NoIndexBuildTests {
         try FileManager.default.createDirectory(at: units, withIntermediateDirectories: true)
         try Data("unit".utf8).write(to: units.appendingPathComponent("M.o-ABC"))
 
-        setenv("QG_NO_INDEX_BUILD", "1", 1)
-        defer { unsetenv("QG_NO_INDEX_BUILD") }
-
-        let url = try StoreLocator.ensureFresh(packageRoot: root)
+        let url = try StoreLocator.ensureFresh(packageRoot: root, traits: [], noIndexBuild: true)
         #expect(url.path == root.appendingPathComponent(".build/out").path)
     }
 }

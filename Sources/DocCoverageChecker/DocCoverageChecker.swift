@@ -219,7 +219,7 @@ public struct DocCoverageChecker: QualityChecker, Sendable {
         let cwd = configuration.resolvedProjectRoot
         let kind = ProjectKind.detect(at: cwd)
 
-        guard let located = try StoreLocator.locate(projectKind: kind) else {
+        guard let located = try StoreLocator.locate(projectKind: kind, traits: configuration.traits) else {
             return ([DocCoverageIndexPass.unavailableNote()], 0)
         }
 
