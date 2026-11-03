@@ -102,6 +102,8 @@ public struct HIGAuditor: FixableChecker, Sendable {
 
         let activePlatforms = platformOverride
             ?? PlatformDetector.detectFromPackageManifest(at: currentDir)
+        // An explicit `platforms:` override is the author's word and outranks the project file.
+        let projects = platformOverride == nil ? XcodeProjectPlatforms.discover(under: root) : XcodeProjectPlatforms()
 
         var allDiagnostics: [Diagnostic] = []
         var allOverrides: [DiagnosticOverride] = []
@@ -109,6 +111,8 @@ public struct HIGAuditor: FixableChecker, Sendable {
         let result = try await auditFiles(
             scan.files,
             activePlatforms: activePlatforms,
+            projects: projects,
+            isConfigured: platformOverride != nil,
             configuration: configuration
         )
         allDiagnostics.append(contentsOf: result.diagnostics)
@@ -121,6 +125,16 @@ public struct HIGAuditor: FixableChecker, Sendable {
             message: "hig examined \(scan.files.count) file\(plural)"
                 + (scan.exclusionClause.map { " · \($0)" } ?? ""),
             ruleId: "hig-auditor.coverage"))
+
+        if projects.projectCount + projects.unreadableProjectCount > 0 {
+            allDiagnostics.append(Diagnostic(
+                severity: .note,
+                message: "hig resolved \(result.projectResolved) of \(result.swiftUIFiles) SwiftUI files' platforms from "
+                    + "\(projects.projectCount) Xcode project\(projects.projectCount == 1 ? "" : "s")"
+                    + (projects.unreadableProjectCount > 0 ? " (\(projects.unreadableProjectCount) unreadable)" : "")
+                    + "; the rest fall back to Package.swift or all platforms",
+                ruleId: "hig-auditor.platform-source"))
+        }
 
         let duration = ContinuousClock.now - startTime
         // Notes excluded: the coverage note above is a diagnostic, and an `isEmpty` test would
@@ -212,15 +226,25 @@ public struct HIGAuditor: FixableChecker, Sendable {
     /// `NavigationLink` is in `LibraryList`. `navigation` is that knowledge — see
     /// ``NavigationHostIndex``. The single-source overload passes an empty one, so it answers
     /// from the file alone.
+    ///
+    /// `projectPlatforms` is what the Xcode project says builds this file. It outranks source
+    /// markers and the project-wide default, because the project is the authority on what is
+    /// compiled for what; `isConfigured` means `activePlatforms` came from an explicit override,
+    /// which outranks everything. The result applies to *every* visitor, not just `App` structs:
+    /// a watch-only `View` is no more subject to `hig.context-menus` than a watch-only `App`
+    /// is to `hig.settings-scene`.
     func auditSource(
         _ source: String,
         fileName: String,
-        activePlatforms: HIGPlatform,
-        navigation: NavigationHostIndex
+        activePlatforms projectWide: HIGPlatform,
+        navigation: NavigationHostIndex,
+        projectPlatforms: HIGPlatform? = nil,
+        isConfigured: Bool = false
     ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
         guard source.contains("import SwiftUI") else {
             return ([], [])
         }
+        let activePlatforms = isConfigured ? projectWide : (projectPlatforms ?? projectWide)
 
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
@@ -233,9 +257,11 @@ public struct HIGAuditor: FixableChecker, Sendable {
         let hasViewConformance = source.contains(": View")
 
         if hasAppConformance {
-            // A file that names its own platform outranks the project-wide default,
-            // which is `.all` for any repo without a Package.swift at its root.
-            let appPlatforms = PlatformDetector.detectAppPlatform(source) ?? activePlatforms
+            // Override, then the project's target membership, then a marker the file carries,
+            // then the project-wide default (`.all` for a repo with no Package.swift at its root).
+            let appPlatforms = isConfigured
+                ? activePlatforms
+                : (projectPlatforms ?? PlatformDetector.detectAppPlatform(source) ?? activePlatforms)
             let appVisitor = AppStructureVisitor(
                 fileName: fileName,
                 converter: converter,
@@ -279,8 +305,10 @@ public struct HIGAuditor: FixableChecker, Sendable {
     private func auditFiles(
         _ paths: [String],
         activePlatforms: HIGPlatform,
+        projects: XcodeProjectPlatforms,
+        isConfigured: Bool,
         configuration: Configuration
-    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+    ) async throws -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride], swiftUIFiles: Int, projectResolved: Int) {
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
 
@@ -298,14 +326,21 @@ public struct HIGAuditor: FixableChecker, Sendable {
         }
         let navigation = NavigationHostIndex.build(sources: sources.map(\.source))
 
+        var swiftUIFiles = 0
+        var projectResolved = 0
         for entry in sources {
+            let isSwiftUI = entry.source.contains("import SwiftUI")
+            let membership = isSwiftUI && !projects.isEmpty ? projects.platforms(forFile: entry.path) : nil
+            if isSwiftUI { swiftUIFiles += 1 }
+            if membership != nil { projectResolved += 1 }
             let result = auditSource(
-                entry.source, fileName: entry.path, activePlatforms: activePlatforms, navigation: navigation)
+                entry.source, fileName: entry.path, activePlatforms: activePlatforms, navigation: navigation,
+                projectPlatforms: membership, isConfigured: isConfigured)
             diagnostics.append(contentsOf: result.diagnostics)
             overrides.append(contentsOf: result.overrides)
         }
 
-        return (diagnostics, overrides)
+        return (diagnostics, overrides, swiftUIFiles, projectResolved)
     }
 
     private func applyFix(ruleId: String, source: inout String, diagnostic: Diagnostic) -> Bool {
