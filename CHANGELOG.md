@@ -1,6 +1,24 @@
 ## [Unreleased]
 
+## [3.7.0] - 2026-11-03
+
 ### Fixed
+
+- **`hig-auditor` no longer audits a watchOS, tvOS or visionOS file against macOS rules.** A
+  SwiftUI file says nothing about its platform, and a repository with no root `Package.swift`
+  (an Xcode project) fell back to every platform, so a watch-only `App` was asked for a macOS
+  `Settings` scene and menu `.commands`; the only way to a clean gate was dead `#if os(macOS)`
+  code. Platforms are now read from the project: `XcodeProjectPlatforms` parses each
+  `project.pbxproj` and gives a file the union of the platforms of the targets that compile it
+  (`SUPPORTED_PLATFORMS`, else `SDKROOT`, narrowed by `TARGETED_DEVICE_FAMILY`, plus Mac
+  Catalyst), including Xcode 16 synchronized folders and their exception sets. Precedence is
+  the `platforms:` override, then target membership, then source markers, then `Package.swift`.
+  It applies to **every** visitor, not only `App` structs. A file no target compiles, or one
+  whose target cannot be resolved, behaves as before, and a `hig-auditor.platform-source` note
+  says how many files were resolved. Design: `AWatchAppIsNotAMacApp.md`.
+- **`import UIKit` and `UIApplicationDelegateAdaptor` no longer mean iOS-only.** tvOS and
+  visionOS import UIKit too; they now yield iOS, iPadOS, tvOS and visionOS. `import TVUIKit`
+  and `import TVServices` are new tvOS markers.
 
 - **`xcode-build` no longer rewrites a package's `Package.resolved`.** `xcodebuild` builds with
   default traits only, so for a package with traits it re-resolved and wrote back only the pins
@@ -4642,7 +4660,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.6.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.7.0...HEAD
+[3.7.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.3.0...v3.4.0

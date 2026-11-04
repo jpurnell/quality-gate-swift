@@ -87,16 +87,23 @@ public struct PlatformDetector: Sendable {
             platforms.insert(.macOS)
         }
 
-        // UIKit, the UI adaptor and ActivityKit do not build for macOS or watchOS.
-        if source.contains("os(iOS)")
-            || source.contains("import UIKit")
-            || source.contains("UIApplicationDelegateAdaptor")
-            || source.contains("import ActivityKit") {
+        // ActivityKit is iPhone/iPad only.
+        if source.contains("os(iOS)") || source.contains("import ActivityKit") {
             platforms.insert(.iOS)
             platforms.insert(.iPadOS)
         }
 
-        if source.contains("os(tvOS)") {
+        // UIKit and its app-delegate adaptor build for every UIKit platform — iOS, iPadOS,
+        // tvOS and visionOS — and for neither macOS nor watchOS. Reading them as iOS-only
+        // put a tvOS or visionOS app under iPad's menu-bar rules and out of its own.
+        if source.contains("import UIKit") || source.contains("UIApplicationDelegateAdaptor") {
+            platforms.formUnion([.iOS, .iPadOS, .tvOS, .visionOS])
+        }
+
+        // TVUIKit and TVServices exist only on tvOS.
+        if source.contains("os(tvOS)")
+            || source.contains("import TVUIKit")
+            || source.contains("import TVServices") {
             platforms.insert(.tvOS)
         }
 
