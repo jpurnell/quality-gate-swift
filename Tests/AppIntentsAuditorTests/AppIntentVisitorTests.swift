@@ -162,7 +162,7 @@ struct EntityCompletenessTests {
         #expect(rule.severity == .warning)
     }
 
-    @Test("Entity without @AssistantEntity emits warning")
+    @Test("Entity without a schema emits a note")
     func entityNotAssistant() throws {
         let source = """
         import AppIntents
@@ -176,7 +176,7 @@ struct EntityCompletenessTests {
         """
         let diagnostics = AppIntentVisitor.analyze(source: source, fileName: "Test.swift")
         let rule = try #require(diagnostics.first { $0.ruleId == "appintent-entity-not-assistant" })
-        #expect(rule.severity == .warning)
+        #expect(rule.severity == .note, "a schema is optional; custom entities and enums reach Siri without one")
     }
 }
 
@@ -200,7 +200,7 @@ struct EnumCompletenessTests {
         #expect(rule.severity == .warning)
     }
 
-    @Test("Enum without @AssistantEnum emits warning")
+    @Test("Enum without a schema emits a note")
     func enumNotAssistant() throws {
         let source = """
         import AppIntents
@@ -215,7 +215,7 @@ struct EnumCompletenessTests {
         """
         let diagnostics = AppIntentVisitor.analyze(source: source, fileName: "Test.swift")
         let rule = try #require(diagnostics.first { $0.ruleId == "appintent-enum-not-assistant" })
-        #expect(rule.severity == .warning)
+        #expect(rule.severity == .note, "a schema is optional; custom entities and enums reach Siri without one")
     }
 }
 
