@@ -104,6 +104,28 @@ struct AddToCart: AppIntent {
 
 The tool trait is part of the Siri AI Developer Preview, and Apple notes the API may change during the preview.
 
+### Declining a surface on purpose
+
+An intent can stay out of Siri, Shortcuts or MCP deliberately. Say so, and say why:
+
+```swift
+// appintents:exempt siri — rewrites the ledger and must only ever run from inside the app
+struct RewriteLedgerInApp: AppIntent {
+    static let title: LocalizedStringResource = "Rewrite Ledger"
+    static let description: IntentDescription = "Rewrites the ledger"
+    func perform() async throws -> some IntentResult { .result() }
+}
+```
+
+The marker is `appintents:exempt <surface>`, where the surface is `siri`, `shortcuts` or `mcp`, followed by a reason. It may sit on the line above the declaration (above any attributes) or on the declaration's own line.
+
+- **A reason is required.** A marker with none does not count: the finding stays and `appintent.exempt-no-justification` is reported.
+- **It is recorded, never silent.** A marker with a reason silences the finding and appears in the override report with its reason, which the shared reason validator also judges.
+- **One surface covers only that surface.** `shortcuts` and `mcp` do not silence the Siri rule, and an unrecognised name is reported as `appintent.exempt-unknown-surface`.
+- **Only `siri` has a rule to answer today.** The other two surfaces are accepted so the syntax will not change when their rules arrive.
+
+Shortcuts also has a declaration that needs no comment: `static var isDiscoverable = false` hides an intent from Shortcuts in code.
+
 ### Entity completeness
 
 #### `appintent-entity-no-display`
@@ -235,8 +257,7 @@ Each diagnostic includes the rule ID, the file and line number, and a human-read
 
 Apple Intelligence (iOS 18 and macOS 15) introduced the `AssistantIntent` and `AssistantEntity` protocols, which the `@AppIntent(schema:)` and `@AppEntity(schema:)` macros conform a type to. The Siri AI Developer Preview adds the tool trait for custom actions that no schema describes. These are protocols and macros; there is no `@AssistantIntent` attribute, and an earlier version of this auditor looked for one.
 
-`appintent-no-assistant-schema` is the one rule here that warns, and it asks only that a custom action have some route to Siri. The entity and enum rules are notes. This checker has no per-intent exemption, so every custom intent with a `perform()` is asked for a route. An intent left without one still appears in Shortcuts, but the rule keeps reporting it until it takes one.
-
+`appintent-no-assistant-schema` is the one rule here that warns, and it asks only that a custom action have some route to Siri. The entity and enum rules are notes. 
 ## Future: cross-file analysis (Pass 2)
 
 The `useIndexStore` configuration flag is reserved for a future cross-file analysis pass using IndexStoreInfra. When implemented, Pass 2 will:

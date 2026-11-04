@@ -11,13 +11,29 @@ public enum AppIntentVisitor {
     ///
     /// Returns empty diagnostics if the file does not contain `import AppIntents`.
     public static func analyze(source: String, fileName: String) -> [Diagnostic] {
-        guard source.contains("import AppIntents") else { return [] }
+        analyzeWithOverrides(source: source, fileName: fileName).diagnostics
+    }
+
+    /// Analyze a source string, also returning the exposure exemptions it recorded.
+    ///
+    /// An intent may decline a surface with `// appintents:exempt <surface> — <reason>`, where
+    /// the surface is `siri`, `shortcuts` or `mcp`. Only `siri` has a rule to answer today; the
+    /// other two are accepted so the syntax does not change when theirs arrive. A marker with no
+    /// reason does not count and is reported; one with a reason silences the finding and is
+    /// recorded, so every opt-out is visible in the override report.
+    public static func analyzeWithOverrides(
+        source: String, fileName: String
+    ) -> (diagnostics: [Diagnostic], overrides: [DiagnosticOverride]) {
+        guard source.contains("import AppIntents") else { return ([], []) }
 
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: fileName, tree: tree)
-        let visitor = Visitor(fileName: fileName, converter: converter)
+        let visitor = Visitor(
+            fileName: fileName, converter: converter,
+            sourceLines: source.lines)
         visitor.walk(tree)
-        return visitor.emitDiagnostics()
+        let diagnostics = visitor.emitDiagnostics()
+        return (diagnostics, visitor.overrides)
     }
 }
 
@@ -35,9 +51,17 @@ private final class Visitor: SyntaxVisitor {
     private var currentInheritance: Set<String> = []
     private var currentAttributes: Set<String> = []
 
-    init(fileName: String, converter: SourceLocationConverter) {
+    let sourceLines: [String]
+    private(set) var overrides: [DiagnosticOverride] = []
+
+    /// The surfaces an intent may decline.
+    private static let surfaces: Set<String> = ["siri", "shortcuts", "mcp"]
+    private static let exemptPrefix = "appintents:exempt"
+
+    init(fileName: String, converter: SourceLocationConverter, sourceLines: [String]) {
         self.fileName = fileName
         self.converter = converter
+        self.sourceLines = sourceLines
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -60,6 +84,7 @@ private final class Visitor: SyntaxVisitor {
                 line: loc.line,
                 column: loc.column
             )
+            intent.declarationLine = converter.location(for: node.positionAfterSkippingLeadingTrivia).line
             // `@AppIntent(.tool)` and `@AppIntent(schema:)` are the macros; `AssistantIntent` and
             // `ToolIntent` are the protocols they conform the type to. `@AssistantIntent` is not
             // a macro, but it is still accepted so a file that wrote it is not newly flagged.
@@ -252,7 +277,7 @@ private final class Visitor: SyntaxVisitor {
             // Apple: a widget-configuration intent is not a tool, and an intent that performs
             // no custom action has nothing for Siri to run.
             if !intent.hasAssistantIntent && !intent.isWidgetConfiguration && intent.hasPerform {
-                diagnostics.append(Diagnostic(
+                let finding = Diagnostic(
                     severity: .warning,
                     message: "AppIntent '\(intent.name)' has no route to Siri: no system schema and no tool trait.",
                     filePath: fileName,
@@ -261,8 +286,12 @@ private final class Visitor: SyntaxVisitor {
                     ruleId: "appintent-no-assistant-schema",
                     suggestedFix: "Add @AppIntent(.tool) to make this custom action available to Siri, or "
                         + "@AppIntent(schema:) if a system schema fits it (use @AppIntent(.tool, schema:) for "
-                        + "a Shortcuts-only domain)."
-                ))
+                        + "a Shortcuts-only domain). To decline Siri on purpose, write "
+                        + "`// appintents:exempt siri — <why>` above the intent."
+                )
+                if !declined("siri", intent: intent, finding: finding, into: &diagnostics) {
+                    diagnostics.append(finding)
+                }
             }
             for param in intent.parameters where !param.hasTitle {
                 diagnostics.append(Diagnostic(
@@ -353,6 +382,54 @@ private final class Visitor: SyntaxVisitor {
         }
 
         return diagnostics
+    }
+
+    // MARK: - Exposure exemptions
+
+    /// Whether `intent` has declined `surface` with a reason, recording it if so.
+    ///
+    /// The marker may sit on the declaration's first line (attributes included), the line above
+    /// it, or the line the type's name is on. A marker for a different surface does not count,
+    /// one with no reason does not count and is reported, and an unknown surface is reported.
+    private func declined(
+        _ surface: String, intent: ExtractedIntent, finding: Diagnostic, into diagnostics: inout [Diagnostic]
+    ) -> Bool {
+        let candidates = Set([intent.declarationLine, intent.declarationLine - 1, intent.line])
+            .filter { $0 >= 1 && $0 <= sourceLines.count }.sorted()
+        for lineNumber in candidates {
+            let text = sourceLines[lineNumber - 1]
+            guard let range = text.range(of: Self.exemptPrefix) else { continue }
+            let tail = text[range.upperBound...].trimmingCharacters(in: .whitespaces)
+            let word = String(tail.prefix { $0.isLetter })
+            guard Self.surfaces.contains(word) else {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "`\(Self.exemptPrefix) \(word)` names no surface. Use one of: siri, shortcuts, mcp.",
+                    filePath: fileName, lineNumber: lineNumber, columnNumber: 1,
+                    ruleId: "appintent.exempt-unknown-surface",
+                    suggestedFix: "Write `// \(Self.exemptPrefix) siri — <why>`."))
+                continue
+            }
+            guard word == surface else { continue }
+            let form = "\(Self.exemptPrefix) \(word)"
+            let reason = InlineMarker.reason(in: text, after: form)
+            guard reason.contains(where: { $0.isLetter || $0.isNumber }) else {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "`\(form)` states no reason. A marker that costs nothing to write cannot be "
+                        + "told apart from a considered decision.",
+                    filePath: fileName, lineNumber: lineNumber, columnNumber: 1,
+                    ruleId: "appintent.exempt-no-justification",
+                    suggestedFix: "Say why this intent stays out of \(surface), e.g. "
+                        + "`// \(form) — it rewrites the ledger and must only run inside the app`."))
+                return false
+            }
+            overrides.append(.inlineMarker(
+                form: form, ruleId: finding.ruleId ?? "appintent-no-assistant-schema", filePath: fileName,
+                findingLine: finding.lineNumber, markerLine: lineNumber, comment: text))
+            return true
+        }
+        return false
     }
 
     // MARK: - Helpers

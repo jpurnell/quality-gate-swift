@@ -19,6 +19,16 @@
   descriptions and Spotlight. **This changes a verdict:** projects that were failing `--strict`
   on these two rules now pass.
 
+### Added
+
+- **`appintents:exempt <surface> — <reason>` lets an intent decline Siri, Shortcuts or MCP.**
+  The surface is `siri`, `shortcuts` or `mcp`. A marker with a reason silences the finding and
+  is recorded in the override report, in the same form as `stochastic:exempt`; one with no reason
+  does not count and is reported as `appintent.exempt-no-justification`, and an unknown surface
+  as `appintent.exempt-unknown-surface`. Only `siri` has a rule to answer today
+  (`appintent-no-assistant-schema`); `shortcuts` and `mcp` are accepted so the syntax will not
+  change when theirs arrive.
+
 ## [3.7.0] - 2026-11-03
 
 ### Fixed
