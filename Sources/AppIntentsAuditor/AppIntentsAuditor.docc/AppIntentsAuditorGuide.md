@@ -8,9 +8,9 @@ Apple Intelligence, Shortcuts, Spotlight, and Siri discover your app's capabilit
 
 - A human-readable **description** (so Siri can explain what it does)
 - Titled **parameters** (so Shortcuts can label each input field)
-- An **`@AssistantIntent` schema annotation** (so Apple Intelligence knows which system action it maps to)
+- A **route to Siri**: a system schema (`@AppIntent(schema:)`) when one fits, or the tool trait (`@AppIntent(.tool)`) for a custom action
 
-The same pattern applies to `AppEntity` (needs display representations and `@AssistantEntity`) and `AppEnum` (needs type display, case displays, and `@AssistantEnum`).
+The same pattern applies to `AppEntity` (needs display representations) and `AppEnum` (needs type display and case displays). Both can also adopt a schema (`@AppEntity(schema:)`, `@AppEnum(schema:)`), which is optional and reported as a note.
 
 Missing any of these is not a compiler error -- and in the one case where it technically is, an entity's display representation, the requirement is easily satisfied out of sight in an extension. Your code builds and runs. But the intent is invisible to the user -- or worse, partially visible with unlabeled parameters and no description. These are the bugs that slip through code review because they are omissions, not mistakes.
 
@@ -74,25 +74,35 @@ struct TitledParameterSearch: AppIntent {
 
 #### `appintent-no-assistant-schema`
 
-For Apple Intelligence integration, intents should be annotated with `@AssistantIntent(schema:)` to map to a system action category. Each schema carries its own conformance requirements -- `.system.search` maps to `ShowInAppSearchResultsIntent`, which is why the accepted form below also declares a `criteria` property.
+An intent that performs a custom action needs a route to Siri. There are two:
+
+- **A system schema**, `@AppIntent(schema:)`, when one of Apple's app schema domains describes the action. A schema in a primary domain already makes the action available to Siri.
+- **The tool trait**, `@AppIntent(.tool)`, for a custom action no schema describes. Use `@AppIntent(.tool, schema:)` for a schema from a Shortcuts-specific domain (journaling, books, files and similar), which supports Shortcuts but not Siri on its own.
+
+Conforming to the `AssistantIntent` or `ToolIntent` protocol also counts; those are what the macros conform the type to. An intent that conforms to `WidgetConfigurationIntent`, or that has no `perform()`, is not asked for a route: it has no action for Siri to run.
 
 ```swift
-// flagged
-struct SearchItems: AppIntent {
-    static let title: LocalizedStringResource = "Search"
-    static let description: IntentDescription = "Searches items"
-    func perform() async throws -> some IntentResult { .result() }
-}
-
-// accepted
-@AssistantIntent(schema: .system.search)
-struct AssistantSchemaSearchItems: AppIntent {
-    static let title: LocalizedStringResource = "Search"
-    static let description: IntentDescription = "Searches items"
-    var criteria: StringSearchCriteria
+// flagged: a custom action with no route to Siri
+struct AddToCartWithoutRoute: AppIntent {
+    static let title: LocalizedStringResource = "Add to Cart"
+    static let description: IntentDescription = "Adds a product to the cart"
     func perform() async throws -> some IntentResult { .result() }
 }
 ```
+
+The accepted form needs the 27.3 SDK, which is newer than the one this article is compiled against, so it is shown as text rather than as part of the program:
+
+```text
+// accepted
+@AppIntent(.tool)
+struct AddToCart: AppIntent {
+    static let title: LocalizedStringResource = "Add to Cart"
+    static let description: IntentDescription = "Adds a product to the cart"
+    func perform() async throws -> some IntentResult { .result() }
+}
+```
+
+The tool trait is part of the Siri AI Developer Preview, and Apple notes the API may change during the preview.
 
 ### Entity completeness
 
@@ -130,7 +140,7 @@ Every `AppEntity` needs a `typeDisplayRepresentation` so the system knows how to
 
 #### `appintent-entity-not-assistant`
 
-For Apple Intelligence, entities should be annotated with `@AssistantEntity(schema:)`.
+A note, not a warning. A schema (`@AppEntity(schema:)`), where one fits the type, tells Siri and Shortcuts what it is. A custom entity does not need one: it reaches Siri through its property descriptions and Spotlight. Conforming to `AssistantEntity` also counts.
 
 ### Enum completeness
 
@@ -157,7 +167,7 @@ enum Priority: String, AppEnum {
 
 #### `appintent-enum-not-assistant`
 
-For Apple Intelligence, enums should be annotated with `@AssistantEnum(schema:)`.
+A note, not a warning, on the same terms as the entity rule: `@AppEnum(schema:)` is optional, and conforming to `AssistantEnum` also counts.
 
 ## How detection works
 
@@ -166,9 +176,9 @@ AppIntentsAuditor uses SwiftSyntax to parse each file that contains `import AppI
 **Intent detection:** Any `struct` whose inheritance clause includes `AppIntent` is treated as an intent. The visitor then checks for:
 - A `static let` or `static var` named `description` whose type or initializer mentions `IntentDescription`
 - `@Parameter` attributes with and without `title:` arguments
-- An `@AssistantIntent` attribute on the struct declaration
+- A route to Siri: an `@AppIntent(...)` attribute, or conformance to `AssistantIntent` or `ToolIntent`
 
-**Entity detection:** Any `struct` whose inheritance clause includes `AppEntity` is treated as an entity. The visitor checks for `displayRepresentation`, `typeDisplayRepresentation`, and `@AssistantEntity`.
+**Entity detection:** Any `struct` whose inheritance clause includes `AppEntity` is treated as an entity. The visitor checks for `displayRepresentation`, `typeDisplayRepresentation`, and an `@AppEntity` attribute or `AssistantEntity` conformance.
 
 **Enum detection:** Any `enum` whose inheritance clause includes `AppEnum` is treated as an enum. The visitor extracts case names from the enum body and checks them against the keys in `caseDisplayRepresentations`.
 
@@ -214,7 +224,7 @@ A typical quality-gate run on a project with App Intents:
     -> Sources/Intents/OpenPortfolio.swift:8
     appintent-param-no-title
 
-  warning: AppIntent 'OpenPortfolio' has no @AssistantIntent annotation
+  warning: AppIntent 'OpenPortfolio' has no route to Siri: no system schema and no tool trait.
     -> Sources/Intents/OpenPortfolio.swift:3
     appintent-no-assistant-schema
 ```
@@ -223,9 +233,9 @@ Each diagnostic includes the rule ID, the file and line number, and a human-read
 
 ## Relationship to Apple Intelligence
 
-Apple Intelligence (introduced in iOS 18 / macOS 15) uses `@AssistantIntent`, `@AssistantEntity`, and `@AssistantEnum` annotations to integrate your app's intents into the system-wide AI assistant. Without these annotations, your intents still work in Shortcuts but are invisible to Apple Intelligence.
+Apple Intelligence (iOS 18 and macOS 15) introduced the `AssistantIntent` and `AssistantEntity` protocols, which the `@AppIntent(schema:)` and `@AppEntity(schema:)` macros conform a type to. The Siri AI Developer Preview adds the tool trait for custom actions that no schema describes. These are protocols and macros; there is no `@AssistantIntent` attribute, and an earlier version of this auditor looked for one.
 
-The auditor's assistant-schema rules (`appintent-no-assistant-schema`, `appintent-entity-not-assistant`, `appintent-enum-not-assistant`) specifically target this integration surface. If your app does not target Apple Intelligence, these rules can be suppressed per-intent by adding the annotation with any appropriate schema.
+`appintent-no-assistant-schema` is the one rule here that warns, and it asks only that a custom action have some route to Siri. The entity and enum rules are notes. This checker has no per-intent exemption, so every custom intent with a `perform()` is asked for a route. An intent left without one still appears in Shortcuts, but the rule keeps reporting it until it takes one.
 
 ## Future: cross-file analysis (Pass 2)
 

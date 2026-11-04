@@ -5,7 +5,10 @@ struct ExtractedIntent: Sendable {
     let line: Int
     let column: Int
     var hasDescription: Bool = false
+    /// Reaches Siri by a system schema, the tool trait, or conformance to its protocol.
     var hasAssistantIntent: Bool = false
+    /// Exists to configure a widget, so there is no action for Siri to perform.
+    var isWidgetConfiguration: Bool = false
     var hasPerform: Bool = false
     var parameters: [ExtractedParameter] = []
 }

@@ -60,7 +60,13 @@ private final class Visitor: SyntaxVisitor {
                 line: loc.line,
                 column: loc.column
             )
-            intent.hasAssistantIntent = attributes.contains("AssistantIntent")
+            // `@AppIntent(.tool)` and `@AppIntent(schema:)` are the macros; `AssistantIntent` and
+            // `ToolIntent` are the protocols they conform the type to. `@AssistantIntent` is not
+            // a macro, but it is still accepted so a file that wrote it is not newly flagged.
+            intent.hasAssistantIntent = attributes.contains("AppIntent")
+                || attributes.contains("AssistantIntent")
+                || !inheritance.isDisjoint(with: ["AssistantIntent", "ToolIntent"])
+            intent.isWidgetConfiguration = inheritance.contains("WidgetConfigurationIntent")
             intents.append(intent)
         }
 
@@ -70,7 +76,9 @@ private final class Visitor: SyntaxVisitor {
                 line: loc.line,
                 column: loc.column
             )
-            entity.hasAssistantEntity = attributes.contains("AssistantEntity")
+            entity.hasAssistantEntity = attributes.contains("AppEntity")
+                || attributes.contains("AssistantEntity")
+                || inheritance.contains("AssistantEntity")
             entities.append(entity)
         }
 
@@ -105,7 +113,9 @@ private final class Visitor: SyntaxVisitor {
                 line: loc.line,
                 column: loc.column
             )
-            extracted.hasAssistantEnum = attributes.contains("AssistantEnum")
+            extracted.hasAssistantEnum = attributes.contains("AppEnum")
+                || attributes.contains("AssistantEnum")
+                || inheritance.contains("AssistantEnum")
             enums.append(extracted)
         }
 
@@ -239,15 +249,19 @@ private final class Visitor: SyntaxVisitor {
                     suggestedFix: "Add a `static var description: IntentDescription` property."
                 ))
             }
-            if !intent.hasAssistantIntent {
+            // Apple: a widget-configuration intent is not a tool, and an intent that performs
+            // no custom action has nothing for Siri to run.
+            if !intent.hasAssistantIntent && !intent.isWidgetConfiguration && intent.hasPerform {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
-                    message: "AppIntent '\(intent.name)' is missing @AssistantIntent annotation for Apple Intelligence.",
+                    message: "AppIntent '\(intent.name)' has no route to Siri: no system schema and no tool trait.",
                     filePath: fileName,
                     lineNumber: intent.line,
                     columnNumber: intent.column,
                     ruleId: "appintent-no-assistant-schema",
-                    suggestedFix: "Add @AssistantIntent(schema: .system.<category>) to the struct."
+                    suggestedFix: "Add @AppIntent(.tool) to make this custom action available to Siri, or "
+                        + "@AppIntent(schema:) if a system schema fits it (use @AppIntent(.tool, schema:) for "
+                        + "a Shortcuts-only domain)."
                 ))
             }
             for param in intent.parameters where !param.hasTitle {
@@ -288,13 +302,14 @@ private final class Visitor: SyntaxVisitor {
             }
             if !entity.hasAssistantEntity {
                 diagnostics.append(Diagnostic(
-                    severity: .warning,
-                    message: "AppEntity '\(entity.name)' is not annotated with @AssistantEntity for Apple Intelligence.",
+                    severity: .note,
+                    message: "AppEntity '\(entity.name)' adopts no system schema. Optional: a schema, where one fits, tells "
+                        + "Siri and Shortcuts what the type is; a custom entity reaches Siri through its descriptions and Spotlight.",
                     filePath: fileName,
                     lineNumber: entity.line,
                     columnNumber: entity.column,
                     ruleId: "appintent-entity-not-assistant",
-                    suggestedFix: "Add @AssistantEntity(schema: .system.<category>) to the struct."
+                    suggestedFix: "If a system schema fits this type, add @AppEntity(schema:)."
                 ))
             }
         }
@@ -313,13 +328,14 @@ private final class Visitor: SyntaxVisitor {
             }
             if !appEnum.hasAssistantEnum {
                 diagnostics.append(Diagnostic(
-                    severity: .warning,
-                    message: "AppEnum '\(appEnum.name)' is not annotated with @AssistantEnum for Apple Intelligence.",
+                    severity: .note,
+                    message: "AppEnum '\(appEnum.name)' adopts no system schema. Optional: a schema, where one fits, tells "
+                        + "Siri and Shortcuts what the type is.",
                     filePath: fileName,
                     lineNumber: appEnum.line,
                     columnNumber: appEnum.column,
                     ruleId: "appintent-enum-not-assistant",
-                    suggestedFix: "Add @AssistantEnum to the enum declaration."
+                    suggestedFix: "If a system schema fits this enum, add @AppEnum(schema:)."
                 ))
             }
             let missingCases = appEnum.cases.filter { !appEnum.displayedCases.contains($0) }

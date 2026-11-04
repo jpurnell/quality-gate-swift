@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+### Fixed
+
+- **`appintents-readiness` no longer demands an attribute that does not exist.** It flagged every
+  intent for lacking `@AssistantIntent`, `@AssistantEntity` or `@AssistantEnum`. Those are
+  protocols (iOS 18), not macros, so no real code writes them as attributes: intents that had
+  correctly adopted `@AppIntent(schema:)` were flagged anyway, and the suggested fix did not
+  compile. Detection now accepts `@AppIntent(...)`, `@AppEntity(...)`, `@AppEnum(...)` and
+  conformance to the protocols (`AssistantIntent`, `ToolIntent`, `AssistantEntity`,
+  `AssistantEnum`). The old attribute spelling is still accepted, so no file is newly flagged.
+- **`appintent-no-assistant-schema` now asks for a route to Siri, not for a schema.** A custom
+  action can take the tool trait, `@AppIntent(.tool)`, introduced by the Siri AI Developer
+  Preview; a schema is preferred where one fits. `WidgetConfigurationIntent` conformers and
+  intents with no `perform()` are exempt, as Apple says they are not tools. Rule IDs are
+  unchanged, so existing configuration keeps working.
+- **`appintent-entity-not-assistant` and `appintent-enum-not-assistant` are notes, not
+  warnings.** Apple makes schemas optional, and a custom entity reaches Siri through its
+  descriptions and Spotlight. **This changes a verdict:** projects that were failing `--strict`
+  on these two rules now pass.
+
 ## [3.7.0] - 2026-11-03
 
 ### Fixed
