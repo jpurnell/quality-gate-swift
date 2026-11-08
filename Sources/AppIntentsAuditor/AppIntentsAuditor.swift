@@ -90,6 +90,7 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
         }
 
         var diagnostics: [Diagnostic] = []
+        var overrides: [DiagnosticOverride] = []
 
         for file in appIntentFiles {
             let source: String
@@ -99,7 +100,9 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
                 Self.logger.warning("Failed to read file during analysis: \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
-            diagnostics.append(contentsOf: AppIntentVisitor.analyze(source: source, fileName: file))
+            let result = AppIntentVisitor.analyzeWithOverrides(source: source, fileName: file)
+            diagnostics.append(contentsOf: result.diagnostics)
+            overrides.append(contentsOf: result.overrides)
         }
 
         let duration = ContinuousClock.now - start
@@ -111,6 +114,7 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
             checkerId: id,
             status: status,
             diagnostics: diagnostics,
+            overrides: overrides,
             duration: duration
         )
     }

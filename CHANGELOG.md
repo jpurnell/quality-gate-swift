@@ -1,5 +1,34 @@
 ## [Unreleased]
 
+### Fixed
+
+- **`appintents-readiness` no longer demands an attribute that does not exist.** It flagged every
+  intent for lacking `@AssistantIntent`, `@AssistantEntity` or `@AssistantEnum`. Those are
+  protocols (iOS 18), not macros, so no real code writes them as attributes: intents that had
+  correctly adopted `@AppIntent(schema:)` were flagged anyway, and the suggested fix did not
+  compile. Detection now accepts `@AppIntent(...)`, `@AppEntity(...)`, `@AppEnum(...)` and
+  conformance to the protocols (`AssistantIntent`, `ToolIntent`, `AssistantEntity`,
+  `AssistantEnum`). The old attribute spelling is still accepted, so no file is newly flagged.
+- **`appintent-no-assistant-schema` now asks for a route to Siri, not for a schema.** A custom
+  action can take the tool trait, `@AppIntent(.tool)`, introduced by the Siri AI Developer
+  Preview; a schema is preferred where one fits. `WidgetConfigurationIntent` conformers and
+  intents with no `perform()` are exempt, as Apple says they are not tools. Rule IDs are
+  unchanged, so existing configuration keeps working.
+- **`appintent-entity-not-assistant` and `appintent-enum-not-assistant` are notes, not
+  warnings.** Apple makes schemas optional, and a custom entity reaches Siri through its
+  descriptions and Spotlight. **This changes a verdict:** projects that were failing `--strict`
+  on these two rules now pass.
+
+### Added
+
+- **`appintents:exempt <surface> — <reason>` lets an intent decline Siri, Shortcuts or MCP.**
+  The surface is `siri`, `shortcuts` or `mcp`. A marker with a reason silences the finding and
+  is recorded in the override report, in the same form as `stochastic:exempt`; one with no reason
+  does not count and is reported as `appintent.exempt-no-justification`, and an unknown surface
+  as `appintent.exempt-unknown-surface`. Only `siri` has a rule to answer today
+  (`appintent-no-assistant-schema`); `shortcuts` and `mcp` are accepted so the syntax will not
+  change when theirs arrive.
+
 ## [3.7.0] - 2026-11-03
 
 ### Fixed
