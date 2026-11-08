@@ -93,6 +93,7 @@ private final class Visitor: SyntaxVisitor {
                 || !inheritance.isDisjoint(with: ["AssistantIntent", "ToolIntent"])
             intent.isWidgetConfiguration = inheritance.contains("WidgetConfigurationIntent")
             intent.isTool = hasToolTrait(node.attributes) || inheritance.contains("ToolIntent")
+            intent.schemaDomain = schemaDomain(node.attributes)
             intents.append(intent)
         }
 
@@ -282,6 +283,22 @@ private final class Visitor: SyntaxVisitor {
         return false
     }
 
+    /// `schema: .journal.createEntry` names the domain `journal`.
+    private func schemaDomain(_ attributes: AttributeListSyntax) -> String? {
+        for attr in attributes {
+            guard let attribute = attr.as(AttributeSyntax.self),
+                  attribute.attributeName.as(IdentifierTypeSyntax.self)?.name.text == "AppIntent",
+                  let args = attribute.arguments?.as(LabeledExprListSyntax.self) else { continue }
+            for arg in args where arg.label?.text == "schema" {
+                if let schema = arg.expression.as(MemberAccessExprSyntax.self),
+                   let domain = schema.base?.as(MemberAccessExprSyntax.self) {
+                    return domain.declName.baseName.text
+                }
+            }
+        }
+        return nil
+    }
+
     /// Words that mark money, credentials and health data. A name heuristic, which is why the rule
     /// it feeds has a recorded decline.
     private static let sensitiveWords: Set<String> = [
@@ -375,6 +392,43 @@ private final class Visitor: SyntaxVisitor {
                 if !declined("siri", intent: intent, finding: finding, into: &diagnostics) {
                     diagnostics.append(finding)
                 }
+            }
+            if let domain = intent.schemaDomain, AppSchemaDomains.isShortcutsOnly(domain), !intent.isTool {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Intent '\(intent.name)' adopts a schema from the '\(domain)' domain, which supports "
+                        + "Shortcuts but not Siri. It looks adopted and Siri cannot see it.",
+                    filePath: fileName,
+                    lineNumber: intent.line,
+                    columnNumber: intent.column,
+                    ruleId: "appintent-schema-shortcuts-only",
+                    suggestedFix: "Add the tool trait so Siri can call it: @AppIntent(.tool, schema: .\(domain)...)."
+                ))
+            }
+            if intent.isTool, !intent.hasPerform {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Intent '\(intent.name)' carries the tool trait but has no perform(). "
+                        + "Siri has nothing to run.",
+                    filePath: fileName,
+                    lineNumber: intent.line,
+                    columnNumber: intent.column,
+                    ruleId: "appintent-tool-no-perform",
+                    suggestedFix: "Remove the tool trait, or give the intent a perform() that does the work. "
+                        + "A WidgetConfigurationIntent only configures a widget and is not a tool."
+                ))
+            }
+            if intent.isTool, let domain = intent.schemaDomain, !AppSchemaDomains.isShortcutsOnly(domain) {
+                diagnostics.append(Diagnostic(
+                    severity: .note,
+                    message: "Intent '\(intent.name)' carries the tool trait and a schema from the '\(domain)' "
+                        + "domain, which already reaches Siri. Apple says not to add the trait here.",
+                    filePath: fileName,
+                    lineNumber: intent.line,
+                    columnNumber: intent.column,
+                    ruleId: "appintent-tool-with-siri-schema",
+                    suggestedFix: "Remove .tool and keep @AppIntent(schema: .\(domain)...)."
+                ))
             }
             if intent.isTool, intent.isHiddenFromShortcuts {
                 diagnostics.append(Diagnostic(

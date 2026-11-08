@@ -126,6 +126,24 @@ The marker is `appintents:exempt <surface>`, where the surface is `siri`, `short
 
 Shortcuts also has a declaration that needs no comment: `static var isDiscoverable = false` hides an intent from Shortcuts in code. Combined with the tool trait it is flagged by `appintent-hidden-tool`, because the intent is then still a Siri tool.
 
+#### `appintent-schema-shortcuts-only`
+
+A warning. Apple's schema domains split in two. A primary domain's schemas reach Siri; a Shortcuts-specific domain's (books, browser, files, journaling, presentation, reader, spreadsheet, whiteboard, word processor) support Shortcuts but not Siri. An intent that adopts one of the second kind looks finished and is invisible to Siri unless it also carries the tool trait.
+
+```text
+@AppIntent(.tool, schema: .journal.createEntry)
+```
+
+The domain table is one data file, with Apple's page beside it, because it is the part most likely to change during the preview.
+
+#### `appintent-tool-no-perform`
+
+A warning. The tool trait on an intent with no `perform()` (a `WidgetConfigurationIntent`, for example) gives Siri nothing to run. Apple says such an intent is not a tool.
+
+#### `appintent-tool-with-siri-schema`
+
+A note. Apple says not to add the tool trait to an intent that already conforms to a primary-domain schema, since that already reaches Siri.
+
 #### `appintent-hidden-tool`
 
 A warning. An intent that carries the tool trait and also sets `static var isDiscoverable = false` is hidden from Shortcuts but still callable by Siri. That is legal and sometimes intended, so the rule exists to make the choice visible early, not to forbid it. Remove `isDiscoverable = false` to offer the intent to Shortcuts, or drop the tool trait if Siri should not call it.
