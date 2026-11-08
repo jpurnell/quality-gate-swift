@@ -354,6 +354,13 @@ private final class Visitor: SyntaxVisitor {
            let idx = intents.lastIndex(where: { $0.name == structName }) {
             intents[idx].hasPerform = true
         }
+        if let structName = currentStructName,
+           let idx = intents.lastIndex(where: { $0.name == structName }),
+           let body = node.body {
+            let collector = ReferenceCollector(viewMode: .sourceAccurate)
+            collector.walk(body)
+            intents[idx].referencedInFunctions.formUnion(collector.names)
+        }
         return .visitChildren
     }
 
@@ -442,6 +449,20 @@ private final class Visitor: SyntaxVisitor {
                     suggestedFix: "Remove isDiscoverable = false to offer it to Shortcuts, or drop the .tool trait "
                         + "if Siri should not call it."
                 ))
+            }
+            if intent.hasPerform {
+                for param in intent.parameters where !intent.referencedInFunctions.contains(param.name) {
+                    diagnostics.append(Diagnostic(
+                        severity: .warning,
+                        message: "@Parameter '\(param.name)' of '\(intent.name)' is never read. Siri will ask "
+                            + "for it and the answer is ignored.",
+                        filePath: fileName,
+                        lineNumber: param.line,
+                        columnNumber: param.column,
+                        ruleId: "appintent-param-unused",
+                        suggestedFix: "Use '\(param.name)' in perform(), or remove the parameter."
+                    ))
+                }
             }
             for param in intent.parameters where !param.hasTitle {
                 diagnostics.append(Diagnostic(
@@ -675,5 +696,19 @@ private final class Visitor: SyntaxVisitor {
             }
         }
         return keys
+    }
+}
+
+
+/// The names a body refers to. `$amount` and `_amount` are the wrapper's projection and storage,
+/// so they count as reading `amount`.
+private final class ReferenceCollector: SyntaxVisitor {
+    var names: Set<String> = []
+
+    override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
+        var name = node.baseName.text
+        while name.first == "$" || name.first == "_" { name.removeFirst() }
+        if !name.isEmpty { names.insert(name) }
+        return .visitChildren
     }
 }
