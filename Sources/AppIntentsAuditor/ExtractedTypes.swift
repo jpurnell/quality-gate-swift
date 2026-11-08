@@ -19,6 +19,8 @@ struct ExtractedIntent: Sendable {
     /// `static var isDiscoverable = false`: not offered to Shortcuts.
     var isHiddenFromShortcuts: Bool = false
     var parameters: [ExtractedParameter] = []
+    /// Names referenced inside any function body of the intent, `$x` and `_x` folded to `x`.
+    var referencedInFunctions: Set<String> = []
 }
 
 struct ExtractedParameter: Sendable {

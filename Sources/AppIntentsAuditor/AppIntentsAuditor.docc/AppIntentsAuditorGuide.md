@@ -144,6 +144,10 @@ A warning. The tool trait on an intent with no `perform()` (a `WidgetConfigurati
 
 A note. Apple says not to add the tool trait to an intent that already conforms to a primary-domain schema, since that already reaches Siri.
 
+#### `appintent-param-unused`
+
+A warning. A `@Parameter` that no function in the intent ever reads is a question Siri asks and then ignores. It is the App Intents analogue of `mcp-unused-property`. Any function body in the intent counts as reading it, so a parameter used by a helper that `perform()` calls is fine; mentioning it only in `parameterSummary` is not. An intent with no `perform()` is left to its other rules.
+
 #### `appintent-hidden-tool`
 
 A warning. An intent that carries the tool trait and also sets `static var isDiscoverable = false` is hidden from Shortcuts but still callable by Siri. That is legal and sometimes intended, so the rule exists to make the choice visible early, not to forbid it. Remove `isDiscoverable = false` to offer the intent to Shortcuts, or drop the tool trait if Siri should not call it.
