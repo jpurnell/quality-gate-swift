@@ -14,6 +14,8 @@ struct ExtractedIntent: Sendable {
     var hasPerform: Bool = false
     /// Carries the tool trait (or `ToolIntent`), so Siri may call it.
     var isTool: Bool = false
+    /// The domain of an `@AppIntent(schema: .domain.name)` argument, as written.
+    var schemaDomain: String?
     /// `static var isDiscoverable = false`: not offered to Shortcuts.
     var isHiddenFromShortcuts: Bool = false
     var parameters: [ExtractedParameter] = []

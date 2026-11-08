@@ -21,6 +21,7 @@
 
 ### Added
 
+- **Three more `appintents-readiness` rules about the tool trait.** `appintent-schema-shortcuts-only` (warning) flags a schema from a Shortcuts-specific domain with no `.tool`, which looks adopted and does not reach Siri; `appintent-tool-no-perform` (warning) flags `.tool` on an intent with no `perform()`; `appintent-tool-with-siri-schema` (note) flags `.tool` on a primary-domain schema, which Apple says not to do. The domain table is one data file (`AppSchemaDomains`), read from Apple's collection on 2026-11-04 and the part most likely to change during the preview.
 - **Three `appintents-readiness` rules for the Siri AI Developer Preview, all warnings.** `appintent-property-no-description` asks for a `description` on every entity `@Property`, `@DeferredProperty` and `@ComputedProperty` (a `visibility: .internal` property is exempt); `appintent-sensitive-no-auth` flags a property named like money, credentials or health data with no `IntentAuthenticationPolicy`, and, being a name heuristic, can be declined with `// appintents:exempt auth — <reason>`; `appintent-hidden-tool` flags a tool intent with `isDiscoverable = false`. **A verdict change:** entities with undescribed properties now warn, so a project gating on `--strict` will fail until they are described. Proposal: `OneReadinessManyCarriers.md` §4.2.
 - **`appintents:exempt <surface> — <reason>` lets an intent decline Siri, Shortcuts or MCP.**
   The surface is `siri`, `shortcuts`, `mcp` or `auth`. A marker with a reason silences the finding and
