@@ -182,6 +182,29 @@ struct IndexUnitCurrencyTests {
         #expect(census.superseded == 0)
     }
 
+    /// A source compiled into several modules defines a copy of each declaration per module, and
+    /// the unreachable pass has to look for the copies its file queries leave out. The census
+    /// names those sources so the pass looks only there. Only units that will be read count: a
+    /// module whose unit is stale contributes nothing for the pass to find.
+    @Test("sources compiled into more than one module are named, by their current units")
+    func censusNamesSourcesInSeveralModules() {
+        let units = [
+            unit("Shared.o-A", Self.today, main: "/pkg/Shared.swift", out: "/b/A/Shared.o", module: "A"),
+            unit("Shared.o-B", Self.today, main: "/pkg/Shared.swift", out: "/b/B/Shared.o", module: "B"),
+            unit("Own.o-A", Self.today, main: "/pkg/Own.swift", out: "/b/A/Own.o", module: "A"),
+            // One module for two platforms is one set of USRs: no copies.
+            unit("View.o-IOS", Self.today, main: "/pkg/View.swift", out: "/b/ios/View.o", module: "A",
+                 target: "arm64-apple-ios17.0-simulator"),
+            unit("View.o-MAC", Self.today, main: "/pkg/View.swift", out: "/b/mac/View.o", module: "A"),
+            // The second module's unit predates the edit and will not be read.
+            unit("Edited.o-A", Self.today, main: "/pkg/Edited.swift", out: "/b/A/Edited.o", module: "A"),
+            unit("Edited.o-B", Self.august, main: "/pkg/Edited.swift", out: "/b/B/Edited.o", module: "B"),
+        ]
+        let census = IndexUnitCurrency.census(units: units) { _ in Self.yesterday }
+
+        #expect(census.sourcesInSeveralModules == ["/pkg/Shared.swift"])
+    }
+
     /// The same compilation recorded by an older toolchain spells its triple differently. That
     /// is the accumulation the fix exists for, not a second platform.
     @Test("a unit from an older toolchain's spelling of the same platform is superseded")

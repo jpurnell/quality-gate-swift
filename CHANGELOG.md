@@ -1,6 +1,24 @@
 ## [Unreleased]
 
+## [3.8.0] - 2026-11-08
+
 ### Fixed
+
+- **`unreachable` no longer reports code that another target calls, in projects that share
+  sources across targets.** An Xcode project with a target per platform compiles its shared
+  files once per target, and each target is a module, so every shared declaration is in the
+  index once per module under its own USR. IndexStoreDB's file queries answer from one of those
+  compilations, chosen by the hash of the unit's name, and the pass judged that copy alone: a
+  method called only from a file or `#if` branch another target compiles was reported as
+  unreachable, and which ones were reported changed with build paths. In KEXPPower, whose
+  `Spinner TV` target compiles the iOS app's sources, six live symbols were reported. Those
+  include `scrub(toFraction:)` (called from the iOS slider), `SceneID.main` (the Mac window) and
+  `byteCount` (called from tests through the iOS module). The pass now finds every module's copy
+  and walks declarations rather than USRs: a declaration is live if any copy is reached, and one
+  no copy reaches is reported once. Copies are looked up only in files the unit census shows
+  were compiled into more than one module (`IndexUnitCensus.sourcesInSeveralModules`), so a
+  project without shared sources pays nothing: quality-gate's own run is unchanged at about
+  74 s. **This changes a verdict:** such projects that were failing on these findings now pass.
 
 - **`appintents-readiness` no longer demands an attribute that does not exist.** It flagged every
   intent for lacking `@AssistantIntent`, `@AssistantEntity` or `@AssistantEnum`. Those are
@@ -4689,7 +4707,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.7.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.8.0...HEAD
+[3.8.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.7.0...v3.8.0
 [3.7.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.4.0...v3.5.0
