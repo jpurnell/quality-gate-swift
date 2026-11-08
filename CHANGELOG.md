@@ -39,8 +39,9 @@
 
 ### Added
 
+- **Three `appintents-readiness` rules for the Siri AI Developer Preview, all warnings.** `appintent-property-no-description` asks for a `description` on every entity `@Property`, `@DeferredProperty` and `@ComputedProperty` (a `visibility: .internal` property is exempt); `appintent-sensitive-no-auth` flags a property named like money, credentials or health data with no `IntentAuthenticationPolicy`, and, being a name heuristic, can be declined with `// appintents:exempt auth — <reason>`; `appintent-hidden-tool` flags a tool intent with `isDiscoverable = false`. **A verdict change:** entities with undescribed properties now warn, so a project gating on `--strict` will fail until they are described. Proposal: `OneReadinessManyCarriers.md` §4.2.
 - **`appintents:exempt <surface> — <reason>` lets an intent decline Siri, Shortcuts or MCP.**
-  The surface is `siri`, `shortcuts` or `mcp`. A marker with a reason silences the finding and
+  The surface is `siri`, `shortcuts`, `mcp` or `auth`. A marker with a reason silences the finding and
   is recorded in the override report, in the same form as `stochastic:exempt`; one with no reason
   does not count and is reported as `appintent.exempt-no-justification`, and an unknown surface
   as `appintent.exempt-unknown-surface`. Only `siri` has a rule to answer today

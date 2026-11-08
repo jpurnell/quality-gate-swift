@@ -55,7 +55,7 @@ private final class Visitor: SyntaxVisitor {
     private(set) var overrides: [DiagnosticOverride] = []
 
     /// The surfaces an intent may decline.
-    private static let surfaces: Set<String> = ["siri", "shortcuts", "mcp"]
+    private static let surfaces: Set<String> = ["siri", "shortcuts", "mcp", "auth"]
     private static let exemptPrefix = "appintents:exempt"
 
     init(fileName: String, converter: SourceLocationConverter, sourceLines: [String]) {
@@ -92,6 +92,7 @@ private final class Visitor: SyntaxVisitor {
                 || attributes.contains("AssistantIntent")
                 || !inheritance.isDisjoint(with: ["AssistantIntent", "ToolIntent"])
             intent.isWidgetConfiguration = inheritance.contains("WidgetConfigurationIntent")
+            intent.isTool = hasToolTrait(node.attributes) || inheritance.contains("ToolIntent")
             intents.append(intent)
         }
 
@@ -205,6 +206,11 @@ private final class Visitor: SyntaxVisitor {
             }
         }
 
+        if propName == "isDiscoverable",
+           node.bindings.first?.initializer?.value.trimmedDescription == "false" {
+            intents[intentIdx].isHiddenFromShortcuts = true
+        }
+
         let attributes = attributeNames(node.attributes)
         if attributes.contains("Parameter") {
             let loc = node.startLocation(converter: converter)
@@ -219,6 +225,7 @@ private final class Visitor: SyntaxVisitor {
     }
 
     private func handleEntityProperty(propName: String, node: VariableDeclSyntax, entityIdx: Int) {
+        let wrapper = entityPropertyAttribute(node.attributes)
         switch propName {
         case "displayRepresentation":
             entities[entityIdx].hasDisplayRepresentation = true
@@ -228,8 +235,84 @@ private final class Visitor: SyntaxVisitor {
             entities[entityIdx].hasId = true
         case "defaultQuery":
             entities[entityIdx].hasDefaultQuery = true
+        case "authenticationPolicy":
+            entities[entityIdx].hasAuthenticationPolicy = true
         default:
             break
+        }
+
+        if let wrapper, !isInternal(wrapper), !hasArgument("authenticationPolicy", in: wrapper),
+           Self.looksSensitive(propName) {
+            let loc = node.startLocation(converter: converter)
+            entities[entityIdx].sensitiveProperties.append(
+                ExtractedEntityProperty(name: propName, line: loc.line, column: loc.column))
+        }
+
+        if let wrapper,
+           !hasArgument("description", in: wrapper),
+           !isInternal(wrapper) {
+            let loc = node.startLocation(converter: converter)
+            entities[entityIdx].undescribedProperties.append(
+                ExtractedEntityProperty(name: propName, line: loc.line, column: loc.column))
+        }
+    }
+
+    private static let entityPropertyWrappers: Set<String> = ["Property", "DeferredProperty", "ComputedProperty"]
+
+    private func entityPropertyAttribute(_ attributes: AttributeListSyntax) -> AttributeSyntax? {
+        for attr in attributes {
+            guard let attribute = attr.as(AttributeSyntax.self),
+                  let id = attribute.attributeName.as(IdentifierTypeSyntax.self),
+                  Self.entityPropertyWrappers.contains(id.name.text) else { continue }
+            return attribute
+        }
+        return nil
+    }
+
+    /// `@AppIntent(.tool)` or `@AppIntent(.tool, schema:)`: the unlabeled `.tool` argument.
+    private func hasToolTrait(_ attributes: AttributeListSyntax) -> Bool {
+        for attr in attributes {
+            guard let attribute = attr.as(AttributeSyntax.self),
+                  attribute.attributeName.as(IdentifierTypeSyntax.self)?.name.text == "AppIntent",
+                  let args = attribute.arguments?.as(LabeledExprListSyntax.self) else { continue }
+            if args.contains(where: {
+                $0.label == nil && $0.expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text == "tool"
+            }) { return true }
+        }
+        return false
+    }
+
+    /// Words that mark money, credentials and health data. A name heuristic, which is why the rule
+    /// it feeds has a recorded decline.
+    private static let sensitiveWords: Set<String> = [
+        "password", "passcode", "secret", "token", "balance", "salary", "ssn", "diagnosis", "medication",
+    ]
+
+    static func looksSensitive(_ name: String) -> Bool {
+        var words: [String] = []
+        var current = ""
+        for character in name {
+            if character.isUppercase, !current.isEmpty {
+                words.append(current.lowercased())
+                current = ""
+            }
+            current.append(character)
+        }
+        if !current.isEmpty { words.append(current.lowercased()) }
+        return words.contains { sensitiveWords.contains($0) }
+    }
+
+    private func hasArgument(_ label: String, in attribute: AttributeSyntax) -> Bool {
+        guard let args = attribute.arguments?.as(LabeledExprListSyntax.self) else { return false }
+        return args.contains { $0.label?.text == label }
+    }
+
+    /// `visibility: .internal` keeps a property from Siri and Shortcuts.
+    private func isInternal(_ attribute: AttributeSyntax) -> Bool {
+        guard let args = attribute.arguments?.as(LabeledExprListSyntax.self) else { return false }
+        return args.contains {
+            $0.label?.text == "visibility"
+                && $0.expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text == "internal"
         }
     }
 
@@ -293,6 +376,19 @@ private final class Visitor: SyntaxVisitor {
                     diagnostics.append(finding)
                 }
             }
+            if intent.isTool, intent.isHiddenFromShortcuts {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Intent '\(intent.name)' is a Siri tool but isDiscoverable is false, so Shortcuts "
+                        + "cannot see it. Legal, and sometimes intended; this makes it visible.",
+                    filePath: fileName,
+                    lineNumber: intent.line,
+                    columnNumber: intent.column,
+                    ruleId: "appintent-hidden-tool",
+                    suggestedFix: "Remove isDiscoverable = false to offer it to Shortcuts, or drop the .tool trait "
+                        + "if Siri should not call it."
+                ))
+            }
             for param in intent.parameters where !param.hasTitle {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
@@ -327,6 +423,40 @@ private final class Visitor: SyntaxVisitor {
                     columnNumber: entity.column,
                     ruleId: "appintent-entity-no-type-display",
                     suggestedFix: "Add a `static var typeDisplayRepresentation: TypeDisplayRepresentation` property."
+                ))
+            }
+            if !entity.hasAuthenticationPolicy {
+                for property in entity.sensitiveProperties {
+                    let finding = Diagnostic(
+                        severity: .warning,
+                        message: "Property '\(property.name)' of AppEntity '\(entity.name)' is named like sensitive "
+                            + "data but has no IntentAuthenticationPolicy.",
+                        filePath: fileName,
+                        lineNumber: property.line,
+                        columnNumber: property.column,
+                        ruleId: "appintent-sensitive-no-auth",
+                        suggestedFix: "Add authenticationPolicy: to the property, or a static authenticationPolicy "
+                            + "to the entity. If the name misleads, say so: "
+                            + "`// appintents:exempt auth — <why this is not sensitive>`.")
+                    if !declined(
+                        "auth", lines: [property.line, property.line - 1], finding: finding,
+                        subject: "property", into: &diagnostics) {
+                        diagnostics.append(finding)
+                    }
+                }
+            }
+            for property in entity.undescribedProperties {
+                diagnostics.append(Diagnostic(
+                    severity: .warning,
+                    message: "Property '\(property.name)' of AppEntity '\(entity.name)' has no description. "
+                        + "Siri reads it to decide what the property means.",
+                    filePath: fileName,
+                    lineNumber: property.line,
+                    columnNumber: property.column,
+                    ruleId: "appintent-property-no-description",
+                    suggestedFix: "Add description: to the attribute, e.g. "
+                        + "@Property(title: \"\(property.name.capitalized)\", description: \"What it holds, in a sentence\"). "
+                        + "A property Siri should not see takes visibility: .internal instead."
                 ))
             }
             if !entity.hasAssistantEntity {
@@ -394,8 +524,16 @@ private final class Visitor: SyntaxVisitor {
     private func declined(
         _ surface: String, intent: ExtractedIntent, finding: Diagnostic, into diagnostics: inout [Diagnostic]
     ) -> Bool {
-        let candidates = Set([intent.declarationLine, intent.declarationLine - 1, intent.line])
-            .filter { $0 >= 1 && $0 <= sourceLines.count }.sorted()
+        declined(
+            surface, lines: [intent.declarationLine, intent.declarationLine - 1, intent.line],
+            finding: finding, subject: "intent", into: &diagnostics)
+    }
+
+    /// The same decline, read from whichever of `lines` carries a marker.
+    private func declined(
+        _ surface: String, lines: [Int], finding: Diagnostic, subject: String, into diagnostics: inout [Diagnostic]
+    ) -> Bool {
+        let candidates = Set(lines).filter { $0 >= 1 && $0 <= sourceLines.count }.sorted()
         for lineNumber in candidates {
             let text = sourceLines[lineNumber - 1]
             guard let range = text.range(of: Self.exemptPrefix) else { continue }
@@ -404,7 +542,7 @@ private final class Visitor: SyntaxVisitor {
             guard Self.surfaces.contains(word) else {
                 diagnostics.append(Diagnostic(
                     severity: .warning,
-                    message: "`\(Self.exemptPrefix) \(word)` names no surface. Use one of: siri, shortcuts, mcp.",
+                    message: "`\(Self.exemptPrefix) \(word)` names no surface. Use one of: siri, shortcuts, mcp, auth.",
                     filePath: fileName, lineNumber: lineNumber, columnNumber: 1,
                     ruleId: "appintent.exempt-unknown-surface",
                     suggestedFix: "Write `// \(Self.exemptPrefix) siri — <why>`."))
@@ -420,8 +558,8 @@ private final class Visitor: SyntaxVisitor {
                         + "told apart from a considered decision.",
                     filePath: fileName, lineNumber: lineNumber, columnNumber: 1,
                     ruleId: "appintent.exempt-no-justification",
-                    suggestedFix: "Say why this intent stays out of \(surface), e.g. "
-                        + "`// \(form) — it rewrites the ledger and must only run inside the app`."))
+                    suggestedFix: "Say why this \(subject) declines \(surface), e.g. "
+                        + "`// \(form) — <the reason>`."))
                 return false
             }
             overrides.append(.inlineMarker(
