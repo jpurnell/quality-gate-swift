@@ -81,6 +81,13 @@ public struct IndexUnitCensus: Sendable, Equatable {
     /// ignoring the *only* unit a file has removes every reference that file makes, and whatever
     /// it alone calls then reads as unreachable.
     public let sourcesWithoutCurrentUnit: [String]
+    /// Sources whose current units were compiled into more than one module.
+    ///
+    /// Each such module defines its own copy of every declaration in the file, under its own
+    /// USR. IndexStoreDB's file queries answer from one compilation, so a pass that needs every
+    /// copy has to look for the rest — and only in these files, since a file compiled into one
+    /// module has none.
+    public let sourcesInSeveralModules: Set<String>
 
     /// How many units were not read, for any reason.
     public var ignored: Int { stale + superseded + orphaned }
@@ -94,9 +101,10 @@ public struct IndexUnitCensus: Sendable, Equatable {
     ///   - superseded: Units with a newer sibling.
     ///   - orphaned: Units whose source is gone.
     ///   - sourcesWithoutCurrentUnit: Existing sources left with no current unit.
+    ///   - sourcesInSeveralModules: Sources whose current units span more than one module.
     public init(
         currentOutputPaths: [String], examined: Int, stale: Int, superseded: Int, orphaned: Int,
-        sourcesWithoutCurrentUnit: [String]
+        sourcesWithoutCurrentUnit: [String], sourcesInSeveralModules: Set<String> = []
     ) {
         self.currentOutputPaths = currentOutputPaths
         self.examined = examined
@@ -104,6 +112,7 @@ public struct IndexUnitCensus: Sendable, Equatable {
         self.superseded = superseded
         self.orphaned = orphaned
         self.sourcesWithoutCurrentUnit = sourcesWithoutCurrentUnit
+        self.sourcesInSeveralModules = sourcesInSeveralModules
     }
 }
 
@@ -189,6 +198,7 @@ public enum IndexUnitCurrency {
         var stale = 0, superseded = 0, orphaned = 0
         var hasStaleUnit: Set<String> = []
         var hasCurrentUnit: Set<String> = []
+        var currentModules: [String: Set<String>] = [:]
 
         for (unit, key) in zip(sourceUnits, keys) {
             let edited: Date?
@@ -205,6 +215,7 @@ public enum IndexUnitCurrency {
             case .current:
                 current.append(unit.outputFile)
                 hasCurrentUnit.insert(unit.mainFile)
+                currentModules[unit.mainFile, default: []].insert(unit.moduleName)
             case .stale:
                 stale += 1
                 hasStaleUnit.insert(unit.mainFile)
@@ -219,7 +230,8 @@ public enum IndexUnitCurrency {
             currentOutputPaths: current,
             examined: sourceUnits.count,
             stale: stale, superseded: superseded, orphaned: orphaned,
-            sourcesWithoutCurrentUnit: hasStaleUnit.subtracting(hasCurrentUnit).sorted())
+            sourcesWithoutCurrentUnit: hasStaleUnit.subtracting(hasCurrentUnit).sorted(),
+            sourcesInSeveralModules: Set(currentModules.filter { $0.value.count > 1 }.keys))
     }
 }
 

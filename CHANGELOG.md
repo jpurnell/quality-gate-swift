@@ -2,6 +2,22 @@
 
 ### Fixed
 
+- **`unreachable` no longer reports code that another target calls, in projects that share
+  sources across targets.** An Xcode project with a target per platform compiles its shared
+  files once per target, and each target is a module, so every shared declaration is in the
+  index once per module under its own USR. IndexStoreDB's file queries answer from one of those
+  compilations, chosen by the hash of the unit's name, and the pass judged that copy alone: a
+  method called only from a file or `#if` branch another target compiles was reported as
+  unreachable, and which ones were reported changed with build paths. In KEXPPower, whose
+  `Spinner TV` target compiles the iOS app's sources, six live symbols were reported. Those
+  include `scrub(toFraction:)` (called from the iOS slider), `SceneID.main` (the Mac window) and
+  `byteCount` (called from tests through the iOS module). The pass now finds every module's copy
+  and walks declarations rather than USRs: a declaration is live if any copy is reached, and one
+  no copy reaches is reported once. Copies are looked up only in files the unit census shows
+  were compiled into more than one module (`IndexUnitCensus.sourcesInSeveralModules`), so a
+  project without shared sources pays nothing: quality-gate's own run is unchanged at about
+  74 s. **This changes a verdict:** such projects that were failing on these findings now pass.
+
 - **`appintents-readiness` no longer demands an attribute that does not exist.** It flagged every
   intent for lacking `@AssistantIntent`, `@AssistantEntity` or `@AssistantEnum`. Those are
   protocols (iOS 18), not macros, so no real code writes them as attributes: intents that had

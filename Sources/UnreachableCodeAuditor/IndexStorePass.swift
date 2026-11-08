@@ -96,13 +96,27 @@ struct IndexStorePass {
         }
         var defs: [String: DefRecord] = [:]
 
-        for (idx, file) in swiftFiles.enumerated() {
+        // `symbols(inFilePath:)` answers from one compilation of the file. A file compiled
+        // into several modules — a target per platform — has a compilation per module, and
+        // each defines its own copy of every declaration under its own USR. The copies the
+        // answer leaves out, and every reference made only by their module, would otherwise be
+        // invisible; which module is seen is decided by the hash of the unit's name. Only a
+        // file compiled into more than one module has copies to find. Without a census that is
+        // not known, so every file is searched.
+        var copies = DeclarationCopies(db: db, canonicalize: canonicalize)
+        let sharedSources = session.unitCensus.map { Set($0.sourcesInSeveralModules.map(canonicalize)) }
+        func allSymbols(at idx: Int, _ file: String) -> [Symbol] {
             let rawFile = rawSwiftFiles[idx]
             var symbols = db.symbols(inFilePath: file)
             if symbols.isEmpty && rawFile != file {
                 symbols = db.symbols(inFilePath: rawFile)
             }
-            for symbol in symbols {
+            guard sharedSources?.contains(file) ?? true else { return symbols }
+            return symbols.flatMap { [$0] + copies.of($0) }
+        }
+
+        for (idx, file) in swiftFiles.enumerated() {
+            for symbol in allSymbols(at: idx, file) {
                 guard Self.isCheckable(symbol) else { continue }
                 if defs[symbol.usr] != nil { continue }
                 let defOccs = db.occurrences(ofUSR: symbol.usr, roles: [.definition])
@@ -132,6 +146,20 @@ struct IndexStorePass {
                     targetType: inputs.targetType(forModule: moduleName)
                 )
             }
+        }
+
+        // A source compiled into several modules — one target per platform, sharing files —
+        // defines each of its declarations once per module, under a USR per module, and each
+        // module's references reach only its own copy. What is reachable is the declaration,
+        // not the copy: a call only one target compiles (a file the others leave out, a branch
+        // of `#if os(…)`) keeps it live. So the walk below runs over declaration sites, and a
+        // finding is emitted once per site.
+        var siteOf: [String: String] = [:]
+        var usrsAt: [String: [String]] = [:]
+        for (usr, rec) in defs {
+            let site = Self.site(file: rec.defFile, line: rec.defLine, column: rec.defColumn)
+            siteOf[usr] = site
+            usrsAt[site, default: []].append(usr)
         }
 
         // -- Pass 2: identify root USRs (the live set's seed).
@@ -210,29 +238,31 @@ struct IndexStorePass {
         // promote their callees to roots directly.
         var edges: [String: Set<String>] = [:]
 
-        // (file, defLine) → USR — used to map an enclosing-decl name line
-        // back to the USR for that declaration.
-        var defByLocation: [String: [Int: String]] = [:]
+        // (file, defLine) → declaration sites — used to map an enclosing-decl
+        // name line back to the declarations written there.
+        var sitesByLocation: [String: [Int: Set<String>]] = [:]
         for (usr, rec) in defs {
-            defByLocation[rec.defFile, default: [:]][rec.defLine] = usr
+            if let site = siteOf[usr] {
+                sitesByLocation[rec.defFile, default: [:]][rec.defLine, default: []].insert(site)
+            }
         }
 
         for (idx, file) in swiftFiles.enumerated() {
-            let rawFile = rawSwiftFiles[idx]
-            var symbols = db.symbols(inFilePath: file)
-            if symbols.isEmpty && rawFile != file {
-                symbols = db.symbols(inFilePath: rawFile)
-            }
-            for symbol in symbols {
+            for symbol in allSymbols(at: idx, file) {
                 let occs = db.occurrences(
                     ofUSR: symbol.usr,
                     roles: [.reference, .call, .read, .write]
                 )
+                // A callee that is not a checkable definition has no site and no outgoing
+                // edges, so it contributes nothing to the walk.
+                guard let calleeSite = siteOf[symbol.usr] else { continue }
                 for occ in occs where canonicalize(occ.location.path) == file {
                     let refLine = occ.location.line
                     if let enclosingLine = liveness.enclosingDeclNameLine(file: file, line: refLine),
-                       let callerUSR = defByLocation[file]?[enclosingLine] {
-                        edges[callerUSR, default: []].insert(symbol.usr)
+                       let callerSites = sitesByLocation[file]?[enclosingLine] {
+                        for callerSite in callerSites {
+                            edges[callerSite, default: []].insert(calleeSite)
+                        }
                     } else {
                         // No enclosing decl — top-level statement. main.swift
                         // (or any other top-level script) seeds roots.
@@ -244,9 +274,9 @@ struct IndexStorePass {
             }
         }
 
-        // -- Pass 4: BFS the live set from the roots.
+        // -- Pass 4: BFS the live set of declaration sites from the roots.
         var live = Set<String>()
-        var queue = Array(roots)
+        var queue = roots.compactMap { siteOf[$0] }
         while let cur = queue.popLast() {
             if !live.insert(cur).inserted { continue }
             if let outs = edges[cur] {
@@ -268,8 +298,11 @@ struct IndexStorePass {
         // would still have to have zero refs to be flagged.
         var diagnostics: [Diagnostic] = []
         var sourceMismatches: [(name: String, file: String, line: Int)] = []
+        var judgedSites = Set<String>()
         for (usr, rec) in defs {
-            if live.contains(usr) { continue }
+            guard let site = siteOf[usr], !live.contains(site) else { continue }
+            // One verdict per declaration, however many modules compiled it.
+            guard judgedSites.insert(site).inserted else { continue }
             if rec.targetType == "test" { continue }
             // v5: skip names that match a macro-generated pattern (silent
             // — these can't be user-written and we have nothing to flag).
@@ -282,10 +315,10 @@ struct IndexStorePass {
             // emit a false positive — but the looksMacroGenerated rule
             // above is the preferred filter.
             if rec.fact == nil { continue }
-            let refs = db.occurrences(
-                ofUSR: usr,
-                roles: [.reference, .call, .read, .write]
-            )
+            // Every module's copy of the declaration: a reference to any of them counts.
+            let refs = (usrsAt[site] ?? [usr]).flatMap { copy in
+                db.occurrences(ofUSR: copy, roles: [.reference, .call, .read, .write])
+            }
             let externalRefs = refs.filter { occ in
                 !(canonicalize(occ.location.path) == rec.defFile && occ.location.line == rec.defLine)
             }
@@ -399,6 +432,20 @@ struct IndexStorePass {
                 by the build.
                 """
         )
+    }
+
+    /// The key for a declaration's place in the source.
+    ///
+    /// Every USR defined at one site is the same declaration compiled into a different module,
+    /// so the reachability walk and the findings are keyed by this rather than by USR.
+    ///
+    /// - Parameters:
+    ///   - file: The canonical path of the defining file.
+    ///   - line: The definition's line.
+    ///   - column: The definition's UTF-8 column.
+    /// - Returns: A key equal for every copy of the declaration.
+    static func site(file: String, line: Int, column: Int) -> String {
+        "\(file):\(line):\(column)"
     }
 
     /// v5 macro-pattern recogniser. Compiler-/macro-synthesized symbols
