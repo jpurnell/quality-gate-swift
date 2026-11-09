@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [3.10.0] - 2026-11-09
+
 ### Added
 
 - **`app-skills`, a new checker for Apple skills bundles.** A `.skillsbundle` that breaks a rule is not rejected at build time; it is simply not offered to Siri. Errors: `skills.bad-folder-name`, `skills.missing-skill-md`, `skills.extra-files`, `skills.frontmatter-fields`, `skills.body-too-long` (over 10,000 characters), `skills.duplicate-name`, `skills.bundle-not-in-target` (the bundle is on disk but no target copies it) and `skills.multiple-bundles`; note: `skills.names-type`. Target membership is read from the project's Resources build phase, synchronized folders included. A project with no `.skillsbundle` is skipped, so it costs one that does not use skills nothing, and it is in the default set. Not yet covered: `skills.unresolved-reference` and `skills.repeats-metadata`, which need the skill source format and emitters. Proposal: `OneReadinessManyCarriers.md` §4.5.
@@ -4728,7 +4730,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.9.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.10.0...HEAD
+[3.10.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.9.0...v3.10.0
 [3.9.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.8.0...v3.9.0
 [3.8.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.7.0...v3.8.0
 [3.7.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.6.0...v3.7.0
