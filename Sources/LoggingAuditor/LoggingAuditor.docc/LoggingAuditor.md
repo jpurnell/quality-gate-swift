@@ -18,6 +18,59 @@ Test files (paths containing `Tests`) and paths matching `excludePatterns` in th
 | `logging.silent-try` | warning | `try?` without adjacent error logging or suppression comment |
 | `logging.no-os-logger-import` | warning | File uses `print()`/`NSLog()` but does not `import os` |
 | `logging.catch-without-logging` | warning | A `catch` whose error disappears: not logged, not rethrown, not handed on |
+| `logging.no-metrickit-subscriber` | note (configurable) | An app target that never subscribes to MetricKit (project-level, see below) |
+| `logging.metrickit-payload-ignored` | note (configurable) | A MetricKit subscriber that lacks a payload handler or only logs what it receives |
+
+### MetricKit: an app reads its own crash and exit reports
+
+An app that does not subscribe to `MXMetricManager` gets no crash, hang or exit-reason data
+from users except through Apple's web tools. These two rules are about an app target taken as
+a whole, so they run once per app target after the per-file pass (see `DiagnosticsAndFeedback.md`
+in KEXPPower for the client work they check).
+
+**Opt-in, and advisory.** The rules are evaluated only for a project whose own
+`.quality-gate.yml` declares how it is distributed:
+
+```yaml
+logging:
+  distribution: [testFlight, appStore, developerID]
+  metricKitSeverity: note   # note (default) | warning | error
+```
+
+`distribution` is a declared fact about the project (somebody other than its author receives its
+payloads), not an exclusion: a project that declares none is not evaluated, with no findings and no
+noise. Unknown values are a configuration error. Findings are **notes** by default, so they do not
+break the zero-warnings rule; `metricKitSeverity` raises them to `warning` or `error`, and making
+the rules errors later is a change of that default.
+
+**Which targets.** Only app targets, judged one at a time on their own sources. A target is an
+app when its sources contain an entry point: an `@main` type conforming to `App`, a class
+conforming to `UIApplicationDelegate`, `NSApplicationDelegate`, `WKApplicationDelegate` or
+`WKExtensionDelegate`, or `@UIApplicationMain`/`@NSApplicationMain`. `library` and `cli`
+projects are skipped. In an Xcode project the target list comes from the `.xcodeproj`:
+`PBXNativeTarget`s whose `productType` begins `com.apple.product-type.application` (so
+extensions and test bundles are not apps), their sources from the Sources build phase and
+synchronized folders, their platform from `SDKROOT`/`SUPPORTED_PLATFORMS`. When a readable
+`.xcodeproj` exists it is authoritative; otherwise each `Sources/<Name>/` is a target.
+
+**`logging.no-metrickit-subscriber`** is satisfied when the target has a type conforming to
+`MXMetricManagerSubscriber` and a call to `MXMetricManager.shared.add(_:)` reachable from app
+start: an `App` initializer, `application(_:didFinishLaunchingWithOptions:)`,
+`applicationDidFinishLaunching`, or something one call level below those (a function they call
+by name, or the initializer of a type they mention). Deeper indirection is not followed; call the
+registration plainly from `init`. Code in the `#else` of `#if canImport(MetricKit)` is not
+counted; code outside any `#if` is accepted.
+
+**`logging.metrickit-payload-ignored`** applies to each accepted subscriber. It must have both
+`didReceive(_: [MXMetricPayload])` and `didReceive(_: [MXDiagnosticPayload])`, and each body must
+do more than log: a call that is not `print`/`Logger`, or an assignment, counts as handing the
+payload on. The check is syntactic; it cannot tell that what receives the payload is correct.
+
+**No suppression.** The `// logging:` comment does not silence either rule, and
+`requireMetricKitSubscriber` cannot be turned off. The structural exemptions are: the project type, and `metricKitUnsupportedPlatforms` (an app target is exempt
+when every platform it builds for is listed) and `metricKitNoDiagnosticPlatforms` (the diagnostic
+handler is not required). Both lists are empty by default because which platforms lack MetricKit
+has not been verified; add a platform only after checking it.
 
 ### What a `catch` may do with its error
 

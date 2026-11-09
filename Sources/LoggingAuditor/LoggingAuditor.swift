@@ -11,6 +11,8 @@ import SwiftParser
 /// - `logging.print-statement`: `print()` in production code (use os.Logger)
 /// - `logging.silent-try`: `try?` without adjacent error logging
 /// - `logging.no-os-logger-import`: File uses print/NSLog without `import os`
+/// - `logging.no-metrickit-subscriber`: App target never subscribes to MetricKit (project-level)
+/// - `logging.metrickit-payload-ignored`: MetricKit subscriber that drops or only logs payloads
 ///
 /// This auditor is gated by `projectType` in configuration. When set to
 /// `"library"`, the auditor returns `.skipped` immediately — libraries
@@ -23,7 +25,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
     public let name = "Logging Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "`print()` in production code, silent `catch` blocks, missing os.Logger usage"
+    public let summary = "`print()` in production code, silent `catch` blocks, missing os.Logger usage, an app that never subscribes to MetricKit"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.codeHygiene
@@ -37,7 +39,7 @@ public struct LoggingAuditor: QualityChecker, Sendable {
 
     /// Analyses source without running it — safe to point at a stranger's package.
     public let executesProjectCode = false
-    private let config: LoggingAuditorConfig
+    let config: LoggingAuditorConfig
 
     /// Creates a logging auditor.
     /// - Parameter config: Auditor settings; defaults to `.default`.
@@ -86,6 +88,14 @@ public struct LoggingAuditor: QualityChecker, Sendable {
             allDiagnostics.append(contentsOf: result.diagnostics)
             allOverrides.append(contentsOf: result.overrides)
         }
+
+        // Project-level MetricKit rules: judged per app target, whether or not the project has a
+        // `Sources/` directory (an Xcode app usually does not).
+        let metricKit = auditMetricKit(targets: MetricKitTargetDiscovery.discover(
+            root: configuration.resolvedProjectRoot,
+            excludePatterns: configuration.excludePatterns
+        ))
+        allDiagnostics.append(contentsOf: metricKit.diagnostics)
 
         let duration = ContinuousClock.now - startTime
 
