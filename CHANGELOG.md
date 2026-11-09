@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [3.9.0] - 2026-11-08
+
+### Added
+
+- **Three `appintents-readiness` rules for the Siri AI Developer Preview, all warnings.** `appintent-property-no-description` asks for a `description` on every entity `@Property`, `@DeferredProperty` and `@ComputedProperty` (a `visibility: .internal` property is exempt); `appintent-sensitive-no-auth` flags a property named like money, credentials or health data with no `IntentAuthenticationPolicy`, and, being a name heuristic, can be declined with `// appintents:exempt auth — <reason>`; `appintent-hidden-tool` flags a tool intent with `isDiscoverable = false`. **A verdict change:** entities with undescribed properties now warn, so a project gating on `--strict` will fail until they are described. Proposal: `OneReadinessManyCarriers.md` §4.2.
+- **Three more `appintents-readiness` rules about the tool trait.** `appintent-schema-shortcuts-only` (warning) flags a schema from a Shortcuts-specific domain with no `.tool`, which looks adopted and does not reach Siri; `appintent-tool-no-perform` (warning) flags `.tool` on an intent with no `perform()`; `appintent-tool-with-siri-schema` (note) flags `.tool` on a primary-domain schema, which Apple says not to do. The domain table is one data file (`AppSchemaDomains`), read from Apple's collection on 2026-11-04 and the part most likely to change during the preview.
+- **`appintent-param-unused` (warning) flags a `@Parameter` no function in the intent reads.** The analogue of `mcp-unused-property`: Siri asks for the value and the answer is ignored. A parameter read by a helper counts as used; one mentioned only in `parameterSummary` does not. **A verdict change:** intents with such parameters now warn under `--strict`.
+
+### Changed
+
+- **`appintents:exempt` gains an `auth` surface**, for declining `appintent-sensitive-no-auth`: `// appintents:exempt auth — <reason>`. Recorded in the override report like the other surfaces.
+
 ## [3.8.0] - 2026-11-08
 
 ### Fixed
@@ -39,11 +51,8 @@
 
 ### Added
 
-- **`appintent-param-unused` (warning) flags a `@Parameter` no function in the intent reads.** The analogue of `mcp-unused-property`: Siri asks for the value and the answer is ignored. A parameter read by a helper counts as used; one mentioned only in `parameterSummary` does not. **A verdict change:** intents with such parameters now warn under `--strict`.
-- **Three more `appintents-readiness` rules about the tool trait.** `appintent-schema-shortcuts-only` (warning) flags a schema from a Shortcuts-specific domain with no `.tool`, which looks adopted and does not reach Siri; `appintent-tool-no-perform` (warning) flags `.tool` on an intent with no `perform()`; `appintent-tool-with-siri-schema` (note) flags `.tool` on a primary-domain schema, which Apple says not to do. The domain table is one data file (`AppSchemaDomains`), read from Apple's collection on 2026-11-04 and the part most likely to change during the preview.
-- **Three `appintents-readiness` rules for the Siri AI Developer Preview, all warnings.** `appintent-property-no-description` asks for a `description` on every entity `@Property`, `@DeferredProperty` and `@ComputedProperty` (a `visibility: .internal` property is exempt); `appintent-sensitive-no-auth` flags a property named like money, credentials or health data with no `IntentAuthenticationPolicy`, and, being a name heuristic, can be declined with `// appintents:exempt auth — <reason>`; `appintent-hidden-tool` flags a tool intent with `isDiscoverable = false`. **A verdict change:** entities with undescribed properties now warn, so a project gating on `--strict` will fail until they are described. Proposal: `OneReadinessManyCarriers.md` §4.2.
 - **`appintents:exempt <surface> — <reason>` lets an intent decline Siri, Shortcuts or MCP.**
-  The surface is `siri`, `shortcuts`, `mcp` or `auth`. A marker with a reason silences the finding and
+  The surface is `siri`, `shortcuts` or `mcp`. A marker with a reason silences the finding and
   is recorded in the override report, in the same form as `stochastic:exempt`; one with no reason
   does not count and is reported as `appintent.exempt-no-justification`, and an unknown surface
   as `appintent.exempt-unknown-surface`. Only `siri` has a rule to answer today
@@ -4710,7 +4719,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.8.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.9.0...HEAD
+[3.9.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.8.0...v3.9.0
 [3.8.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.7.0...v3.8.0
 [3.7.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.5.0...v3.6.0
