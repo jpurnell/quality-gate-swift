@@ -2,7 +2,12 @@
 
 ### Added
 
+- **`app-skills`, a new checker for Apple skills bundles.** A `.skillsbundle` that breaks a rule is not rejected at build time; it is simply not offered to Siri. Errors: `skills.bad-folder-name`, `skills.missing-skill-md`, `skills.extra-files`, `skills.frontmatter-fields`, `skills.body-too-long` (over 10,000 characters), `skills.duplicate-name`, `skills.bundle-not-in-target` (the bundle is on disk but no target copies it) and `skills.multiple-bundles`; note: `skills.names-type`. Target membership is read from the project's Resources build phase, synchronized folders included. A project with no `.skillsbundle` is skipped, so it costs one that does not use skills nothing, and it is in the default set. Not yet covered: `skills.unresolved-reference` and `skills.repeats-metadata`, which need the skill source format and emitters. Proposal: `OneReadinessManyCarriers.md` §4.5.
 - **Two cross-file `appintents-readiness` notes.** `appintent-entity-not-findable` flags an `AppEntity` that is neither an `IndexedEntity` nor served by an `EnumerableEntityQuery`; `appintent-entity-not-transferable` flags an entity a tool intent takes or returns with no `Transferable` conformance. Both read every file and merge conformances (declared, extension, or inherited through a project protocol), so an entity declared in one file and conformed in another is not reported. Notes, so they do not change `--strict` verdicts; neither has a decline marker yet, since leaving content out of Spotlight is a legitimate choice. Proposal: `OneReadinessManyCarriers.md` §4.2.
+
+### Changed
+
+- **The Xcode project reader is shared.** `PBXProjectObjects` (in `QualityGateCore`) holds the object table and the group-path resolution that `HIGAuditor`'s platform lookup and `app-skills`' bundle membership both need, instead of each carrying a copy. `HIGAuditor`'s behaviour is unchanged.
 
 ## [3.9.0] - 2026-11-08
 

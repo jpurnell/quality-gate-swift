@@ -169,6 +169,10 @@ let package = Package(
             targets: ["AppIntentsAuditor"]
         ),
         .library(
+            name: "AppSkillsAuditor",
+            targets: ["AppSkillsAuditor"]
+        ),
+        .library(
             name: "XcodeBuildChecker",
             targets: ["XcodeBuildChecker"]
         ),
@@ -983,6 +987,17 @@ let package = Package(
                 "IndexStoreInfra","AppIntentsAuditor"]
         ),
 
+        // MARK: - AppSkillsAuditor
+        .target(
+            name: "AppSkillsAuditor",
+            dependencies: ["QualityGateCore"],
+            resources: [.copy("AppSkillsAuditor.docc")]
+        ),
+        .testTarget(
+            name: "AppSkillsAuditorTests",
+            dependencies: ["AppSkillsAuditor", "QualityGateCore"]
+        ),
+
         // MARK: - IJS Modules
 
 
@@ -1283,6 +1298,7 @@ let package = Package(
                 "HIGAuditor",
                 "XcodeBuildChecker",
                 "AppIntentsAuditor",
+                "AppSkillsAuditor",
                 "ConsistencyChecker",
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),

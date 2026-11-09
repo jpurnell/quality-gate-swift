@@ -41,6 +41,7 @@ import ComplexityAnalyzer
 import LegibilityAnalyzer
 import HIGAuditor
 import AppIntentsAuditor
+import AppSkillsAuditor
 import XcodeBuildChecker
 import ConsistencyChecker
 import GatePlugins
@@ -234,6 +235,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             LegibilityAnalyzer(),
             HIGAuditor(),
             AppIntentsAuditor(),
+            AppSkillsAuditor(),
             ConsistencyChecker(),
             XcodeBuildChecker(),
             // Major-points parity (Phase 4c): advisory posture — notes by

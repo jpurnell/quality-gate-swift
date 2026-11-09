@@ -1,6 +1,5 @@
 import Foundation
 import QualityGateCore
-import QualityGateLogging
 
 /// Which Apple platforms an Xcode project builds each source file for.
 ///
@@ -15,8 +14,6 @@ import QualityGateLogging
 /// falls back to what it did before this type existed. A guess here would turn a missing
 /// rule into a wrong one.
 struct XcodeProjectPlatforms: Sendable {
-
-    private static let logger = Logger(subsystem: "com.quality-gate", category: "XcodeProjectPlatforms")
 
     /// A set of files compiled by one target, and the platforms that target builds for.
     struct Membership: Sendable {
@@ -103,47 +100,16 @@ struct XcodeProjectPlatforms: Sendable {
 
     /// Builds the membership list for one project file, or `nil` when it is not readable.
     static func parse(pbxproj: URL) -> [Membership]? {
-        let data: Data
-        do {
-            data = try Data(contentsOf: pbxproj)
-        } catch {
-            logger.warning("Could not read \(pbxproj.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-        let plist: Any
-        do {
-            plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
-        } catch {
-            logger.warning("Could not parse \(pbxproj.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-        guard let top = plist as? [String: Any], let objects = top["objects"] as? [String: [String: Any]] else {
-            logger.warning("No object table in \(pbxproj.path, privacy: .public)")
-            return nil
-        }
-        let projectDir = pbxproj.deletingLastPathComponent().deletingLastPathComponent()
-        return Builder(objects: objects, projectDir: projectDir).memberships()
+        guard let project = PBXProjectObjects.load(pbxproj: pbxproj) else { return nil }
+        return Builder(project: project).memberships()
     }
 
     // MARK: - Pbxproj reading
 
     /// Walks the object table of a single parsed project.
     private struct Builder {
-        let objects: [String: [String: Any]]
-        let projectDir: URL
-
-        /// Parent group of each group/file id, from every group's `children`.
-        private let parents: [String: String]
-
-        init(objects: [String: [String: Any]], projectDir: URL) {
-            self.objects = objects
-            self.projectDir = projectDir
-            var parents: [String: String] = [:]
-            for (id, object) in objects {
-                for child in object["children"] as? [String] ?? [] { parents[child] = id }
-            }
-            self.parents = parents
-        }
+        let project: PBXProjectObjects
+        var objects: [String: [String: Any]] { project.objects }
 
         func memberships() -> [Membership] {
             var out: [Membership] = []
@@ -155,13 +121,13 @@ struct XcodeProjectPlatforms: Sendable {
                 for phaseId in sourcesPhases {
                     for buildFileId in objects[phaseId]?["files"] as? [String] ?? [] {
                         guard let fileRef = objects[buildFileId]?["fileRef"] as? String,
-                              let path = absolutePath(of: fileRef) else { continue }
+                              let path = project.absolutePath(of: fileRef) else { continue }
                         out.append(Membership(path: path, isDirectory: false, excluded: [], platforms: platforms))
                     }
                 }
 
                 for groupId in object["fileSystemSynchronizedGroups"] as? [String] ?? [] {
-                    guard let path = absolutePath(of: groupId) else { continue }
+                    guard let path = project.absolutePath(of: groupId) else { continue }
                     let excluded = exceptions(in: groupId, targetId: targetId, sourcesPhases: sourcesPhases)
                     out.append(Membership(path: path, isDirectory: true, excluded: excluded, platforms: platforms))
                 }
@@ -199,35 +165,6 @@ struct XcodeProjectPlatforms: Sendable {
                 }
             }
             return excluded
-        }
-
-        /// Absolute path of a file reference or group, following `path` up the group chain.
-        private func absolutePath(of id: String) -> String? {
-            var components: [String] = []
-            var current: String? = id
-            var base = projectDir
-            var visited: Set<String> = []
-            while let node = current, let object = objects[node], visited.insert(node).inserted {
-                let path = object["path"] as? String ?? ""
-                switch object["sourceTree"] as? String {
-                case "SOURCE_ROOT":
-                    components.append(path)
-                    current = nil
-                case "<absolute>":
-                    components.append(path)
-                    base = URL(fileURLWithPath: "/")
-                    current = nil
-                case "<group>":
-                    components.append(path)
-                    current = parents[node]
-                default:
-                    return nil
-                }
-            }
-            // `visited` cuts a cycle; a group chain that ends anywhere but the project root is fine.
-            let relative = components.reversed().filter { !$0.isEmpty }
-            let url = relative.reduce(base) { $0.appendingPathComponent($1) }
-            return url.standardizedFileURL.path
         }
 
         // MARK: Build settings
