@@ -117,14 +117,40 @@ struct RewriteLedgerInApp: AppIntent {
 }
 ```
 
-The marker is `appintents:exempt <surface>`, where the surface is `siri`, `shortcuts` or `mcp`, followed by a reason. It may sit on the line above the declaration (above any attributes) or on the declaration's own line.
+The marker is `appintents:exempt <surface>`, where the surface is `siri`, `shortcuts`, `mcp` or `auth`, followed by a reason. It may sit on the line above the declaration (above any attributes) or on the declaration's own line.
 
 - **A reason is required.** A marker with none does not count: the finding stays and `appintent.exempt-no-justification` is reported.
 - **It is recorded, never silent.** A marker with a reason silences the finding and appears in the override report with its reason, which the shared reason validator also judges.
 - **One surface covers only that surface.** `shortcuts` and `mcp` do not silence the Siri rule, and an unrecognised name is reported as `appintent.exempt-unknown-surface`.
-- **Only `siri` has a rule to answer today.** The other two surfaces are accepted so the syntax will not change when their rules arrive.
+- **`siri` and `auth` have rules to answer today.** `auth` declines `appintent-sensitive-no-auth` and sits on the property. `shortcuts` and `mcp` are accepted so the syntax will not change when their rules arrive.
 
-Shortcuts also has a declaration that needs no comment: `static var isDiscoverable = false` hides an intent from Shortcuts in code.
+Shortcuts also has a declaration that needs no comment: `static var isDiscoverable = false` hides an intent from Shortcuts in code. Combined with the tool trait it is flagged by `appintent-hidden-tool`, because the intent is then still a Siri tool.
+
+#### `appintent-schema-shortcuts-only`
+
+A warning. Apple's schema domains split in two. A primary domain's schemas reach Siri; a Shortcuts-specific domain's (books, browser, files, journaling, presentation, reader, spreadsheet, whiteboard, word processor) support Shortcuts but not Siri. An intent that adopts one of the second kind looks finished and is invisible to Siri unless it also carries the tool trait.
+
+```text
+@AppIntent(.tool, schema: .journal.createEntry)
+```
+
+The domain table is one data file, with Apple's page beside it, because it is the part most likely to change during the preview.
+
+#### `appintent-tool-no-perform`
+
+A warning. The tool trait on an intent with no `perform()` (a `WidgetConfigurationIntent`, for example) gives Siri nothing to run. Apple says such an intent is not a tool.
+
+#### `appintent-tool-with-siri-schema`
+
+A note. Apple says not to add the tool trait to an intent that already conforms to a primary-domain schema, since that already reaches Siri.
+
+#### `appintent-param-unused`
+
+A warning. A `@Parameter` that no function in the intent ever reads is a question Siri asks and then ignores. It is the App Intents analogue of `mcp-unused-property`. Any function body in the intent counts as reading it, so a parameter used by a helper that `perform()` calls is fine; mentioning it only in `parameterSummary` is not. An intent with no `perform()` is left to its other rules.
+
+#### `appintent-hidden-tool`
+
+A warning. An intent that carries the tool trait and also sets `static var isDiscoverable = false` is hidden from Shortcuts but still callable by Siri. That is legal and sometimes intended, so the rule exists to make the choice visible early, not to forbid it. Remove `isDiscoverable = false` to offer the intent to Shortcuts, or drop the tool trait if Siri should not call it.
 
 ### Entity completeness
 
@@ -159,6 +185,29 @@ Moving that property onto `LibraryItem` itself clears the diagnostic.
 #### `appintent-entity-no-type-display`
 
 Every `AppEntity` needs a `typeDisplayRepresentation` so the system knows how to label the entity type in plural and singular contexts.
+
+#### `appintent-property-no-description`
+
+A warning. Siri reads the `description` of each `@Property`, `@DeferredProperty` and `@ComputedProperty` to decide what the property means, as it reads an intent's description.
+
+```text
+@Property(title: "Balance", description: "What the account holds today, in its own currency")
+var balance: Double
+```
+
+A property Siri should not see takes `visibility: .internal` instead and needs no description.
+
+#### `appintent-sensitive-no-auth`
+
+A warning. A property named like money, credentials or health data (`balance`, `password`, `token`, `salary`, `diagnosis` and a few others, matched as whole words of the camel-case name) with no `IntentAuthenticationPolicy`, at the property or on the entity. Without one, Siri may read the value out on a locked device.
+
+This is a name heuristic, so it has a recorded decline. A reason is required, and the decline is reported with the other overrides:
+
+```text
+// appintents:exempt auth — a running total of public donations, nothing personal
+@Property(title: "Balance", description: "Donations received to date")
+var balance: Double
+```
 
 #### `appintent-entity-not-assistant`
 

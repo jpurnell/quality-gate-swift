@@ -12,7 +12,15 @@ struct ExtractedIntent: Sendable {
     /// Exists to configure a widget, so there is no action for Siri to perform.
     var isWidgetConfiguration: Bool = false
     var hasPerform: Bool = false
+    /// Carries the tool trait (or `ToolIntent`), so Siri may call it.
+    var isTool: Bool = false
+    /// The domain of an `@AppIntent(schema: .domain.name)` argument, as written.
+    var schemaDomain: String?
+    /// `static var isDiscoverable = false`: not offered to Shortcuts.
+    var isHiddenFromShortcuts: Bool = false
     var parameters: [ExtractedParameter] = []
+    /// Names referenced inside any function body of the intent, `$x` and `_x` folded to `x`.
+    var referencedInFunctions: Set<String> = []
 }
 
 struct ExtractedParameter: Sendable {
@@ -31,6 +39,17 @@ struct ExtractedEntity: Sendable {
     var hasId: Bool = false
     var hasDefaultQuery: Bool = false
     var hasAssistantEntity: Bool = false
+    var undescribedProperties: [ExtractedEntityProperty] = []
+    /// Named like sensitive data, with no property-level policy.
+    var sensitiveProperties: [ExtractedEntityProperty] = []
+    var hasAuthenticationPolicy: Bool = false
+}
+
+/// A `@Property`, `@DeferredProperty` or `@ComputedProperty` Siri would read.
+struct ExtractedEntityProperty: Sendable {
+    let name: String
+    let line: Int
+    let column: Int
 }
 
 struct ExtractedEnum: Sendable {

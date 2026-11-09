@@ -18,7 +18,7 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
     public let name = "App Intents Readiness Auditor"
 
     /// One sentence: what this checker finds. The README's description column.
-    public let summary = "App Intents entity conformance, parameter wrappers, metadata protocols"
+    public let summary = "Siri AI Developer Preview readiness: intents, entities, tool trait, schema domains, parameters"
 
     /// The README section this checker is documented under.
     public let category = CheckerCategory.specialty

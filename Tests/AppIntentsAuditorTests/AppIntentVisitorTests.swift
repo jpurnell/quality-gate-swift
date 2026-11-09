@@ -24,7 +24,8 @@ struct IntentCompletenessTests {
             var query: String
 
             func perform() async throws -> some IntentResult {
-                .result()
+                _ = query
+                return .result()
             }
         }
         """
