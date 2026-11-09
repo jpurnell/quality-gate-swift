@@ -8,7 +8,8 @@ import IndexStoreInfra
 ///
 /// Uses a two-pass architecture:
 /// - **Pass 1:** Per-file SwiftSyntax AST analysis (always runs)
-/// - **Pass 2:** IndexStoreDB cross-file analysis (when index store is available)
+/// - **Pass 2:** a cross-file pass (`EntityReachability`) over the same sources: whether an entity
+///   can be found and passed along. Syntactic, so it needs no index store.
 public struct AppIntentsAuditor: QualityChecker, Sendable {
     private static let logger = Logger(subsystem: "com.quality-gate", category: "AppIntentsAuditor")
 
@@ -91,6 +92,7 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
 
         var diagnostics: [Diagnostic] = []
         var overrides: [DiagnosticOverride] = []
+        var sources: [String: String] = [:]
 
         for file in appIntentFiles {
             let source: String
@@ -100,10 +102,13 @@ public struct AppIntentsAuditor: QualityChecker, Sendable {
                 Self.logger.warning("Failed to read file during analysis: \(file, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 continue
             }
+            sources[file] = source
             let result = AppIntentVisitor.analyzeWithOverrides(source: source, fileName: file)
             diagnostics.append(contentsOf: result.diagnostics)
             overrides.append(contentsOf: result.overrides)
         }
+
+        diagnostics.append(contentsOf: EntityReachability.analyze(sources: sources))
 
         let duration = ContinuousClock.now - start
         let hasError = diagnostics.contains { $0.severity == .error }

@@ -216,8 +216,8 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **124 targets** — 62 source, 62 test
-- **49 registered checkers**
+- **126 targets** — 63 source, 63 test
+- **50 registered checkers**
 <!-- /generated:scale -->
 
 - **Structured output** — terminal, JSON, SARIF 2.1.0, and Xcode Build Phase format
@@ -328,6 +328,7 @@ swift package plugin quality-gate
 | `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference |
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
 | `appintents-readiness` | AppIntentsAuditor | Siri AI Developer Preview readiness: intents, entities, tool trait, schema domains, parameters |
+| `app-skills` | AppSkillsAuditor | Apple skills bundles: folder names, SKILL.md shape, size, and whether the target copies the bundle |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `xcode-build` | XcodeBuildChecker | Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in) |
 <!-- /generated:checker-table-specialty -->

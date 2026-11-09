@@ -41,6 +41,7 @@ import ComplexityAnalyzer
 import LegibilityAnalyzer
 import HIGAuditor
 import AppIntentsAuditor
+import AppSkillsAuditor
 import XcodeBuildChecker
 import ConsistencyChecker
 import GatePlugins
@@ -68,7 +69,7 @@ struct QualityGateCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "quality-gate",
         abstract: "Run automated quality checks on a Swift project.",
-        version: "3.9.0",
+        version: "3.10.0",
         subcommands: [Calibrate.self, TelemetryPush.self, GeneratePulse.self, GenerateNarrative.self, Dashboard.self, GenerateManifest.self, MigrateCorpusIdentity.self, ReindexCorpus.self, Doctor.self, BuildInfo.self, ConfigCommand.self, Orient.self, CICommand.self, Adopt.self, ImportSwiftLint.self, ReVerify.self, RelativizeBaseline.self, CorpusdToken.self, Compliance.self, StandardsWatchCommand.self, Clean.self, Release.self, AdvisoriesCommand.self]
     )
 
@@ -234,6 +235,7 @@ struct QualityGateCLI: AsyncParsableCommand {
             LegibilityAnalyzer(),
             HIGAuditor(),
             AppIntentsAuditor(),
+            AppSkillsAuditor(),
             ConsistencyChecker(),
             XcodeBuildChecker(),
             // Major-points parity (Phase 4c): advisory posture — notes by
