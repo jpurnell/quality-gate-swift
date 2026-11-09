@@ -213,6 +213,16 @@ var balance: Double
 
 A note, not a warning. A schema (`@AppEntity(schema:)`), where one fits the type, tells Siri and Shortcuts what it is. A custom entity does not need one: it reaches Siri through its property descriptions and Spotlight. Conforming to `AssistantEntity` also counts.
 
+### Entities across files
+
+Two notes need the whole project, because an entity's conformances, its query and the intents that use it are rarely in one file. The auditor reads every file for facts and answers from the merge. It follows names, not types, so an entity reached through a generic or a typealias it cannot see is reported; that is why both are notes.
+
+`appintent-entity-not-findable` flags an `AppEntity` that is neither an `IndexedEntity` nor served by an `EnumerableEntityQuery`. Conformance counts however it is declared: on the type, in an extension, or through a protocol the project declares. A query serves an entity by its `typealias Entity`, by the result of `allEntities()`, or by being the entity's `defaultQuery`. An entity left out of Spotlight can be the right decision, for example a vault of private documents, which is why this is a note and does not fail `--strict`.
+
+`appintent-entity-not-transferable` flags an entity that a tool intent takes as a `@Parameter` or returns from `perform()`, with no `Transferable` conformance. Optional, array and `ReturnsValue<...>` wrappers are looked through. One finding names every tool intent that uses the entity.
+
+Neither has a decline marker yet; one is added when either is promoted to a warning.
+
 ### Enum completeness
 
 #### `appintent-enum-no-display`
@@ -307,13 +317,12 @@ Each diagnostic includes the rule ID, the file and line number, and a human-read
 Apple Intelligence (iOS 18 and macOS 15) introduced the `AssistantIntent` and `AssistantEntity` protocols, which the `@AppIntent(schema:)` and `@AppEntity(schema:)` macros conform a type to. The Siri AI Developer Preview adds the tool trait for custom actions that no schema describes. These are protocols and macros; there is no `@AssistantIntent` attribute, and an earlier version of this auditor looked for one.
 
 `appintent-no-assistant-schema` is the one rule here that warns, and it asks only that a custom action have some route to Siri. The entity and enum rules are notes. 
-## Future: cross-file analysis (Pass 2)
+## Future: index-store analysis
 
-The `useIndexStore` configuration flag is reserved for a future cross-file analysis pass using IndexStoreInfra. When implemented, Pass 2 will:
+The `useIndexStore` configuration flag is reserved for a type-aware pass using IndexStoreInfra. The cross-file rules above are syntactic and do not use it. A type-aware pass would:
 
-- Resolve `AppIntent` conformance through protocol composition and typealiases across files
-- Detect entities referenced by intents but missing required display representations
+- Resolve `AppIntent` conformance through typealiases and generics the name-based pass cannot see
 - Verify that `AppShortcutsProvider` actually references declared intents
 - Track `@Parameter` types across module boundaries
 
-Pass 2 will follow the same graceful degradation pattern used by UnreachableCodeAuditor: if the index is unavailable, it emits a `.note` and falls back to Pass 1 results only.
+It will follow the same graceful degradation pattern used by UnreachableCodeAuditor: if the index is unavailable, it emits a `.note` and falls back to the syntactic results only.

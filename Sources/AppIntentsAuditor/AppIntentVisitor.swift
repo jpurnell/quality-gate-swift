@@ -272,15 +272,7 @@ private final class Visitor: SyntaxVisitor {
 
     /// `@AppIntent(.tool)` or `@AppIntent(.tool, schema:)`: the unlabeled `.tool` argument.
     private func hasToolTrait(_ attributes: AttributeListSyntax) -> Bool {
-        for attr in attributes {
-            guard let attribute = attr.as(AttributeSyntax.self),
-                  attribute.attributeName.as(IdentifierTypeSyntax.self)?.name.text == "AppIntent",
-                  let args = attribute.arguments?.as(LabeledExprListSyntax.self) else { continue }
-            if args.contains(where: {
-                $0.label == nil && $0.expression.as(MemberAccessExprSyntax.self)?.declName.baseName.text == "tool"
-            }) { return true }
-        }
-        return false
+        AppIntentSyntax.hasToolTrait(attributes)
     }
 
     /// `schema: .journal.createEntry` names the domain `journal`.
@@ -648,14 +640,7 @@ private final class Visitor: SyntaxVisitor {
     // MARK: - Helpers
 
     private func inheritedTypeNames(_ clause: InheritanceClauseSyntax?) -> Set<String> {
-        guard let clause else { return [] }
-        var names: Set<String> = []
-        for inherited in clause.inheritedTypes {
-            if let id = inherited.type.as(IdentifierTypeSyntax.self) {
-                names.insert(id.name.text)
-            }
-        }
-        return names
+        AppIntentSyntax.inheritedTypeNames(clause)
     }
 
     private func attributeNames(_ attributes: AttributeListSyntax) -> Set<String> {

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Two cross-file `appintents-readiness` notes.** `appintent-entity-not-findable` flags an `AppEntity` that is neither an `IndexedEntity` nor served by an `EnumerableEntityQuery`; `appintent-entity-not-transferable` flags an entity a tool intent takes or returns with no `Transferable` conformance. Both read every file and merge conformances (declared, extension, or inherited through a project protocol), so an entity declared in one file and conformed in another is not reported. Notes, so they do not change `--strict` verdicts; neither has a decline marker yet, since leaving content out of Spotlight is a legitimate choice. Proposal: `OneReadinessManyCarriers.md` §4.2.
+
 ## [3.9.0] - 2026-11-08
 
 ### Added
