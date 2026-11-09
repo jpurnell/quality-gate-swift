@@ -327,7 +327,7 @@ swift package plugin quality-gate
 <!-- generated:checker-table-specialty -->
 | `mcp-readiness` | MCPReadinessAuditor | MCP tool schema vs. implementation cross-reference |
 | `control-mapping` | ControlMapping | Integrity of the SOC 2 / ISO 27001 / HIPAA / CWE rule mapping — phantom-rule / phantom-control / superseded-catalog errors, catalog-staleness warning |
-| `appintents-readiness` | AppIntentsAuditor | Siri AI Developer Preview readiness: intent and entity completeness, `.tool` and schema-domain rules, entity property descriptions, sensitive-name authentication, unused parameters; `// appintents:exempt <surface> — <reason>` declines a surface |
+| `appintents-readiness` | AppIntentsAuditor | Siri AI Developer Preview readiness: intents, entities, tool trait, schema domains, parameters |
 | `consistency` | ConsistencyChecker | Institutional consistency scoring via IJS pulse and telemetry |
 | `xcode-build` | XcodeBuildChecker | Xcode build of a project, workspace or Swift package, and IndexStore generation (opt-in) |
 <!-- /generated:checker-table-specialty -->
