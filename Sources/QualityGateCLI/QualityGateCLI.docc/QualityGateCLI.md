@@ -146,6 +146,14 @@ logging:
   silentTryKeyword: "silent:"
   allowedSilentTryFunctions: ["Task.sleep", "JSONEncoder", "JSONDecoder"]
   customLoggerNames: []
+  # MetricKit rules (application projects only).
+  distribution: []                    # any of testFlight, appStore, developerID; empty = rules not evaluated
+  metricKitSeverity: note             # note (default, advisory) | warning | error
+  # Both lists are empty by default: which platforms lack MetricKit, or lack diagnostic
+  # payloads, has not been verified.
+  metricKitUnsupportedPlatforms: []   # e.g. ["tvOS"]: app targets for these are exempt
+  metricKitNoDiagnosticPlatforms: []  # MXDiagnosticPayload handler not required there
+  # requireMetricKitSubscriber is always true; there is no key to turn it off.
 ```
 
 ## Checker Resolution Order

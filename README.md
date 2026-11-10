@@ -283,7 +283,7 @@ swift package plugin quality-gate
 |----|--------|-------------|
 <!-- generated:checker-table-code-hygiene -->
 | `accessibility` | AccessibilityAuditor | SwiftUI accessibility: missing labels, fixed font sizes, color-only differentiation |
-| `logging` | LoggingAuditor | `print()` in production code, silent `catch` blocks, missing os.Logger usage |
+| `logging` | LoggingAuditor | `print()` in production code, silent `catch` blocks, missing os.Logger usage, an app that never subscribes to MetricKit |
 | `test-quality` | TestQualityAuditor | Floating-point assertions, missing or vacuous test assertions, silent skips, ambient time, unseeded randomness in tests |
 | `context` | ContextAuditor | Missing consent guards, unguarded analytics, surveillance patterns |
 | `design-token-drift` | DesignTokenDriftAuditor | Colours, fonts, corner radii and grid widths written outside the design tokens; app palettes are declared and validated, never skipped (opt-in) |

@@ -571,6 +571,16 @@ extension MemoryBuilderConfig: Codable {
     }
 }
 
+/// Severity of the MetricKit rules: `note` (advisory, the default), `warning` or `error`.
+public enum MetricKitSeverity: String, Sendable, Codable, Equatable, CaseIterable {
+    /// Reported as a note; does not break the zero-warnings rule.
+    case note
+    /// Reported as a warning.
+    case warning
+    /// Reported as an error.
+    case error
+}
+
 /// Per-checker configuration for LoggingAuditor.
 ///
 /// Controls whether logging hygiene checks run (apps only, not libraries)
@@ -621,6 +631,51 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
     /// sentence a reviewer can disagree with.
     public var errorValueTypes: [String]
 
+    /// Platforms on which MetricKit is not available, so an app target for them is exempt from
+    /// `logging.no-metrickit-subscriber` and `logging.metrickit-payload-ignored`.
+    ///
+    /// **Empty by default, on purpose.** Which platforms lack MetricKit has not been verified,
+    /// and a default list would be a claim this repository cannot back. Names are matched
+    /// case-insensitively against `iOS`, `macOS`, `watchOS`, `tvOS` and `visionOS`:
+    ///
+    /// ```yaml
+    /// logging:
+    ///   metricKitUnsupportedPlatforms: ["tvOS"]
+    /// ```
+    public var metricKitUnsupportedPlatforms: [String]
+
+    /// Platforms that run MetricKit but do not deliver `MXDiagnosticPayload`, so the
+    /// `didReceive(_: [MXDiagnosticPayload])` method is not required of a subscriber there.
+    /// Empty by default for the same reason as ``metricKitUnsupportedPlatforms``.
+    public var metricKitNoDiagnosticPlatforms: [String]
+
+    /// The distribution channels a project may declare.
+    public static let distributionChannels = ["testFlight", "appStore", "developerID"]
+
+    /// How the project is distributed to people other than its author, which is what scopes the
+    /// MetricKit rules: a project that declares none is not evaluated.
+    ///
+    /// This is a declared fact about the project (somebody else receives its payloads), not an
+    /// exclusion. Accepts `testFlight`, `appStore` and `developerID`; any other value is a
+    /// configuration error.
+    ///
+    /// ```yaml
+    /// logging:
+    ///   distribution: [testFlight, appStore]
+    /// ```
+    public var distribution: [String]
+
+    /// Severity of `logging.no-metrickit-subscriber` and `logging.metrickit-payload-ignored`.
+    /// `note` by default (advisory); promoting the rules is a change of this default.
+    public var metricKitSeverity: MetricKitSeverity
+
+    /// Whether application projects must subscribe to MetricKit. Always `true`.
+    ///
+    /// Read from `.quality-gate.yml` for symmetry with the other keys, but **not
+    /// configurable**: the rule is on for every application project, and the way to satisfy it
+    /// is to subscribe. A `false` in the file is ignored.
+    public var requireMetricKitSubscriber: Bool { true }
+
     /// Creates a logging auditor configuration with the given options.
     public init(
         projectType: String = "application",
@@ -633,8 +688,16 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
             ".close()",
         ],
         customLoggerNames: [String] = [],
-        errorValueTypes: [String] = []
+        errorValueTypes: [String] = [],
+        metricKitUnsupportedPlatforms: [String] = [],
+        metricKitNoDiagnosticPlatforms: [String] = [],
+        distribution: [String] = [],
+        metricKitSeverity: MetricKitSeverity = .note
     ) {
+        self.distribution = distribution
+        self.metricKitSeverity = metricKitSeverity
+        self.metricKitUnsupportedPlatforms = metricKitUnsupportedPlatforms
+        self.metricKitNoDiagnosticPlatforms = metricKitNoDiagnosticPlatforms
         self.projectType = projectType
         self.silentTryKeyword = silentTryKeyword
         self.allowedSilentTryFunctions = allowedSilentTryFunctions
@@ -649,7 +712,22 @@ public struct LoggingAuditorConfig: Sendable, Equatable {
 extension LoggingAuditorConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case projectType, silentTryKeyword, allowedSilentTryFunctions, customLoggerNames
-        case errorValueTypes
+        case errorValueTypes, metricKitUnsupportedPlatforms, metricKitNoDiagnosticPlatforms
+        case distribution, metricKitSeverity
+    }
+
+    /// Writes every key except `requireMetricKitSubscriber`, which is not configurable.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(projectType, forKey: .projectType)
+        try container.encode(silentTryKeyword, forKey: .silentTryKeyword)
+        try container.encode(allowedSilentTryFunctions, forKey: .allowedSilentTryFunctions)
+        try container.encode(customLoggerNames, forKey: .customLoggerNames)
+        try container.encode(errorValueTypes, forKey: .errorValueTypes)
+        try container.encode(metricKitUnsupportedPlatforms, forKey: .metricKitUnsupportedPlatforms)
+        try container.encode(metricKitNoDiagnosticPlatforms, forKey: .metricKitNoDiagnosticPlatforms)
+        try container.encode(distribution, forKey: .distribution)
+        try container.encode(metricKitSeverity, forKey: .metricKitSeverity)
     }
 
     /// Creates a logging auditor configuration by decoding from the given decoder.
@@ -661,6 +739,17 @@ extension LoggingAuditorConfig: Codable {
         allowedSilentTryFunctions = try container.decodeIfPresent([String].self, forKey: .allowedSilentTryFunctions) ?? defaults.allowedSilentTryFunctions
         customLoggerNames = try container.decodeIfPresent([String].self, forKey: .customLoggerNames) ?? defaults.customLoggerNames
         errorValueTypes = try container.decodeIfPresent([String].self, forKey: .errorValueTypes) ?? defaults.errorValueTypes
+        metricKitUnsupportedPlatforms = try container.decodeIfPresent([String].self, forKey: .metricKitUnsupportedPlatforms) ?? defaults.metricKitUnsupportedPlatforms
+        metricKitNoDiagnosticPlatforms = try container.decodeIfPresent([String].self, forKey: .metricKitNoDiagnosticPlatforms) ?? defaults.metricKitNoDiagnosticPlatforms
+        let declared = try container.decodeIfPresent([String].self, forKey: .distribution) ?? defaults.distribution
+        if let unknown = declared.first(where: { !LoggingAuditorConfig.distributionChannels.contains($0) }) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .distribution, in: container,
+                debugDescription: "logging.distribution: unknown value '\(unknown)'; expected any of \(LoggingAuditorConfig.distributionChannels.joined(separator: ", "))"
+            )
+        }
+        distribution = declared
+        metricKitSeverity = try container.decodeIfPresent(MetricKitSeverity.self, forKey: .metricKitSeverity) ?? defaults.metricKitSeverity
     }
 }
 
