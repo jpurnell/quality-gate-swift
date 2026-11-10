@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+
+- **`design-token-drift`, a new opt-in checker for values the design tokens own.** Flags, in Swift (SwiftSyntax): `design-token.hex-colour` (`"#RRGGBB"`, `Color(hex:)`, `0xRRGGBB` as a colour, `RGB(rgb:)`), `design-token.rgb-initialiser` (`Color`/`UIColor`/`NSColor`/`CGColor` component, white and HSB initialisers with a literal component; computed colour maths passes), `design-token.font` (`.system(size:)`, `.custom`, `systemFont(ofSize:)`, `NSFont(name:size:)`) and `design-token.corner-radius`; and, in CSS and HTML under `designTokens.cssPaths`, `design-token.css-colour`, `css-font-size`, `css-column` and the warning `css-token-copy` for a literal that equals a token. Findings carry `path:line` and the nearest colour role, type role or radius token. Off until `designTokens.enabled: true`.
+- **No suppressions; exemptions are declared and checked.** `designTokens.exemptPackagePaths`, `exemptPaletteFiles` and `exemptTestPaths` are the only ways out, all reported as active exclusions. A declared palette must carry DesignTokens 0.8.0's `AppPaletteSource` marker (read syntactically; no dependency on the package) with exactly one `AppPalette(id: "<literal>")`; the exemption covers colour literals only. `palette-missing`, `palette-no-marker`, `palette-multiple-markers`, `palette-bad-id`, `palette-duplicate-id` are errors, `palette-untested` a warning, `palette-undeclared` a note. A misspelt `designTokens` key is an error, not a silent opt-out. Proposal: `DesignTokenDriftIsAFinding.md`.
+- README checker count reconciled to the generated figure (the introduction said 49).
+
 ## [3.10.0] - 2026-11-09
 
 ### Added

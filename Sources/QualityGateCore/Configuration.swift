@@ -2143,6 +2143,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// `privacy-manifest` checker knobs — app-target override, key strictness.
     public var privacyManifest: PrivacyManifestConfig
 
+    /// `design-token-drift` checker knobs — opt-in switch, the declared exemptions, CSS scope and token files.
+    public var designTokens: DesignTokensConfig
+
     /// `doc-code` checker knobs — extra articles, imports, module search path.
     public var docCode: DocCodeConfig
 
@@ -2227,6 +2230,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         duplication: DuplicationConfig = DuplicationConfig(),
         keychainSecrets: KeychainSecretsConfig = KeychainSecretsConfig(),
         privacyManifest: PrivacyManifestConfig = PrivacyManifestConfig(),
+        designTokens: DesignTokensConfig = DesignTokensConfig(),
         docCode: DocCodeConfig = DocCodeConfig(),
         docGenerated: DocGeneratedConfig = DocGeneratedConfig(),
         minimumGateVersion: String? = nil,
@@ -2286,6 +2290,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.duplication = duplication
         self.keychainSecrets = keychainSecrets
         self.privacyManifest = privacyManifest
+        self.designTokens = designTokens
         self.docCode = docCode
         self.docGenerated = docGenerated
     }
@@ -2460,6 +2465,7 @@ extension Configuration {
         case duplication
         case keychainSecrets = "keychain-secrets"
         case privacyManifest = "privacy-manifest"
+        case designTokens
         case docCode = "doc-code"
         case docGenerated = "doc-generated"
         case minimumGateVersion
@@ -2559,6 +2565,7 @@ extension Configuration {
         duplication = try container.decodeIfPresent(DuplicationConfig.self, forKey: .duplication) ?? DuplicationConfig()
         keychainSecrets = try container.decodeIfPresent(KeychainSecretsConfig.self, forKey: .keychainSecrets) ?? KeychainSecretsConfig()
         privacyManifest = try container.decodeIfPresent(PrivacyManifestConfig.self, forKey: .privacyManifest) ?? PrivacyManifestConfig()
+        designTokens = try container.decodeIfPresent(DesignTokensConfig.self, forKey: .designTokens) ?? DesignTokensConfig()
         docCode = try container.decodeIfPresent(DocCodeConfig.self, forKey: .docCode) ?? DocCodeConfig()
         docGenerated = try container.decodeIfPresent(DocGeneratedConfig.self, forKey: .docGenerated) ?? DocGeneratedConfig()
         minimumGateVersion = try container.decodeIfPresent(String.self, forKey: .minimumGateVersion)

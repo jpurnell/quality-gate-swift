@@ -210,8 +210,10 @@ struct ManifestParsingAgreementTests {
         // `swift package describe` after merging, not carried over from either side.
         // 126 from 2026-11-09: AppSkillsAuditor and its test target (`swift package describe`
         // reported 126).
-        #expect(map.targetCount == 126,
-                "describe reported 126 targets on 2026-11-09; parser found \(map.targetCount)")
+        // 128 from 2026-11-10: DesignTokenDriftAuditor and its test target (`swift package describe`
+        // reported 128).
+        #expect(map.targetCount == 128,
+                "describe reported 128 targets on 2026-11-10; parser found \(map.targetCount)")
     }
 
     /// The decoy case, on the real manifest: `.plugin(` appears twice, once as a product.

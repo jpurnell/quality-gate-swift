@@ -2,7 +2,7 @@
 
 **Static analysis for Swift 6, built on SwiftSyntax and the index store — plus three checkers that ask whether your documentation still compiles, still runs, and still tells the truth.**
 
-49 checkers for correctness, safety, concurrency and security. AST-based rather than regex, so rules understand scope, type context and control flow. Terminal, JSON, SARIF and Xcode output. It runs its own checkers on every commit and every push.
+51 checkers for correctness, safety, concurrency and security. AST-based rather than regex, so rules understand scope, type context and control flow. Terminal, JSON, SARIF and Xcode output. It runs its own checkers on every commit and every push.
 
 > **Looking for testers.** If you try this and it misfires on your code, that is the most useful thing you can send — open an issue with the snippet. False positives are tracked and published per checker; see [Checkers report their own precision](#3-checkers-report-their-own-precision).
 
@@ -216,8 +216,8 @@ Per-checker sample counts and false-positive rates, with every override classifi
 - **Modular** — every checker an independent SPM module with its own test target and DocC catalogue, so you can depend on one without the rest
 
 <!-- generated:scale -->
-- **126 targets** — 63 source, 63 test
-- **50 registered checkers**
+- **128 targets** — 64 source, 64 test
+- **51 registered checkers**
 <!-- /generated:scale -->
 
 - **Structured output** — terminal, JSON, SARIF 2.1.0, and Xcode Build Phase format
@@ -286,6 +286,7 @@ swift package plugin quality-gate
 | `logging` | LoggingAuditor | `print()` in production code, silent `catch` blocks, missing os.Logger usage |
 | `test-quality` | TestQualityAuditor | Floating-point assertions, missing or vacuous test assertions, silent skips, ambient time, unseeded randomness in tests |
 | `context` | ContextAuditor | Missing consent guards, unguarded analytics, surveillance patterns |
+| `design-token-drift` | DesignTokenDriftAuditor | Colours, fonts, corner radii and grid widths written outside the design tokens; app palettes are declared and validated, never skipped (opt-in) |
 | `idiom` | IdiomAuditor | Non-idiomatic Swift the language has a shorter form for; `// idiom:exempt` is recorded, never silent (advisory) |
 | `smells` | SmellPack | Structural smells in declarations: long parameter lists, feature envy, primitive obsession; `// smell:exempt` is recorded (advisory) |
 | `duplication` | DuplicationAuditor | Token-level clone detection across files and modules (advisory) |

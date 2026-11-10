@@ -173,6 +173,10 @@ let package = Package(
             targets: ["AppSkillsAuditor"]
         ),
         .library(
+            name: "DesignTokenDriftAuditor",
+            targets: ["DesignTokenDriftAuditor"]
+        ),
+        .library(
             name: "XcodeBuildChecker",
             targets: ["XcodeBuildChecker"]
         ),
@@ -998,6 +1002,22 @@ let package = Package(
             dependencies: ["AppSkillsAuditor", "QualityGateCore"]
         ),
 
+        // MARK: - DesignTokenDriftAuditor
+        .target(
+            name: "DesignTokenDriftAuditor",
+            dependencies: [
+                "QualityGateCore",
+                .product(name: "QualityGateLogging", package: "quality-gate-types"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+            ],
+            resources: [.copy("DesignTokenDriftAuditor.docc")]
+        ),
+        .testTarget(
+            name: "DesignTokenDriftAuditorTests",
+            dependencies: ["DesignTokenDriftAuditor", "QualityGateCore"]
+        ),
+
         // MARK: - IJS Modules
 
 
@@ -1299,6 +1319,7 @@ let package = Package(
                 "XcodeBuildChecker",
                 "AppIntentsAuditor",
                 "AppSkillsAuditor",
+                "DesignTokenDriftAuditor",
                 "ConsistencyChecker",
                 .product(name: "CorpusKit", package: "quality-gate-corpus-kit"),
                 .product(name: "IJSAggregator", package: "quality-gate-corpus-kit"),

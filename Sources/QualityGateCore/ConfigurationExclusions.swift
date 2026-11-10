@@ -49,6 +49,7 @@ public enum ConfigurationExclusions {
         "legibility.exemptModules", "legibility.exemptSymbols",
         "idiom.allowedShortIdentifiers",
         "keychainSecrets.allowKeys",
+        "designTokens.exemptPackagePaths", "designTokens.exemptPaletteFiles", "designTokens.exemptTestPaths",
     ]
 
     /// Exclusion-shaped properties deliberately not reported, each with the reason.
@@ -61,6 +62,7 @@ public enum ConfigurationExclusions {
         "complexity.callGraphEnabled": "an analysis depth switch on an advisory checker",
         "duplication.excludeTests": "on by default; the duplication checker's coverage note states its scope",
         "xcodeBuild.skipPluginValidation": "passed through to xcodebuild; it hides no gate finding",
+        "designTokens.enabled": "opt-in checker, off by default; selection reports whether it ran",
         "docCode.exemptionCeiling": "a ceiling on doc-code exemptions; it limits them rather than granting any",
     ]
 
@@ -246,6 +248,22 @@ public enum ConfigurationExclusions {
                 meaning: "these keys are not reported by keychain-secrets",
                 configured: configuration.keychainSecrets.allowKeys,
                 builtIn: defaults.keychainSecrets.allowKeys),
+            ListKey(
+                property: "designTokens.exemptPackagePaths", form: "designTokens.exemptPackagePaths",
+                meaning: "design-token-drift does not read these paths: they are the tokens package",
+                configured: configuration.designTokens.exemptPackagePaths,
+                builtIn: defaults.designTokens.exemptPackagePaths),
+            ListKey(
+                property: "designTokens.exemptPaletteFiles", form: "designTokens.exemptPaletteFiles",
+                meaning: "design-token-drift does not report colours written in these declared palette files "
+                    + "(each is checked to exist and to define a colour)",
+                configured: configuration.designTokens.exemptPaletteFiles,
+                builtIn: defaults.designTokens.exemptPaletteFiles),
+            ListKey(
+                property: "designTokens.exemptTestPaths", form: "designTokens.exemptTestPaths",
+                meaning: "design-token-drift does not read these test paths",
+                configured: configuration.designTokens.exemptTestPaths,
+                builtIn: defaults.designTokens.exemptTestPaths),
         ]
         for key in lists {
             let builtIn = Set(key.builtIn)
@@ -297,6 +315,7 @@ public enum ConfigurationExclusions {
         "memoryLifecycle.exemptFiles", "memoryLifecycle.loopGrowthExemptPatterns",
         "mcpReadiness.excludePaths", "appIntentsReadiness.excludePaths", "legibility.exemptModules",
         "legibility.exemptSymbols", "idiom.allowedShortIdentifiers", "keychain-secrets.allowKeys",
+        "designTokens.exemptPackagePaths", "designTokens.exemptPaletteFiles", "designTokens.exemptTestPaths",
     ]
 
     private static func ordered(_ exclusions: [ActiveExclusion]) -> [ActiveExclusion] {
