@@ -4,7 +4,14 @@
 #   2. Build + install the quality-gate binary (scripts/deploy-local.sh, sudo).
 #   3. Verify what's installed with `quality-gate doctor`.
 #
-# Usage: ./scripts/deploy-all.sh [--push-only|--install-only]
+# With --release <tag> it also cuts and distributes the release, in this order: push, then
+# `release.sh <tag>` (build, sign, publish to GitHub Releases), then `update-formula.sh <tag> --publish`
+# (point the Homebrew formula and the tap at those artifacts), then the local install. Homebrew
+# installs tagged release artifacts, so a plain deploy, which installs an untagged working-tree
+# build, cannot update it; the tag is what makes it possible. The CHANGELOG section and the version
+# literal for <tag> must already be committed (release.sh refuses otherwise).
+#
+# Usage: ./scripts/deploy-all.sh [--push-only|--install-only|--release <tag>]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -12,6 +19,7 @@ QG_DIR="$(dirname "$SCRIPT_DIR")"
 TOOLS_DIR="$(dirname "$QG_DIR")"
 
 MODE="${1:-all}"
+TAG="${2:-}"
 
 # Repos to push. The branch is not hardcoded: each repo pushes whatever branch it
 # is currently on, measured against that branch's own upstream. Pinning these to
@@ -76,9 +84,19 @@ install_binary() {
     fi
 }
 
+release_and_tap() {
+    echo "── releasing $TAG (build, sign, publish)..."
+    (cd "$QG_DIR" && "$SCRIPT_DIR/release.sh" "$TAG")
+    echo "── updating the Homebrew formula and tap for $TAG..."
+    "$SCRIPT_DIR/update-formula.sh" "$TAG" --publish
+}
+
 case "$MODE" in
+    --release)
+        case "$TAG" in v*) ;; *) echo "usage: $0 --release <tag>   (tag carries a v, e.g. v3.11.0)"; exit 2 ;; esac
+        push_repos; release_and_tap; install_binary ;;
     --push-only)    push_repos ;;
     --install-only) install_binary ;;
     all)            push_repos; install_binary ;;
-    *)              echo "usage: $0 [--push-only|--install-only]"; exit 2 ;;
+    *)              echo "usage: $0 [--push-only|--install-only|--release <tag>]"; exit 2 ;;
 esac
