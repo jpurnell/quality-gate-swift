@@ -1,11 +1,15 @@
 ## [Unreleased]
 
+## [3.11.0] - 2026-11-10
+
 ### Added
 
 - **`design-token-drift`, a new opt-in checker for values the design tokens own.** Flags, in Swift (SwiftSyntax): `design-token.hex-colour` (`"#RRGGBB"`, `Color(hex:)`, `0xRRGGBB` as a colour, `RGB(rgb:)`), `design-token.rgb-initialiser` (`Color`/`UIColor`/`NSColor`/`CGColor` component, white and HSB initialisers with a literal component; computed colour maths passes), `design-token.font` (`.system(size:)`, `.custom`, `systemFont(ofSize:)`, `NSFont(name:size:)`) and `design-token.corner-radius`; and, in CSS and HTML under `designTokens.cssPaths`, `design-token.css-colour`, `css-font-size`, `css-column` and the warning `css-token-copy` for a literal that equals a token. Findings carry `path:line` and the nearest colour role, type role or radius token. Off until `designTokens.enabled: true`.
 - **No suppressions; exemptions are declared and checked.** `designTokens.exemptPackagePaths`, `exemptPaletteFiles` and `exemptTestPaths` are the only ways out, all reported as active exclusions. A declared palette must carry DesignTokens 0.8.0's `AppPaletteSource` marker (read syntactically; no dependency on the package) with exactly one `AppPalette(id: "<literal>")`; the exemption covers colour literals only. `palette-missing`, `palette-no-marker`, `palette-multiple-markers`, `palette-bad-id`, `palette-duplicate-id` are errors, `palette-untested` a warning, `palette-undeclared` a note. A misspelt `designTokens` key is an error, not a silent opt-out. Proposal: `DesignTokenDriftIsAFinding.md`.
 - README checker count reconciled to the generated figure (the introduction said 49).
 - **Two `logging` rules that an app reads its own crash and exit reports, advisory and opt-in.** `logging.no-metrickit-subscriber` flags an app target that has no `MXMetricManagerSubscriber` registered with `MXMetricManager.shared.add(_:)` from app start; `logging.metrickit-payload-ignored` flags a subscriber that lacks a `didReceive` handler for metric or diagnostic payloads, or whose handler only logs. Judged per app target (entry point: `@main` `App`, or a UIKit/AppKit/WatchKit application delegate); for an Xcode project the targets, their sources and their platforms are read from the `.xcodeproj`. **Nothing changes for an existing project:** the rules run only for a project whose `.quality-gate.yml` declares `logging.distribution` (any of `testFlight`, `appStore`, `developerID`; anything else is a config error), a declared fact about who receives the project's payloads and not an exclusion; and findings are **notes** by default (`logging.metricKitSeverity: note | warning | error`), so they do not break the zero-warnings rule. Promoting them to errors is a change of that default and a line here. No `// logging:` comment silences either rule; `library`/`cli` projects and `metricKitUnsupportedPlatforms` remain structural exemptions. New keys: `distribution`, `metricKitSeverity`, `metricKitUnsupportedPlatforms` and `metricKitNoDiagnosticPlatforms` (the last two empty by default; MetricKit's platform availability has not been verified here). Proposal: `LoggingMetricKit.md`; this replaces its one-release advisory period.
+- **`scripts/update-formula.sh <tag> [--publish]` points Homebrew at a published release.** Downloads both release tarballs and computes their SHA-256 itself (not from the release notes), rewrites `packaging/homebrew/quality-gate.rb` (version, two URLs, two checksums, each substitution counted so a non-match cannot pass silently), syntax-checks it, copies it to the tap and shows the diff. `--publish` commits and pushes the tap and confirms the remote has the commit; without it nothing leaves the machine. Run against v3.10.0 it reproduced the formula's existing checksums, so it is idempotent.
+- **`scripts/deploy-all.sh --release <tag>`** runs push, `release.sh`, `update-formula.sh --publish`, then the local install. `release.sh` now prints the formula step. `deploy-local.sh` and `deploy-remote.sh` are unchanged on purpose: they install an untagged working-tree build, and Homebrew installs tagged release artifacts, so only a release can update it.
 
 ## [3.10.0] - 2026-11-09
 
@@ -4737,7 +4741,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.10.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.0...HEAD
+[3.11.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.10.0...v3.11.0
 [3.10.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.9.0...v3.10.0
 [3.9.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.8.0...v3.9.0
 [3.8.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.7.0...v3.8.0

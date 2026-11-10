@@ -132,3 +132,5 @@ ${CHECKSUMS}
     "$DIST"/quality-gate-macos-x86_64.tar.gz
 
 echo "✓ Release ${TAG} published. Pin it in workflows as: version: \"${TAG}\""
+echo "  Homebrew still points at the previous release: scripts/update-formula.sh ${TAG} --publish"
+echo "  (or run the whole sequence with scripts/deploy-all.sh --release ${TAG})"
