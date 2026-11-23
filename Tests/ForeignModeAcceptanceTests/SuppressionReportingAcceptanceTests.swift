@@ -290,10 +290,14 @@ struct SuppressionReportingAcceptanceTests {
         let run = try runGate(["--no-cache", "--no-index-build", "--check", "recursion"], in: fixture)
 
         #expect(run.output.contains("⚠️  configuration: `.quality-gate.yml` sets 1 key this version does not recognise."))
-        #expect(run.output.contains("  · `exclude` — did you mean `excludePatterns`?"))
+        // `exclude` is the documented 2026-08-25 rename (11 of 73 repositories carried it), not a guess by edit
+        // distance or containment — `excludePatterns` would be the wrong suggestion despite being one character
+        // shorter; see `UnknownConfigurationKeys.documentedRenames`.
+        #expect(run.output.contains("  · `exclude` — did you mean `excludedCheckers`?"))
         #expect(run.output.contains("Quality Gate Results"))
-        // The unrecognised key excluded nothing, so both recursions are found.
-        #expect(run.output.contains("0 error(s), 2 warning(s)"))
+        // The unrecognised key excluded nothing, so both recursions are found; the unknown-key finding itself is
+        // now one of the counted warnings (it used to be printed advisory-only, outside the tally), hence 3, not 2.
+        #expect(run.output.contains("0 error(s), 3 warning(s)"))
         #expect(run.exitCode == 0)
     }
 }

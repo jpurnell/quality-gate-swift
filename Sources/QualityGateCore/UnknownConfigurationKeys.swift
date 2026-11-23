@@ -79,19 +79,39 @@ public struct UnknownConfigurationKeys: Error, Equatable, Sendable {
     /// than a wrong one**, because a wrong suggestion sends the reader to edit a key
     /// that was never the problem.
     ///
+    /// A documented, exact rename, checked before any string-similarity heuristic.
+    ///
+    /// `exclude` is a real incident, not a hypothetical: it is a prefix of two real top-level keys,
+    /// `excludedCheckers` (what it was renamed to) and `excludePatterns` (an unrelated key that holds file globs).
+    /// Both contain `exclude` as a substring, so a containment match sees two equally strong candidates and
+    /// `excludePatterns` is one character shorter — the wrong one, and the exact trap this schema's own
+    /// `.quality-gate.yml` convention comment warns about ("that key holds file globs, so taking the suggestion
+    /// turns a checker name into a pattern that matches nothing and excludes nothing"). Edit distance does not
+    /// resolve it either: `excludePatterns` is one edit closer to `exclude` than `excludedCheckers` is. Only the
+    /// rename's own history disambiguates it, so it is named here rather than left to a heuristic to guess.
+    static let documentedRenames: [String: String] = [
+        "exclude": "excludedCheckers",
+        "checkers": "enabledCheckers",
+    ]
+
     /// - Parameters:
     ///   - written: The key found in the file.
     ///   - known: Keys the schema defines.
     /// - Returns: The nearest key, or `nil` when nothing is close.
     public static func nearestKey(to written: String, in known: Set<String>) -> String? {
         let lowered = written.lowercased()
-        // A containment match first: `checkers` inside `enabledCheckers` is a stronger
+        if let renamed = documentedRenames[lowered], known.contains(renamed) { return renamed }
+
+        // A containment match next: `checkers` inside `enabledCheckers` is a stronger
         // signal than any edit distance, and edit distance alone would not find it —
-        // the two differ by seven characters.
+        // the two differ by seven characters. Ties (more than one candidate contains, or is
+        // contained by, `written`) are refused rather than guessed at by length: see
+        // `documentedRenames` above for why a shorter match is not always the right one.
         let contained = known
             .filter { $0.lowercased().contains(lowered) || lowered.contains($0.lowercased()) }
             .sorted { $0.count < $1.count }
-        if let best = contained.first { return best }
+        if contained.count == 1 { return contained[0] }
+        if contained.count > 1 { return nil }
 
         let scored = known
             .map { (key: $0, distance: editDistance(lowered, $0.lowercased())) }
@@ -123,15 +143,36 @@ public struct UnknownConfigurationKeys: Error, Equatable, Sendable {
     /// - Parameters:
     ///   - present: Keys the file contains.
     ///   - known: Keys the schema defines.
+    ///   - section: The section these keys belong to (`"status"`, `"consistency"`, `"ijs"`), so a key from a
+    ///     nested section reads unambiguously once several sections' findings are merged (``merge(_:)``).
+    ///     `nil` for the top level.
     /// - Returns: The error, or `nil` when every key is known.
-    public static func check(present: Set<String>, known: Set<String>) -> UnknownConfigurationKeys? {
+    public static func check(present: Set<String>, known: Set<String>, section: String? = nil) -> UnknownConfigurationKeys? {
         let unknown = present.subtracting(known).sorted()
         guard !unknown.isEmpty else { return nil }
+        func qualified(_ key: String) -> String {
+            guard let section else { return key }
+            return "\(section).\(key)"
+        }
         return UnknownConfigurationKeys(
-            keys: unknown,
+            keys: unknown.map(qualified),
             suggestions: unknown.compactMap { key in
-                nearestKey(to: key, in: known).map { (written: key, suggested: $0) }
+                nearestKey(to: key, in: known).map { (written: qualified(key), suggested: qualified($0)) }
             })
+    }
+
+    /// Combines every section's findings into one. `Configuration` has one `unknownKeys` property; this is how a
+    /// top-level finding and three nested sections' findings (``StatusAuditorConfig``, ``ConsistencyCheckerConfig``,
+    /// ``IJSConfig``) become the single value it reports.
+    ///
+    /// - Parameter all: one entry per section checked, in the order its keys should be listed.
+    /// - Returns: the merged error, or `nil` when every section found nothing.
+    public static func merge(_ all: [UnknownConfigurationKeys?]) -> UnknownConfigurationKeys? {
+        let present = all.compactMap { $0 }
+        guard !present.isEmpty else { return nil }
+        return UnknownConfigurationKeys(
+            keys: present.flatMap(\.keys),
+            suggestions: present.flatMap(\.suggestions))
     }
 }
 

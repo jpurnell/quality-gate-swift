@@ -348,12 +348,15 @@ struct QualityGateCLI: AsyncParsableCommand {
         // `checkers:` for `enabledCheckers` and ran 35 of 42 for as long as the file
         // existed, with `recursion` among those never run.
         //
-        // Advisory for one release: this is a breaking change for any repository carrying a
-        // stale key, and it should break with a fix in hand rather than a wall.
+        // Advisory under a normal run; under --strict it is folded into `allResults` below (as an ordinary
+        // warning-status CheckResult) so the printed warning count and the --strict verdict agree by
+        // construction, the same guarantee RunTally already gives every checker's own warnings.
         if let unknown = configuration.unknownKeys {
+            let consequence = strict
+                ? "Under --strict this fails the run."
+                : "This is advisory in this release; under --strict it already fails the run."
             FileHandle.standardError.write(Data(
-                ("⚠️  configuration: " + unknown.message
-                 + "\n   This is advisory in this release and will become an error.\n\n")
+                ("⚠️  configuration: " + unknown.message + "\n   " + consequence + "\n\n")
                     .utf8))
         }
 
@@ -600,6 +603,24 @@ struct QualityGateCLI: AsyncParsableCommand {
             }
         )
         var allResults = runOutcome.results
+
+        // A key the schema does not define is not a checker's finding, but it must count exactly like one: the
+        // printed "N warning(s)" and what --strict gates on are one number by construction (RunTally's own
+        // doc comment), so this joins allResults rather than being a parallel strict check that could disagree
+        // with it. `.warning`, never `.failed` directly — a non-strict run stays advisory; `--strict` promotes
+        // it the same way it promotes every other checker's warning.
+        if let unknown = configuration.unknownKeys {
+            allResults.append(CheckResult(
+                checkerId: "config-schema",
+                status: .warning,
+                diagnostics: [Diagnostic(
+                    severity: .warning,
+                    message: unknown.message,
+                    ruleId: "config-schema.unknown-key"
+                )],
+                duration: .zero
+            ).reconciled())
+        }
 
         // The reporter is created *after* the run so the summary can carry the run's
         // truncation. The registry, not the selection, is the denominator: a narrowed
