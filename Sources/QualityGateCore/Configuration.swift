@@ -70,6 +70,8 @@ public struct ScorerWeightsConfig: Sendable, Codable, Equatable {
 public struct ConsistencyCheckerConfig: Sendable, Equatable {
     /// Path to the IJS corpus directory. nil means IJS is not configured.
     public var corpusPath: String?
+    /// A key `consistency:` carried that this schema does not define. See ``UnknownConfigurationKeys``.
+    public var unknownKeys: UnknownConfigurationKeys?
     /// Project identifier for the corpus. nil derives from the working directory name.
     public var projectID: String?
     /// Consistency score below this threshold triggers a warning. Default: 0.7.
@@ -119,7 +121,8 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
         exemptions: [String] = [],
         useRemoteIdentity: Bool = false,
         optOut: String? = nil,
-        pulseStaleAfterHours: Int = 36
+        pulseStaleAfterHours: Int = 36,
+        unknownKeys: UnknownConfigurationKeys? = nil
     ) {
         self.corpusPath = corpusPath
         self.projectID = projectID
@@ -130,10 +133,48 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
         self.useRemoteIdentity = useRemoteIdentity
         self.optOut = optOut
         self.pulseStaleAfterHours = pulseStaleAfterHours
+        self.unknownKeys = unknownKeys
     }
 
     /// Default consistency checker configuration.
     public static let `default` = ConsistencyCheckerConfig()
+}
+
+extension ConsistencyCheckerConfig: Codable {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "ConsistencyCheckerConfig")
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions,
+             useRemoteIdentity, optOut, pulseStaleAfterHours
+    }
+
+    /// Creates a consistency checker configuration by decoding from the given decoder.
+    ///
+    /// Written out, rather than left to synthesis, for the same reason `Configuration`'s own decoder is:
+    /// synthesized `Decodable` has no way to notice a key outside `CodingKeys`, which is exactly the shape of bug
+    /// this section's own doc comment already describes happening to `ijs:`.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ConsistencyCheckerConfig.default
+        corpusPath = try container.decodeIfPresent(String.self, forKey: .corpusPath)
+        projectID = try container.decodeIfPresent(String.self, forKey: .projectID)
+        consistencyThreshold = try container.decodeIfPresent(Double.self, forKey: .consistencyThreshold) ?? defaults.consistencyThreshold
+        defaultRiskTier = try container.decodeIfPresent(Int.self, forKey: .defaultRiskTier) ?? defaults.defaultRiskTier
+        scorerWeights = try container.decodeIfPresent(ScorerWeightsConfig.self, forKey: .scorerWeights)
+        exemptions = try container.decodeIfPresent([String].self, forKey: .exemptions) ?? defaults.exemptions
+        useRemoteIdentity = try container.decodeIfPresent(Bool.self, forKey: .useRemoteIdentity) ?? defaults.useRemoteIdentity
+        optOut = try container.decodeIfPresent(String.self, forKey: .optOut)
+        pulseStaleAfterHours = try container.decodeIfPresent(Int.self, forKey: .pulseStaleAfterHours) ?? defaults.pulseStaleAfterHours
+        do {
+            let permissive = try decoder.container(keyedBy: AnyCodingKey.self)
+            let present = Set(permissive.allKeys.map(\.stringValue))
+            let known = Set(CodingKeys.allCases.map(\.stringValue))
+            unknownKeys = UnknownConfigurationKeys.check(present: present, known: known, section: "consistency")
+        } catch {
+            Self.logger.error(
+                "consistency could not enumerate its keys permissively; unknown-key detection is off for this section and a misspelled key will be discarded in silence: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
 
 /// Institutional Judgment System identity: who a judgement belongs to, and where the corpus lives.
@@ -161,6 +202,8 @@ public struct ConsistencyCheckerConfig: Sendable, Equatable {
 public struct IJSConfig: Sendable, Equatable {
     /// Stable identifier for this project within the corpus.
     public var projectID: String?
+    /// A key `ijs:` carried that this schema does not define. See ``UnknownConfigurationKeys``.
+    public var unknownKeys: UnknownConfigurationKeys?
     /// Filesystem path of the judgement corpus.
     public var corpusPath: String?
     /// Who owns the judgements this project records.
@@ -183,13 +226,15 @@ public struct IJSConfig: Sendable, Equatable {
         corpusPath: String? = nil,
         decisionOwner: String? = nil,
         defaultRiskTier: Int? = nil,
-        remoteURL: String? = nil
+        remoteURL: String? = nil,
+        unknownKeys: UnknownConfigurationKeys? = nil
     ) {
         self.projectID = projectID
         self.corpusPath = corpusPath
         self.decisionOwner = decisionOwner
         self.defaultRiskTier = defaultRiskTier
         self.remoteURL = remoteURL
+        self.unknownKeys = unknownKeys
     }
 
     /// The empty identity: every field absent, every consumer falling back as it did before.
@@ -214,7 +259,9 @@ public struct IJSConfig: Sendable, Equatable {
 }
 
 extension IJSConfig: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "IJSConfig")
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case projectID, corpusPath, decisionOwner, defaultRiskTier, remoteURL
     }
 
@@ -226,27 +273,17 @@ extension IJSConfig: Codable {
         decisionOwner = try container.decodeIfPresent(String.self, forKey: .decisionOwner)
         defaultRiskTier = try container.decodeIfPresent(Int.self, forKey: .defaultRiskTier)
         remoteURL = try container.decodeIfPresent(String.self, forKey: .remoteURL)
-    }
-}
-
-extension ConsistencyCheckerConfig: Codable {
-    private enum CodingKeys: String, CodingKey {
-        case corpusPath, projectID, consistencyThreshold, defaultRiskTier, scorerWeights, exemptions, useRemoteIdentity, optOut, pulseStaleAfterHours
-    }
-
-    /// Creates a configuration by decoding from the given decoder.
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let defaults = ConsistencyCheckerConfig.default
-        corpusPath = try container.decodeIfPresent(String.self, forKey: .corpusPath) ?? defaults.corpusPath
-        projectID = try container.decodeIfPresent(String.self, forKey: .projectID) ?? defaults.projectID
-        consistencyThreshold = try container.decodeIfPresent(Double.self, forKey: .consistencyThreshold) ?? defaults.consistencyThreshold
-        defaultRiskTier = try container.decodeIfPresent(Int.self, forKey: .defaultRiskTier) ?? defaults.defaultRiskTier
-        scorerWeights = try container.decodeIfPresent(ScorerWeightsConfig.self, forKey: .scorerWeights) ?? defaults.scorerWeights
-        exemptions = try container.decodeIfPresent([String].self, forKey: .exemptions) ?? defaults.exemptions
-        useRemoteIdentity = try container.decodeIfPresent(Bool.self, forKey: .useRemoteIdentity) ?? defaults.useRemoteIdentity
-        optOut = try container.decodeIfPresent(String.self, forKey: .optOut) ?? defaults.optOut
-        pulseStaleAfterHours = try container.decodeIfPresent(Int.self, forKey: .pulseStaleAfterHours) ?? defaults.pulseStaleAfterHours
+        // Mirrors Configuration's own permissive re-check: a container keyed by this section's own
+        // CodingKeys can only ever report keys inside it, which is why an unknown one was invisible.
+        do {
+            let permissive = try decoder.container(keyedBy: AnyCodingKey.self)
+            let present = Set(permissive.allKeys.map(\.stringValue))
+            let known = Set(CodingKeys.allCases.map(\.stringValue))
+            unknownKeys = UnknownConfigurationKeys.check(present: present, known: known, section: "ijs")
+        } catch {
+            Self.logger.error(
+                "ijs could not enumerate its keys permissively; unknown-key detection is off for this section and a misspelled key will be discarded in silence: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 
@@ -451,6 +488,8 @@ extension SecurityAuditorConfig: Codable {
 public struct StatusAuditorConfig: Sendable, Equatable {
     /// Path to development-guidelines directory relative to project root.
     public var guidelinesPath: String
+    /// A key `status:` carried that this schema does not define. See ``UnknownConfigurationKeys``.
+    public var unknownKeys: UnknownConfigurationKeys?
 
     /// Path to Master Plan relative to the guidelines directory.
     public var masterPlanPath: String
@@ -470,13 +509,15 @@ public struct StatusAuditorConfig: Sendable, Equatable {
         masterPlanPath: String = "00_CORE_RULES/00_MASTER_PLAN.md",
         stubThresholdLines: Int = 50,
         testCountDriftPercent: Int = 10,
-        lastUpdatedStaleDays: Int = 90
+        lastUpdatedStaleDays: Int = 90,
+        unknownKeys: UnknownConfigurationKeys? = nil
     ) {
         self.guidelinesPath = guidelinesPath
         self.masterPlanPath = masterPlanPath
         self.stubThresholdLines = stubThresholdLines
         self.testCountDriftPercent = testCountDriftPercent
         self.lastUpdatedStaleDays = lastUpdatedStaleDays
+        self.unknownKeys = unknownKeys
     }
 
     /// Default status auditor configuration.
@@ -484,7 +525,9 @@ public struct StatusAuditorConfig: Sendable, Equatable {
 }
 
 extension StatusAuditorConfig: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private static let logger = Logger(subsystem: "com.quality-gate", category: "StatusAuditorConfig")
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case guidelinesPath, masterPlanPath, stubThresholdLines, testCountDriftPercent, lastUpdatedStaleDays
     }
 
@@ -497,6 +540,15 @@ extension StatusAuditorConfig: Codable {
         stubThresholdLines = try container.decodeIfPresent(Int.self, forKey: .stubThresholdLines) ?? defaults.stubThresholdLines
         testCountDriftPercent = try container.decodeIfPresent(Int.self, forKey: .testCountDriftPercent) ?? defaults.testCountDriftPercent
         lastUpdatedStaleDays = try container.decodeIfPresent(Int.self, forKey: .lastUpdatedStaleDays) ?? defaults.lastUpdatedStaleDays
+        do {
+            let permissive = try decoder.container(keyedBy: AnyCodingKey.self)
+            let present = Set(permissive.allKeys.map(\.stringValue))
+            let known = Set(CodingKeys.allCases.map(\.stringValue))
+            unknownKeys = UnknownConfigurationKeys.check(present: present, known: known, section: "status")
+        } catch {
+            Self.logger.error(
+                "status could not enumerate its keys permissively; unknown-key detection is off for this section and a misspelled key will be discarded in silence: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 
@@ -2582,11 +2634,12 @@ extension Configuration {
         // config key the schema never heard, and losing it silently reinstates precisely
         // the bug it was written for — BusinessMath running 35 checkers while its file
         // claimed 42. If the unreachable ever happens, it says so.
+        var topLevelUnknownKeys: UnknownConfigurationKeys?
         do {
             let permissive = try decoder.container(keyedBy: AnyCodingKey.self)
             let present = Set(permissive.allKeys.map(\.stringValue))
             let known = Set(CodingKeys.allCases.map(\.stringValue))
-            unknownKeys = UnknownConfigurationKeys.check(present: present, known: known)
+            topLevelUnknownKeys = UnknownConfigurationKeys.check(present: present, known: known)
         } catch {
             Self.logger.error(
                 "configuration could not enumerate its keys permissively; unknown-key detection is off for this file and a misspelled key will be discarded in silence: \(error.localizedDescription, privacy: .public)")
@@ -2643,6 +2696,11 @@ extension Configuration {
         budgets = try container.decodeIfPresent(CheckerBudgetsConfig.self, forKey: .budgets) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         ijs = try container.decodeIfPresent(IJSConfig.self, forKey: .ijs) ?? .default
+        // One property on Configuration; merged from the top level and every nested section that checks its own
+        // keys, so a caller reads one optional rather than four. See UnknownConfigurationKeys.merge(_:).
+        unknownKeys = UnknownConfigurationKeys.merge([
+            topLevelUnknownKeys, status.unknownKeys, consistency.unknownKeys, ijs.unknownKeys,
+        ])
         complexity = try container.decodeIfPresent(ComplexityAnalyzerConfig.self, forKey: .complexity) ?? .default
         legibility = try container.decodeIfPresent(LegibilityAnalyzerConfig.self, forKey: .legibility) ?? .default
         docCoverage = try container.decodeIfPresent(DocCoverageConfig.self, forKey: .docCoverage) ?? .default
