@@ -1,8 +1,14 @@
 ## [Unreleased]
 
+## [3.11.1] - 2026-11-24
+
+### Added
+
+- **`--strict` refuses an unrecognized `.quality-gate.yml` key** (Problem B of the checker auto-discovery proposal). A misspelt or unknown key, at the top level or inside a section (nested sections are covered), is an error under `--strict` instead of being ignored; the message suggests the nearest real key by edit distance. A documented-renames table is checked before the containment heuristic, so a renamed key (`exclude`) is no longer given a false suggestion (`excludePatterns`), and an ambiguous tie is refused rather than guessed by length. One acceptance test that had pinned the old, wrong suggestion as its expected output was updated. **A `.quality-gate.yml` that carries a key the gate does not know will now fail a `--strict` run**; this is the one behaviour change in this release.
+
 ### Changed
 
-- **Dependency floors raised for the swift-crypto 5.1.2 minimum** (owner, 2026-11-23: everything in the stack takes 5.1.2 as its minimum). swift-crypto `from: "5.1.2"` (was `3.0.0`, which kept the package off 4.x and 5.x); swift-vigil `from: "0.10.0"` and BusinessMath `from: "3.0.0-alpha.19"` (both carry the same floor); swift-cli-kit `from: "2.8.0"` (was `1.4.1`, a range that could not reach the 2.x line; 2.8.0 is the crypto-only release of it). Resolves swift-crypto 5.2.0. No source change: it builds unchanged and the test suites pass. Not released: this is on `main` under Unreleased.
+- **Dependency floors raised for the swift-crypto 5.1.2 minimum** (owner, 2026-11-23: everything in the stack takes 5.1.2 as its minimum). swift-crypto `from: "5.1.2"` (was `3.0.0`, which kept the package off 4.x and 5.x); swift-vigil `from: "0.10.0"` and BusinessMath `from: "3.0.0-alpha.19"` (both carry the same floor); swift-cli-kit `from: "2.8.0"` (was `1.4.1`, a range that could not reach the 2.x line; 2.8.0 is the crypto-only release of it). Resolves swift-crypto 5.2.0. No source change: it builds unchanged and the test suites pass. 
 
 ## [3.11.0] - 2026-11-10
 
@@ -4745,7 +4751,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.0...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.1...HEAD
+[3.11.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.0...v3.11.1
 [3.11.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.10.0...v3.11.0
 [3.10.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.9.0...v3.10.0
 [3.9.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.8.0...v3.9.0
