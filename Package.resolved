@@ -1,13 +1,22 @@
 {
-  "originHash" : "97295a651c0843de965c91cdeac061a63c5cb09c9aa5d2a789d63e4a1395f7d9",
+  "originHash" : "b67ff3316eba3f89864e406570648d49b3818ad53a7640c66cf95dc857076e9f",
   "pins" : [
     {
       "identity" : "businessmath",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/BusinessMath",
       "state" : {
-        "revision" : "e63b142aec2c025382749062d57239c70499142a",
-        "version" : "3.0.0-alpha.9"
+        "revision" : "2028ca1775440771db40702e4011c36db82c602b",
+        "version" : "3.0.0-alpha.19"
+      }
+    },
+    {
+      "identity" : "designtokens",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpurnell/DesignTokens.git",
+      "state" : {
+        "revision" : "7cc3266088f55fdadea1b9ebd6e553199d3c0ebb",
+        "version" : "0.14.0"
       }
     },
     {
@@ -69,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-cli-kit.git",
       "state" : {
-        "revision" : "8dcaeafe8aab20e798d804f0829b87e94bb1e1f5",
-        "version" : "1.4.2"
+        "revision" : "be73d56c38dfc602cd691439c949cc1202d791b8",
+        "version" : "2.8.0"
       }
     },
     {
@@ -87,8 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
-        "version" : "3.15.1"
+        "revision" : "b0b1963823fe828065ef49c09c8c9489f43cf7be",
+        "version" : "5.2.0"
       }
     },
     {
@@ -132,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-ssh.git",
       "state" : {
-        "revision" : "3ec281496f28a3b6581afd946b759e2642f5cd8d",
-        "version" : "0.15.0"
+        "revision" : "e8de09a26d3d0a6ecf509fe0554bd27a6f9ee3d0",
+        "version" : "0.15.2"
       }
     },
     {
@@ -186,8 +195,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jpurnell/swift-vigil.git",
       "state" : {
-        "revision" : "dc586b5ba3d78a33fcdb0df10890263d8096294a",
-        "version" : "0.9.0"
+        "revision" : "bbd48613b6df3207d752b6e9b0195a42fd4aa629",
+        "version" : "0.10.0"
       }
     },
     {

@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- **Dependency floors raised for the swift-crypto 5.1.2 minimum** (owner, 2026-11-23: everything in the stack takes 5.1.2 as its minimum). swift-crypto `from: "5.1.2"` (was `3.0.0`, which kept the package off 4.x and 5.x); swift-vigil `from: "0.10.0"` and BusinessMath `from: "3.0.0-alpha.19"` (both carry the same floor); swift-cli-kit `from: "2.8.0"` (was `1.4.1`, a range that could not reach the 2.x line; 2.8.0 is the crypto-only release of it). Resolves swift-crypto 5.2.0. No source change: it builds unchanged and the test suites pass. Not released: this is on `main` under Unreleased.
+
 ## [3.11.0] - 2026-11-10
 
 ### Added

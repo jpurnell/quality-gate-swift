@@ -250,7 +250,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
         .package(url: "https://github.com/apple/indexstore-db.git", branch: "main"),
         .package(url: "https://github.com/jpurnell/quality-gate-types.git", from: "1.7.0"),
-        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.9.0"),
+        .package(url: "https://github.com/jpurnell/swift-vigil.git", from: "0.10.0"),
         .package(url: "https://github.com/jpurnell/SwiftDeterminism.git", from: "1.3.0"),
         .package(url: "https://github.com/jpurnell/swift-process-kernel.git", from: "1.1.0"),
         // HTTPS, not git@ — CI authenticates private dependencies by rewriting
@@ -263,15 +263,15 @@ let package = Package(
 		// BusinessMath's main and has the same defect, so no 2.x version can reach it; the
 		// major bump was measured rather than assumed — IJSRefiner builds and all 3411 tests
 		// pass against it, so the API break this line guards against does not touch us.
-		.package(url: "https://github.com/jpurnell/BusinessMath", from: "3.0.0-alpha.9"),
+		.package(url: "https://github.com/jpurnell/BusinessMath", from: "3.0.0-alpha.19"),
         // 1.4.0, not 1.3.1. The v1.3.1 tag was moved three times, and SwiftPM keeps a
         // machine-global trust-on-first-use fingerprint per version, so every consumer that had
         // ever resolved 1.3.1 was refused on every machine — this package could not resolve from
         // a clean checkout at all, with warm caches the only thing hiding it. SwiftCLIKit
         // published 1.4.0 rather than move the tag a fourth time; a published version tag is
         // immutable, and correcting a release means publishing the next one.
-        .package(url: "https://github.com/jpurnell/swift-cli-kit.git", from: "1.4.1"),
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+        .package(url: "https://github.com/jpurnell/swift-cli-kit.git", from: "2.8.0"),
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "5.1.2"),
     ],
     targets: [
         // MARK: - Core Module
