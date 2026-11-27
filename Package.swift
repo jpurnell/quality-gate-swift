@@ -747,7 +747,8 @@ let package = Package(
         ),
         .testTarget(
             name: "ReleaseReadinessAuditorTests",
-            dependencies: ["ReleaseReadinessAuditor"]
+            dependencies: ["ReleaseReadinessAuditor"],
+            resources: [.copy("SoakFixtures")]
         ),
 
         .target(

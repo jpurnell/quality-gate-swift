@@ -1,0 +1,254 @@
+{
+ "fresh-abn2-a": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.013886
+ },
+ "fresh-abn2-b": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.336748
+ },
+ "fresh-can2-a": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.168419
+ },
+ "fresh-can2-b": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.592025
+ },
+ "fresh-fd12-a": {
+  "drift": 9,
+  "outcome": "fail",
+  "slope": 1.675877
+ },
+ "fresh-fd12-b": {
+  "drift": 9,
+  "outcome": "fail",
+  "slope": 0.430636
+ },
+ "fresh-fd12-c": {
+  "drift": 9,
+  "outcome": "fail",
+  "slope": 0.463171
+ },
+ "fresh-mem-1": {
+  "outcome": "inconclusive"
+ },
+ "fresh-mem-2": {
+  "outcome": "inconclusive"
+ },
+ "fresh-mem-4": {
+  "outcome": "inconclusive"
+ },
+ "fresh-mem05-a": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.893058
+ },
+ "fresh-mem05-b": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.36655
+ },
+ "fresh-mem05-c": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.437809
+ },
+ "fresh-mem1-a": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.015711
+ },
+ "fresh-mem1-b": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 2.212385
+ },
+ "fresh-mem1-c": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 2.848076
+ },
+ "fresh-mem2-a": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 2.279539
+ },
+ "fresh-mem2-b": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.101945
+ },
+ "fresh-mem2-c": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.513402
+ },
+ "fresh-mem4-a": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 5.705007
+ },
+ "fresh-mem4-b": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 5.462196
+ },
+ "fresh-mem4-c": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 5.402289
+ },
+ "fresh-null-01": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.073836
+ },
+ "fresh-null-02": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.012026
+ },
+ "fresh-null-03": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.29419
+ },
+ "fresh-null-04": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.517729
+ },
+ "fresh-null-05": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.174111
+ },
+ "fresh-null-06": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.424529
+ },
+ "fresh-null-07": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.844945
+ },
+ "fresh-null-08": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.560946
+ },
+ "fresh-null-09": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.602151
+ },
+ "fresh-null-1": {
+  "outcome": "inconclusive"
+ },
+ "fresh-null-10": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.445422
+ },
+ "fresh-null-11": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.686287
+ },
+ "fresh-null-12": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.430975
+ },
+ "fresh-null-13": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.140352
+ },
+ "fresh-null-14": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.86708
+ },
+ "fresh-null-15": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.081288
+ },
+ "fresh-null-16": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.66854
+ },
+ "fresh-null-17": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.399575
+ },
+ "fresh-null-18": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.507066
+ },
+ "fresh-null-19": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.77896
+ },
+ "fresh-null-2": {
+  "outcome": "inconclusive"
+ },
+ "fresh-null-20": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 0.595815
+ },
+ "fresh-null-21": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.833862
+ },
+ "fresh-null-22": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.571757
+ },
+ "fresh-null-23": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.25174
+ },
+ "fresh-null-24": {
+  "drift": 0,
+  "outcome": "pass",
+  "slope": 1.788381
+ },
+ "fresh-null-3": {
+  "outcome": "inconclusive"
+ },
+ "fresh-null-4": {
+  "outcome": "inconclusive"
+ },
+ "fresh-null-5": {
+  "outcome": "inconclusive"
+ },
+ "fresh-null-6": {
+  "outcome": "inconclusive"
+ },
+ "fresh-rot2-a": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 2.073751
+ },
+ "fresh-rot2-b": {
+  "drift": 0,
+  "outcome": "fail",
+  "slope": 3.195746
+ }
+}
