@@ -76,7 +76,8 @@ struct SoakJudgementTests {
     @Test("a run too short for the window is inconclusive, never a pass")
     func tooShort() {
         let e = SoakJudgement.judge(samples: run(minutes: 60), architecture: "x86_64", limits: .calibrated)
-        guard case .inconclusive = e.verdict else { Issue.record("expected inconclusive, got \(e.verdict)"); return }
+        #expect(e.verdict == .inconclusive(reason: "the window (30 to 90 minutes) holds 60 of about 120 expected samples"))
+        #expect(e.slopeMBPerHour == nil)
     }
 
     @Test("a descriptor leak fails on the lower envelope; one open connection does not")
