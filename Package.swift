@@ -742,12 +742,15 @@ let package = Package(
 
         .target(
             name: "ReleaseReadinessAuditor",
-            dependencies: ["QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types")],
+            dependencies: [
+                "QualityGateCore", .product(name: "QualityGateLogging", package: "quality-gate-types"),
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
             resources: [.copy("ReleaseReadinessAuditor.docc")]
         ),
         .testTarget(
             name: "ReleaseReadinessAuditorTests",
-            dependencies: ["ReleaseReadinessAuditor"],
+            dependencies: ["ReleaseReadinessAuditor", "QualityGateCore"],
             resources: [.copy("SoakFixtures")]
         ),
 
