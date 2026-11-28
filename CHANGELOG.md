@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [3.12.0] - 2026-11-28
+
 ### Added
 
 - **A release can require its soak** (proposal `AReleaseNeedsItsSoak.md`, §4d). `quality-gate soak seal --samples <file>` judges a soak's samples and writes `.soak/result.json`, tied to the committed source it ran against (a digest over the sorted `(path, blob id)` of the files matching `soak.sources`, taken from `HEAD`, so a CHANGELOG-only release commit keeps it and a source or `Package.resolved` change moves it). Uncommitted changes to the soaked source are refused. The verdict is the calibrated rule, not a confidence interval (the 2026-11 campaign found the interval unusable): a fitted footprint slope over a 60-minute window after a 30-minute pre-warm, above 2 MB/h fails; the descriptor lower envelope rising by more than 8 fails; a soak that cannot be judged is `inconclusive`, never a pass. 24 of 24 clean runs passed and every injected leak of 1 MB/h and more was found, on `x86_64` only (a run on another host is noted, `release.soak-uncalibrated`, not refused). At a tag push, `release.soak-*` findings block the tag (`missing`, `stale-source`, `too-short`, `sparse`, `old`, `grew`, `unjudged`, `verdict-forged`, `no-drain`, `quantised`, `unreadable`, `no-digest`); `quality-gate release --tag` lists them. The verdict is recomputed from the samples, so a doctored result file cannot pass a soak that grew.
@@ -4757,7 +4759,8 @@ First pinned binary release (arm64/x86_64, for quality-gate-action). Contains ev
 - Guide document covering vision, design philosophy, architecture, and integration patterns
 
 <!-- generated:changelog-links -->
-[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.1...HEAD
+[Unreleased]: https://github.com/jpurnell/quality-gate-swift/compare/v3.12.0...HEAD
+[3.12.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.1...v3.12.0
 [3.11.1]: https://github.com/jpurnell/quality-gate-swift/compare/v3.11.0...v3.11.1
 [3.11.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.10.0...v3.11.0
 [3.10.0]: https://github.com/jpurnell/quality-gate-swift/compare/v3.9.0...v3.10.0
