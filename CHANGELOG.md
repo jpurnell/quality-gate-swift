@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+
+- **A release can require its soak** (proposal `AReleaseNeedsItsSoak.md`, §4d). `quality-gate soak seal --samples <file>` judges a soak's samples and writes `.soak/result.json`, tied to the committed source it ran against (a digest over the sorted `(path, blob id)` of the files matching `soak.sources`, taken from `HEAD`, so a CHANGELOG-only release commit keeps it and a source or `Package.resolved` change moves it). Uncommitted changes to the soaked source are refused. The verdict is the calibrated rule, not a confidence interval (the 2026-11 campaign found the interval unusable): a fitted footprint slope over a 60-minute window after a 30-minute pre-warm, above 2 MB/h fails; the descriptor lower envelope rising by more than 8 fails; a soak that cannot be judged is `inconclusive`, never a pass. 24 of 24 clean runs passed and every injected leak of 1 MB/h and more was found, on `x86_64` only (a run on another host is noted, `release.soak-uncalibrated`, not refused). At a tag push, `release.soak-*` findings block the tag (`missing`, `stale-source`, `too-short`, `sparse`, `old`, `grew`, `unjudged`, `verdict-forged`, `no-drain`, `quantised`, `unreadable`, `no-digest`); `quality-gate release --tag` lists them. The verdict is recomputed from the samples, so a doctored result file cannot pass a soak that grew.
+- **`soak:` configuration block.** `requiredFor` (tag classes `major`, `minor`, `patch`, `prerelease`) defaults to empty, so no existing project's gate changes and a package that has not opted in hears nothing. Every mistake is refused at startup and keeps its type through `Configuration.load`: an unknown key, an unknown tag class, a non-positive figure, a duration past a year, empty `sources`, and a `minSeconds` below pre-warm plus window (90 minutes by default). A dated `waiver` names one version and does not carry to the next.
+- `ReleaseReadinessAuditor` now depends on swift-crypto (already a package dependency) for the digest. The 54 calibration runs are fixtures (`SoakFixtures`) with verdicts from an independent numpy implementation.
+
 ## [3.11.1] - 2026-11-24
 
 ### Added
