@@ -64,9 +64,10 @@ public enum SoakSourceDigest {
         return hasher.finalize().map { ($0 < 16 ? "0" : "") + String($0, radix: 16) }.joined()
     }
 
-    /// The digest of `HEAD`'s source in a repository, or `nil` if it is not a repository, git fails, or no file matches.
-    public static func digest(repository: String, sources: [String]) -> String? {
-        guard let output = git(["ls-tree", "-r", "-z", "HEAD"], in: repository) else { return nil }
+    /// The digest of a revision's source in a repository (`HEAD` unless another commit or tag is named), or `nil` if it is
+    /// not a repository, the revision does not exist, or no file matches.
+    public static func digest(repository: String, revision: String = "HEAD", sources: [String]) -> String? {
+        guard let output = git(["ls-tree", "-r", "-z", revision], in: repository) else { return nil }
         var files: [TrackedFile] = []
         for entry in output.split(separator: "\0", omittingEmptySubsequences: true) {
             // `<mode> <type> <blob>\t<path>`

@@ -79,6 +79,17 @@ struct Release: AsyncParsableCommand {
             planLastUpdated: ReleasePreflight.lastUpdated(inPlan: plan),
             releaseDate: ReleasePreflight.newestReleaseDate(in: changelog))
 
+        // The soak the release requires; says nothing for a package that has not opted in.
+        var soakNotes: [ReleasePreflight.Finding] = []
+        if let tag {
+            let soak = SoakReleaseCheck.evaluate(repository: root, tag: tag, soak: configuration.soak, now: Date())
+            findings += soak.findings
+            soakNotes = soak.notes
+        }
+        for note in soakNotes {
+            print("  ℹ️  \(note.ruleId): \(note.message)")
+        }
+
         guard !findings.isEmpty else {
             print("✅ Release preflight: the version story is consistent and the plan is current.")
             return

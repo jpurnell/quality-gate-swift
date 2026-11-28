@@ -46,11 +46,15 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
     /// the boundary behaviour is testable without a terminal, a hook, or a remote.
     public let pushedRefs: [PushedRef]?
 
+    /// The clock, passed in so the age of a soak is judged against a time the caller chose.
+    private let now: @Sendable () -> Date
+
     /// Creates a new release readiness auditor.
     ///
     /// - Parameter pushedRefs: The refs being pushed, or `nil` outside a push boundary.
-    public init(pushedRefs: [PushedRef]? = nil) {
+    public init(pushedRefs: [PushedRef]? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
         self.pushedRefs = pushedRefs
+        self.now = now
     }
 
     /// Runs all release readiness rules.
@@ -118,6 +122,10 @@ public struct ReleaseReadinessAuditor: QualityChecker, Sendable {
                 ruleId: "release-changelog"
             ))
         }
+
+        // 2b. The soak a release requires, enforced where the tag is pushed. Silent for a package that has not opted in.
+        diagnostics += SoakReleaseCheck.diagnostics(
+            repository: projectRoot, pushedRefs: pushedRefs, soak: configuration.soak, now: now())
 
         // 3. Check README for markers
         let allMarkers = Self.defaultMarkers + config.additionalMarkers

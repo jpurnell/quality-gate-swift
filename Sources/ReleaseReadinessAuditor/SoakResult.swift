@@ -22,6 +22,24 @@ public struct SoakResult: Sendable, Codable, Equatable {
     /// The schema this file was written in. A file in another schema is unreadable, not guessed at.
     public static let currentSchemaVersion = 1
 
+    /// Where a sealed result lives, relative to the repository root. Gitignored: it belongs to a host's run.
+    public static let path = ".soak/result.json"
+
+    /// The encoder the sealer writes with: ISO-8601 dates, sorted keys, readable.
+    public static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
+
+    /// The decoder the release path reads with, matching ``encoder()``.
+    public static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
     /// The schema this file was written in.
     public let schemaVersion: Int
     /// The package soaked.
