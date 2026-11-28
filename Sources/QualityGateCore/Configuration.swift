@@ -2242,6 +2242,9 @@ public struct Configuration: Sendable, Codable, Equatable {
     /// Time budgets for the checkers that launch a build tool — see ``CheckerBudgetsConfig``.
     public var budgets: CheckerBudgetsConfig
 
+    /// What a release requires of its soak — see ``SoakConfig``. Requires nothing unless a package opts in.
+    public var soak: SoakConfig
+
     /// Per-checker configuration for ConsistencyChecker (IJS).
     public var consistency: ConsistencyCheckerConfig
 
@@ -2358,6 +2361,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         build: BuildCheckerConfig = .default,
         xcodeBuild: XcodeBuildCheckerConfig = .default,
         budgets: CheckerBudgetsConfig = .default,
+        soak: SoakConfig = .default,
         consistency: ConsistencyCheckerConfig = .default,
         ijs: IJSConfig = .default,
         complexity: ComplexityAnalyzerConfig = .default,
@@ -2418,6 +2422,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.build = build
         self.xcodeBuild = xcodeBuild
         self.budgets = budgets
+        self.soak = soak
         self.consistency = consistency
         self.ijs = ijs
         self.complexity = complexity
@@ -2472,6 +2477,7 @@ public struct Configuration: Sendable, Codable, Equatable {
             // written down and then quietly replaced by a default is the silence the key
             // exists to end, so this one error keeps its type and stops the run.
             if let refusal = Self.budgetRefusal(in: error) { throw refusal }
+            if let refusal = Self.refusal(of: SoakConfig.Invalid.self, in: error) { throw refusal }
             throw QualityGateError.configurationError(Self.describe(decodingFailure: error))
         }
     }
@@ -2511,7 +2517,13 @@ public struct Configuration: Sendable, Codable, Equatable {
 
     /// The refused `budgets:` entry behind a decoding failure, if that is what it was.
     private static func budgetRefusal(in error: any Error) -> CheckerBudgetsConfig.Invalid? {
-        if let refusal = error as? CheckerBudgetsConfig.Invalid { return refusal }
+        refusal(of: CheckerBudgetsConfig.Invalid.self, in: error)
+    }
+
+    /// The refusal of type `E` behind a decoding failure, if that is what it was. The decoder wraps what a nested
+    /// `init(from:)` throws; this finds it again so the run stops on it as itself.
+    private static func refusal<E: Error>(of type: E.Type, in error: any Error) -> E? {
+        if let refusal = error as? E { return refusal }
         guard let decoding = error as? DecodingError else { return nil }
         let context: DecodingError.Context
         switch decoding {
@@ -2521,7 +2533,7 @@ public struct Configuration: Sendable, Codable, Equatable {
         case .keyNotFound(_, let found): context = found
         @unknown default: return nil
         }
-        return context.underlyingError as? CheckerBudgetsConfig.Invalid
+        return context.underlyingError as? E
     }
 
     /// Loads configuration from a file path.
@@ -2543,6 +2555,8 @@ public struct Configuration: Sendable, Codable, Equatable {
         } catch let error as QualityGateError {
             throw error
         } catch let refusal as CheckerBudgetsConfig.Invalid {
+            throw refusal
+        } catch let refusal as SoakConfig.Invalid {
             throw refusal
         } catch {
             throw QualityGateError.configurationError("Failed to read config: \(error.localizedDescription)")
@@ -2593,6 +2607,7 @@ extension Configuration {
         case build
         case xcodeBuild
         case budgets
+        case soak
         case consistency
         case ijs
         case complexity
@@ -2694,6 +2709,7 @@ extension Configuration {
         build = try container.decodeIfPresent(BuildCheckerConfig.self, forKey: .build) ?? .default
         xcodeBuild = try container.decodeIfPresent(XcodeBuildCheckerConfig.self, forKey: .xcodeBuild) ?? .default
         budgets = try container.decodeIfPresent(CheckerBudgetsConfig.self, forKey: .budgets) ?? .default
+        soak = try container.decodeIfPresent(SoakConfig.self, forKey: .soak) ?? .default
         consistency = try container.decodeIfPresent(ConsistencyCheckerConfig.self, forKey: .consistency) ?? .default
         ijs = try container.decodeIfPresent(IJSConfig.self, forKey: .ijs) ?? .default
         // One property on Configuration; merged from the top level and every nested section that checks its own

@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 import Testing
 @testable import ReleaseReadinessAuditor
 
@@ -192,5 +193,32 @@ struct SoakFindingsTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         #expect(try decoder.decode(SoakResult.self, from: encoder.encode(original)) == original)
+    }
+}
+
+@Suite("Soak requirement from configuration")
+struct SoakReleaseConfigTests {
+
+    @Test("the configuration's strings, minutes and waiver become the release requirement")
+    func fromConfig() throws {
+        let config = try SoakConfig(
+            requiredFor: ["major", "minor"], minSeconds: 9000, maxAgeDays: 7, requireDrain: false, preWarmMinutes: 45,
+            windowMinutes: 90, slopeLimitMBPerHour: 1.5, descriptorDriftLimit: 4,
+            waiver: SoakConfig.Waiver(version: "1.2.0", reason: "docs", date: "2026-12-01"))
+        let release = SoakRelease(config: config)
+        #expect(release.requiredFor == [.major, .minor])
+        #expect(release.minSeconds == 9000)
+        #expect(release.maxAgeDays == 7)
+        #expect(!release.requireDrain)
+        #expect(release.limits == SoakLimits(preWarmSeconds: 2700, windowSeconds: 5400, slopeLimitMBPerHour: 1.5, descriptorDriftLimit: 4))
+        #expect(release.waiver == SoakWaiver(version: "1.2.0", reason: "docs", date: "2026-12-01"))
+    }
+
+    @Test("the default configuration requires nothing and carries the calibrated limits")
+    func defaultConfig() {
+        let release = SoakRelease(config: .default)
+        #expect(release.requiredFor.isEmpty)
+        #expect(release.limits == .calibrated)
+        #expect(release.minSeconds == 5400)
     }
 }

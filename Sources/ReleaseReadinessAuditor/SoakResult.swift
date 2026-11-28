@@ -1,4 +1,5 @@
 import Foundation
+import QualityGateCore
 
 /// How a SIGTERM drain at the end of a soak went.
 public struct SoakDrain: Sendable, Codable, Equatable {
@@ -149,4 +150,18 @@ public struct SoakReport: Sendable, Equatable {
     public let findings: [ReleasePreflight.Finding]
     /// Notes that never block: advised, waived, uncalibrated.
     public let notes: [ReleasePreflight.Finding]
+}
+
+extension SoakRelease {
+
+    /// The requirement a validated `soak:` block states: tag-class names become ``SoakTagClass``, minutes become seconds.
+    public init(config: SoakConfig) {
+        self.init(
+            requiredFor: Set(config.requiredFor.compactMap(SoakTagClass.init(rawValue:))),
+            minSeconds: config.minSeconds, maxAgeDays: config.maxAgeDays, requireDrain: config.requireDrain,
+            limits: SoakLimits(
+                preWarmSeconds: config.preWarmMinutes * 60, windowSeconds: config.windowMinutes * 60,
+                slopeLimitMBPerHour: config.slopeLimitMBPerHour, descriptorDriftLimit: config.descriptorDriftLimit),
+            waiver: config.waiver.map { SoakWaiver(version: $0.version, reason: $0.reason, date: $0.date) })
+    }
 }
